@@ -1,0 +1,87 @@
+name: NaruRemote
+options:
+  bundleIdPrefix: com.naruremote
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: 6.0
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  NaruRemoteCore:
+    type: framework
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: NaruRemote/Sources/NaruRemoteCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.core
+        SKIP_INSTALL: YES
+  NaruRemoteApp:
+    type: framework
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: NaruRemote/App
+    dependencies:
+      - target: NaruRemoteCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.appshell
+        SKIP_INSTALL: YES
+  NaruRemote:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: NaruRemote/iOSApp
+    dependencies:
+      - target: NaruRemoteApp
+      - target: NaruRemoteCore
+    info:
+      path: NaruRemote/iOSApp/Info.plist
+      properties:
+        CFBundleDisplayName: Naru Remote
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSupportsIndirectInputEvents: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.app
+  NaruRemoteUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: NaruRemote/UITests
+    dependencies:
+      - target: NaruRemote
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.uitests
+        TEST_TARGET_NAME: NaruRemote
+schemes:
+  NaruRemote:
+    build:
+      targets:
+        NaruRemote: all
+        NaruRemoteUITests: [test]
+    test:
+      targets:
+        - NaruRemoteUITests

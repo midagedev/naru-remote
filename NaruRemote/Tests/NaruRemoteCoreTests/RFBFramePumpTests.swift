@@ -1,0 +1,199 @@
+import Foundation
+import XCTest
+@testable import NaruRemoteCore
+
+final class RFBFramePumpTests: XCTestCase {
+    func testPumpRequestsFullFrameThenIncrementalFrames() throws {
+        let source = FakeFramebufferUpdateSource(
+            framebuffers: [
+                Self.framebuffer(red: 255),
+                Self.framebuffer(red: 128)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+        var frames: [RFBFramePumpFrame] = []
+
+        let summary = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 2)
+        ) { frame in
+            frames.append(frame)
+            return .continue
+        }
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertEqual(frames.map(\.sequence), [1, 2])
+        XCTAssertEqual(frames.map(\.isIncremental), [false, true])
+        XCTAssertEqual(frames.first?.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(summary.deliveredFrameCount, 2)
+        XCTAssertFalse(summary.stoppedByCallback)
+        XCTAssertFalse(summary.stoppedByCancellation)
+    }
+
+    func testPumpStopsWhenFrameHandlerRequestsStop() throws {
+        let source = FakeFramebufferUpdateSource(
+            framebuffers: [
+                Self.framebuffer(red: 255),
+                Self.framebuffer(red: 128)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let summary = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 4)
+        ) { _ in
+            .stop
+        }
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(summary.deliveredFrameCount, 1)
+        XCTAssertTrue(summary.stoppedByCallback)
+        XCTAssertFalse(summary.stoppedByCancellation)
+    }
+
+    func testPumpStopsAfterCancellation() throws {
+        let source = FakeFramebufferUpdateSource(
+            framebuffers: [
+                Self.framebuffer(red: 255),
+                Self.framebuffer(red: 128)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let summary = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 4)
+        ) { _ in
+            pump.cancel()
+            return .continue
+        }
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(summary.deliveredFrameCount, 1)
+        XCTAssertFalse(summary.stoppedByCallback)
+        XCTAssertTrue(summary.stoppedByCancellation)
+    }
+
+    func testPumpPropagatesSourceErrors() throws {
+        let source = FakeFramebufferUpdateSource(framebuffers: [])
+        let pump = RFBFramePump(source: source)
+
+        XCTAssertThrowsError(
+            try pump.run(configuration: RFBFramePumpConfiguration(maxFrames: 1)) { _ in
+                .continue
+            }
+        ) { error in
+            XCTAssertEqual(error as? FakeFramebufferUpdateSource.Error, .noFrame)
+        }
+    }
+
+    func testPumpPreservesDamageTrackingMetadataWhenSourceProvidesIt() throws {
+        let capturedAt = Date(timeIntervalSince1970: 200)
+        let result = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 100, height: 100),
+            dirtyRectangles: [
+                RFBFrameDamageRect(x: 10, y: 10, width: 30, height: 30)
+            ],
+            changedPixelCount: 1_000,
+            capturedAt: capturedAt
+        )
+        let source = FakeDamageTrackingFramebufferUpdateSource(results: [result])
+        let pump = RFBFramePump(source: source)
+
+        let frame = try XCTUnwrap(pump.nextFrame())
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(frame.dirtyRectangles, result.dirtyRectangles)
+        XCTAssertEqual(frame.changedPixelCount, 1_000)
+        XCTAssertEqual(frame.changeActivity, .moderate)
+        XCTAssertEqual(frame.capturedAt, capturedAt)
+    }
+
+    private static func framebuffer(red: UInt8) -> RFBRawFramebuffer {
+        RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: red, green: 0, blue: 0)
+        )
+    }
+}
+
+private final class FakeFramebufferUpdateSource: RFBFramebufferUpdating, @unchecked Sendable {
+    enum Error: Swift.Error, Equatable {
+        case noFrame
+    }
+
+    private let lock = NSLock()
+    private var framebuffers: [RFBRawFramebuffer]
+    private var incrementalFlags: [Bool] = []
+
+    init(framebuffers: [RFBRawFramebuffer]) {
+        self.framebuffers = framebuffers
+    }
+
+    var requestedIncrementalFlags: [Bool] {
+        lock.lock()
+        defer { lock.unlock() }
+        return incrementalFlags
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        lock.lock()
+        defer { lock.unlock() }
+
+        incrementalFlags.append(incremental)
+
+        guard !framebuffers.isEmpty else {
+            throw Error.noFrame
+        }
+
+        return framebuffers.removeFirst()
+    }
+}
+
+private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating, @unchecked Sendable {
+    enum Error: Swift.Error, Equatable {
+        case noFrame
+    }
+
+    private let lock = NSLock()
+    private var results: [RFBFramebufferUpdateResult]
+    private var incrementalFlags: [Bool] = []
+
+    init(results: [RFBFramebufferUpdateResult]) {
+        self.results = results
+    }
+
+    var requestedIncrementalFlags: [Bool] {
+        lock.lock()
+        defer { lock.unlock() }
+        return incrementalFlags
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout
+        ).framebuffer
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        lock.lock()
+        defer { lock.unlock() }
+
+        incrementalFlags.append(incremental)
+
+        guard !results.isEmpty else {
+            throw Error.noFrame
+        }
+
+        return results.removeFirst()
+    }
+}

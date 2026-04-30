@@ -1,0 +1,27 @@
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+*.log
+.env*
+
+# Apple/Xcode local state
+DerivedData/
+*.xcuserdata/
+*.xcuserstate
+*.moved-aside
+
+# SwiftPM local build output
+.build/
+.swiftpm/
+*.swiftpm/
+Packages/
+
+# Local agent/private state. Keep checked-in skills under .agents/skills.
+.agents/**/*.local.*
+.agents/**/secrets*
+.agents/**/.env*
+
+# Editor local state
+.vscode/
+.idea/

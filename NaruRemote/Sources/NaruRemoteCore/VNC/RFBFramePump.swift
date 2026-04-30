@@ -1,0 +1,221 @@
+import Foundation
+
+public enum RFBFramePumpDecision: Equatable, Sendable {
+    case `continue`
+    case stop
+}
+
+public struct RFBFramePumpConfiguration: Equatable, Sendable {
+    public let maxFrames: Int?
+    public let requestTimeout: TimeInterval
+    public let frameInterval: TimeInterval
+
+    public init(
+        maxFrames: Int? = nil,
+        requestTimeout: TimeInterval = 2,
+        frameInterval: TimeInterval = 0
+    ) {
+        self.maxFrames = maxFrames
+        self.requestTimeout = requestTimeout
+        self.frameInterval = max(frameInterval, 0)
+    }
+}
+
+public struct RFBFramePumpFrame: Equatable, Sendable {
+    public let sequence: Int
+    public let framebuffer: RFBRawFramebuffer
+    public let dirtyRectangles: [RFBFrameDamageRect]
+    public let changedPixelCount: Int
+    public let changeActivity: PiPFrameChangeActivity
+    public let capturedAt: Date
+    public let isIncremental: Bool
+
+    public init(
+        sequence: Int,
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]? = nil,
+        changedPixelCount: Int? = nil,
+        changeActivity: PiPFrameChangeActivity? = nil,
+        capturedAt: Date = Date(),
+        isIncremental: Bool
+    ) {
+        self.sequence = sequence
+        self.framebuffer = framebuffer
+        self.dirtyRectangles = dirtyRectangles ?? [
+            RFBFrameDamageRect(
+                x: 0,
+                y: 0,
+                width: framebuffer.width,
+                height: framebuffer.height
+            )
+        ]
+        self.changedPixelCount = changedPixelCount ?? framebuffer.width * framebuffer.height
+        self.changeActivity = changeActivity ?? .high
+        self.capturedAt = capturedAt
+        self.isIncremental = isIncremental
+    }
+
+    public init(
+        sequence: Int,
+        updateResult: RFBFramebufferUpdateResult,
+        isIncremental: Bool
+    ) {
+        self.sequence = sequence
+        self.framebuffer = updateResult.framebuffer
+        self.dirtyRectangles = updateResult.dirtyRectangles
+        self.changedPixelCount = updateResult.changedPixelCount
+        self.changeActivity = updateResult.changeActivity
+        self.capturedAt = updateResult.capturedAt
+        self.isIncremental = isIncremental
+    }
+}
+
+public struct RFBFramePumpSummary: Equatable, Sendable {
+    public let deliveredFrameCount: Int
+    public let stoppedByCallback: Bool
+    public let stoppedByCancellation: Bool
+
+    public init(
+        deliveredFrameCount: Int,
+        stoppedByCallback: Bool,
+        stoppedByCancellation: Bool
+    ) {
+        self.deliveredFrameCount = deliveredFrameCount
+        self.stoppedByCallback = stoppedByCallback
+        self.stoppedByCancellation = stoppedByCancellation
+    }
+}
+
+public final class RFBFramePump: @unchecked Sendable {
+    private let source: any RFBFramebufferUpdating
+    private let lock = NSLock()
+    private var cancelled = false
+
+    public init(source: any RFBFramebufferUpdating) {
+        self.source = source
+    }
+
+    public func cancel() {
+        lock.withRFBFramePumpLock {
+            cancelled = true
+        }
+    }
+
+    public var deliveredFrameCount: Int {
+        lock.withRFBFramePumpLock {
+            _deliveredFrameCount
+        }
+    }
+
+    public func run(
+        configuration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(),
+        onFrame: (RFBFramePumpFrame) throws -> RFBFramePumpDecision
+    ) throws -> RFBFramePumpSummary {
+        reset()
+
+        while shouldContinue(deliveredFrameCount: deliveredFrameCount, maxFrames: configuration.maxFrames) {
+            guard let frame = try nextFrame(requestTimeout: configuration.requestTimeout) else {
+                break
+            }
+
+            if try onFrame(frame) == .stop {
+                return RFBFramePumpSummary(
+                    deliveredFrameCount: deliveredFrameCount,
+                    stoppedByCallback: true,
+                    stoppedByCancellation: false
+                )
+            }
+
+            if isCancelled {
+                return RFBFramePumpSummary(
+                    deliveredFrameCount: deliveredFrameCount,
+                    stoppedByCallback: false,
+                    stoppedByCancellation: true
+                )
+            }
+
+            if configuration.frameInterval > 0 {
+                Thread.sleep(forTimeInterval: configuration.frameInterval)
+            }
+        }
+
+        return RFBFramePumpSummary(
+            deliveredFrameCount: deliveredFrameCount,
+            stoppedByCallback: false,
+            stoppedByCancellation: isCancelled
+        )
+    }
+
+    public func nextFrame(requestTimeout: TimeInterval = 2) throws -> RFBFramePumpFrame? {
+        let nextSequence: Int? = lock.withRFBFramePumpLock {
+            guard !cancelled else {
+                return nil
+            }
+            return _deliveredFrameCount + 1
+        }
+
+        guard let nextSequence else {
+            return nil
+        }
+
+        let isIncremental = nextSequence > 1
+        let updateResult: RFBFramebufferUpdateResult
+        if let damageTrackingSource = source as? any RFBDamageTrackingFramebufferUpdating {
+            updateResult = try damageTrackingSource.requestFramebufferUpdate(
+                incremental: isIncremental,
+                timeout: requestTimeout
+            )
+        } else {
+            let framebuffer = try source.requestRawFramebufferUpdate(
+                incremental: isIncremental,
+                timeout: requestTimeout
+            )
+            updateResult = .fullFrame(framebuffer: framebuffer)
+        }
+
+        lock.withRFBFramePumpLock {
+            _deliveredFrameCount = nextSequence
+        }
+
+        return RFBFramePumpFrame(
+            sequence: nextSequence,
+            updateResult: updateResult,
+            isIncremental: isIncremental
+        )
+    }
+
+    public func reset() {
+        lock.withRFBFramePumpLock {
+            _deliveredFrameCount = 0
+            cancelled = false
+        }
+    }
+
+    private func shouldContinue(deliveredFrameCount: Int, maxFrames: Int?) -> Bool {
+        guard !isCancelled else {
+            return false
+        }
+
+        guard let maxFrames else {
+            return true
+        }
+
+        return deliveredFrameCount < max(maxFrames, 0)
+    }
+
+    private var isCancelled: Bool {
+        lock.withRFBFramePumpLock {
+            cancelled
+        }
+    }
+
+    private var _deliveredFrameCount = 0
+}
+
+private extension NSLock {
+    func withRFBFramePumpLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
+    }
+}

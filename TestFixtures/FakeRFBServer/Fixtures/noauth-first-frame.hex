@@ -1,0 +1,15 @@
+# RFB 3.8 no-auth transcript with server init and one framebuffer update header.
+# Sections:
+# - ProtocolVersion: "RFB 003.008\n"
+# - SecurityTypes: one type, None
+# - SecurityResult: OK
+# - ServerInit: 1024x768, 32bpp true-color, name "Desk"
+# - FramebufferUpdate header: one 1024x768 raw rectangle
+52 46 42 20 30 30 33 2e 30 30 38 0a
+01 01
+00 00 00 00
+04 00 03 00
+20 18 00 01 00 ff 00 ff 00 ff 10 08 00 00 00 00
+00 00 00 04 44 65 73 6b
+00 00 00 01
+00 00 00 00 04 00 03 00 00 00 00 00
