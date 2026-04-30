@@ -371,6 +371,8 @@ checklist shows safe next steps and never echoes composed text or credentials.
 
 - Tailscale VPN embedding or replacement.
 - Tailscale API inventory.
+- Direct Keystroke Streaming Mode (peer input mode to Compose & Send;
+  documented at `PRODUCT_SPEC.md` §6.3.6 and tracked in `ROADMAP.md` Phase 9).
 - Voice Compose.
 - Image Paste Bridge.
 - File Drop.

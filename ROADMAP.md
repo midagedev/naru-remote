@@ -197,8 +197,48 @@ Status: not started
 
 Status: deferred
 
+- Direct Keystroke Streaming Mode (peer to Compose & Send; user-toggleable
+  on the Remote Input Dock; matches Chrome Remote Desktop Android's
+  "On-screen input" toggle; documented at `PRODUCT_SPEC.md` §6.3.6)
 - Voice compose
 - Image paste
 - File drop
 - Naru Helper native insertion
 - Agent handoff through a documented trust boundary
+
+## Phase 10 - SSH And Terminal Mode (Aspirational)
+
+Status: not started; explicitly out of MVP scope (`spec.md` Non-Goals)
+
+This is the second product mode beyond VNC viewing. It is documented here so
+the architecture's adapter boundaries (input bridge, profile, diagnostics,
+credential ref) can stay open to it, not as a committed deliverable.
+
+Direction:
+
+- SSH session as a peer connection mode to VNC, sharing `ConnectionProfile`,
+  `ConnectionDiagnostics`, and `ConnectionCredentialStore` boundaries while
+  introducing a separate session/renderer pair (terminal stream, not
+  framebuffer)
+- Compose & Send remains the default multilingual input path (terminal-safe
+  paste / bracketed paste); Direct Keystroke Streaming Mode from Phase 9 is
+  the natural fit for live shell input
+- Direct **tmux attach** as a higher-level convenience: connect with
+  `ssh -t user@host tmux new -A -s naru` (or user-configured target session)
+  so reconnection drops the user back into the same persistent terminal
+  state. Treated as a per-profile option, not the only SSH path.
+
+Open questions a future spec must close:
+
+- Terminal emulation scope (xterm-256color baseline? scrollback policy? bell?
+  OSC 52 clipboard?)
+- Trust boundary for SSH keys, agent forwarding, known_hosts, and how the
+  Keychain credential boundary extends to passphrases / private keys
+- Multi-session coordinator implications (shared with Phase 8)
+- Whether tmux attach is a first-class mode with its own diagnostic stage
+  ("tmux session reachable") or just a saved post-connect command
+
+Pre-spec gates: MVP physical-device verification complete; Phase 9 Direct
+Keystroke Streaming Mode shipped (so terminals already have a working live
+input adapter); Phase 8 multi-session coordinator scoped (so SSH can be a
+session type rather than replacing the single-session app model).

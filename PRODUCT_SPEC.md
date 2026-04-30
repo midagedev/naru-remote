@@ -275,6 +275,16 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 
 ## 6.3 Compose & Send
 
+### 위치
+
+Compose & Send는 두 가지 원격 입력 모드 중 **기본 모드**다. 다른 모드는 §6.3.6 Direct
+Keystroke Streaming Mode이며, 사용자가 Remote Input Dock의 토글로 전환한다.
+Compose & Send가 기본인 이유는 다국어 텍스트, IME, 받아쓰기, 손글씨, 자동완성이
+로컬에서 완성된 뒤 원격으로 한 번에 들어가는 흐름이 깨지지 않기 때문이다. 동일한
+이중 모드 구조는 Chrome Remote Desktop Android가 채택한 패턴이며 (기본 = 텍스트 박스
++ Send, 토글 = "On-screen input"으로 직접 키스트로크 전송) Naru Remote도 같은 결론을
+따른다.
+
 ### 사용자 가치
 
 원격 컴퓨터의 키보드 레이아웃과 IME 상태에 상관없이, iOS/iPadOS에서 완성한 문장을 원격 앱에 넣는다.
@@ -375,6 +385,50 @@ OS별 구현 후보:
 - target OS preference
 - send behavior: insert only, insert and enter, insert and tab
 - sensitive flag
+
+### 6.3.6 Direct Keystroke Streaming Mode
+
+#### 위치
+
+Compose & Send와 **나란한 두 번째 입력 모드**다. §6.3 전송 모드 안의
+"B. Keystroke Fallback Mode"가 Compose & Send 안의 send-time fallback인 것과 달리,
+이 모드는 Remote Input Dock 레벨에서 사용자가 명시적으로 켜는 토글 모드다. 켜지면
+compose 단계가 사라지고 iOS 키보드의 각 키 입력이 즉시 RFB KeyEvent로 원격에
+스트리밍된다.
+
+이 모드는 헌법 원칙 I이 명시한 *"Remote key events MAY exist for compatibility, but
+they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영역에
+해당한다. 따라서 다국어 입력의 1차 경로가 아니며, 기본값으로 켜지지 않는다.
+
+#### 사용자 가치
+
+- 원격 터미널에서 Ctrl+C, Ctrl+R, Tab 자동완성, 라이브 셸 입력처럼 키 단위 의미가
+  있는 입력을 그대로 전달한다.
+- 게임/실시간 단축키 조작처럼 compose 후 한 번에 보내는 모델이 맞지 않는 사용 사례를
+  지원한다.
+- 원격 OS의 IME를 그대로 쓰고 싶은 사용자에게 직접 경로를 제공한다.
+
+#### 흐름
+
+1. 사용자가 Remote Input Dock의 입력 모드 토글에서 "Direct Keystroke"를 선택한다.
+2. UI는 모드가 전환됐고 IME/자동완성/받아쓰기는 보장되지 않는다는 경고를 표시한다.
+3. iOS 키보드의 키 입력이 RFB KeyEvent로 즉시 송신된다.
+4. 사용자가 토글을 다시 끄면 Compose & Send 모드로 복귀한다.
+
+#### 제약과 경고
+
+- iOS IME가 만든 조합 중간 상태(예: 한글 초성/중성, 일본어 변환 후보)는 그대로 키 시퀀스로
+  전송되지 않을 수 있다. UI는 "이 모드에서 IME가 안 통할 수 있음"을 명시한다.
+- secure input field, password field에는 Compose & Send와 마찬가지로 실패할 수 있다.
+- 이 모드 사용 중에도 클립보드 paste shortcut, snippet 전송은 별개 동작으로 계속
+  쓸 수 있다.
+- 진단 export, 로그는 키 입력 내용을 저장하지 않는다 (헌법 원칙 IV).
+
+#### MVP 범위
+
+MVP에서는 Compose & Send만 구현한다. Direct Keystroke Streaming Mode는 별도
+feature spec(`specs/00x-direct-keystroke-mode/spec.md`)으로 분리되며 MVP가 실기기
+검증을 마친 뒤 추가된다.
 
 ## 6.4 Voice Compose
 

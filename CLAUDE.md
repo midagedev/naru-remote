@@ -74,7 +74,7 @@ Toolchain: Swift 6.0 / Swift 6 concurrency, iOS 17+, macOS 14+. The app model is
 ## Things That Have Bitten This Codebase
 
 - **No public-internet-first UX, no Tailscale-affiliation language.** Constitution principle II is enforced in user-visible strings too.
-- **Don't treat key-event typing as sufficient for IME input.** Korean/CJK/emoji acceptance must go through clipboard or a future helper adapter.
+- **Don't treat key-event typing as sufficient for IME input.** Korean/CJK/emoji acceptance must go through clipboard or a future helper adapter. A user-toggled **Direct Keystroke Streaming Mode** is a planned post-MVP peer to Compose & Send (`PRODUCT_SPEC.md` §6.3.6, `ROADMAP.md` Phase 9) — that mode is explicitly allowed to ship without IME guarantees and must show a "IME may not work" warning. It does not change the rule that the *default* multilingual path is compose-and-send.
 - **Diagnostic exports use a fixed safe-detail catalog**, not caller-provided strings. Don't pipe raw error messages or composed text into `DiagnosticExport`.
 - **PiP Watch is watch-only.** It must not become an input surface, and the renderer/controller wiring needs physical-device verification before claims of full support.
 - **Credentials live in Keychain via `credentialRef`.** Don't store passwords on `ConnectionProfile` or in the file-backed profile store.
