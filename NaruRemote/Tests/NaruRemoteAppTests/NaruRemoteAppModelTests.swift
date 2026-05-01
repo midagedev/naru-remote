@@ -1,3 +1,4 @@
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -597,24 +598,28 @@ private final class FakePiPWatchController: PiPWatchControlling {
     }
 }
 
-private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
+private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClipboardTextClient {
     struct Request: Equatable {
         let host: String
         let port: UInt16
     }
 
-    private let lock = NSLock()
+    fileprivate struct Recording {
+        var recordedRequests: [Request] = []
+        var recordedClipboardPayloads: [String] = []
+        var recordedPasteCommands: [PasteCommand] = []
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private var recordedRequests: [Request] = []
-    private var recordedClipboardPayloads: [String] = []
-    private var recordedPasteCommands: [PasteCommand] = []
 
     init(width: Int, height: Int, name: String) {
         self.width = width
         self.height = height
         self.name = name
+        self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
 
     var state: RFBClientState {
@@ -626,21 +631,15 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 
     var requests: [Request] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedRequests
+        recording.withLock { $0.recordedRequests }
     }
 
     var clipboardPayloads: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedClipboardPayloads
+        recording.withLock { $0.recordedClipboardPayloads }
     }
 
     var pasteCommands: [PasteCommand] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedPasteCommands
+        recording.withLock { $0.recordedPasteCommands }
     }
 
     func connectNoAuthFirstFrame(
@@ -648,9 +647,9 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
         port: UInt16,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
-        lock.lock()
-        recordedRequests.append(Request(host: host, port: port))
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedRequests.append(Request(host: host, port: port))
+        }
 
         return RFBServerInit(
             width: width,
@@ -672,49 +671,54 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 
     func setClipboardText(_ text: String) throws {
-        lock.lock()
-        recordedClipboardPayloads.append(text)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedClipboardPayloads.append(text)
+        }
     }
 
     func sendPasteCommand(_ command: PasteCommand) throws {
-        lock.lock()
-        recordedPasteCommands.append(command)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedPasteCommands.append(command)
+        }
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Sendable {
-    private let lock = NSLock()
+private final class FakeStreamingConnector: RFBStreamingClient {
+    fileprivate struct Recording {
+        var framebuffers: [RFBRawFramebuffer]
+        var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
+        var recordedFrameUpdateRequests: [Bool] = []
+        var recordedCredentials: [RFBConnectionCredential] = []
+        var recordedClipboardPayloads: [String] = []
+        var recordedPasteCommands: [PasteCommand] = []
+        var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private var framebuffers: [RFBRawFramebuffer]
-    private var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
-    private var recordedFrameUpdateRequests: [Bool] = []
-    private var recordedCredentials: [RFBConnectionCredential] = []
-    private var recordedClipboardPayloads: [String] = []
-    private var recordedPasteCommands: [PasteCommand] = []
-    private var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedPointerEventsList
+        recording.withLock { $0.recordedPointerEventsList }
     }
 
     init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
         self.width = width
         self.height = height
         self.name = name
-        self.framebuffers = [framebuffer]
+        self.recording = OSAllocatedUnfairLock(
+            initialState: Recording(framebuffers: [framebuffer])
+        )
     }
 
     init(width: Int, height: Int, name: String, framebuffers: [RFBRawFramebuffer]) {
         self.width = width
         self.height = height
         self.name = name
-        self.framebuffers = framebuffers
+        self.recording = OSAllocatedUnfairLock(
+            initialState: Recording(framebuffers: framebuffers)
+        )
     }
 
     var state: RFBClientState {
@@ -726,21 +730,15 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
     }
 
     var sessionRequests: [FakeFirstFrameConnector.Request] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedSessionRequests
+        recording.withLock { $0.recordedSessionRequests }
     }
 
     var frameUpdateRequests: [Bool] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedFrameUpdateRequests
+        recording.withLock { $0.recordedFrameUpdateRequests }
     }
 
     var credentials: [RFBConnectionCredential] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedCredentials
+        recording.withLock { $0.recordedCredentials }
     }
 
     func connectNoAuthFirstFrame(
@@ -774,10 +772,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
         credential: RFBConnectionCredential,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
-        lock.lock()
-        recordedSessionRequests.append(FakeFirstFrameConnector.Request(host: host, port: port))
-        recordedCredentials.append(credential)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedSessionRequests.append(FakeFirstFrameConnector.Request(host: host, port: port))
+            state.recordedCredentials.append(credential)
+        }
 
         return RFBServerInit(
             width: width,
@@ -802,10 +800,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        lock.lock()
-        recordedFrameUpdateRequests.append(incremental)
-        let framebuffer = framebuffers.isEmpty ? nil : framebuffers.removeFirst()
-        lock.unlock()
+        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+            state.recordedFrameUpdateRequests.append(incremental)
+            return state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+        }
 
         guard let framebuffer else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
@@ -815,20 +813,20 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
     }
 
     func setClipboardText(_ text: String) throws {
-        lock.lock()
-        recordedClipboardPayloads.append(text)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedClipboardPayloads.append(text)
+        }
     }
 
     func sendPasteCommand(_ command: PasteCommand) throws {
-        lock.lock()
-        recordedPasteCommands.append(command)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedPasteCommands.append(command)
+        }
     }
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
-        lock.withLock {
-            recordedPointerEventsList.append((buttonMask, x, y))
+        recording.withLock { state in
+            state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }
 }

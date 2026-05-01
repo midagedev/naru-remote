@@ -1,3 +1,4 @@
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -223,56 +224,58 @@ final class NaruRemoteAppDisconnectTests: XCTestCase {
 /// disconnect test file (rather than promoting a shared helper) so
 /// changes to either suite's failure-injection vocabulary cannot
 /// silently shift the other suite's assertions.
-private final class DisconnectFakeConnector: RFBStreamingClient, @unchecked Sendable {
+private final class DisconnectFakeConnector: RFBStreamingClient {
     struct ConnectRequest: Equatable {
         let host: String
         let port: UInt16
     }
 
-    private enum Step {
+    fileprivate enum Step {
         case frame(RFBRawFramebuffer)
         case failure
     }
 
-    private let lock = NSLock()
+    fileprivate struct Recording {
+        var steps: [Step] = []
+        var recordedSessionRequests: [ConnectRequest] = []
+        var recordedCredentialsList: [RFBConnectionCredential] = []
+        var lastDeliveredFramebuffer: RFBRawFramebuffer?
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private var steps: [Step] = []
-    private var recordedSessionRequests: [ConnectRequest] = []
-    private var recordedCredentialsList: [RFBConnectionCredential] = []
-    private var lastDeliveredFramebuffer: RFBRawFramebuffer?
 
     init(width: Int, height: Int, name: String) {
         self.width = width
         self.height = height
         self.name = name
+        self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
 
     func programFrame() {
-        lock.lock()
-        defer { lock.unlock() }
-        steps.append(
-            .frame(
-                RFBRawFramebuffer(
-                    width: width,
-                    height: height,
-                    fill: RFBColor(red: 10, green: 0, blue: 0)
+        recording.withLock { state in
+            state.steps.append(
+                .frame(
+                    RFBRawFramebuffer(
+                        width: width,
+                        height: height,
+                        fill: RFBColor(red: 10, green: 0, blue: 0)
+                    )
                 )
             )
-        )
+        }
     }
 
     func programFailure() {
-        lock.lock()
-        defer { lock.unlock() }
-        steps.append(.failure)
+        recording.withLock { state in
+            state.steps.append(.failure)
+        }
     }
 
     var sessionRequests: [ConnectRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedSessionRequests
+        recording.withLock { $0.recordedSessionRequests }
     }
 
     var state: RFBClientState { .receivingFrames }
@@ -301,10 +304,10 @@ private final class DisconnectFakeConnector: RFBStreamingClient, @unchecked Send
         credential: RFBConnectionCredential,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
-        lock.lock()
-        recordedSessionRequests.append(ConnectRequest(host: host, port: port))
-        recordedCredentialsList.append(credential)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedSessionRequests.append(ConnectRequest(host: host, port: port))
+            state.recordedCredentialsList.append(credential)
+        }
         return RFBServerInit(
             width: width,
             height: height,
@@ -328,29 +331,25 @@ private final class DisconnectFakeConnector: RFBStreamingClient, @unchecked Send
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        lock.lock()
-        let next = steps.isEmpty ? nil : steps.removeFirst()
-        let lastFramebuffer = lastDeliveredFramebuffer
-        lock.unlock()
-
-        switch next {
-        case .frame(let framebuffer):
-            lock.lock()
-            lastDeliveredFramebuffer = framebuffer
-            lock.unlock()
-            return framebuffer
-        case .failure:
-            throw DisconnectFakeConnectorError.programmedFailure
-        case .none:
-            // Out of programmed steps: repeat the last delivered
-            // frame so the stream keeps producing without
-            // unintentionally exhausting the policy.  If we have
-            // never delivered a frame, throw so the test does not
-            // silently spin.
-            guard let lastFramebuffer else {
+        try recording.withLock { state -> RFBRawFramebuffer in
+            let next = state.steps.isEmpty ? nil : state.steps.removeFirst()
+            switch next {
+            case .frame(let framebuffer):
+                state.lastDeliveredFramebuffer = framebuffer
+                return framebuffer
+            case .failure:
                 throw DisconnectFakeConnectorError.programmedFailure
+            case .none:
+                // Out of programmed steps: repeat the last delivered
+                // frame so the stream keeps producing without
+                // unintentionally exhausting the policy.  If we have
+                // never delivered a frame, throw so the test does not
+                // silently spin.
+                guard let lastFramebuffer = state.lastDeliveredFramebuffer else {
+                    throw DisconnectFakeConnectorError.programmedFailure
+                }
+                return lastFramebuffer
             }
-            return lastFramebuffer
         }
     }
 
