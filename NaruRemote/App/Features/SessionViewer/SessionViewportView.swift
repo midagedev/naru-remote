@@ -12,6 +12,7 @@ public struct SessionViewportView: View {
     private let framebuffer: RFBRawFramebuffer?
     private let isPiPWatchAvailable: Bool
     private let pipWatchStatusText: String
+    private let isPiPWatching: Bool
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
@@ -27,6 +28,7 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
+        isPiPWatching: Bool = false,
         pipLayerHost: PiPLayerHost? = nil,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
@@ -38,6 +40,7 @@ public struct SessionViewportView: View {
         self.framebuffer = framebuffer
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
+        self.isPiPWatching = isPiPWatching
         self.pipLayerHost = pipLayerHost
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
@@ -51,6 +54,7 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
+        isPiPWatching: Bool = false,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil
@@ -61,6 +65,7 @@ public struct SessionViewportView: View {
         self.framebuffer = framebuffer
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
+        self.isPiPWatching = isPiPWatching
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
@@ -158,14 +163,37 @@ public struct SessionViewportView: View {
 
     @ViewBuilder
     private func framebufferContent(_ framebuffer: RFBRawFramebuffer) -> some View {
+        let aspectRatio = CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1))
+
         #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
-        if let pipLayerHost {
+        if isPiPWatching, let pipLayerHost {
+            // Active system PiP — render through the shared
+            // AVSampleBufferDisplayLayer so the in-app preview and the
+            // PiP content source share one renderer (PR #5).
             PiPSampleBufferDisplayLayerView(layerHost: pipLayerHost)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                .aspectRatio(
-                    CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1)),
-                    contentMode: .fit
-                )
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .accessibilityIdentifier("naru.session.framebufferPreview")
+        } else {
+            metalOrSampledPreview(framebuffer: framebuffer, aspectRatio: aspectRatio)
+        }
+        #else
+        RemoteFramebufferPreview(framebuffer: framebuffer)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("naru.session.framebufferPreview")
+        #endif
+    }
+
+    @ViewBuilder
+    private func metalOrSampledPreview(
+        framebuffer: RFBRawFramebuffer,
+        aspectRatio: CGFloat
+    ) -> some View {
+        #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
+        if MetalFramebufferView.isSupported() {
+            MetalFramebufferView(framebuffer: framebuffer)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .aspectRatio(aspectRatio, contentMode: .fit)
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         } else {
             RemoteFramebufferPreview(framebuffer: framebuffer)
