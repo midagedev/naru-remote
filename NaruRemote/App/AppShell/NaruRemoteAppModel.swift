@@ -1352,6 +1352,24 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// warning is dismissed by the user calling
     /// `dismissDirectModeEntryWarning()` after they tap "Got it"
     /// in the SwiftUI confirmation dialog.
+    ///
+    /// Mode-switch state preservation (US-4 / FR-011 / FR-012):
+    ///
+    /// - The active `composeDraft` is intentionally NOT touched
+    ///   here.  The user may be alternating between writing a
+    ///   Korean message in Compose and dropping into Direct for
+    ///   a quick `git status`; the partial draft survives the
+    ///   round-trip in both directions.
+    /// - Toggling OUT of Direct mode (`isActive: true → false`)
+    ///   resets `stickyModifierState` to its default.  This is
+    ///   FR-012's "all sticky modifier state cleared" rule, and
+    ///   the `.init()` form also drops the struct's internal
+    ///   `lastTapAt` map so a stale double-tap context cannot
+    ///   bleed across a mode bounce.
+    /// - Toggling INTO Direct mode does not perturb sticky
+    ///   state — entries always start from whatever idle slate
+    ///   the prior toggle-out / connect / profile-change reset
+    ///   has already produced.
     public func toggleDirectKeystrokeMode() {
         let newActive = !directKeystrokeMode.isActive
         directKeystrokeMode = DirectKeystrokeMode(
@@ -1359,6 +1377,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             page: .qwerty,
             hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
         )
+        if !newActive {
+            // FR-012 — sticky state must not survive a mode
+            // bounce.  Re-initializing the whole struct also
+            // clears the internal `lastTapAt` so the next entry
+            // starts with a fresh single-tap window.
+            stickyModifierState = .init()
+        }
     }
 
     /// Switch which page of the custom soft keyboard is rendered

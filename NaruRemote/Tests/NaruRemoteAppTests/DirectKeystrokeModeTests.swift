@@ -225,4 +225,116 @@ final class DirectKeystrokeModeTests: XCTestCase {
 
         XCTAssertEqual(model.snapshot.stickyModifierState.slot(for: .alt), .armed)
     }
+
+    // MARK: - Mode-switch state preservation (Phase 6 / US-4 / FR-011 / FR-012)
+
+    func testComposeDraftSurvivesToggleIntoDirect() throws {
+        // FR-011 — toggling Compose → Direct must NOT drop the
+        // partial draft.  The user is alternating between writing
+        // a Korean message in Compose and dropping into Direct
+        // for a quick `git status`; losing the message on toggle
+        // is unacceptable.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "hello")
+            )
+        )
+        XCTAssertEqual(model.composeDraft?.text, "hello")
+
+        model.toggleDirectKeystrokeMode()
+
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.composeDraft?.text, "hello")
+    }
+
+    func testComposeDraftSurvivesToggleBackToCompose() throws {
+        // FR-011 — toggling Direct → Compose must restore the
+        // draft exactly as it was.  Mirrors US-4 Acceptance #1.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "hello")
+            )
+        )
+
+        model.toggleDirectKeystrokeMode()  // Compose → Direct
+        model.toggleDirectKeystrokeMode()  // Direct → Compose
+
+        XCTAssertFalse(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.composeDraft?.text, "hello")
+    }
+
+    func testToggleOutOfDirectModeClearsStickyModifierState() async {
+        // FR-012 — toggling out of Direct mode clears all sticky
+        // modifier state, so a phantom-armed or phantom-locked
+        // slot cannot survive a mode bounce and silently apply
+        // to a future Direct session.
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()  // enter Direct
+
+        await model.tapDirectKey(.modifier(.control))
+        XCTAssertEqual(model.stickyModifierState.slot(for: .control), .armed)
+
+        model.toggleDirectKeystrokeMode()  // exit Direct
+
+        XCTAssertFalse(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertEqual(model.stickyModifierState.slot(for: .control), .idle)
+        XCTAssertTrue(model.stickyModifierState.activeModifiers.isEmpty)
+    }
+
+    func testToggleIntoDirectModeDoesNotPerturbStickyState() {
+        // Defensive — sticky state is idle by construction in a
+        // fresh model, but assert explicitly so a future
+        // regression that mutates state on toggle-in (e.g.
+        // accidentally calling `clear()` followed by `tap()`)
+        // surfaces here.
+        let model = NaruRemoteAppModel()
+        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+
+        model.toggleDirectKeystrokeMode()
+
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+    }
+
+    func testToggleOutClearsLastTapTimestampSoNextEntryStartsFresh() async {
+        // FR-012 (transient state) — `StickyModifierState`'s
+        // internal `lastTapAt` map is reset when the struct is
+        // re-initialized.  Observable proof: after toggle-out,
+        // toggling back in and tapping Ctrl ONCE should land in
+        // `.armed`, not `.locked`.  If the clear was a partial
+        // reset that left `lastTapAt` populated but rebuilt
+        // slots, an immediate tap of an `armed` slot within the
+        // 400 ms window would lock — but here the slot is `idle`
+        // by construction so the test would still pass.  The
+        // stronger observable: tap Ctrl twice within the window
+        // BEFORE the bounce, then a single tap AFTER must arm,
+        // not lock.
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()  // enter Direct
+
+        await model.tapDirectKey(.modifier(.control))   // armed
+        await model.tapDirectKey(.modifier(.control))   // locked (within 400 ms)
+        XCTAssertEqual(model.stickyModifierState.slot(for: .control), .locked)
+
+        model.toggleDirectKeystrokeMode()  // exit Direct (clears)
+        model.toggleDirectKeystrokeMode()  // re-enter Direct
+
+        await model.tapDirectKey(.modifier(.control))   // a single fresh tap
+
+        // If the toggle-out had left state intact, this last
+        // tap would have flipped locked → idle.  The expected
+        // post-clear behavior is idle → armed.
+        XCTAssertEqual(model.stickyModifierState.slot(for: .control), .armed)
+    }
 }
