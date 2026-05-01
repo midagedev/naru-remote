@@ -21,9 +21,10 @@ These are enforced at review time, not just documentation:
 
 1. **Input is composed locally.** Remote key-events are a compatibility fallback only — they must not be the primary path for multilingual/IME text. Every input feature must name its injection adapter (VNC clipboard, key events, helper-native, file staging, agent bridge) and what happens when the remote app blocks paste or loses focus.
 2. **Tailnet-native, public-internet-optional.** Prefer MagicDNS/saved private profiles. Public VNC is an advanced/manual path with explicit warnings. Never imply Naru Remote replaces Tailscale or is officially affiliated.
-3. **Verification before confidence.** Compiling is not done. Plans declare a verification matrix (XCTest, fake RFB server, XCUITest/screenshot, manual device). UI/input features are not complete without at least one realistic iPhone/iPad path checked or an explicit residual-risk follow-up task.
+3. **Verification before confidence.** Compiling is not done. Plans declare a verification matrix (XCTest, fake RFB server, XCUITest/screenshot, manual device). UI/input features are not complete without at least one realistic iPhone path checked (constitution §VI requires iPhone before iPad in the matrix) or an explicit residual-risk follow-up task.
 4. **Security boundaries are product behavior.** For anything crossing local→remote (clipboard, dictation, screenshots, files, secrets, helper IPC, logs, agent actions), the spec/plan must define what crosses, retention, trust boundary, permission, and revocation. Logs must avoid storing user-entered content by default.
 5. **Helper is optional in MVP.** The basic viewer + text path must work without `Naru Helper`. Don't add helper dependencies in MVP code.
+6. **Phone-first, iPad-graceful.** iPhone is the canonical design target — small screen, soft keyboard, cellular network, and sustained terminal/AI-CLI sessions over GUI remote desktop are the baseline scenario, not brief intervention. iPad must work but as graceful scaling, not the design pivot. Verification matrices list an iPhone path before any iPad path; iPad-only affordances (Stage Manager, multi-window, external display, hardware trackpad) are layered enhancements, not gates for shipping.
 
 ## Architecture
 
@@ -56,7 +57,13 @@ swift test
 # Generate the iOS app project after touching project.yml or app-target files
 xcodegen generate --spec project.yml
 
-# iPad simulator build / UI test (target sim is iPad Pro 13-inch (M5), iOS 26.2)
+# iPhone simulator build / UI test (canonical target per constitution §VI; iOS 26.2)
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' build
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' test
+
+# iPad simulator build / UI test (graceful scaling target; iOS 26.2)
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
   -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' build
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \

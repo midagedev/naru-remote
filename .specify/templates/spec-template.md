@@ -106,10 +106,12 @@ scope, security, UX, or verification. Limit to three markers.
 
 ## Acceptance Test Matrix *(mandatory)*
 
-| Scenario | Verification Type | Required Evidence |
-| --- | --- | --- |
-| [Primary scenario] | [unit / fake RFB / XCTest / XCUITest / manual device] | [command, screenshot, log, or checklist] |
-| [Failure scenario] | [verification type] | [evidence] |
+Per constitution §VI, list at least one iPhone path (physical or simulator) before any iPad path for any user-facing UI/input scenario. iPad-only affordances (Stage Manager, multi-window, external display, hardware trackpad) belong in a separate row marked as graceful scaling, not as the primary scenario.
+
+| Scenario | Verification Type | Device Class | Required Evidence |
+| --- | --- | --- | --- |
+| [Primary scenario] | [unit / fake RFB / XCTest / XCUITest / manual device] | [iPhone / iPad-graceful / N/A] | [command, screenshot, log, or checklist] |
+| [Failure scenario] | [verification type] | [device class] | [evidence] |
 
 ## Success Criteria *(mandatory)*
 

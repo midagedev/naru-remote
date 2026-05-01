@@ -34,6 +34,7 @@ in `spec.md`; put architecture, adapters, data flow, and verification here.
 | Verification Before Confidence | Is there a verification matrix with realistic evidence? | [PASS/FAIL] |
 | Security Boundaries | Are data crossing, retention, permissions, logs, and approvals defined? | [PASS/FAIL] |
 | Agent Traceability | Can tasks map to requirements, user stories, file ownership, and tests? | [PASS/FAIL] |
+| Phone-First, iPad-Graceful | Does the verification matrix list an iPhone path before any iPad path (IME, soft-keyboard, PiP, reconnect-across-cellular)? Are iPad-only affordances (Stage Manager, multi-window, external display) layered enhancements rather than shipping gates? | [PASS/FAIL/N/A] |
 
 ## Architecture Decision
 

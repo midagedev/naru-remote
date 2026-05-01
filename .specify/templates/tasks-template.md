@@ -112,6 +112,7 @@ description: "Naru Remote task list template for feature implementation"
 - [ ] TXXX Update `research.md` if external API/policy/library findings changed
 - [ ] TXXX Security/privacy review for data crossing and logging
 - [ ] TXXX Accessibility and localization review for visible UI text
+- [ ] TXXX iPhone path verification (constitution §VI): IME/soft-keyboard, PiP enter/exit on a physical or simulator iPhone, and reconnect-across-cellular evidence. Add iPad evidence only after the iPhone row is recorded.
 - [ ] TXXX Record residual manual-device risks if the environment cannot verify them
 
 ## Dependencies & Parallelism
