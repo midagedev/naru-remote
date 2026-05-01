@@ -36,9 +36,15 @@ public struct NaruRemoteAppShell: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if showsOnboardingGuide, !snapshot.onboardingGuide.isComplete {
-                        OnboardingGuideView(guide: snapshot.onboardingGuide) {
-                            showsOnboardingGuide = false
-                        }
+                        OnboardingGuideView(
+                            guide: snapshot.onboardingGuide,
+                            onDismiss: { showsOnboardingGuide = false },
+                            onAction: { stepID in
+                                model.handleOnboardingAction(stepID) {
+                                    showsProfileEditor = true
+                                }
+                            }
+                        )
                     }
 
                     SessionViewportView(

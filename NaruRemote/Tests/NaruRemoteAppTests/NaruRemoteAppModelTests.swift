@@ -454,6 +454,103 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(pipController.enqueuedFramebuffers, [firstFramebuffer, secondFramebuffer])
         XCTAssertEqual(model.snapshot.pipWatchSession?.lastFrame?.changeActivity, .high)
     }
+
+    func testHandleOnboardingActionPrivateTargetPresentsProfileEditor() {
+        let model = NaruRemoteAppModel()
+        var presentCount = 0
+
+        model.handleOnboardingAction(.privateTarget) {
+            presentCount += 1
+        }
+
+        XCTAssertEqual(presentCount, 1)
+        XCTAssertNil(model.snapshot.diagnosticRun)
+    }
+
+    func testHandleOnboardingActionDiagnosticsRunsChecksWhenProfileSelected() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id)
+        )
+        var presentCount = 0
+
+        model.handleOnboardingAction(.diagnostics) {
+            presentCount += 1
+        }
+
+        XCTAssertEqual(presentCount, 0)
+        XCTAssertEqual(model.snapshot.diagnosticRun?.profileID, profile.id)
+    }
+
+    func testHandleOnboardingActionDiagnosticsFallsBackToProfileEditorWhenNoProfile() {
+        let model = NaruRemoteAppModel()
+        var presentCount = 0
+
+        model.handleOnboardingAction(.diagnostics) {
+            presentCount += 1
+        }
+
+        XCTAssertEqual(presentCount, 1)
+        XCTAssertNil(model.snapshot.diagnosticRun)
+    }
+
+    func testHandleOnboardingActionPiPWatchStartsWhenAvailable() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                latestFramebuffer: framebuffer
+            ),
+            pipWatchController: pipController
+        )
+
+        model.handleOnboardingAction(.pipWatch) {
+            XCTFail("PiP watch action should not request the profile editor.")
+        }
+
+        XCTAssertEqual(pipController.startCount, 1)
+        XCTAssertEqual(model.snapshot.pipWatchSession?.state, .watching)
+    }
+
+    func testHandleOnboardingActionPiPWatchIsNoopWhenUnavailable() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id)
+        )
+
+        model.handleOnboardingAction(.pipWatch) {
+            XCTFail("PiP watch action should not request the profile editor.")
+        }
+
+        XCTAssertNil(model.snapshot.pipWatchSession)
+    }
+
+    func testHandleOnboardingActionComposeIsNoop() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id)
+        )
+
+        model.handleOnboardingAction(.compose) {
+            XCTFail("Compose action should not request the profile editor.")
+        }
+
+        XCTAssertNil(model.snapshot.diagnosticRun)
+        XCTAssertNil(model.snapshot.pipWatchSession)
+    }
 }
 
 private enum FakePiPWatchError: Error {

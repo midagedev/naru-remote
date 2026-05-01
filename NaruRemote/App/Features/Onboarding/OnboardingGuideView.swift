@@ -4,13 +4,16 @@ import SwiftUI
 public struct OnboardingGuideView: View {
     private let guide: OnboardingGuide
     private let onDismiss: () -> Void
+    private let onAction: (OnboardingStepID) -> Void
 
     public init(
         guide: OnboardingGuide,
-        onDismiss: @escaping () -> Void = {}
+        onDismiss: @escaping () -> Void = {},
+        onAction: @escaping (OnboardingStepID) -> Void = { _ in }
     ) {
         self.guide = guide
         self.onDismiss = onDismiss
+        self.onAction = onAction
     }
 
     public var body: some View {
@@ -55,10 +58,22 @@ public struct OnboardingGuideView: View {
                                 .lineLimit(2)
                         }
 
-                        Text(step.state.label)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(step.state.tint)
+                        if let actionTitle = step.actionTitle, step.state.isActionable {
+                            Button(actionTitle) {
+                                onAction(step.id)
+                            }
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(step.state.tint)
                             .frame(minWidth: 62, alignment: .trailing)
+                            .accessibilityIdentifier("naru.onboarding.action.\(step.id.rawValue)")
+                        } else {
+                            Text(step.state.label)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(step.state.tint)
+                                .frame(minWidth: 62, alignment: .trailing)
+                        }
                     }
                 }
             }
@@ -73,6 +88,15 @@ public struct OnboardingGuideView: View {
 }
 
 private extension OnboardingStepState {
+    var isActionable: Bool {
+        switch self {
+        case .next, .blocked:
+            return true
+        case .complete, .waiting:
+            return false
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .complete:

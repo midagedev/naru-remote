@@ -594,6 +594,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    public func handleOnboardingAction(
+        _ id: OnboardingStepID,
+        presentProfileEditor: () -> Void
+    ) {
+        switch id {
+        case .privateTarget:
+            presentProfileEditor()
+        case .diagnostics:
+            guard selectedProfile != nil else {
+                presentProfileEditor()
+                return
+            }
+            runConnectionChecks()
+        case .compose:
+            break
+        case .pipWatch:
+            guard canStartPiPWatch else {
+                return
+            }
+            startPiPWatch()
+        }
+    }
+
     public func sendComposedText(_ text: String, pasteCommand: PasteCommand = .commandV) {
         guard var draft = composeDraft else {
             return
