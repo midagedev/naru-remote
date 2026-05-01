@@ -10,6 +10,12 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     public var latestInjectionAttempt: TextInjectionAttempt?
     public var pipWatchSession: PiPWatchSession?
     public var latestFramebuffer: RFBRawFramebuffer?
+    /// Damage rectangles for `latestFramebuffer`, when the most recent
+    /// frame came from a damage-tracking source.  `nil` means the
+    /// renderer should treat the framebuffer as a full-frame upload —
+    /// this is the right default for first frames, the fallback path,
+    /// and snapshot-driven previews that have no damage history.
+    public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
 
     public init(
         profiles: [ConnectionProfile] = [],
@@ -19,7 +25,8 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         composeDraft: ComposeDraft? = nil,
         latestInjectionAttempt: TextInjectionAttempt? = nil,
         pipWatchSession: PiPWatchSession? = nil,
-        latestFramebuffer: RFBRawFramebuffer? = nil
+        latestFramebuffer: RFBRawFramebuffer? = nil,
+        latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil
     ) {
         self.profiles = profiles
         self.selectedProfileID = selectedProfileID
@@ -29,6 +36,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestInjectionAttempt = latestInjectionAttempt
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
+        self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
     }
 
     public var selectedProfile: ConnectionProfile? {
