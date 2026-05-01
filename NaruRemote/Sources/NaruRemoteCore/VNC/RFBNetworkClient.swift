@@ -1,6 +1,16 @@
 import Foundation
 import Network
 
+// @unchecked Sendable justified: RFBNetworkClient conforms to the
+// public `RFBFirstFrameConnecting` / `RFBStreamingClient` /
+// `RemoteClipboardTextClient` boundaries, all of which expose
+// synchronous `throws` methods.  Migrating to `actor` would make
+// every method `async`, breaking the protocol surface and the test
+// fakes that implement the same protocols (deferred to a follow-up
+// PR per PR #17's out-of-scope list).  Mutable state
+// (`clientState`, `clientLastFrame`, `clientServerInit`,
+// `clientFramebuffer`, `activeConnection`) is guarded by `lock` —
+// every read and every write goes through `lock.withRFBClientLock`.
 public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
     private static let minimumNoAuthFirstFrameTranscriptByteCount = 62
 
@@ -526,7 +536,14 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     }
 }
 
-private final class RFBNetworkConnection: @unchecked Sendable {
+/// Wraps an `NWConnection` and its serial dispatch queue in a
+/// connection-scoped object.  Both stored properties are `let` and
+/// `Sendable` (`NWConnection` is `Sendable` on iOS 17+, `DispatchQueue`
+/// is `Sendable`), so this class is `Sendable` by structure and does
+/// not need `@unchecked`.  Mutable connection state (read buffer,
+/// write completion, ready/failed signal) lives in the
+/// `RFBNetwork{Read,Write,Ready}State` helpers, not here.
+private final class RFBNetworkConnection: Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "naru.rfb-network-connection")
 
@@ -623,6 +640,18 @@ private final class RFBNetworkConnection: @unchecked Sendable {
     }
 }
 
+// @unchecked Sendable justified: this is a single-shot
+// semaphore + result box that bridges an `NWConnection`
+// stateUpdateHandler callback (fires on a Network.framework
+// dispatch queue) to a synchronous `wait(timeout:)` call on the
+// caller thread.  Migrating to `actor` would force `wait` to be
+// `async`, which cascades through `RFBNetworkConnection.open`,
+// `RFBNetworkClient.connectFirstFrame` / `connectSession`, and the
+// public RFB protocol surface — all of which the test fakes for
+// the connector protocols (deferred per PR #17) currently
+// implement synchronously.  Mutable state (`result`) is guarded
+// by `lock`; the semaphore is signalled exactly once via the
+// `shouldSignal` guard inside `complete(_:)`.
 private final class RFBNetworkConnectionReadyState: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
@@ -672,6 +701,15 @@ private final class RFBNetworkConnectionReadyState: @unchecked Sendable {
     }
 }
 
+// @unchecked Sendable justified: companion to
+// `RFBNetworkConnectionReadyState` — a single-shot
+// semaphore + result box bridging an `NWConnection.send`
+// completion (fires on a Network.framework dispatch queue) to a
+// synchronous `wait(timeout:)` on the caller thread.  Migrating to
+// `actor` would make `wait` `async` and cascade through every
+// `connection.write(_:timeout:)` call site, which the synchronous
+// public RFB API (and the test fakes that mirror it) require to
+// stay sync until the connector-protocol follow-up lands.
 private final class RFBNetworkWriteState: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
@@ -763,7 +801,12 @@ private enum RFBNetworkTranscriptReader {
     }
 }
 
-private final class RFBNetworkConnectionReader: @unchecked Sendable {
+/// Pure read driver for one transcript-style read.  All stored
+/// properties are `let` and the referenced `RFBNetworkReadState`
+/// is itself `Sendable` (under `@unchecked` justified above), so
+/// this class is `Sendable` by structure and does not need
+/// `@unchecked`.
+private final class RFBNetworkConnectionReader: Sendable {
     private let connection: NWConnection
     private let state: RFBNetworkReadState
     private let expectedByteCount: Int
@@ -802,6 +845,16 @@ private final class RFBNetworkConnectionReader: @unchecked Sendable {
     }
 }
 
+// @unchecked Sendable justified: accumulates byte chunks delivered
+// by `NWConnection.receive` callbacks (Network.framework dispatch
+// queue) into a single `Data` and surfaces them through a
+// synchronous `wait(timeout:)` call.  Migrating to `actor` would
+// force every accessor (`append`, `byteCount`, `finish`, `fail`,
+// `wait`) to be `async`, which cascades through
+// `RFBNetworkConnection.readExactly` and the public sync RFB API
+// (deferred per PR #17).  Mutable state (`bytes`, `result`) is
+// guarded by `lock`; the completion semaphore is signalled exactly
+// once via the `shouldSignal` guard inside `complete(_:)`.
 private final class RFBNetworkReadState: @unchecked Sendable {
     private let expectedByteCount: Int
     private let semaphore = DispatchSemaphore(value: 0)

@@ -11,43 +11,47 @@ final class AppSettingsAppModelTests: XCTestCase {
         XCTAssertNil(model.settingsPersistenceError)
     }
 
-    func testDismissOnboardingChecklistFlipsPublishedFlag() {
+    func testDismissOnboardingChecklistFlipsPublishedFlag() async {
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
 
         XCTAssertFalse(model.appSettings.dismissedOnboardingChecklist)
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
         XCTAssertTrue(model.appSettings.dismissedOnboardingChecklist)
         XCTAssertNil(model.settingsPersistenceError)
     }
 
-    func testDismissOnboardingChecklistWritesThroughToPersistence() throws {
+    func testDismissOnboardingChecklistWritesThroughToPersistence() async throws {
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
-        let stored = try persistence.load()
+        let stored = try await persistence.load()
         XCTAssertTrue(stored.dismissedOnboardingChecklist)
     }
 
-    func testInitLoadsPreSavedDismissedSettings() throws {
+    func testInitLoadsPreSavedDismissedSettings() async throws {
         let persistence = InMemoryAppSettingsPersistence(
             settings: AppSettings(dismissedOnboardingChecklist: true)
         )
 
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
+        // Settings load is now async (the in-memory persistence is
+        // an `actor`); the iOS shell calls `loadStoredSettings()`
+        // from a `.task` modifier, the test mirrors that step here.
+        await model.loadStoredSettings()
 
         XCTAssertTrue(model.appSettings.dismissedOnboardingChecklist)
     }
 
-    func testDismissOnboardingChecklistSurvivesPersistenceFailureWithoutCrashing() {
+    func testDismissOnboardingChecklistSurvivesPersistenceFailureWithoutCrashing() async {
         let persistence = ThrowingAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
         // The in-memory flag still flips so the current session
         // honors the user's dismissal even when the disk write
@@ -63,11 +67,11 @@ private struct ThrowingAppSettingsPersistence: AppSettingsPersisting {
         case diskUnavailable
     }
 
-    func load() throws -> AppSettings {
+    func load() async throws -> AppSettings {
         AppSettings()
     }
 
-    func save(_ settings: AppSettings) throws {
+    func save(_ settings: AppSettings) async throws {
         throw Failure.diskUnavailable
     }
 }

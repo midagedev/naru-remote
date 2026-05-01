@@ -66,7 +66,7 @@ public struct NaruRemoteAppShell: View {
                     if showsOnboardingGuide {
                         OnboardingGuideView(
                             guide: snapshot.onboardingGuide,
-                            onDismiss: { model.dismissOnboardingChecklist() },
+                            onDismiss: { Task { await model.dismissOnboardingChecklist() } },
                             onAction: { stepID in
                                 model.handleOnboardingAction(stepID) {
                                     showsProfileEditor = true
@@ -75,7 +75,7 @@ public struct NaruRemoteAppShell: View {
                         )
                     } else if showsOnboardingReady {
                         OnboardingReadyView(
-                            onDismiss: { model.dismissOnboardingChecklist() }
+                            onDismiss: { Task { await model.dismissOnboardingChecklist() } }
                         )
                     }
 
@@ -150,6 +150,7 @@ public struct NaruRemoteAppShell: View {
         }
         .task {
             await model.loadStoredProfiles()
+            await model.loadStoredSettings()
         }
     }
 }

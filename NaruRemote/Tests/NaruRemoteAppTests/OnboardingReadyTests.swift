@@ -67,7 +67,7 @@ final class OnboardingReadyTests: XCTestCase {
         XCTAssertFalse(model.showsOnboardingGuide)
     }
 
-    func testDismissingReadyAffirmationFlipsPersistedFlag() throws {
+    func testDismissingReadyAffirmationFlipsPersistedFlag() async throws {
         let snapshot = try makeCompleteSnapshot()
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(
@@ -75,15 +75,15 @@ final class OnboardingReadyTests: XCTestCase {
             settingsPersistence: persistence
         )
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
         XCTAssertTrue(model.appSettings.dismissedOnboardingChecklist)
-        let stored = try persistence.load()
+        let stored = try await persistence.load()
         XCTAssertTrue(stored.dismissedOnboardingChecklist)
         XCTAssertNil(model.settingsPersistenceError)
     }
 
-    func testReadyAndGuideBothHiddenAfterDismissal() throws {
+    func testReadyAndGuideBothHiddenAfterDismissal() async throws {
         let snapshot = try makeCompleteSnapshot()
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(
@@ -93,13 +93,13 @@ final class OnboardingReadyTests: XCTestCase {
 
         XCTAssertTrue(model.showsOnboardingReady)
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
         XCTAssertFalse(model.showsOnboardingGuide)
         XCTAssertFalse(model.showsOnboardingReady)
     }
 
-    func testReadyHiddenWhileChecklistIncompleteRegardlessOfDismissal() throws {
+    func testReadyHiddenWhileChecklistIncompleteRegardlessOfDismissal() async throws {
         // Profile-only snapshot: diagnostics, compose, and PiP
         // steps are still pending → guide is incomplete.  The
         // ready-affirmation must stay hidden whether or not the
@@ -119,6 +119,7 @@ final class OnboardingReadyTests: XCTestCase {
             snapshot: snapshot,
             settingsPersistence: InMemoryAppSettingsPersistence()
         )
+        await pristine.loadStoredSettings()
         XCTAssertFalse(pristine.snapshot.onboardingGuide.isComplete)
         XCTAssertFalse(pristine.showsOnboardingReady)
         XCTAssertTrue(pristine.showsOnboardingGuide)
@@ -129,12 +130,16 @@ final class OnboardingReadyTests: XCTestCase {
                 settings: AppSettings(dismissedOnboardingChecklist: true)
             )
         )
+        // Stored-settings load is now async; mirror the iOS shell's
+        // `.task` step so the dismissed flag from disk takes effect
+        // before the assertions.
+        await dismissed.loadStoredSettings()
         XCTAssertFalse(dismissed.snapshot.onboardingGuide.isComplete)
         XCTAssertFalse(dismissed.showsOnboardingReady)
         XCTAssertFalse(dismissed.showsOnboardingGuide)
     }
 
-    func testDismissingReadyAffirmationLeavesUnrelatedModelStateIntact() throws {
+    func testDismissingReadyAffirmationLeavesUnrelatedModelStateIntact() async throws {
         let snapshot = try makeCompleteSnapshot()
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(
@@ -149,7 +154,7 @@ final class OnboardingReadyTests: XCTestCase {
         let beforeFramebuffer = model.snapshot.latestFramebuffer
         let beforeInjectionAttempt = model.snapshot.latestInjectionAttempt
 
-        model.dismissOnboardingChecklist()
+        await model.dismissOnboardingChecklist()
 
         XCTAssertEqual(model.snapshot.selectedProfileID, beforeProfileID)
         XCTAssertEqual(model.snapshot.session?.id, beforeSessionID)

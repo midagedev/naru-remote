@@ -18,6 +18,11 @@ import Foundation
 /// at the filesystem layer; if a higher-level store needs
 /// stronger ordering it should hold its own lock above this
 /// boundary (the way `ConnectionProfileStore` does).
+///
+/// The `async` method signatures match the `AppSettingsPersisting`
+/// protocol; the body still performs synchronous filesystem I/O
+/// because there is no `async` `Data(contentsOf:)` /
+/// `Data.write(to:options:)` API and the cost is tiny.
 public struct FileAppSettingsPersistence: AppSettingsPersisting, Sendable {
     private let fileURL: URL
 
@@ -25,7 +30,7 @@ public struct FileAppSettingsPersistence: AppSettingsPersisting, Sendable {
         self.fileURL = fileURL
     }
 
-    public func load() throws -> AppSettings {
+    public func load() async throws -> AppSettings {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return AppSettings()
         }
@@ -38,7 +43,7 @@ public struct FileAppSettingsPersistence: AppSettingsPersisting, Sendable {
         return try JSONDecoder().decode(AppSettings.self, from: data)
     }
 
-    public func save(_ settings: AppSettings) throws {
+    public func save(_ settings: AppSettings) async throws {
         let directoryURL = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: directoryURL,
