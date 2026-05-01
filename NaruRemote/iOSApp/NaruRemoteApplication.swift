@@ -14,18 +14,21 @@ struct NaruRemoteApplication: App {
     }
 
     private static func makeModel() -> NaruRemoteAppModel {
+        let settingsPersistence = FileAppSettingsPersistence(fileURL: settingsStoreURL())
         do {
             let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
             let store = try ConnectionProfileStore(persistence: persistence)
             return NaruRemoteAppModel(
                 profileStore: store,
                 credentialStore: KeychainConnectionCredentialStore(),
+                settingsPersistence: settingsPersistence,
                 pipWatchController: PiPWatchPictureInPictureController(),
                 localClipboardWriter: UIPasteboardClipboardWriter()
             )
         } catch {
             return NaruRemoteAppModel(
                 credentialStore: KeychainConnectionCredentialStore(),
+                settingsPersistence: settingsPersistence,
                 pipWatchController: PiPWatchPictureInPictureController(),
                 localClipboardWriter: UIPasteboardClipboardWriter()
             )
@@ -38,12 +41,23 @@ struct NaruRemoteApplication: App {
             return URL(fileURLWithPath: overridePath)
         }
 
-        let applicationSupportURL = FileManager.default.urls(
+        return applicationSupportURL().appendingPathComponent("profiles.json")
+    }
+
+    private static func settingsStoreURL() -> URL {
+        if let overridePath = ProcessInfo.processInfo.environment["NARU_SETTINGS_STORE_URL"],
+           !overridePath.isEmpty {
+            return URL(fileURLWithPath: overridePath)
+        }
+
+        return applicationSupportURL().appendingPathComponent("settings.json")
+    }
+
+    private static func applicationSupportURL() -> URL {
+        let baseURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0]
-        return applicationSupportURL
-            .appendingPathComponent("NaruRemote", isDirectory: true)
-            .appendingPathComponent("profiles.json")
+        return baseURL.appendingPathComponent("NaruRemote", isDirectory: true)
     }
 }

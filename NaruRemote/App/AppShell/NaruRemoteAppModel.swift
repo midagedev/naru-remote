@@ -17,11 +17,16 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// cleared on Accept, Dismiss, or profile change.  See
     /// `IncomingClipboardBanner`.
     @Published public private(set) var pendingIncomingClipboard: IncomingClipboardReview?
+    /// App-level user preferences (e.g. onboarding-checklist
+    /// dismissal).  Loaded eagerly in `init` and re-published on
+    /// every update through `dismissOnboardingChecklist()`.
+    @Published public private(set) var appSettings: AppSettings
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let profileStore: ConnectionProfileStore?
     private let credentialStore: ConnectionCredentialStoreProtocol?
+    private let settingsPersistence: AppSettingsPersisting?
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let incomingClipboardReceiveTimeout: TimeInterval
@@ -34,11 +39,17 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameStreamID: UUID?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     @Published public private(set) var profilePersistenceError: String?
+    /// Most recent `AppSettingsPersisting` failure, if any.  We do
+    /// not crash on settings persistence errors — settings are
+    /// non-critical and a stale in-memory `appSettings` is still
+    /// safe to use until the next launch.  See ROADMAP Phase 7.
+    @Published public private(set) var settingsPersistenceError: String?
 
     public init(
         snapshot: NaruRemoteAppSnapshot = NaruRemoteAppSnapshot(),
         profileStore: ConnectionProfileStore? = nil,
         credentialStore: ConnectionCredentialStoreProtocol? = nil,
+        settingsPersistence: AppSettingsPersisting? = nil,
         frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
             requestTimeout: 3,
             frameInterval: 0.25
@@ -51,6 +62,25 @@ public final class NaruRemoteAppModel: ObservableObject {
         let storedProfiles = profileStore?.allProfiles() ?? []
         let initialProfiles = snapshot.profiles.isEmpty ? storedProfiles : snapshot.profiles
 
+        // Settings are non-critical: a load failure falls back to
+        // defaults rather than throwing from `init`.  The error is
+        // observable through `settingsPersistenceError` so the
+        // shell can surface it if needed.  See ROADMAP Phase 7.
+        let loadedSettings: AppSettings
+        let loadError: String?
+        if let settingsPersistence {
+            do {
+                loadedSettings = try settingsPersistence.load()
+                loadError = nil
+            } catch {
+                loadedSettings = AppSettings()
+                loadError = "Settings could not be loaded on this device."
+            }
+        } else {
+            loadedSettings = AppSettings()
+            loadError = nil
+        }
+
         self.profiles = initialProfiles
         self.selectedProfileID = snapshot.selectedProfileID ?? initialProfiles.first?.id
         self.session = snapshot.session
@@ -59,8 +89,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestInjectionAttempt = snapshot.latestInjectionAttempt
         self.pipWatchSession = snapshot.pipWatchSession
         self.latestFramebuffer = snapshot.latestFramebuffer
+        self.appSettings = loadedSettings
+        self.settingsPersistenceError = loadError
         self.profileStore = profileStore
         self.credentialStore = credentialStore
+        self.settingsPersistence = settingsPersistence
         self.frameStreamConfiguration = frameStreamConfiguration
         self.connectorFactory = connectorFactory
         self.pipWatchController = pipWatchController
@@ -69,6 +102,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
         #endif
+    }
+
+    /// Persists "user dismissed the first-run onboarding
+    /// checklist" so the section stays hidden across launches.
+    /// A persistence error is captured in
+    /// `settingsPersistenceError` rather than thrown — the
+    /// in-memory flag still flips so the current session honors
+    /// the dismissal.
+    public func dismissOnboardingChecklist() {
+        var updated = appSettings
+        updated.dismissedOnboardingChecklist = true
+        appSettings = updated
+        settingsPersistenceError = nil
+
+        guard let settingsPersistence else {
+            return
+        }
+
+        do {
+            try settingsPersistence.save(updated)
+        } catch {
+            settingsPersistenceError = "Settings could not be saved on this device."
+        }
     }
 
     public var snapshot: NaruRemoteAppSnapshot {

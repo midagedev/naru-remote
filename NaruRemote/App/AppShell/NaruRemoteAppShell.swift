@@ -4,7 +4,6 @@ import SwiftUI
 public struct NaruRemoteAppShell: View {
     @StateObject private var model: NaruRemoteAppModel
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
-    @State private var showsOnboardingGuide = true
     @State private var showsProfileEditor = false
 
     public init(snapshot: NaruRemoteAppSnapshot) {
@@ -17,6 +16,13 @@ public struct NaruRemoteAppShell: View {
 
     public var body: some View {
         let snapshot = model.snapshot
+        // Derived from app state instead of `@State`: a fresh
+        // launch with a `dismissed` flag in settings should keep
+        // the checklist hidden, and the dismiss button only
+        // needs to flip the persisted flag — re-render handles
+        // the rest.
+        let showsOnboardingGuide = !snapshot.onboardingGuide.isComplete
+            && !model.appSettings.dismissedOnboardingChecklist
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             ProfileListView(
@@ -36,10 +42,10 @@ public struct NaruRemoteAppShell: View {
         } detail: {
             ScrollView {
                 VStack(spacing: 0) {
-                    if showsOnboardingGuide, !snapshot.onboardingGuide.isComplete {
+                    if showsOnboardingGuide {
                         OnboardingGuideView(
                             guide: snapshot.onboardingGuide,
-                            onDismiss: { showsOnboardingGuide = false },
+                            onDismiss: { model.dismissOnboardingChecklist() },
                             onAction: { stepID in
                                 model.handleOnboardingAction(stepID) {
                                     showsProfileEditor = true
