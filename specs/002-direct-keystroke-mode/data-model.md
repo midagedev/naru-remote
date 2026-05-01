@@ -236,10 +236,10 @@ public final class KeystrokeEmitter: Sendable {
     ///
     /// For a tap on `c` with `[.control]` active, this emits in
     /// order:
-    ///     1. KeyEvent(downFlag: true,  keysym: Control_L)
-    ///     2. KeyEvent(downFlag: true,  keysym: 'c')
-    ///     3. KeyEvent(downFlag: false, keysym: 'c')
-    ///     4. KeyEvent(downFlag: false, keysym: Control_L)
+    ///     1. KeyEvent(keysym: Control_L, isDown: true)
+    ///     2. KeyEvent(keysym: 'c',       isDown: true)
+    ///     3. KeyEvent(keysym: 'c',       isDown: false)
+    ///     4. KeyEvent(keysym: Control_L, isDown: false)
     /// Modifiers are pressed in a deterministic order
     /// (Control, Shift, Alt, Meta) and released in the reverse order.
     public func emit(
@@ -303,8 +303,8 @@ The fake-RFB-server side gains one new entity for byte-level wire assertions:
 ```swift
 // In TestFixtures/FakeRFBServer/ServerKit/FakeRFBClientMessageRecorder.swift:
 public struct FakeRFBKeyEvent: Sendable, Equatable {
-    public let downFlag: Bool
     public let keysym: UInt32
+    public let isDown: Bool
     public let receivedAt: ContinuousClock.Instant
 }
 

@@ -96,7 +96,7 @@
 
 ## Implementation order implied by this research
 
-1. Extend RFB layer first (`encodeKeyEvent` + `RFBKeyEventClient` protocol + `RFBNetworkClient` adoption + `FakeRFBClientMessageRecorder.keyEvents`) — fully Core, fully unit-testable, no UI yet.
+1. Extend RFB layer first — `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` is already in the codebase from the Compose & Send `pasteCommand` work, so this step adds the new `RFBKeyEventClient` capability protocol, `RFBNetworkClient` adoption (3-line method routing through the existing encoder), and `FakeRFBClientMessageRecorder.keyEvents`. Fully Core, fully unit-testable, no UI yet.
 2. `KeysymMapping` + `StickyModifierState` + `KeystrokeEmitter` — Core logic, tests against the fake recorder.
 3. `DirectKeystrokeMode` boolean + mode-toggle wiring on `NaruRemoteAppModel` — model-only, model tests.
 4. `DirectKeystrokeKeyboardView` + bottom-dock layout + page toggle + modifier visual states — App-side; first simulator screenshot iteration here.

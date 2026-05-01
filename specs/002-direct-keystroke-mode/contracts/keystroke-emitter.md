@@ -56,7 +56,7 @@ public protocol RFBKeyEventClient: AnyObject, Sendable {
     /// Callers (the `KeystrokeEmitter`) are responsible for ordering
     /// modifier downs / character downs / character ups / modifier
     /// ups.
-    func sendKeyEvent(downFlag: Bool, keysym: UInt32) async throws
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws
 }
 
 public protocol RFBStreamingClient:
@@ -69,36 +69,32 @@ public protocol RFBStreamingClient:
     RFBKeyEventClient {}    // ← new
 ```
 
-**Production adopter**: `RFBNetworkClient` in `Sources/NaruRemoteCore/VNC/RFBNetworkClient.swift`. The implementation is a 3-line method calling `RFBClientMessageEncoder.encodeKeyEvent(downFlag:keysym:)` and then the existing `sendData(_:)` helper — symmetric to the existing `sendPointerEvent(...)`.
+**Production adopter**: `RFBNetworkClient` in `Sources/NaruRemoteCore/VNC/RFBNetworkClient.swift`. The implementation is a 3-line method calling the **already-existing** `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` and then the existing `sendData(_:)` helper — symmetric to the existing `sendPointerEvent(...)`. The encoder method has been in the codebase since the Compose & Send `pasteCommand` work and produces the identical 8-byte RFB format; this feature reuses it, it does not add a new encoder.
 
 **Test adopter**: `FakeRFBServerKit` extends its message-recorder side to capture every incoming `KeyEvent` byte sequence in a typed array. Tests inject the fake into `KeystrokeEmitter.init(client:)` directly without a real socket.
 
 ---
 
-## `RFBClientMessageEncoder.encodeKeyEvent(downFlag:keysym:)`
+## `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` (existing)
 
-**Location**: `Sources/NaruRemoteCore/VNC/RFBClientMessageEncoder.swift` (new static method peer to `encodePointerEvent`).
+**Location**: `Sources/NaruRemoteCore/VNC/RFBClientMessageEncoder.swift` — line 29 of the file at PR #26 head. Already present; reused as-is by this feature.
 
 ```swift
-public static func encodeKeyEvent(downFlag: Bool, keysym: UInt32) -> Data {
-    var data = Data(count: 8)
-    data[0] = 4                                    // message-type
-    data[1] = downFlag ? 1 : 0                     // down-flag
-    data[2] = 0; data[3] = 0                       // padding
-    data[4] = UInt8((keysym >> 24) & 0xFF)         // big-endian keysym
-    data[5] = UInt8((keysym >> 16) & 0xFF)
-    data[6] = UInt8((keysym >>  8) & 0xFF)
-    data[7] = UInt8( keysym        & 0xFF)
-    return data
+public static func keyEvent(keysym: UInt32, isDown: Bool) -> Data {
+    var bytes: [UInt8] = [4, isDown ? 1 : 0, 0, 0]
+    bytes.append(contentsOf: uint32Bytes(keysym))
+    return Data(bytes)
 }
 ```
 
-**Contract**:
+**Contract** (already satisfied by the existing implementation):
 
 - Always returns 8 bytes.
 - Pure — no I/O, no clock, no random. Same input → same output.
 - Big-endian on the wire regardless of host endianness.
-- `RFBClientMessageEncoderTests` covers: `(true, 0x0063) → "04 01 00 00 00 00 00 63"`, `(false, 0xFFE3) → "04 00 00 00 00 00 FF E3"`, plus boundary values `0x00000000` and `0xFFFFFFFF`.
+- This feature's `RFBClientMessageEncoderTests` extension adds Direct-mode-relevant cases on top of the existing `pasteCommand`-driven coverage: `(0x0063, true) → "04 01 00 00 00 00 00 63"`, `(0xFFE3, false) → "04 00 00 00 00 00 FF E3"`, plus boundary values `0x00000000` and `0xFFFFFFFF`.
+
+**Naming note**: The codebase's existing convention is method names without an `encode` prefix (`clientCutText`, `pasteCommand`, `keyEvent`). The single outlier is the recently-added `encodePointerEvent`. The contract and the new `RFBKeyEventClient` adopter adopt the dominant convention (`keyEvent` / `sendKeyEvent`) rather than introducing yet another inconsistent surface; renaming `encodePointerEvent` for symmetry is out of scope for this feature.
 
 ---
 
@@ -115,10 +111,10 @@ public func emit(
 
 For one logical "press a key" event with the given active modifier set, emit the following sequence in order:
 
-1. For each modifier in the deterministic order `[.control, .shift, .alt, .meta]`, if it is in `modifiers`, send `KeyEvent(downFlag: true, keysym: keysymOf(modifier))`.
-2. Send `KeyEvent(downFlag: true, keysym: keysym)`.
-3. Send `KeyEvent(downFlag: false, keysym: keysym)`.
-4. For each modifier in the **reverse** deterministic order `[.meta, .alt, .shift, .control]`, if it is in `modifiers`, send `KeyEvent(downFlag: false, keysym: keysymOf(modifier))`.
+1. For each modifier in the deterministic order `[.control, .shift, .alt, .meta]`, if it is in `modifiers`, send `KeyEvent(isDown: true, keysym: keysymOf(modifier))`.
+2. Send `KeyEvent(isDown: true, keysym: keysym)`.
+3. Send `KeyEvent(isDown: false, keysym: keysym)`.
+4. For each modifier in the **reverse** deterministic order `[.meta, .alt, .shift, .control]`, if it is in `modifiers`, send `KeyEvent(isDown: false, keysym: keysymOf(modifier))`.
 
 Total `KeyEvent`s on the wire: `2 * (1 + modifiers.count)`.
 
@@ -164,4 +160,4 @@ Wire output for the same `(keysym, modifiers)` pair MUST be byte-identical betwe
 | Total `KeyEvent`s = `2 * (1 + modifiers.count)` | `KeystrokeEmitterTests` | `recorder.keyEvents.count == 2 * (1 + modifiers.count)` |
 | `emit` and `emitHardware` byte-identical for same input | `KeystrokeEmitterTests.testHardwareAndOnScreenAreByteIdentical` | `XCTAssertEqual` on both recorder arrays |
 | Throw on partial wire failure → caller clears sticky-armed | `NaruRemoteAppModelTests.testThrowingEmitClearsArmedModifiers` | model-level integration test |
-| `RFBNetworkClient` adopts `RFBKeyEventClient` and routes through `encodeKeyEvent` | `RFBNetworkClientTests` (integration) | `FakeRFBServerKit` socket-level verification |
+| `RFBNetworkClient` adopts `RFBKeyEventClient` and routes through the existing `keyEvent(keysym:isDown:)` | `RFBNetworkClientTests` (integration) | `FakeRFBServerKit` socket-level verification |

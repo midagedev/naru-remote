@@ -51,13 +51,13 @@ Mirror the existing capability-protocol pattern in `RFBClientBoundary.swift` rat
 
    ```swift
    public protocol RFBKeyEventClient: AnyObject, Sendable {
-       func sendKeyEvent(downFlag: Bool, keysym: UInt32) async throws
+       func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws
    }
    ```
 
-   `RFBStreamingClient` composes it. `RFBNetworkClient` adopts it (5-line method calling `RFBClientMessageEncoder.encodeKeyEvent(...)` then `sendData(...)` — same shape as `sendPointerEvent`).
+   `RFBStreamingClient` composes it. `RFBNetworkClient` adopts it (3-line method calling the **already-existing** `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` then `sendData(...)` — same shape as `sendPointerEvent`).
 
-2. **`RFBClientMessageEncoder.encodeKeyEvent(downFlag:keysym:)`** — pure static encoder, 8 bytes per RFC 6143 §7.5.4: `[type=4 (1 byte), downFlag (1 byte: 1 or 0), padding (2 bytes: 0,0), keysym big-endian (4 bytes)]`. Pure unit-testable; Compose & Send never calls it.
+2. **`RFBClientMessageEncoder.keyEvent(keysym:isDown:)` (existing)** — already in the codebase since the Compose & Send `pasteCommand` work; produces the 8-byte RFB `KeyEvent` per RFC 6143 §7.5.4: `[type=4 (1 byte), isDown (1 byte: 1 or 0), padding (2 bytes: 0,0), keysym big-endian (4 bytes)]`. Pure, unit-testable. This feature reuses it as-is — no new encoder method is added. The codebase convention is method names without an `encode` prefix (`clientCutText`, `pasteCommand`, `keyEvent`); the recent `encodePointerEvent` is an outlier and renaming it for symmetry is out of scope here.
 
 3. **`KeysymMapping`** (new file `Sources/NaruRemoteCore/RemoteInputDock/KeysymMapping.swift`) — pure value-type table with two query surfaces:
 
@@ -124,7 +124,7 @@ Compose & Send path is unchanged — its arrow goes from a different surface (iO
 
 | Requirement / User Story | Test Level | Tool / Environment | Evidence Required | Owner |
 | --- | --- | --- | --- | --- |
-| US-1 single tap → 1 down + 1 up `KeyEvent` on wire | Unit + Integration | XCTest + `FakeRFBServer` byte recorder | `swift test`: 8-byte sequence per tap; `type=4`, downFlag, padding zeros, keysym BE | agent |
+| US-1 single tap → 1 down + 1 up `KeyEvent` on wire | Unit + Integration | XCTest + `FakeRFBServer` byte recorder | `swift test`: 8-byte sequence per tap; `type=4`, isDown flag, padding zeros, keysym BE | agent |
 | US-1 special-keys page emits Tab / Esc / arrows / F1–F12 | Unit | XCTest on `KeysymMapping` | 100 % coverage of named-key enum cases | agent |
 | US-2 sticky `Ctrl` armed → tap `c` → `Ctrl down, c down, c up, Ctrl up` | Unit + Integration | XCTest + `FakeRFBServer` recorder | byte sequence asserts both order and keysym values | agent |
 | US-2 double-tap within 400 ms → locked → 3 letters held → tap `Shift` → released | Unit | XCTest on `StickyModifierState` | state-machine assertions; 401 ms gap is treated as a fresh single-tap | agent |
@@ -168,8 +168,8 @@ NaruRemote/
 │   │   └── (existing TextInjectionAdapter, RemoteInputDock state)
 │   └── VNC/
 │       ├── RFBClientBoundary.swift          [MODIFIED — add RFBKeyEventClient]
-│       ├── RFBClientMessageEncoder.swift    [MODIFIED — add encodeKeyEvent]
-│       └── RFBNetworkClient.swift           [MODIFIED — adopt RFBKeyEventClient]
+│       ├── RFBClientMessageEncoder.swift    [UNMODIFIED — keyEvent(keysym:isDown:) already exists]
+│       └── RFBNetworkClient.swift           [MODIFIED — adopt RFBKeyEventClient (sendKeyEvent → existing keyEvent(...))]
 ├── App/
 │   ├── AppShell/
 │   │   └── NaruRemoteAppModel.swift         [MODIFIED — wire DirectKeystroke + emitter]
@@ -189,7 +189,7 @@ NaruRemote/Tests/
 │   ├── KeysymMappingTests.swift             [NEW]
 │   ├── StickyModifierStateTests.swift       [NEW]
 │   ├── KeystrokeEmitterTests.swift          [NEW]
-│   └── RFBClientMessageEncoderTests.swift   [MODIFIED — add encodeKeyEvent cases]
+│   └── RFBClientMessageEncoderTests.swift   [MODIFIED — extend keyEvent(...) coverage with Direct-mode cases]
 ├── NaruRemoteAppTests/
 │   ├── DirectKeystrokeModeTests.swift       [NEW — model integration]
 │   └── RemoteInputDockToggleTests.swift     [NEW]
