@@ -1,3 +1,4 @@
+import NaruRemoteCore
 import SwiftUI
 
 public struct NaruRemoteAppShell: View {
@@ -54,6 +55,7 @@ public struct NaruRemoteAppShell: View {
                         framebuffer: snapshot.latestFramebuffer,
                         isPiPWatchAvailable: model.canStartPiPWatch,
                         pipWatchStatusText: model.pipWatchStatusText,
+                        isPiPWatching: snapshot.pipWatchSession?.state == .watching,
                         pipLayerHost: model.pipLayerHost,
                         onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
                         onConnect: snapshot.selectedProfile == nil ? nil : { model.connectSelectedProfile() },

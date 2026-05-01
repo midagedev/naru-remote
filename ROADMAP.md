@@ -125,13 +125,21 @@ lookup primitives
 - `RFBNetworkClient` updates production boundary state from the fake server
 - Failed reconnects clear stale frame metadata, and short transcripts return a
   typed error instead of trapping
-- Current boundary does not yet render full-rate pixels with SwiftUI/Metal,
-  restore remote clipboard contents, emit broader pointer/keyboard events, or
-  verify saved credentials against real VNC servers on physical devices
-- Next: SwiftUI/Metal frame presentation, real-server credential verification,
-  and wiring the new `ServerCutText` receive primitive into local clipboard
-  coordination so a remote copy can be reviewed and accepted on the iPad
-  before being placed on the local pasteboard
+- Non-PiP main preview renders through a Metal-backed `MTKView` driven by
+  `MetalFramebufferRenderer`: each frame is uploaded into a single
+  `MTLTexture` (recreated only when framebuffer dimensions change) and
+  presented with an aspect-fit fullscreen-quad shader.  The PiP
+  `AVSampleBufferDisplayLayer` (PR #5) remains the watch-mode path; the
+  `SessionViewportView` selects between Metal and the PiP layer using
+  `pipWatchSession?.state == .watching` so the GPU does not double render
+- Current boundary does not yet restore remote clipboard contents, emit
+  broader pointer/keyboard events, or verify saved credentials against real
+  VNC servers on physical devices
+- Next: real-server credential verification, dirty-rect partial Metal uploads
+  and on-device GPU profiling, and wiring the new `ServerCutText` receive
+  primitive into local clipboard coordination so a remote copy can be
+  reviewed and accepted on the iPad before being placed on the local
+  pasteboard
 - Keep real-server compatibility claims blocked until this phase passes
 
 ## Phase 4 - VNC Client Implementation Choice
