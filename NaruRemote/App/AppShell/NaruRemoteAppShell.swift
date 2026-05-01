@@ -5,6 +5,11 @@ public struct NaruRemoteAppShell: View {
     @StateObject private var model: NaruRemoteAppModel
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
     @State private var showsProfileEditor = false
+    /// When non-nil, an "Edit Profile" sheet is presented for this
+    /// profile.  Using `Identifiable` here means SwiftUI will tear
+    /// down and re-create the editor's state on each invocation, so
+    /// pre-filled fields always reflect the latest stored values.
+    @State private var editingProfile: EditingProfile?
 
     public init(snapshot: NaruRemoteAppSnapshot) {
         self._model = StateObject(wrappedValue: NaruRemoteAppModel(snapshot: snapshot))
@@ -28,7 +33,16 @@ public struct NaruRemoteAppShell: View {
             ProfileListView(
                 profiles: snapshot.profiles,
                 selectedProfileID: snapshot.selectedProfile?.id,
-                onSelect: model.selectProfile(id:)
+                onSelect: model.selectProfile(id:),
+                onEdit: { profile in
+                    editingProfile = EditingProfile(
+                        profile: profile,
+                        hasExistingCredential: profile.credentialRef != nil
+                    )
+                },
+                onDelete: { id in
+                    model.deleteProfile(id: id)
+                }
             )
             .navigationTitle("Naru Remote")
             .toolbar {
@@ -95,5 +109,24 @@ public struct NaruRemoteAppShell: View {
                 model.addProfile(profile, password: password)
             }
         }
+        .sheet(item: $editingProfile) { editing in
+            ProfileEditorView(
+                editing: editing.profile,
+                hasExistingCredential: editing.hasExistingCredential
+            ) { profile, password in
+                model.editProfile(profile, password: password)
+            }
+        }
     }
+}
+
+/// Sheet-item payload that carries both the profile being edited
+/// and the UI-only "is there a saved password?" hint.  The hint is
+/// derived from `credentialRef` — the actual stored password is
+/// never read for display (constitution §IV).
+private struct EditingProfile: Identifiable {
+    let profile: ConnectionProfile
+    let hasExistingCredential: Bool
+
+    var id: ConnectionProfile.ID { profile.id }
 }

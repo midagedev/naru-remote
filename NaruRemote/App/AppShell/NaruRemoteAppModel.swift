@@ -241,6 +241,132 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Replace the saved record for an existing profile.  The
+    /// `password` argument controls the keychain side of the edit:
+    ///
+    /// - `nil`        — leave the existing keychain credential
+    ///                   untouched.  Used when the editor's "Replace
+    ///                   password" toggle is off.
+    /// - `""`         — explicitly clear the credential.  Treated as
+    ///                   the user wiping their saved password; the
+    ///                   profile's `credentialRef` is dropped and the
+    ///                   keychain entry is deleted (delete-of-missing
+    ///                   is success, see constitution §IV).
+    /// - non-empty    — save the new password through the credential
+    ///                   store and ensure `credentialRef` is set.
+    ///
+    /// Editing the active profile keeps the session/selection in
+    /// place (the user is iterating on the same target).  If the
+    /// profile id is unknown, this is a no-op so a stale UI never
+    /// resurrects a deleted profile.
+    public func editProfile(_ profile: ConnectionProfile, password: String?) {
+        profilePersistenceError = nil
+
+        guard profiles.contains(where: { $0.id == profile.id }) else {
+            return
+        }
+
+        var profileToSave = profile
+
+        if let password {
+            let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedPassword.isEmpty {
+                // Explicit clear: drop the credentialRef and remove
+                // the keychain entry if one exists.  The credential
+                // store treats a missing entry as success so the
+                // user never sees a "couldn't delete" error for a
+                // password that was never saved.
+                if let existingRef = profileToSave.credentialRef {
+                    do {
+                        try credentialStore?.deletePassword(for: existingRef)
+                    } catch {
+                        profilePersistenceError = "Password could not be removed on this device."
+                        return
+                    }
+                }
+                profileToSave.credentialRef = nil
+            } else {
+                guard let credentialStore else {
+                    profilePersistenceError = "Password could not be saved on this device."
+                    return
+                }
+
+                let credentialRef = profileToSave.credentialRef ?? Self.credentialReference(for: profileToSave.id)
+                do {
+                    try credentialStore.savePassword(trimmedPassword, for: credentialRef)
+                    profileToSave.credentialRef = credentialRef
+                } catch {
+                    profilePersistenceError = "Password could not be saved on this device."
+                    return
+                }
+            }
+        }
+
+        if let index = profiles.firstIndex(where: { $0.id == profileToSave.id }) {
+            profiles[index] = profileToSave
+        }
+
+        do {
+            try profileStore?.save(profileToSave)
+        } catch {
+            profilePersistenceError = "Profile could not be saved on this device."
+        }
+    }
+
+    /// Remove a saved profile from the store.  Best-effort cleans up
+    /// the keychain credential too — keychain delete-of-missing is
+    /// treated as success so a profile that was never given a
+    /// password still deletes cleanly.
+    ///
+    /// If the deleted profile was the active one, the session,
+    /// frame stream, incoming-clipboard review, diagnostics, and
+    /// PiP watch state are all torn down and `selectedProfileID` is
+    /// cleared so no stale UI references the missing profile.
+    public func deleteProfile(id: ConnectionProfile.ID) {
+        profilePersistenceError = nil
+
+        guard let removedProfile = profiles.first(where: { $0.id == id }) else {
+            return
+        }
+
+        let wasActive = selectedProfileID == id || session?.profileID == id
+
+        profiles.removeAll { $0.id == id }
+
+        if let credentialRef = removedProfile.credentialRef {
+            do {
+                try credentialStore?.deletePassword(for: credentialRef)
+            } catch {
+                // The profile is already gone from the in-memory
+                // list and the disk store; surface a non-fatal
+                // error rather than aborting the whole delete and
+                // leaving the user with a half-deleted profile.
+                profilePersistenceError = "Saved password could not be removed on this device."
+            }
+        }
+
+        do {
+            _ = try profileStore?.deleteProfile(id: id)
+        } catch {
+            profilePersistenceError = "Profile could not be removed on this device."
+        }
+
+        if wasActive {
+            stopFrameStream()
+            stopIncomingClipboardReceive()
+            pendingIncomingClipboard = nil
+            activeTextClient = nil
+            session = nil
+            composeDraft = nil
+            diagnosticRun = nil
+            latestInjectionAttempt = nil
+            latestFramebuffer = nil
+            latestFrameDirtyRectangles = nil
+            clearPiPWatchSession()
+            selectedProfileID = nil
+        }
+    }
+
     public func runConnectionChecks() {
         guard let profile = selectedProfile else {
             return

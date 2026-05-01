@@ -76,8 +76,12 @@ Status: complete for MVP foundation
 - Remote Input Dock shell exists
 - Diagnostic summary shell exists
 - First-run onboarding checklist shell exists
-- Model-driven profile selection, Add Profile, Checks, Connect, and Send actions
-  are wired into the app shell
+- Model-driven profile selection, Add Profile, Edit Profile, Delete Profile,
+  Checks, Connect, and Send actions are wired into the app shell.  Edit/Delete
+  use swipe actions plus a context-menu fallback for VoiceOver / split-view /
+  keyboard users on iPad.  Edit semantics for the keychain credential follow
+  the `nil` / `""` / non-empty rule on `NaruRemoteAppModel.editProfile` so the
+  saved password is never displayed back to the user (constitution §IV)
 - iOS app launch uses app-local saved profile persistence instead of a hard-coded
   demo profile
 - iPad simulator launch UI test passes
