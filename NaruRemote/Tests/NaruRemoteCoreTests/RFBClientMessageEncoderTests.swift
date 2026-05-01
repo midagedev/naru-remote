@@ -78,4 +78,52 @@ final class RFBClientMessageEncoderTests: XCTestCase {
             XCTAssertEqual(message[1], mask, "bit \(bit) did not round-trip")
         }
     }
+
+    // MARK: - KeyEvent (Direct Keystroke Mode coverage)
+
+    func testKeyEventLowercaseCDownProducesEightByteFrame() {
+        // Direct Keystroke Mode worked example from
+        // contracts/keystroke-emitter.md — pressing 'c' (no modifiers)
+        // emits exactly these 8 bytes on the wire.
+        let message = RFBClientMessageEncoder.keyEvent(keysym: 0x0063, isDown: true)
+        XCTAssertEqual(message, Data([0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63]))
+    }
+
+    func testKeyEventControlLeftReleaseProducesEightByteFrame() {
+        // Releasing Control_L (X11 keysym 0xFFE3) is the modifier-up
+        // tail of a Ctrl-c chord per contracts/keystroke-emitter.md.
+        let message = RFBClientMessageEncoder.keyEvent(keysym: 0xFFE3, isDown: false)
+        XCTAssertEqual(message, Data([0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xE3]))
+    }
+
+    func testKeyEventBoundaryKeysyms() {
+        // 0x00000000 — minimum value — surfaces a broken big-endian
+        // encoder as a length-mismatch or wrong-byte error.
+        let zero = RFBClientMessageEncoder.keyEvent(keysym: 0x00000000, isDown: true)
+        XCTAssertEqual(zero, Data([0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+
+        // 0xFFFFFFFF — every keysym byte set — proves all four
+        // big-endian byte positions actually carry the correct
+        // shifted slice.
+        let max = RFBClientMessageEncoder.keyEvent(keysym: 0xFFFFFFFF, isDown: false)
+        XCTAssertEqual(max, Data([0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF]))
+
+        // Asymmetric value catches byte-order regressions: 0x12345678
+        // would survive a swapped-pair bug but not a fully reversed
+        // big-endian / little-endian flip.
+        let asymmetric = RFBClientMessageEncoder.keyEvent(keysym: 0x12345678, isDown: true)
+        XCTAssertEqual(asymmetric, Data([0x04, 0x01, 0x00, 0x00, 0x12, 0x34, 0x56, 0x78]))
+    }
+
+    func testKeyEventPaddingBytesAreAlwaysZero() {
+        // RFC 6143 §7.5.4 reserves bytes 2-3 as padding. They MUST
+        // be 0x00; some servers reject non-zero padding outright.
+        for keysym: UInt32 in [0x0000, 0x0063, 0xFF1B, 0xFFE3, 0xFFFFFFFF] {
+            for isDown in [true, false] {
+                let message = RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown)
+                XCTAssertEqual(message[2], 0, "padding byte 2 not zero for keysym \(keysym)")
+                XCTAssertEqual(message[3], 0, "padding byte 3 not zero for keysym \(keysym)")
+            }
+        }
+    }
 }

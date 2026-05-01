@@ -364,6 +364,10 @@ private final class DisconnectFakeConnector: RFBStreamingClient {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
         // No pointer surface is exercised by the disconnect tests.
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // No keystroke surface is exercised by the disconnect tests.
+    }
 }
 
 private enum DisconnectFakeConnectorError: Error {

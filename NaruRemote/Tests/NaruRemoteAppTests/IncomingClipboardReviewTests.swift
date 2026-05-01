@@ -300,4 +300,9 @@ private final class ReceivingStreamingConnector: RFBStreamingClient {
         // Pointer events are not exercised by the incoming-clipboard
         // review tests; satisfy the protocol with a no-op.
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // Key events are not exercised by the incoming-clipboard
+        // review tests; satisfy the protocol with a no-op.
+    }
 }

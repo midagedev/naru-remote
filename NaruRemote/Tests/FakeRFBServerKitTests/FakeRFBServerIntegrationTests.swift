@@ -444,6 +444,89 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertNil(client.lastFrame)
     }
 
+    // MARK: - Direct Keystroke Mode (RFC 6143 §7.5.4 KeyEvent)
+
+    func testProductionRFBNetworkClientSendsKeyEventsAfterInteractiveHandshake() async throws {
+        // Smallest end-to-end proof that
+        // RFBNetworkClient.sendKeyEvent(...) writes the right 8-byte
+        // KeyEvent frames (RFC 6143 §7.5.4) over a real socket — the
+        // payload that Phase 3+ KeystrokeEmitter will emit on every
+        // soft-keyboard tap. A press of 'c' (no modifiers) is a
+        // down/up pair at keysym 0x0063.
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        try await client.sendKeyEvent(keysym: 0x0063, isDown: true)
+        try await client.sendKeyEvent(keysym: 0x0063, isDown: false)
+
+        let events = try recorder.waitForKeyEvents(2)
+        XCTAssertEqual(events, [
+            FakeRFBKeyEvent(keysym: 0x0063, isDown: true),
+            FakeRFBKeyEvent(keysym: 0x0063, isDown: false)
+        ])
+    }
+
+    func testProductionRFBNetworkClientSendsCtrlCChordOverFourKeyEvents() async throws {
+        // Direct mode Ctrl-C chord per
+        // contracts/keystroke-emitter.md emission order:
+        //   Control_L down (0xFFE3) → c down (0x0063) → c up → Control_L up.
+        // Four KeyEvents on the wire in that order — the
+        // KeystrokeEmitter test in Phase 4 will assert the same
+        // sequence at the unit level, but the integration round-trip
+        // proves RFBNetworkClient + FakeRFBClientMessageRecorder
+        // agree on the wire byte order.
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        try await client.sendKeyEvent(keysym: 0xFFE3, isDown: true)
+        try await client.sendKeyEvent(keysym: 0x0063, isDown: true)
+        try await client.sendKeyEvent(keysym: 0x0063, isDown: false)
+        try await client.sendKeyEvent(keysym: 0xFFE3, isDown: false)
+
+        let events = try recorder.waitForKeyEvents(4)
+        XCTAssertEqual(events, [
+            FakeRFBKeyEvent(keysym: 0xFFE3, isDown: true),
+            FakeRFBKeyEvent(keysym: 0x0063, isDown: true),
+            FakeRFBKeyEvent(keysym: 0x0063, isDown: false),
+            FakeRFBKeyEvent(keysym: 0xFFE3, isDown: false)
+        ])
+    }
+
+    func testProductionRFBNetworkClientSendKeyEventThrowsWhenNotConnected() async throws {
+        // Disconnected sendKeyEvent surfaces the same typed
+        // notConnected error as sendPointerEvent does, so the
+        // KeystrokeEmitter caller (Phase 4) can clear sticky-armed
+        // modifiers on throw without inspecting error strings.
+        let client = RFBNetworkClient()
+
+        do {
+            try await client.sendKeyEvent(keysym: 0x0063, isDown: true)
+            XCTFail("sendKeyEvent should throw when there is no active connection")
+        } catch let error as RFBNetworkClientError {
+            XCTAssertEqual(error, .notConnected)
+        }
+    }
+
     private static func fixtureURL(_ name: String) -> URL {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<4 {

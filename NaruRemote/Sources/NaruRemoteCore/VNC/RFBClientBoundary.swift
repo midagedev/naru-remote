@@ -88,4 +88,17 @@ public protocol RFBPointerEventClient: AnyObject, Sendable {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws
 }
 
-public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient, RFBPointerEventClient {}
+/// Capability boundary for RFB clients that can deliver `KeyEvent`
+/// messages (RFC 6143 §7.5.4, message type 4) on the active
+/// connection. Used by Direct Keystroke Streaming Mode (the named
+/// constitution §I "MAY" exception) — both the on-screen custom
+/// keyboard and the Bluetooth / Magic Keyboard hardware path emit
+/// through this single boundary so the wire bytes are identical
+/// (`spec.md` SC-005). Implementations MUST NOT log the keysym
+/// values, modifier state, or any user-facing key content
+/// (constitution §IV; `spec.md` SP-005).
+public protocol RFBKeyEventClient: AnyObject, Sendable {
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws
+}
+
+public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient, RFBPointerEventClient, RFBKeyEventClient {}

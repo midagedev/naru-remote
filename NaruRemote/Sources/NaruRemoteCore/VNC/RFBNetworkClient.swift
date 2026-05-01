@@ -251,6 +251,27 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    /// Sends a single `KeyEvent` (RFC 6143 §7.5.4, message type 4)
+    /// on the active connection. The keysym comes from the caller
+    /// already as an X11 keysym integer — character / hardware
+    /// keycode → keysym mapping is the caller's responsibility
+    /// (`KeysymMapping` in the `RemoteInputDock` module owns that
+    /// table).
+    ///
+    /// Per constitution §IV the keysym and isDown values are not
+    /// logged at this boundary; if the connection has been torn
+    /// down the call surfaces `RFBNetworkClientError.notConnected`
+    /// with no extra detail.
+    public func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        guard let connection = currentActiveConnection() else {
+            throw RFBNetworkClientError.notConnected
+        }
+        try connection.write(
+            RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown),
+            timeout: 2
+        )
+    }
+
     /// Reads a single server-to-client `ServerCutText` message off the active
     /// connection and returns its UTF-8 payload. The fixed 8-byte header
     /// (1 byte message type + 3 bytes padding + 4 bytes big-endian length) is

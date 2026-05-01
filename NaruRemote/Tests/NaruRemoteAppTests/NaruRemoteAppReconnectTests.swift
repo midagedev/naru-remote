@@ -429,6 +429,10 @@ private final class FlakyStreamingConnector: RFBStreamingClient {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
         // Pointer events are out of scope for reconnect tests.
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // Key events are out of scope for reconnect tests.
+    }
 }
 
 private enum FlakyConnectorError: Error {
