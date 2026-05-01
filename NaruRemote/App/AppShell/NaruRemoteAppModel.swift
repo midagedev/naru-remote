@@ -158,6 +158,27 @@ public final class NaruRemoteAppModel: ObservableObject {
         snapshot.isPiPWatchAvailable && (pipWatchController?.isSupported ?? false)
     }
 
+    /// True while the first-run checklist has unfinished steps and
+    /// the user has not persistently dismissed it.  Mirrors the
+    /// in-shell derivation kept compatible with PR #8 — exposed on
+    /// the model so tests can assert visibility without mounting a
+    /// SwiftUI view.
+    public var showsOnboardingGuide: Bool {
+        !snapshot.onboardingGuide.isComplete
+            && !appSettings.dismissedOnboardingChecklist
+    }
+
+    /// True only while every checklist step is `.complete` and the
+    /// user has not yet dismissed the affirmation.  The shell shows
+    /// `OnboardingReadyView` exactly when this flips true; tapping
+    /// its dismiss button routes through
+    /// `dismissOnboardingChecklist()` so the affirmation never
+    /// re-appears across launches.
+    public var showsOnboardingReady: Bool {
+        snapshot.onboardingGuide.isComplete
+            && !appSettings.dismissedOnboardingChecklist
+    }
+
     public var pipWatchStatusText: String {
         if pipWatchSession != nil {
             return snapshot.pipWatchStatusText
