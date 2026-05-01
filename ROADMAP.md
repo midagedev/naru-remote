@@ -99,6 +99,19 @@ Status: complete for MVP foundation
   above the iPad keyboard while composing
 - Standalone simulator launch and local Korean/English/emoji compose
   screenshots are captured under `artifacts/screenshots/`
+- Bounded auto-reconnect on a streaming connection drop: a new
+  `ReconnectPolicy` value type (3 attempts, 500 ms initial backoff,
+  doubling, capped at 8 s) drives a `RemoteSessionState.reconnecting`
+  window inside `NaruRemoteAppModel`.  The reconnect path replays
+  the same profile + credentialRef, allocates a fresh `streamID` so
+  stale frame tasks self-cancel, resets the attempt counter on a
+  successful new frame, and surfaces a safe-catalog diagnostic
+  failure on exhaustion.  Compose & Send drafts are NOT replayed
+  (constitution §I).  Profile change, user-initiated disconnect,
+  and a fresh `connectSelectedProfile()` cancel the pending
+  reconnect sleep.  HUD shows a "Reconnecting (n/N)…" badge near
+  the connection HUD; no retry button while the system is already
+  trying.  iPhone first (constitution §VI).
 
 ## Phase 3 - Deterministic RFB Integration
 

@@ -31,6 +31,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
+    private let reconnectPolicy: ReconnectPolicy
     private var profileStore: ConnectionProfileStore?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let settingsPersistence: AppSettingsPersisting?
@@ -46,6 +47,26 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
     private var activeIncomingClipboardTask: Task<Void, Never>?
+    /// Last profile + credential pair we successfully started a
+    /// streaming session against.  Captured at stream start so an
+    /// auto-reconnect cycle can restart with the SAME profile and
+    /// credentialRef without prompting the user again.  Cleared on
+    /// user-initiated disconnect, profile change, and exhaustion.
+    private var activeStreamProfile: ConnectionProfile?
+    private var activeStreamCredential: RFBConnectionCredential?
+    /// Number of consecutive reconnect attempts that have started in
+    /// the current "drop" window.  Reset to `0` once a fresh frame
+    /// arrives post-reconnect (see `applyStreamFrame`).
+    private var reconnectAttempts: Int = 0
+    /// Pending reconnect sleep + restart task.  Holding the handle
+    /// lets profile change / `disconnect()` cancel the wait so a
+    /// dropped session does not "wake up" against a stale profile.
+    private var pendingReconnectTask: Task<Void, Never>?
+    /// Set by `disconnect()` (and by no other path).  When `true`,
+    /// `handleStreamFailure` skips reconnect scheduling entirely so
+    /// the user's explicit teardown is honored.  Reset by every
+    /// fresh user-initiated `connectSelectedProfile()`.
+    private var explicitlyDisconnected: Bool = false
     @Published public private(set) var profilePersistenceError: String?
     /// Most recent `AppSettingsPersisting` failure, if any.  We do
     /// not crash on settings persistence errors — settings are
@@ -62,6 +83,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             requestTimeout: 3,
             frameInterval: 0.25
         ),
+        reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
@@ -99,6 +121,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.credentialStore = credentialStore
         self.settingsPersistence = settingsPersistence
         self.frameStreamConfiguration = frameStreamConfiguration
+        self.reconnectPolicy = reconnectPolicy
         self.connectorFactory = connectorFactory
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
@@ -274,11 +297,15 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func selectProfile(id: ConnectionProfile.ID) {
         if selectedProfileID != id {
+            cancelPendingReconnect()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeStreamProfile = nil
+            activeStreamCredential = nil
+            reconnectAttempts = 0
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = nil
@@ -326,6 +353,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         selectedProfileID = profileToSave.id
         if session == nil || session?.profileID != profileToSave.id {
+            cancelPendingReconnect()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
@@ -339,6 +367,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeStreamProfile = nil
+            activeStreamCredential = nil
+            reconnectAttempts = 0
         }
     }
 
@@ -453,11 +484,15 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         if wasActive {
+            cancelPendingReconnect()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeStreamProfile = nil
+            activeStreamCredential = nil
+            reconnectAttempts = 0
             session = nil
             composeDraft = nil
             diagnosticRun = nil
@@ -554,6 +589,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let profile = selectedProfile else {
             return
         }
+
+        // Fresh user-initiated connect attempt: clear any pending
+        // auto-reconnect, drop the explicit-disconnect latch, and
+        // reset the bounded attempt counter so a future drop gets a
+        // fresh `maxAttempts` budget.
+        cancelPendingReconnect()
+        explicitlyDisconnected = false
+        reconnectAttempts = 0
+        activeStreamProfile = nil
+        activeStreamCredential = nil
 
         runConnectionChecks()
         var nextSession = RemoteSession(
@@ -687,6 +732,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         let configuration = frameStreamConfiguration
         activeFrameStreamID = streamID
         activeFramePump = pump
+        // Capture the profile + credential on every fresh stream
+        // start so a later drop can reconnect against the same
+        // pair.  This is intentionally written every start (not
+        // only on the FIRST attempt) so a profile edit between
+        // user-initiated connects is honored on the next drop.
+        activeStreamProfile = profile
+        activeStreamCredential = credential
 
         activeFrameStreamTask = Task { [weak self] in
             guard let self else {
@@ -778,6 +830,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
         updatedSession.markFirstFrameReceived(at: frame.capturedAt)
+        // A frame arriving after a reconnect window means the new
+        // attempt succeeded — drop the attempt counter so a future
+        // drop gets a fresh `maxAttempts` budget.
+        reconnectAttempts = 0
         latestFramebuffer = frame.framebuffer
         // Only forward damage rectangles for incremental frames.  The
         // first frame in a stream is non-incremental and the renderer
@@ -843,10 +899,63 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
         if updatedSession.hasReceivedFrame {
-            updatedSession.state = .degraded
-            updatedSession.hudMessage = "Frame stream interrupted"
-            updatedSession.lastError = "Frame stream interrupted"
+            // Bounded auto-reconnect on a streaming drop: only when
+            // the user has not explicitly disconnected and we still
+            // have attempts left in the policy.  Constitution §I:
+            // we never replay a buffered Compose & Send draft on
+            // reconnect — the send path requires a fresh user tap.
+            if !explicitlyDisconnected,
+               let savedProfile = activeStreamProfile,
+               savedProfile.id == profile.id,
+               let savedCredential = activeStreamCredential,
+               reconnectAttempts < reconnectPolicy.maxAttempts
+            {
+                let nextAttempt = reconnectAttempts + 1
+                reconnectAttempts = nextAttempt
+                updatedSession.markReconnecting(
+                    attempt: nextAttempt,
+                    of: reconnectPolicy.maxAttempts
+                )
+                session = updatedSession
+                scheduleReconnect(
+                    after: reconnectPolicy.backoffForAttempt(nextAttempt),
+                    profile: savedProfile,
+                    credential: savedCredential,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            // Reconnect not available (or attempts exhausted).
+            // Surface a safe-catalog diagnostic stage failure — the
+            // user sees the catalog message, NOT a raw error
+            // (constitution §IV).
+            updatedSession.markFailed("Connection lost. Please reconnect.")
+            latestFramebuffer = nil
+            latestFrameDirtyRectangles = nil
             session = updatedSession
+            activeStreamProfile = nil
+            activeStreamCredential = nil
+            reconnectAttempts = 0
+            diagnosticRun = ConnectionDiagnosticRun(
+                profileID: profile.id,
+                finishedAt: Date(),
+                stages: [
+                    DiagnosticStageResult(
+                        stage: .dns,
+                        status: .passed,
+                        safeTitle: "Profile ready",
+                        safeDetail: "Private profile is selected."
+                    ),
+                    DiagnosticStageResult(
+                        stage: .firstFrame,
+                        status: .failed,
+                        safeTitle: "Connection lost",
+                        safeDetail: "The remote frame stream stopped responding.",
+                        nextAction: "Check the remote computer and reconnect."
+                    )
+                ]
+            )
             return
         }
 
@@ -854,6 +963,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
         session = updatedSession
+        activeStreamProfile = nil
+        activeStreamCredential = nil
+        reconnectAttempts = 0
         diagnosticRun = ConnectionDiagnosticRun(
             profileID: profile.id,
             finishedAt: Date(),
@@ -873,6 +985,125 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             ]
         )
+    }
+
+    /// Schedule the next reconnect attempt.  Sleeps `backoff` then
+    /// — if the profile is still selected, the session id still
+    /// matches, no fresh user-initiated connect has fired, and the
+    /// user has not explicitly disconnected — re-runs the
+    /// connect-and-stream path against `profile`/`credential`.  The
+    /// new attempt allocates its OWN `streamID` inside
+    /// `startFrameStream`, so any in-flight task from the previous
+    /// drop self-cancels via the `isCurrentStream` triple-check.
+    ///
+    /// Cancellation of the pending sleep happens through
+    /// `cancelPendingReconnect()` (profile change, user
+    /// disconnect, fresh connect).
+    private func scheduleReconnect(
+        after backoff: Duration,
+        profile: ConnectionProfile,
+        credential: RFBConnectionCredential,
+        sessionID: RemoteSession.ID
+    ) {
+        pendingReconnectTask?.cancel()
+        let connectorFactory = self.connectorFactory
+        pendingReconnectTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: backoff)
+            } catch {
+                return
+            }
+            if Task.isCancelled {
+                return
+            }
+            guard let self else {
+                return
+            }
+            await self.runScheduledReconnect(
+                profile: profile,
+                credential: credential,
+                sessionID: sessionID,
+                connectorFactory: connectorFactory
+            )
+        }
+    }
+
+    /// Body of a fired reconnect.  Re-checks every cancellation
+    /// gate that could have flipped during the backoff sleep before
+    /// touching network state, then re-uses the streaming
+    /// connect path with a NEW `streamID`.  Non-streaming
+    /// connectors (pure first-frame) are not eligible for
+    /// auto-reconnect — that path never enters `handleStreamFailure`.
+    private func runScheduledReconnect(
+        profile: ConnectionProfile,
+        credential: RFBConnectionCredential,
+        sessionID: RemoteSession.ID,
+        connectorFactory: @Sendable () -> RFBFirstFrameConnecting
+    ) async {
+        // Gate checks: any of these flipping means a profile change,
+        // an explicit disconnect, or a fresh user connect raced past
+        // us — drop the attempt silently.
+        guard !explicitlyDisconnected else { return }
+        guard selectedProfileID == profile.id else { return }
+        guard session?.id == sessionID else { return }
+
+        let connector = connectorFactory()
+        guard let streamingClient = connector as? any RFBStreamingClient else {
+            // Auto-reconnect requires a streaming-capable
+            // connector — degrade to "Connection lost" rather than
+            // looping with a connector that cannot stream.
+            var updatedSession = session ?? RemoteSession(profileID: profile.id)
+            updatedSession.markFailed("Connection lost. Please reconnect.")
+            session = updatedSession
+            activeStreamProfile = nil
+            activeStreamCredential = nil
+            reconnectAttempts = 0
+            return
+        }
+
+        guard let pendingSession = session else { return }
+
+        // Stop the previous (already-broken) stream's bookkeeping
+        // before starting the next attempt.  `startFrameStream`
+        // assigns a fresh `streamID` so any straggler frame task
+        // self-cancels via `isCurrentStream`.
+        stopFrameStream()
+        startFrameStream(
+            streamingClient,
+            profile: profile,
+            session: pendingSession,
+            credential: credential
+        )
+    }
+
+    private func cancelPendingReconnect() {
+        pendingReconnectTask?.cancel()
+        pendingReconnectTask = nil
+    }
+
+    /// User-initiated disconnect.  Tears down the active stream,
+    /// any pending reconnect sleep, and the session HUD.  The
+    /// `explicitlyDisconnected` latch stays set until the next
+    /// fresh `connectSelectedProfile()` call so a late-firing
+    /// stream failure callback does not schedule a reconnect on
+    /// the user's behalf.
+    public func disconnect() {
+        explicitlyDisconnected = true
+        cancelPendingReconnect()
+        stopFrameStream()
+        stopIncomingClipboardReceive()
+        pendingIncomingClipboard = nil
+        activeTextClient = nil
+        activePointerClient = nil
+        activeStreamProfile = nil
+        activeStreamCredential = nil
+        reconnectAttempts = 0
+        if var current = session {
+            current.state = .closed
+            current.hudMessage = "Disconnected"
+            current.lastError = nil
+            session = current
+        }
     }
 
     private func isCurrentStream(

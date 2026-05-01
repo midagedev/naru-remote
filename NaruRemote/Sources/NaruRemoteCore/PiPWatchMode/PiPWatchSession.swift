@@ -193,3 +193,13 @@ public extension RemoteSessionState {
         }
     }
 }
+
+public extension RemoteSessionState {
+    /// True iff this state IS a `.reconnecting(attempt:of:)`.  Cheap
+    /// helper so callsites don't have to spell out the associated
+    /// values for a binary check.
+    var isReconnecting: Bool {
+        if case .reconnecting = self { return true }
+        return false
+    }
+}
