@@ -314,5 +314,10 @@ private final class FakeStreamingFramebufferConnector: RFBStreamingClient {
         // PiP layer-host tests do not drive pointer events; satisfy
         // the protocol with a no-op.
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // PiP layer-host tests do not drive key events; satisfy
+        // the protocol with a no-op.
+    }
 }
 #endif

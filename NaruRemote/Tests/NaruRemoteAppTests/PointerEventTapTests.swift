@@ -704,4 +704,9 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient {
             state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // Key events are out of scope for pointer-event tests; Direct
+        // Keystroke Mode tests live in DirectKeystrokeModeTests.swift.
+    }
 }

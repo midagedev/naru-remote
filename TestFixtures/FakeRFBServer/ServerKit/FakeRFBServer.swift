@@ -399,6 +399,7 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedBytes = Data()
     private var recordedPointerEvents: [FakeRFBPointerEvent] = []
+    private var recordedKeyEvents: [FakeRFBKeyEvent] = []
     private var pointerScanCursor: Int = 0
 
     public init() {}
@@ -419,6 +420,18 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedPointerEvents
+    }
+
+    /// Snapshot of `(keysym, isDown)` `KeyEvent` pairs decoded out of
+    /// the raw client byte stream so far (RFC 6143 §7.5.4, message
+    /// type 4). Only complete 8-byte frames are surfaced; a trailing
+    /// partial frame is buffered until the remaining bytes arrive
+    /// (see `scanForPointerEventsLocked`, which also handles type 4
+    /// frames). Each call returns an immutable snapshot.
+    public var keyEvents: [FakeRFBKeyEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedKeyEvents
     }
 
     public func append(_ data: Data) {
@@ -471,6 +484,33 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
         throw FakeRFBServerError.clientMessageTimedOut(
             expected: expected,
             actual: pointerEvents.count
+        )
+    }
+
+    /// Blocks the caller until at least `expected` `KeyEvent` pairs
+    /// have been decoded out of the recorded byte stream, or the
+    /// timeout elapses. Same shape as `waitForPointerEvents` —
+    /// integration tests for Direct Keystroke Mode use this to
+    /// assert ordered byte-level wire output without racing the
+    /// FramebufferUpdateRequest stream.
+    public func waitForKeyEvents(
+        _ expected: Int,
+        timeout: TimeInterval = 2
+    ) throws -> [FakeRFBKeyEvent] {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            let snapshot = keyEvents
+            if snapshot.count >= expected {
+                return snapshot
+            }
+
+            _ = semaphore.wait(timeout: .now() + 0.05)
+        }
+
+        throw FakeRFBServerError.clientMessageTimedOut(
+            expected: expected,
+            actual: keyEvents.count
         )
     }
 
@@ -538,6 +578,16 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
                 recordedPointerEvents.append(FakeRFBPointerEvent(buttonMask: mask, x: x, y: y))
             }
 
+            if messageType == 4 {
+                let isDown = recordedBytes[cursor + 1] == 1
+                let keysym =
+                    UInt32(recordedBytes[cursor + 4]) << 24 |
+                    UInt32(recordedBytes[cursor + 5]) << 16 |
+                    UInt32(recordedBytes[cursor + 6]) << 8 |
+                    UInt32(recordedBytes[cursor + 7])
+                recordedKeyEvents.append(FakeRFBKeyEvent(keysym: keysym, isDown: isDown))
+            }
+
             cursor += frameLength
         }
         pointerScanCursor = cursor
@@ -556,6 +606,20 @@ public struct FakeRFBPointerEvent: Equatable, Sendable {
         self.buttonMask = buttonMask
         self.x = x
         self.y = y
+    }
+}
+
+/// Single `KeyEvent` pair decoded by the fake server's recording
+/// state machine (RFC 6143 §7.5.4, message type 4). Mirrors the wire
+/// fields verbatim — the keysym is the X11 keysym as it appeared on
+/// the wire, big-endian decoded.
+public struct FakeRFBKeyEvent: Equatable, Sendable {
+    public let keysym: UInt32
+    public let isDown: Bool
+
+    public init(keysym: UInt32, isDown: Bool) {
+        self.keysym = keysym
+        self.isDown = isDown
     }
 }
 

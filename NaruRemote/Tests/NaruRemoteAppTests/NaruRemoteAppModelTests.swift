@@ -829,4 +829,10 @@ private final class FakeStreamingConnector: RFBStreamingClient {
             state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        // Key events are out of scope for the existing app-model
+        // pointer / clipboard tests; Direct Keystroke Mode tests live
+        // in DirectKeystrokeModeTests.swift.
+    }
 }
