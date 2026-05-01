@@ -20,6 +20,9 @@ public struct SessionViewportView: View {
     private let onFramebufferTap: ((CGPoint, CGSize) -> Void)?
     private let onFramebufferRightClick: ((CGPoint, CGSize) -> Void)?
     private let onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)?
+    private let onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)?
+    private let onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)?
+    private let onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)?
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     private let pipLayerHost: PiPLayerHost?
     #endif
@@ -49,7 +52,10 @@ public struct SessionViewportView: View {
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil
+        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
+        onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -66,6 +72,9 @@ public struct SessionViewportView: View {
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
+        self.onFramebufferPointerDown = onFramebufferPointerDown
+        self.onFramebufferPointerMove = onFramebufferPointerMove
+        self.onFramebufferPointerUp = onFramebufferPointerUp
     }
     #else
     public init(
@@ -82,7 +91,10 @@ public struct SessionViewportView: View {
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil
+        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
+        onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -98,6 +110,9 @@ public struct SessionViewportView: View {
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
+        self.onFramebufferPointerDown = onFramebufferPointerDown
+        self.onFramebufferPointerMove = onFramebufferPointerMove
+        self.onFramebufferPointerUp = onFramebufferPointerUp
     }
     #endif
 
@@ -243,7 +258,10 @@ public struct SessionViewportView: View {
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.
                     zoomScale = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
-                }
+                },
+                onPointerDown: onFramebufferPointerDown,
+                onPointerMove: onFramebufferPointerMove,
+                onPointerUp: onFramebufferPointerUp
             )
                 .scaleEffect(zoomScale)
                 .clipShape(RoundedRectangle(cornerRadius: 8))

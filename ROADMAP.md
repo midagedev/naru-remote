@@ -205,9 +205,30 @@ lookup primitives
   bursts.  The watch-only PiP path
   (`PiPSampleBufferDisplayLayerView`) intentionally does NOT install
   any of these recognizers.
-- Pointer follow-ups deferred to a later phase: pan (drag-to-move
-  with mouse-button-1 hold), hardware-trackpad parity, hover/cursor
-  preview for hardware pointer devices on iPad
+- Drag-to-move (single-finger pan with button-1 hold): a one-finger
+  pan on the rendered framebuffer dispatches a `PointerEvent` with
+  `buttonMask` 0x01 down at the gesture start, mask 0x01 hold updates
+  at each `.changed` callback, and mask 0x00 up at `.ended` /
+  `.cancelled` / `.failed` — the building block for window dragging,
+  text selection, and slider/scrollbar interaction on the remote.
+  The model exposes `sendPointerDownAt(viewPoint:viewSize:)`,
+  `sendPointerMoveTo(viewPoint:viewSize:)`, and
+  `sendPointerUpAt(viewPoint:viewSize:)`.  Tap-vs-drag is
+  disambiguated by deferring the down event until the FIRST
+  `.changed` callback so a stationary press that ends without
+  movement stays a button-1 click on the tap recognizer's path; the
+  drag recognizer also `require(toFail:)`s the long-press recognizer
+  so press-and-hold remains a button-3 click.  The wire is throttled
+  by suppressing moves whose framebuffer-coord delta from the last
+  emitted coord is below 1 pixel on both axes.  Verified end-to-end
+  against `FakeRFBServer` with a down → move → up sequence recorded
+  as three `(mask, x, y)` triples (mask 0x01 → 0x01 → 0x00).
+  Coordinates are NOT logged anywhere persistent (constitution §IV);
+  the diagnostic safe-detail catalog is unaffected by drag dispatch.
+  The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
+  intentionally does NOT install the drag recognizer.
+- Pointer follow-ups deferred to a later phase: hardware-trackpad
+  parity, hover/cursor preview for hardware pointer devices on iPad
 - Current boundary does not yet restore remote clipboard contents, emit
   keyboard events beyond the existing paste shim, support multi-button
   pointer or scroll, or verify saved credentials against real VNC

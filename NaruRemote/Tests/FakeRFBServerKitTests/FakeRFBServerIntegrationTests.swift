@@ -126,6 +126,36 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         ])
     }
 
+    func testProductionRFBNetworkClientSendsDragSequenceAfterInteractiveHandshake() async throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        // RFC 6143 §7.5.5: a drag-to-move is button-1 down (mask
+        // 0x01) followed by one or more button-1 hold updates at new
+        // (x, y) and a button-1 release (mask 0x00) at the final
+        // location.
+        try await client.sendPointerEvent(buttonMask: 0x01, x: 100, y: 200)
+        try await client.sendPointerEvent(buttonMask: 0x01, x: 140, y: 220)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: 140, y: 220)
+
+        let events = try recorder.waitForPointerEvents(3)
+        XCTAssertEqual(events, [
+            FakeRFBPointerEvent(buttonMask: 0x01, x: 100, y: 200),
+            FakeRFBPointerEvent(buttonMask: 0x01, x: 140, y: 220),
+            FakeRFBPointerEvent(buttonMask: 0x00, x: 140, y: 220)
+        ])
+    }
+
     func testProductionRFBNetworkClientSendsClipboardAndPasteMessagesAfterInteractiveHandshake() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()

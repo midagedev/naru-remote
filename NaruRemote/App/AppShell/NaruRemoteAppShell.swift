@@ -105,6 +105,15 @@ public struct NaruRemoteAppShell: View {
                                 deltaX: delta.width,
                                 deltaY: delta.height
                             )
+                        },
+                        onFramebufferPointerDown: { point, size in
+                            Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
+                        },
+                        onFramebufferPointerMove: { point, size in
+                            Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
+                        },
+                        onFramebufferPointerUp: { point, size in
+                            Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
                         }
                     )
 

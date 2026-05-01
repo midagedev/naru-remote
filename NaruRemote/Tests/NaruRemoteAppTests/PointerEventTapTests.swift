@@ -425,6 +425,161 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(recorder.recordedPointerEvents.count, 0)
     }
 
+    // MARK: Drag
+
+    func testDragSendsButtonOneDownThenMovesThenUp() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let viewSize = CGSize(width: 100, height: 100)
+
+        // Start at (50, 50) → fb (512, 384).  Move to (60, 50) →
+        // fb (614.4 → 614, 360 (within fit) → 384).  Then move to
+        // (70, 60) → fb (716, 460.8 → 460).  All inside the
+        // 1024x768 4:3 framebuffer fit rect.
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
+
+        try await waitForPointerEvents(recorder, count: 4)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0].mask, 0x01)
+        XCTAssertEqual(events[0].x, 512)
+        XCTAssertEqual(events[0].y, 384)
+        XCTAssertEqual(events[1].mask, 0x01)
+        XCTAssertEqual(events[2].mask, 0x01)
+        XCTAssertEqual(events[3].mask, 0x00)
+        // Down and up coords differ when the user dragged — sanity
+        // check that the drag actually moved on the wire.
+        let downX = events[0].x
+        let downY = events[0].y
+        let upX = events[3].x
+        let upY = events[3].y
+        XCTAssertFalse(downX == upX && downY == upY)
+    }
+
+    func testDragMoveBelowOnePixelDeltaDoesNotEmit() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let viewSize = CGSize(width: 100, height: 100)
+
+        // Down at (50, 50) → fb (512, 384).  Two move calls at the
+        // same view point still map to the same fb (512, 384) and
+        // must be suppressed by the throttle.  Then a move at (60,
+        // 50) crosses the threshold (fb x = 614 ≠ 512) and must be
+        // emitted.
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+
+        try await waitForPointerEvents(recorder, count: 3)
+        // Settle a beat so any erroneous extra move can land before
+        // we assert the count.
+        try await Task.sleep(for: .milliseconds(40))
+
+        let events = recorder.recordedPointerEvents
+        // 1 down (mask 0x01) + 1 move that crossed threshold (mask
+        // 0x01) + 1 up (mask 0x00) = 3.  The two suppressed moves
+        // never reached the wire.
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events[0].mask, 0x01)
+        XCTAssertEqual(events[1].mask, 0x01)
+        XCTAssertEqual(events[2].mask, 0x00)
+    }
+
+    func testDragOutsideLetterboxAtStartIsNoOp() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let viewSize = CGSize(width: 100, height: 100)
+        // y=5 is the top letterbox band of a 1024x768 (4:3) fb in a
+        // 100x100 view (originY = 12.5).  All three commands must
+        // return without emitting any pointer events on the wire.
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 5), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 50, y: 5), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 50, y: 5), viewSize: viewSize)
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(recorder.recordedPointerEvents.count, 0)
+    }
+
+    func testDragWithExplicitDisconnectDoesNothing() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        // Tear the session down so `explicitlyDisconnected` is set.
+        model.disconnect()
+
+        let viewSize = CGSize(width: 100, height: 100)
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(recorder.recordedPointerEvents.count, 0)
+    }
+
+    func testDragSendsCorrectFramebufferCoordsForAspectFit() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let viewSize = CGSize(width: 100, height: 100)
+        // In a 100x100 view with a 1024x768 (4:3) fb, the fit rect is
+        // 100 wide × 75 tall, originY = 12.5.
+        // (25, 25) view → local (25, 12.5) → fb (256, 128).
+        // (75, 75) view → local (75, 62.5) → fb (768, 640).
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 25, y: 25), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 75, y: 75), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 75, y: 75), viewSize: viewSize)
+
+        try await waitForPointerEvents(recorder, count: 3)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events[0].mask, 0x01)
+        XCTAssertEqual(events[0].x, 256)
+        XCTAssertEqual(events[0].y, 128)
+        XCTAssertEqual(events[1].mask, 0x01)
+        XCTAssertEqual(events[1].x, 768)
+        XCTAssertEqual(events[1].y, 640)
+        XCTAssertEqual(events[2].mask, 0x00)
+        XCTAssertEqual(events[2].x, 768)
+        XCTAssertEqual(events[2].y, 640)
+    }
+
+    func testDragDoesNotChangeDiagnosticExportSafeCatalog() async throws {
+        // Constitution §IV: drag coordinates must not leak into the
+        // diagnostic safe-detail catalog.
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let pinnedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
+
+        let viewSize = CGSize(width: 100, height: 100)
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 60), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 60, y: 60), viewSize: viewSize)
+        try await waitForPointerEvents(recorder, count: 3)
+
+        let exportAfter = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
+        XCTAssertEqual(exportAfter, exportBefore)
+    }
+
     private static func connectedModelAndConnector() async throws -> (model: NaruRemoteAppModel, connector: PointerCapturingStreamingConnector) {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
