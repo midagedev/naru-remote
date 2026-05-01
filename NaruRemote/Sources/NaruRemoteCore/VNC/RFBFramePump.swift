@@ -86,6 +86,21 @@ public struct RFBFramePumpSummary: Equatable, Sendable {
     }
 }
 
+// @unchecked Sendable justified: `RFBFramePump.run` is a long-lived
+// blocking frame loop — it issues a synchronous
+// `requestFramebufferUpdate` on its `RFBFramebufferUpdating` source
+// (the underlying `NWConnection` semaphores block the caller
+// thread), invokes a synchronous `onFrame` callback that may
+// itself call `pump.cancel()`, and `Thread.sleep`s between frames.
+// Migrating to `actor` would put that blocking work on the actor's
+// serial executor and force `cancel()` to be `async`, which would
+// either deadlock callbacks that `await pump.cancel()` from inside
+// `run` (`RFBFramePumpTests.testPumpStopsAfterCancellation`) or
+// cascade `async` through `RFBFramebufferUpdating` — which the test
+// fakes for that protocol implement synchronously today (deferred
+// per PR #17's out-of-scope list).  Mutable state (`cancelled`,
+// `_deliveredFrameCount`) is guarded by `lock` — every read and
+// every write goes through `lock.withRFBFramePumpLock`.
 public final class RFBFramePump: @unchecked Sendable {
     private let source: any RFBFramebufferUpdating
     private let lock = NSLock()

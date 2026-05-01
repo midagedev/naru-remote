@@ -74,25 +74,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         // construction (the iOS shell does this in a `.task` modifier).
         let initialProfiles = snapshot.profiles
 
-        // Settings are non-critical: a load failure falls back to
-        // defaults rather than throwing from `init`.  The error is
-        // observable through `settingsPersistenceError` so the
-        // shell can surface it if needed.  See ROADMAP Phase 7.
-        let loadedSettings: AppSettings
-        let loadError: String?
-        if let settingsPersistence {
-            do {
-                loadedSettings = try settingsPersistence.load()
-                loadError = nil
-            } catch {
-                loadedSettings = AppSettings()
-                loadError = "Settings could not be loaded on this device."
-            }
-        } else {
-            loadedSettings = AppSettings()
-            loadError = nil
-        }
-
+        // Settings are non-critical and are no longer loaded
+        // synchronously from `settingsPersistence` here — the
+        // in-memory persistence is now an `actor`, so its `load()`
+        // call is async (mirroring the profile store migration in
+        // PR #17).  Callers that want disk-backed settings must
+        // invoke `loadStoredSettings()` after construction (the iOS
+        // shell does this in a `.task` modifier).  In the interim
+        // the model uses defaults; that's the same behavior as the
+        // no-persistence path, so existing snapshot/preview entry
+        // points keep working.
         self.profiles = initialProfiles
         self.selectedProfileID = snapshot.selectedProfileID ?? initialProfiles.first?.id
         self.session = snapshot.session
@@ -102,8 +93,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchSession = snapshot.pipWatchSession
         self.latestFramebuffer = snapshot.latestFramebuffer
         self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
-        self.appSettings = loadedSettings
-        self.settingsPersistenceError = loadError
+        self.appSettings = AppSettings()
+        self.settingsPersistenceError = nil
         self.profileStore = profileStore
         self.credentialStore = credentialStore
         self.settingsPersistence = settingsPersistence
@@ -159,13 +150,53 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Loads disk-backed `AppSettings` from the injected
+    /// `AppSettingsPersisting` and merges them into the model
+    /// state.  Mirrors `loadStoredProfiles()`: called from the iOS
+    /// shell's `.task` modifier on first appear so startup is
+    /// non-blocking.  A load failure surfaces through
+    /// `settingsPersistenceError` rather than being thrown — settings
+    /// are non-critical and a stale in-memory `appSettings` is still
+    /// safe to use until the next launch (see ROADMAP Phase 7).
+    /// No-op if no `settingsPersistence` was injected or if the
+    /// user has already toggled a setting in this session.
+    public func loadStoredSettings() async {
+        guard let settingsPersistence else {
+            return
+        }
+        // If the user has already toggled a setting in this session
+        // (e.g. dismissed the onboarding checklist) before the
+        // background load finishes, do not clobber that with whatever
+        // was on disk at launch.
+        guard appSettings == AppSettings() else {
+            return
+        }
+
+        do {
+            let loaded = try await settingsPersistence.load()
+            guard appSettings == AppSettings() else {
+                return
+            }
+            appSettings = loaded
+            settingsPersistenceError = nil
+        } catch {
+            settingsPersistenceError = "Settings could not be loaded on this device."
+        }
+    }
+
     /// Persists "user dismissed the first-run onboarding
     /// checklist" so the section stays hidden across launches.
     /// A persistence error is captured in
     /// `settingsPersistenceError` rather than thrown — the
     /// in-memory flag still flips so the current session honors
     /// the dismissal.
-    public func dismissOnboardingChecklist() {
+    ///
+    /// Now `async` so the underlying actor-isolated save can be
+    /// awaited.  The in-memory flag flip still happens synchronously
+    /// at the top of the body so the published `appSettings` value
+    /// updates immediately for the SwiftUI shell; only the
+    /// persistence write is awaited.
+    public func dismissOnboardingChecklist() async {
         var updated = appSettings
         updated.dismissedOnboardingChecklist = true
         appSettings = updated
@@ -176,7 +207,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
-            try settingsPersistence.save(updated)
+            try await settingsPersistence.save(updated)
         } catch {
             settingsPersistenceError = "Settings could not be saved on this device."
         }

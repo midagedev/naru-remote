@@ -2,18 +2,18 @@ import XCTest
 @testable import NaruRemoteCore
 
 final class FileAppSettingsPersistenceTests: XCTestCase {
-    func testSaveThenLoadReturnsSameSettings() throws {
+    func testSaveThenLoadReturnsSameSettings() async throws {
         let fileURL = try Self.temporarySettingsStoreURL()
         let persistence = FileAppSettingsPersistence(fileURL: fileURL)
         let settings = AppSettings(dismissedOnboardingChecklist: true)
 
-        try persistence.save(settings)
+        try await persistence.save(settings)
 
-        let reloaded = try FileAppSettingsPersistence(fileURL: fileURL).load()
+        let reloaded = try await FileAppSettingsPersistence(fileURL: fileURL).load()
         XCTAssertEqual(reloaded, settings)
     }
 
-    func testLoadOnMissingFileReturnsDefaults() throws {
+    func testLoadOnMissingFileReturnsDefaults() async throws {
         let fileURL = try Self.temporarySettingsStoreURL()
         let persistence = FileAppSettingsPersistence(fileURL: fileURL)
 
@@ -21,12 +21,12 @@ final class FileAppSettingsPersistenceTests: XCTestCase {
         // branch to be exercised.
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
 
-        let loaded = try persistence.load()
+        let loaded = try await persistence.load()
 
         XCTAssertEqual(loaded, AppSettings())
     }
 
-    func testSaveCreatesParentDirectory() throws {
+    func testSaveCreatesParentDirectory() async throws {
         // Mirrors `FileConnectionProfilePersistence`: the
         // `Application Support/NaruRemote/` directory may not
         // exist on first launch.  Save must create it.
@@ -37,20 +37,21 @@ final class FileAppSettingsPersistenceTests: XCTestCase {
             .appendingPathComponent("settings.json")
         let persistence = FileAppSettingsPersistence(fileURL: fileURL)
 
-        try persistence.save(AppSettings(dismissedOnboardingChecklist: true))
+        try await persistence.save(AppSettings(dismissedOnboardingChecklist: true))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
-        let reloaded = try FileAppSettingsPersistence(fileURL: fileURL).load()
+        let reloaded = try await FileAppSettingsPersistence(fileURL: fileURL).load()
         XCTAssertTrue(reloaded.dismissedOnboardingChecklist)
     }
 
-    func testInMemoryPersistenceRoundTripsSettings() throws {
+    func testInMemoryPersistenceRoundTripsSettings() async throws {
         let persistence = InMemoryAppSettingsPersistence()
         let settings = AppSettings(dismissedOnboardingChecklist: true)
 
-        try persistence.save(settings)
+        try await persistence.save(settings)
 
-        XCTAssertEqual(try persistence.load(), settings)
+        let loaded = try await persistence.load()
+        XCTAssertEqual(loaded, settings)
     }
 }
 
