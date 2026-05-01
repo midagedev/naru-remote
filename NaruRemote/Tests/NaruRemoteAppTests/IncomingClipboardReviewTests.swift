@@ -287,4 +287,9 @@ private final class ReceivingStreamingConnector: RFBStreamingClient, @unchecked 
         }
         return pendingIncomingPayloads.removeFirst()
     }
+
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        // Pointer events are not exercised by the incoming-clipboard
+        // review tests; satisfy the protocol with a no-op.
+    }
 }

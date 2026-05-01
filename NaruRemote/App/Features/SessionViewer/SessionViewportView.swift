@@ -17,6 +17,7 @@ public struct SessionViewportView: View {
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
+    private let onFramebufferTap: ((CGPoint, CGSize) -> Void)?
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     private let pipLayerHost: PiPLayerHost?
     #endif
@@ -34,7 +35,8 @@ public struct SessionViewportView: View {
         pipLayerHost: PiPLayerHost? = nil,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
-        onStartPiPWatch: (() -> Void)? = nil
+        onStartPiPWatch: (() -> Void)? = nil,
+        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -48,6 +50,7 @@ public struct SessionViewportView: View {
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
+        self.onFramebufferTap = onFramebufferTap
     }
     #else
     public init(
@@ -61,7 +64,8 @@ public struct SessionViewportView: View {
         isPiPWatching: Bool = false,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
-        onStartPiPWatch: (() -> Void)? = nil
+        onStartPiPWatch: (() -> Void)? = nil,
+        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -74,6 +78,7 @@ public struct SessionViewportView: View {
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
+        self.onFramebufferTap = onFramebufferTap
     }
     #endif
 
@@ -198,7 +203,8 @@ public struct SessionViewportView: View {
         if MetalFramebufferView.isSupported() {
             MetalFramebufferView(
                 framebuffer: framebuffer,
-                dirtyRectangles: frameDirtyRectangles
+                dirtyRectangles: frameDirtyRectangles,
+                onTap: onFramebufferTap
             )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .aspectRatio(aspectRatio, contentMode: .fit)

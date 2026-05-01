@@ -691,6 +691,13 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
     private var recordedCredentials: [RFBConnectionCredential] = []
     private var recordedClipboardPayloads: [String] = []
     private var recordedPasteCommands: [PasteCommand] = []
+    private var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+
+    var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedPointerEventsList
+    }
 
     init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
         self.width = width
@@ -813,5 +820,11 @@ private final class FakeStreamingConnector: RFBStreamingClient, @unchecked Senda
         lock.lock()
         recordedPasteCommands.append(command)
         lock.unlock()
+    }
+
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        lock.withLock {
+            recordedPointerEventsList.append((buttonMask, x, y))
+        }
     }
 }

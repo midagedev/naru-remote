@@ -78,4 +78,14 @@ public protocol RFBDamageTrackingFramebufferUpdating: RFBFramebufferUpdating {
     ) throws -> RFBFramebufferUpdateResult
 }
 
-public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient {}
+/// Capability boundary for RFB clients that can deliver
+/// `PointerEvent` messages (RFC 6143 §7.5.5, message type 5) on the
+/// active connection. Pointer events are NOT a text-input path —
+/// constitution §I keeps the multilingual default on the
+/// clipboard/compose-and-send route. Implementations MUST NOT log
+/// the `(x, y)` coordinates anywhere persistent (constitution §IV).
+public protocol RFBPointerEventClient: AnyObject, Sendable {
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws
+}
+
+public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient, RFBPointerEventClient {}

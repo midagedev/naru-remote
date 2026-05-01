@@ -398,6 +398,8 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var recordedBytes = Data()
+    private var recordedPointerEvents: [FakeRFBPointerEvent] = []
+    private var pointerScanCursor: Int = 0
 
     public init() {}
 
@@ -407,9 +409,22 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
         return recordedBytes
     }
 
+    /// Snapshot of `(buttonMask, x, y)` `PointerEvent` triples decoded
+    /// out of the raw client byte stream so far. Only complete 6-byte
+    /// frames are surfaced; a trailing partial frame is buffered until
+    /// the remaining bytes arrive (see `scanForPointerEventsLocked`).
+    /// Each call returns an immutable snapshot — the underlying buffer
+    /// keeps growing as more bytes arrive.
+    public var pointerEvents: [FakeRFBPointerEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedPointerEvents
+    }
+
     public func append(_ data: Data) {
         lock.lock()
         recordedBytes.append(data)
+        scanForPointerEventsLocked()
         lock.unlock()
         semaphore.signal()
     }
@@ -430,6 +445,117 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
             expected: expectedByteCount,
             actual: bytes.count
         )
+    }
+
+    /// Blocks the caller until at least `expected` `PointerEvent`
+    /// triples have been decoded out of the recorded byte stream, or
+    /// the timeout elapses. Used by integration tests that drive the
+    /// production client across an interactive handshake — the byte
+    /// stream contains framebuffer-update requests too, so a raw
+    /// `waitForByteCount` would race the pointer events.
+    public func waitForPointerEvents(
+        _ expected: Int,
+        timeout: TimeInterval = 2
+    ) throws -> [FakeRFBPointerEvent] {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            let snapshot = pointerEvents
+            if snapshot.count >= expected {
+                return snapshot
+            }
+
+            _ = semaphore.wait(timeout: .now() + 0.05)
+        }
+
+        throw FakeRFBServerError.clientMessageTimedOut(
+            expected: expected,
+            actual: pointerEvents.count
+        )
+    }
+
+    /// Walks the recorded byte buffer forward from `pointerScanCursor`,
+    /// dispatching each known client message type to its frame size and
+    /// appending a `FakeRFBPointerEvent` for every complete message-type
+    /// 5 frame. Unknown message types abort the scan — production tests
+    /// never feed unknown types so reaching that branch indicates a
+    /// fixture/protocol mismatch the caller should investigate. Caller
+    /// must already hold `lock`.
+    private func scanForPointerEventsLocked() {
+        var cursor = pointerScanCursor
+        while cursor < recordedBytes.count {
+            let messageType = recordedBytes[cursor]
+            let frameLength: Int
+            switch messageType {
+            case 0:
+                // SetPixelFormat: 1 + 3 padding + 16 pixel format
+                frameLength = 20
+            case 2:
+                // SetEncodings: 1 + 1 padding + 2 number-of-encodings + 4*N
+                guard cursor + 4 <= recordedBytes.count else {
+                    pointerScanCursor = cursor
+                    return
+                }
+                let count = Int(recordedBytes[cursor + 2]) << 8 | Int(recordedBytes[cursor + 3])
+                frameLength = 4 + count * 4
+            case 3:
+                // FramebufferUpdateRequest
+                frameLength = 10
+            case 4:
+                // KeyEvent
+                frameLength = 8
+            case 5:
+                // PointerEvent: 1 + 1 mask + 2 x + 2 y
+                frameLength = 6
+            case 6:
+                // ClientCutText: 1 + 3 padding + 4 length + N text
+                guard cursor + 8 <= recordedBytes.count else {
+                    pointerScanCursor = cursor
+                    return
+                }
+                let length =
+                    UInt32(recordedBytes[cursor + 4]) << 24 |
+                    UInt32(recordedBytes[cursor + 5]) << 16 |
+                    UInt32(recordedBytes[cursor + 6]) << 8 |
+                    UInt32(recordedBytes[cursor + 7])
+                frameLength = 8 + Int(length)
+            default:
+                // Unknown message type — stop scanning so callers see
+                // exactly the frames decoded up to this point.
+                pointerScanCursor = cursor
+                return
+            }
+
+            guard cursor + frameLength <= recordedBytes.count else {
+                pointerScanCursor = cursor
+                return
+            }
+
+            if messageType == 5 {
+                let mask = recordedBytes[cursor + 1]
+                let x = UInt16(recordedBytes[cursor + 2]) << 8 | UInt16(recordedBytes[cursor + 3])
+                let y = UInt16(recordedBytes[cursor + 4]) << 8 | UInt16(recordedBytes[cursor + 5])
+                recordedPointerEvents.append(FakeRFBPointerEvent(buttonMask: mask, x: x, y: y))
+            }
+
+            cursor += frameLength
+        }
+        pointerScanCursor = cursor
+    }
+}
+
+/// Single `PointerEvent` triple decoded by the fake server's recording
+/// state machine. Mirrors the wire fields verbatim — the recorder
+/// performs no view→framebuffer mapping.
+public struct FakeRFBPointerEvent: Equatable, Sendable {
+    public let buttonMask: UInt8
+    public let x: UInt16
+    public let y: UInt16
+
+    public init(buttonMask: UInt8, x: UInt16, y: UInt16) {
+        self.buttonMask = buttonMask
+        self.x = x
+        self.y = y
     }
 }
 

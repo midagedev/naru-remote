@@ -41,6 +41,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public let pipLayerHost: PiPLayerHost
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
+    private var activePointerClient: RFBPointerEventClient?
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -179,6 +180,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
             activeTextClient = nil
+            activePointerClient = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = nil
@@ -238,6 +240,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             activeTextClient = nil
+            activePointerClient = nil
         }
     }
 
@@ -356,6 +359,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
             activeTextClient = nil
+            activePointerClient = nil
             session = nil
             composeDraft = nil
             diagnosticRun = nil
@@ -469,6 +473,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             nextSession.markFailed("Credential unavailable")
             session = nextSession
             activeTextClient = nil
+            activePointerClient = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
@@ -507,6 +512,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 latestFrameDirtyRectangles = nil
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
+                activePointerClient = connector as? RFBPointerEventClient
                 if textClient != nil {
                     startIncomingClipboardReceive(receive: Self.makeReceive(connector: connector))
                 }
@@ -543,6 +549,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             } catch {
                 activeTextClient = nil
+                activePointerClient = nil
                 stopIncomingClipboardReceive()
                 latestFramebuffer = nil
                 latestFrameDirtyRectangles = nil
@@ -603,6 +610,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }
 
                 activeTextClient = streamingClient
+                activePointerClient = streamingClient
                 startIncomingClipboardReceive(receive: Self.makeReceive(streamingClient: streamingClient))
 
                 while shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
@@ -732,6 +740,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         activeTextClient = nil
+        activePointerClient = nil
         stopIncomingClipboardReceive()
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
@@ -1029,6 +1038,139 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
         composeDraft = draft
         latestInjectionAttempt = attempt
+    }
+
+    /// Translate a tap in the framebuffer view's coordinate space into a
+    /// remote-side button-1 click and dispatch it as a pair of
+    /// `PointerEvent` messages (RFC 6143 §7.5.5): button-down (mask
+    /// 0x01) followed by button-up (mask 0x00) at the same `(x, y)`.
+    ///
+    /// The view→framebuffer mapping mirrors the aspect-fit choice in
+    /// `MetalFramebufferRenderer.aspectFitViewport` — the framebuffer is
+    /// centered inside the view with letterbox/pillarbox bands as
+    /// needed.  Taps that fall inside the letterbox bands (outside the
+    /// framebuffer rectangle) are NO-OPs: we will not synthesize a
+    /// click at a clamped edge pixel because the user did not actually
+    /// touch the remote framebuffer.
+    ///
+    /// No-op cases (silent, returns without side effects):
+    ///   - no `latestFramebuffer` (no first frame yet)
+    ///   - no streaming pointer client (legacy first-frame connector)
+    ///   - the tap falls in the letterbox/pillarbox bands
+    ///   - the view or framebuffer reports a degenerate (zero/negative)
+    ///     dimension
+    ///
+    /// Constitution §IV: the `(x, y)` coordinates and the view point
+    /// are NOT logged anywhere persistent.  Coordinates can be used to
+    /// infer remote screen contents, so they stay confined to the
+    /// outgoing `PointerEvent` bytes.
+    public func sendTapAt(viewPoint: CGPoint, viewSize: CGSize) {
+        guard let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        Task { [weak self, pointerClient, mapped] in
+            do {
+                try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
+                try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
+            } catch {
+                guard let self else { return }
+                // If the stream we dispatched against is no longer the
+                // active one, drop the failure silently — a profile
+                // switch or disconnect already cleared the pointer
+                // client.  Otherwise mirror the connection-lost state
+                // so subsequent taps don't keep retrying a dead client.
+                await MainActor.run {
+                    guard self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID
+                    else {
+                        return
+                    }
+                    self.activePointerClient = nil
+                }
+            }
+        }
+    }
+
+    /// Pure aspect-fit math used by `sendTapAt(viewPoint:viewSize:)`.
+    /// Public for test access — kept as a static so tests do not have
+    /// to construct a full app model just to verify the mapping.
+    /// Returns `nil` when the tap falls outside the framebuffer rect
+    /// (letterbox/pillarbox) or when any dimension is non-positive.
+    /// The resulting `(x, y)` is in framebuffer pixel coordinates,
+    /// clamped to the inclusive range `[0, width-1]` / `[0, height-1]`
+    /// so a tap exactly on the right/bottom edge of the framebuffer
+    /// rect maps to the last valid pixel rather than an out-of-range
+    /// `width`/`height` value (which would not fit `UInt16` for very
+    /// large framebuffers).
+    public static func framebufferCoordinate(
+        forViewPoint viewPoint: CGPoint,
+        viewSize: CGSize,
+        framebufferWidth: Int,
+        framebufferHeight: Int
+    ) -> (x: UInt16, y: UInt16)? {
+        guard viewSize.width > 0,
+              viewSize.height > 0,
+              framebufferWidth > 0,
+              framebufferHeight > 0
+        else {
+            return nil
+        }
+
+        let viewAspect = viewSize.width / viewSize.height
+        let textureAspect = CGFloat(framebufferWidth) / CGFloat(framebufferHeight)
+
+        let fitWidth: CGFloat
+        let fitHeight: CGFloat
+        if viewAspect > textureAspect {
+            fitHeight = viewSize.height
+            fitWidth = fitHeight * textureAspect
+        } else {
+            fitWidth = viewSize.width
+            fitHeight = fitWidth / textureAspect
+        }
+
+        let originX = (viewSize.width - fitWidth) / 2
+        let originY = (viewSize.height - fitHeight) / 2
+
+        let localX = viewPoint.x - originX
+        let localY = viewPoint.y - originY
+
+        guard localX >= 0,
+              localY >= 0,
+              localX <= fitWidth,
+              localY <= fitHeight
+        else {
+            return nil
+        }
+
+        let fbX = localX / fitWidth * CGFloat(framebufferWidth)
+        let fbY = localY / fitHeight * CGFloat(framebufferHeight)
+
+        let clampedX = max(0, min(CGFloat(framebufferWidth - 1), fbX))
+        let clampedY = max(0, min(CGFloat(framebufferHeight - 1), fbY))
+
+        // RFB pointer coordinates fit `UInt16` (RFC 6143 §7.5.5).
+        // The clamp above keeps both values in `[0, 65535]` for any
+        // framebuffer the protocol can describe (max width/height are
+        // themselves `UInt16` in `ServerInit`).
+        return (UInt16(clampedX.rounded(.down)), UInt16(clampedY.rounded(.down)))
     }
 
     public func startPiPWatch(at date: Date = Date()) {
