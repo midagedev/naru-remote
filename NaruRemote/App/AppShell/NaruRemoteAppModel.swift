@@ -29,6 +29,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// every update through `dismissOnboardingChecklist()`.
     @Published public private(set) var appSettings: AppSettings
 
+    /// Direct Keystroke Streaming Mode state (the named §I "MAY"
+    /// exception per `specs/002-direct-keystroke-mode/spec.md`).
+    /// Resets on every disconnect / fresh connect / profile change
+    /// per FR-014 — Direct mode never persists across sessions or
+    /// app launches.
+    @Published public private(set) var directKeystrokeMode: DirectKeystrokeMode = .init()
+
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
@@ -43,6 +50,20 @@ public final class NaruRemoteAppModel: ObservableObject {
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
     private var activePointerClient: RFBPointerEventClient?
+    /// Capability-protocol view of the active streaming client that
+    /// owns RFB `KeyEvent` emission (RFC 6143 §7.5.4).  Set in
+    /// lockstep with `activeTextClient` and `activePointerClient`
+    /// at every connect site; cleared at every disconnect /
+    /// profile-change / error path.  `KeystrokeEmitter` below holds
+    /// a strong reference for the duration of the active session.
+    private var activeKeyEventClient: (any RFBKeyEventClient)?
+    /// Direct-mode keystroke emitter bound to
+    /// `activeKeyEventClient`.  Rebuilt on every fresh connect so
+    /// stale references from a previous session cannot leak into a
+    /// new one.  `nil` outside an active session — `tapDirectKey(_:)`
+    /// drops emissions silently when there is no emitter (matches
+    /// `spec.md` IN-003 "drop silently when not `.active`").
+    private var keystrokeEmitter: KeystrokeEmitter?
     /// Last `(x, y)` coordinate that `sendPointerMoveTo(...)` actually
     /// emitted on the wire for the currently active stream.  Used as a
     /// throttle anchor: a subsequent move whose framebuffer-coord delta
@@ -318,6 +339,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeKeyEventClient = nil
+            keystrokeEmitter = nil
+            directKeystrokeMode = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -383,6 +407,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeKeyEventClient = nil
+            keystrokeEmitter = nil
+            directKeystrokeMode = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -507,6 +534,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            activeKeyEventClient = nil
+            keystrokeEmitter = nil
+            directKeystrokeMode = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -635,6 +665,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             session = nextSession
             activeTextClient = nil
             activePointerClient = nil
+            activeKeyEventClient = nil
+            keystrokeEmitter = nil
+            directKeystrokeMode = .init()
             lastEmittedDragCoord = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
@@ -675,6 +708,9 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
+                let keyEventClient = connector as? (any RFBKeyEventClient)
+                activeKeyEventClient = keyEventClient
+                keystrokeEmitter = keyEventClient.map { KeystrokeEmitter(client: $0) }
                 lastEmittedDragCoord = nil
                 if textClient != nil {
                     startIncomingClipboardReceive(receive: Self.makeReceive(connector: connector))
@@ -782,6 +818,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 activeTextClient = streamingClient
                 activePointerClient = streamingClient
+                activeKeyEventClient = streamingClient
+                keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
                 lastEmittedDragCoord = nil
                 startIncomingClipboardReceive(receive: Self.makeReceive(streamingClient: streamingClient))
 
@@ -917,6 +955,9 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         activeTextClient = nil
         activePointerClient = nil
+        activeKeyEventClient = nil
+        keystrokeEmitter = nil
+        directKeystrokeMode = .init()
         lastEmittedDragCoord = nil
         stopIncomingClipboardReceive()
 
@@ -1125,6 +1166,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         pendingIncomingClipboard = nil
         activeTextClient = nil
         activePointerClient = nil
+        activeKeyEventClient = nil
+        keystrokeEmitter = nil
+        directKeystrokeMode = .init()
         lastEmittedDragCoord = nil
         activeStreamProfile = nil
         activeStreamCredential = nil
@@ -1281,6 +1325,89 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// pasteboard.  The full `text` is dropped on the floor.
     public func dismissIncomingClipboard() {
         pendingIncomingClipboard = nil
+    }
+
+    // MARK: - Direct Keystroke Streaming Mode
+
+    /// Toggle Direct Keystroke Mode on / off.  Resets `page` to
+    /// `.qwerty` on every entry (FR-001 / spec User Story 1
+    /// "fresh entry = familiar layout").  Does NOT touch the
+    /// `hasShownEntryWarningThisSession` flag — the FR-009 entry
+    /// warning is dismissed by the user calling
+    /// `dismissDirectModeEntryWarning()` after they tap "Got it"
+    /// in the SwiftUI confirmation dialog.
+    public func toggleDirectKeystrokeMode() {
+        let newActive = !directKeystrokeMode.isActive
+        directKeystrokeMode = DirectKeystrokeMode(
+            isActive: newActive,
+            page: .qwerty,
+            hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
+        )
+    }
+
+    /// Switch which page of the custom soft keyboard is rendered
+    /// (FR-002).  Page swap MUST NOT emit a `KeyEvent` — this
+    /// method updates state only.
+    public func setDirectKeystrokePage(_ page: KeyboardPage) {
+        directKeystrokeMode = DirectKeystrokeMode(
+            isActive: directKeystrokeMode.isActive,
+            page: page,
+            hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
+        )
+    }
+
+    /// Called by the SwiftUI warning dialog after the user taps
+    /// "Got it".  Closes FR-009 (one-time-per-session warning) —
+    /// subsequent toggles in the same session do not re-show the
+    /// dialog.  Resets to `false` on every disconnect / new
+    /// connect / profile change.
+    public func dismissDirectModeEntryWarning() {
+        directKeystrokeMode = DirectKeystrokeMode(
+            isActive: directKeystrokeMode.isActive,
+            page: directKeystrokeMode.page,
+            hasShownEntryWarningThisSession: true
+        )
+    }
+
+    /// Drive a logical key event from the custom soft keyboard.
+    /// Phase 3 handles `.character`, `.named`, and `.pageToggle`
+    /// only.  `.modifier(_)` and `.clearModifiers` will land in
+    /// Phase 4 alongside `StickyModifierState`.
+    ///
+    /// `KeyEvent`s are dropped silently when there is no active
+    /// session (`spec.md` IN-003) — `keystrokeEmitter` is `nil`
+    /// outside an active stream.  Direct mode being inactive
+    /// (`directKeystrokeMode.isActive == false`) also drops the
+    /// emission so a stale view-tree tap during a transition
+    /// cannot leak through.
+    ///
+    /// Per `contracts/keystroke-emitter.md`, throws from the
+    /// emitter are surfaced to the caller.  The caller (View
+    /// layer) is responsible for any visual feedback; sticky
+    /// modifier state is cleared by the caller on throw — Phase 4
+    /// will wire that release path.
+    public func tapDirectKey(_ key: DirectKey) async {
+        switch key {
+        case .pageToggle:
+            setDirectKeystrokePage(directKeystrokeMode.page == .qwerty ? .special : .qwerty)
+            return
+        case .character(let character):
+            guard directKeystrokeMode.isActive,
+                  let emitter = keystrokeEmitter,
+                  let keysym = KeysymMapping.keysym(for: character)
+            else {
+                return
+            }
+            try? await emitter.emit(keysym: keysym, modifiers: [])
+        case .named(let namedKey):
+            guard directKeystrokeMode.isActive,
+                  let emitter = keystrokeEmitter
+            else {
+                return
+            }
+            let keysym = KeysymMapping.keysym(for: namedKey)
+            try? await emitter.emit(keysym: keysym, modifiers: [])
+        }
     }
 
     nonisolated private static func connectAndReadFirstFrame(
