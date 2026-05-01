@@ -194,22 +194,14 @@ final class IncomingClipboardReviewTests: XCTestCase {
     }
 }
 
-private final class RecordingClipboardWriter: LocalClipboardWriting, @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedWrites: [String] = []
+@MainActor
+private final class RecordingClipboardWriter: LocalClipboardWriting {
+    private(set) var writes: [String] = []
 
     init() {}
 
-    var writes: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedWrites
-    }
-
     func write(_ text: String) {
-        lock.lock()
-        recordedWrites.append(text)
-        lock.unlock()
+        writes.append(text)
     }
 }
 
