@@ -367,6 +367,13 @@ P0 — App Store rejects or runtime fails without these:
   1024×1024 marketing plus iPhone/iPad sizes
 - Apple Developer account, bundle ID provisioning, and signing
   configuration — pending; outside the agent loop
+- **Direct Keystroke Streaming Mode** — pending; spec at
+  `specs/002-direct-keystroke-mode/spec.md`. Ship-blocker because
+  founder ICP (iPhone → Ghostty/Codex via VNC, sustained AI coding
+  from phone) cannot run on Compose & Send alone — Tab, Ctrl-key
+  combos, arrows, Esc are unreachable. Custom soft keyboard
+  (QWERTY + special pages, bottom-docked) plus Bluetooth / Magic
+  Keyboard passthrough; floating keyboard deferred
 
 P1 — App Store listing requires these:
 
@@ -403,16 +410,21 @@ Status: not started
 
 ## Phase 9 - Post-MVP Input Expansion
 
-Status: deferred
+Status: split — keyboard sub-track is **promoted to ship-blocker**, the rest stays deferred.
 
-- Direct Keystroke Streaming Mode (peer to Compose & Send; user-toggleable
-  on the Remote Input Dock; matches Chrome Remote Desktop Android's
-  "On-screen input" toggle; documented at `PRODUCT_SPEC.md` §6.3.6)
-- Voice compose
-- Image paste
-- File drop
-- Naru Helper native insertion
-- Agent handoff through a documented trust boundary
+- **Direct Keystroke Streaming Mode** — promoted to ship scope per founder
+  workflow signal (see `feedback_phase9_keyboard_is_ship_blocker` memory).
+  Spec lives at `specs/002-direct-keystroke-mode/spec.md`; covers a custom
+  in-app soft keyboard (QWERTY + special-keys pages, bottom-docked,
+  Chrome Remote Desktop Android pattern), sticky modifiers (1-tap one-shot
+  / 2-tap lock), and Bluetooth / Magic Keyboard hardware passthrough via
+  `UIKeyCommand`. Floating / repositionable keyboard UI is an explicit
+  Non-Goal in v1.
+- Voice compose — deferred
+- Image paste — deferred
+- File drop — deferred
+- Naru Helper native insertion — deferred
+- Agent handoff through a documented trust boundary — deferred
 
 ## Phase 10 - SSH And Terminal Mode (Aspirational)
 

@@ -399,8 +399,12 @@ OS별 구현 후보:
 Compose & Send와 **나란한 두 번째 입력 모드**다. §6.3 전송 모드 안의
 "B. Keystroke Fallback Mode"가 Compose & Send 안의 send-time fallback인 것과 달리,
 이 모드는 Remote Input Dock 레벨에서 사용자가 명시적으로 켜는 토글 모드다. 켜지면
-compose 단계가 사라지고 iOS 키보드의 각 키 입력이 즉시 RFB KeyEvent로 원격에
-스트리밍된다.
+compose 단계가 사라지고, **앱이 직접 그리는 커스텀 소프트 키보드**(Chrome Remote Desktop
+Android 패턴 — QWERTY 페이지 + 특수키 페이지 두 장, 화면 하단 도킹)의 각 탭이 즉시 RFB
+KeyEvent로 원격에 스트리밍된다. iOS 시스템 키보드는 이 모드에서 사용하지 않는다 — IME
+조합·자동완성·예측 입력이 raw 키스트로크 송신을 깨뜨리고, Tab/Esc/Ctrl/방향키 같은
+터미널 필수 키가 없으며, 같은 키보드에서 IME 조합과 raw 송신이 섞이면 사용자가 어느
+모드에 있는지 식별할 수 없기 때문이다. 다른 키보드 외형 자체가 모드 표시기로 작동한다.
 
 이 모드는 헌법 원칙 I이 명시한 *"Remote key events MAY exist for compatibility, but
 they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영역에
@@ -417,9 +421,22 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 #### 흐름
 
 1. 사용자가 Remote Input Dock의 입력 모드 토글에서 "Direct Keystroke"를 선택한다.
-2. UI는 모드가 전환됐고 IME/자동완성/받아쓰기는 보장되지 않는다는 경고를 표시한다.
-3. iOS 키보드의 키 입력이 RFB KeyEvent로 즉시 송신된다.
-4. 사용자가 토글을 다시 끄면 Compose & Send 모드로 복귀한다.
+2. iOS 시스템 키보드가 내려가고 화면 하단에 Naru의 커스텀 소프트 키보드(QWERTY 페이지)가
+   올라오며, 입력 도크에 "Direct mode" 배지가 표시된다.
+3. 첫 진입 시(세션당 1회) IME/자동완성/받아쓰기/예측 입력이 작동하지 않는다는 경고가
+   표시된다.
+4. 커스텀 키보드의 각 탭이 즉시 RFB KeyEvent로 송신된다(키-다운/키-업 한 쌍). 사용자가
+   특수키 페이지 토글을 누르면 Tab/Esc/Ctrl/Alt/Cmd/Shift/방향키/F1-F12/Home/End/PgUp/PgDn/
+   Insert/Delete를 포함한 페이지로 전환된다(전환 자체는 KeyEvent를 발생시키지 않는다).
+5. 모디파이어(Ctrl/Shift/Alt/Cmd)는 sticky 동작이다 — 1회 탭하면 다음 비-모디파이어 키
+   하나에만 적용되고 자동 해제, 400ms 안에 2회 탭하면 lock(다시 탭할 때까지 유지).
+   페이지에는 한 번에 모든 sticky 상태를 비우는 "Clear modifiers" 어포던스가 있다.
+6. 블루투스/Magic Keyboard가 연결돼 있으면 하드웨어 키스트로크가 동일한 키심 매핑 표를
+   거쳐 RFB KeyEvent로 송신된다(`UIKeyCommand`/`pressesBegan`/`pressesEnded` 경유).
+   하드웨어와 온스크린 입력은 충돌 없이 공존하며, 하드웨어 자동 반복은 원격 OS가 소유한다
+   (Naru가 합성하지 않는다).
+7. 사용자가 토글을 다시 끄면 iOS 시스템 키보드가 복원되고 Compose & Send 모드로 복귀한다.
+   이때 Compose 작성 중이던 초안은 보존된다.
 
 #### 제약과 경고
 
@@ -432,9 +449,10 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 
 #### MVP 범위
 
-MVP에서는 Compose & Send만 구현한다. Direct Keystroke Streaming Mode는 별도
-feature spec(`specs/00x-direct-keystroke-mode/spec.md`)으로 분리되며 MVP가 실기기
-검증을 마친 뒤 추가된다.
+Direct Keystroke Streaming Mode는 `specs/002-direct-keystroke-mode/spec.md` 로
+분리된 별도 feature이며, founder의 핵심 사용 사례(iPhone에서 지속적 AI 코딩 —
+Ghostty/Codex over VNC)가 이 모드 없이는 성립하지 않으므로 출시 전 구현이 필요한
+ship-blocker로 격상된다. 자세한 사용자 스토리·요구사항·검증은 그 spec에서 추적한다.
 
 ## 6.4 Voice Compose
 
