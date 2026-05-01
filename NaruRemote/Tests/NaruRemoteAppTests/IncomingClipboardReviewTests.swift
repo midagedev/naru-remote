@@ -120,7 +120,7 @@ final class IncomingClipboardReviewTests: XCTestCase {
             localClipboardWriter: writer
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
 
         try await waitFor(model.pendingIncomingClipboard != nil, timeoutMillis: 500) {
             model.pendingIncomingClipboard != nil

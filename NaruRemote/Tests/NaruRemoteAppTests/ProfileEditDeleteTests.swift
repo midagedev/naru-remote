@@ -6,9 +6,9 @@ import NaruRemoteCore
 final class ProfileEditDeleteTests: XCTestCase {
     // MARK: - editProfile
 
-    func testEditProfileReplacesFieldsAndPersistsThroughStore() throws {
+    func testEditProfileReplacesFieldsAndPersistsThroughStore() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let model = NaruRemoteAppModel(profileStore: store)
         let original = try ConnectionProfile(
             displayName: "Desk",
@@ -16,7 +16,7 @@ final class ProfileEditDeleteTests: XCTestCase {
             port: 5900,
             allowsPiPWatch: true
         )
-        model.addProfile(original)
+        await model.addProfile(original)
 
         let edited = try ConnectionProfile(
             id: original.id,
@@ -26,9 +26,10 @@ final class ProfileEditDeleteTests: XCTestCase {
             allowsPiPWatch: false
         )
 
-        model.editProfile(edited, password: nil)
+        await model.editProfile(edited, password: nil)
 
-        let stored = try ConnectionProfileStore(persistence: persistence).allProfiles()
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let stored = await reloaded.allProfiles()
         XCTAssertEqual(stored.count, 1)
         let storedProfile = try XCTUnwrap(stored.first)
         XCTAssertEqual(storedProfile.id, original.id)
@@ -40,11 +41,11 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertEqual(model.snapshot.profiles, [storedProfile])
     }
 
-    func testEditProfileWithNilPasswordPreservesExistingCredential() throws {
+    func testEditProfileWithNilPasswordPreservesExistingCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let original = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(original, password: "secret")
+        await model.addProfile(original, password: "secret")
         let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
         let credentialRef = try XCTUnwrap(savedProfile.credentialRef)
 
@@ -55,18 +56,19 @@ final class ProfileEditDeleteTests: XCTestCase {
             credentialRef: credentialRef
         )
 
-        model.editProfile(edited, password: nil)
+        await model.editProfile(edited, password: nil)
 
-        XCTAssertEqual(try credentialStore.password(for: credentialRef), "secret")
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(storedPassword, "secret")
         XCTAssertEqual(model.snapshot.profiles.first?.credentialRef, credentialRef)
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testEditProfileWithEmptyPasswordRemovesExistingCredential() throws {
+    func testEditProfileWithEmptyPasswordRemovesExistingCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let original = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(original, password: "secret")
+        await model.addProfile(original, password: "secret")
         let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
         let credentialRef = try XCTUnwrap(savedProfile.credentialRef)
 
@@ -77,18 +79,19 @@ final class ProfileEditDeleteTests: XCTestCase {
             credentialRef: credentialRef
         )
 
-        model.editProfile(edited, password: "")
+        await model.editProfile(edited, password: "")
 
-        XCTAssertNil(try credentialStore.password(for: credentialRef))
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertNil(storedPassword)
         XCTAssertNil(model.snapshot.profiles.first?.credentialRef)
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testEditProfileWithNonEmptyPasswordUpdatesCredential() throws {
+    func testEditProfileWithNonEmptyPasswordUpdatesCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let original = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(original, password: "old-secret")
+        await model.addProfile(original, password: "old-secret")
         let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
         let credentialRef = try XCTUnwrap(savedProfile.credentialRef)
 
@@ -99,34 +102,36 @@ final class ProfileEditDeleteTests: XCTestCase {
             credentialRef: credentialRef
         )
 
-        model.editProfile(edited, password: "new-secret")
+        await model.editProfile(edited, password: "new-secret")
 
-        XCTAssertEqual(try credentialStore.password(for: credentialRef), "new-secret")
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(storedPassword, "new-secret")
         XCTAssertEqual(model.snapshot.profiles.first?.credentialRef, credentialRef)
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testEditProfileWithPasswordOnProfileMissingCredentialRefAddsOne() throws {
+    func testEditProfileWithPasswordOnProfileMissingCredentialRefAddsOne() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let original = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(original)
+        await model.addProfile(original)
         let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
         XCTAssertNil(savedProfile.credentialRef)
 
-        model.editProfile(savedProfile, password: "fresh-secret")
+        await model.editProfile(savedProfile, password: "fresh-secret")
 
         let updated = try XCTUnwrap(model.snapshot.profiles.first)
         let credentialRef = try XCTUnwrap(updated.credentialRef)
-        XCTAssertEqual(try credentialStore.password(for: credentialRef), "fresh-secret")
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(storedPassword, "fresh-secret")
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testEditProfileIgnoresUnknownProfileId() throws {
+    func testEditProfileIgnoresUnknownProfileId() async throws {
         let model = NaruRemoteAppModel()
         let unknown = try ConnectionProfile(displayName: "Ghost", host: "ghost.tailnet.ts.net")
 
-        model.editProfile(unknown, password: "irrelevant")
+        await model.editProfile(unknown, password: "irrelevant")
 
         XCTAssertTrue(model.snapshot.profiles.isEmpty)
         XCTAssertNil(model.profilePersistenceError)
@@ -134,17 +139,17 @@ final class ProfileEditDeleteTests: XCTestCase {
 
     // MARK: - deleteProfile
 
-    func testDeleteProfileClearsSessionAndSelectionWhenActiveProfileWasRemoved() throws {
+    func testDeleteProfileClearsSessionAndSelectionWhenActiveProfileWasRemoved() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let model = NaruRemoteAppModel(profileStore: store)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(profile)
+        await model.addProfile(profile)
 
         XCTAssertEqual(model.snapshot.selectedProfileID, profile.id)
         XCTAssertEqual(model.snapshot.session?.profileID, profile.id)
 
-        model.deleteProfile(id: profile.id)
+        await model.deleteProfile(id: profile.id)
 
         XCTAssertTrue(model.snapshot.profiles.isEmpty)
         XCTAssertNil(model.snapshot.selectedProfileID)
@@ -154,32 +159,36 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertNil(model.snapshot.latestInjectionAttempt)
         XCTAssertNil(model.snapshot.pipWatchSession)
         XCTAssertNil(model.profilePersistenceError)
-        XCTAssertTrue(try ConnectionProfileStore(persistence: persistence).allProfiles().isEmpty)
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let allProfiles = await reloaded.allProfiles()
+        XCTAssertTrue(allProfiles.isEmpty)
     }
 
-    func testDeleteProfileRemovesKeychainCredential() throws {
+    func testDeleteProfileRemovesKeychainCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(profile, password: "secret")
+        await model.addProfile(profile, password: "secret")
         let saved = try XCTUnwrap(model.snapshot.selectedProfile)
         let credentialRef = try XCTUnwrap(saved.credentialRef)
-        XCTAssertEqual(try credentialStore.password(for: credentialRef), "secret")
+        let initialPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(initialPassword, "secret")
 
-        model.deleteProfile(id: saved.id)
+        await model.deleteProfile(id: saved.id)
 
-        XCTAssertNil(try credentialStore.password(for: credentialRef))
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertNil(storedPassword)
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testDeleteProfileLeavesSelectionWhenInactiveProfileIsRemoved() throws {
+    func testDeleteProfileLeavesSelectionWhenInactiveProfileIsRemoved() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let model = NaruRemoteAppModel(profileStore: store)
         let active = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let bystander = try ConnectionProfile(displayName: "Laptop", host: "laptop.tailnet.ts.net")
-        model.addProfile(active)
-        model.addProfile(bystander)
+        await model.addProfile(active)
+        await model.addProfile(bystander)
         // The model selects the most recently added profile by
         // default (`addProfile` sets `selectedProfileID`).  Re-pin
         // selection to `active` so the test reflects the
@@ -187,7 +196,7 @@ final class ProfileEditDeleteTests: XCTestCase {
         model.selectProfile(id: active.id)
         let activeSessionID = model.snapshot.session?.id
 
-        model.deleteProfile(id: bystander.id)
+        await model.deleteProfile(id: bystander.id)
 
         XCTAssertEqual(model.snapshot.profiles.count, 1)
         XCTAssertEqual(model.snapshot.profiles.first?.id, active.id)
@@ -197,15 +206,15 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testDeleteProfileWithUnknownIdIsNoop() throws {
+    func testDeleteProfileWithUnknownIdIsNoop() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let model = NaruRemoteAppModel(profileStore: store)
         let active = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(active)
+        await model.addProfile(active)
         let activeSessionID = model.snapshot.session?.id
 
-        model.deleteProfile(id: UUID())
+        await model.deleteProfile(id: UUID())
 
         XCTAssertEqual(model.snapshot.profiles, [active])
         XCTAssertEqual(model.snapshot.selectedProfileID, active.id)
@@ -213,7 +222,7 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testDeleteProfileWithoutCredentialDoesNotErrorWhenKeychainEntryIsMissing() throws {
+    func testDeleteProfileWithoutCredentialDoesNotErrorWhenKeychainEntryIsMissing() async throws {
         // Constitution §IV: keychain delete-of-missing must be
         // treated as success.  A profile that never had a saved
         // password should still delete cleanly without raising the
@@ -221,9 +230,9 @@ final class ProfileEditDeleteTests: XCTestCase {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        model.addProfile(profile) // no password
+        await model.addProfile(profile) // no password
 
-        model.deleteProfile(id: profile.id)
+        await model.deleteProfile(id: profile.id)
 
         XCTAssertTrue(model.snapshot.profiles.isEmpty)
         XCTAssertNil(model.profilePersistenceError)
@@ -231,7 +240,7 @@ final class ProfileEditDeleteTests: XCTestCase {
 
     // MARK: - Diagnostic export safe-catalog invariance
 
-    func testDiagnosticExportSafeCatalogStaysOpaqueAfterEditAndDeleteEvents() throws {
+    func testDiagnosticExportSafeCatalogStaysOpaqueAfterEditAndDeleteEvents() async throws {
         let model = NaruRemoteAppModel(
             credentialStore: InMemoryConnectionCredentialStore()
         )
@@ -239,7 +248,7 @@ final class ProfileEditDeleteTests: XCTestCase {
             displayName: "Desk hunter2",
             host: "desk-hunter2.tailnet.ts.net"
         )
-        model.addProfile(profile, password: "hunter2")
+        await model.addProfile(profile, password: "hunter2")
         let saved = try XCTUnwrap(model.snapshot.selectedProfile)
         let renamed = try ConnectionProfile(
             id: saved.id,
@@ -247,8 +256,8 @@ final class ProfileEditDeleteTests: XCTestCase {
             host: saved.host,
             credentialRef: saved.credentialRef
         )
-        model.editProfile(renamed, password: "another-secret")
-        model.deleteProfile(id: saved.id)
+        await model.editProfile(renamed, password: "another-secret")
+        await model.deleteProfile(id: saved.id)
 
         // Build a representative diagnostic run.  The export must
         // not surface user-entered display names, hosts, or

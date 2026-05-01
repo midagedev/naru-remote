@@ -4,51 +4,55 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
-    func testModelAddsProfileAndCreatesSessionDraft() throws {
+    func testModelAddsProfileAndCreatesSessionDraft() async throws {
         let model = NaruRemoteAppModel()
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
 
-        model.addProfile(profile)
+        await model.addProfile(profile)
 
         XCTAssertEqual(model.snapshot.selectedProfile, profile)
         XCTAssertEqual(model.snapshot.session?.profileID, profile.id)
         XCTAssertEqual(model.snapshot.composeDraft?.sessionID, model.snapshot.session?.id)
     }
 
-    func testModelLoadsProfilesFromStoreOnLaunch() throws {
+    func testModelLoadsProfilesFromStoreOnLaunch() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
 
         let model = NaruRemoteAppModel(profileStore: store)
+        await model.loadStoredProfiles()
 
         XCTAssertEqual(model.snapshot.profiles, [profile])
         XCTAssertEqual(model.snapshot.selectedProfile, profile)
     }
 
-    func testModelPersistsAddedProfileToStore() throws {
+    func testModelPersistsAddedProfileToStore() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let model = NaruRemoteAppModel(profileStore: store)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
 
-        model.addProfile(profile)
+        await model.addProfile(profile)
 
-        XCTAssertEqual(try ConnectionProfileStore(persistence: persistence).allProfiles(), [profile])
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let allProfiles = await reloaded.allProfiles()
+        XCTAssertEqual(allProfiles, [profile])
         XCTAssertNil(model.profilePersistenceError)
     }
 
-    func testModelSavesProfilePasswordInCredentialStoreAndKeepsOnlyReferenceInProfile() throws {
+    func testModelSavesProfilePasswordInCredentialStoreAndKeepsOnlyReferenceInProfile() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
 
-        model.addProfile(profile, password: "secret")
+        await model.addProfile(profile, password: "secret")
 
         let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
         let credentialRef = try XCTUnwrap(savedProfile.credentialRef)
         XCTAssertEqual(savedProfile.host, "desk.tailnet.ts.net")
-        XCTAssertEqual(try credentialStore.password(for: credentialRef), "secret")
+        let storedPassword = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(storedPassword, "secret")
         XCTAssertFalse(credentialRef.contains("secret"))
         XCTAssertNil(model.profilePersistenceError)
     }
@@ -70,7 +74,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(connector.credentials, [.vncPassword("secret")])
@@ -78,7 +82,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
     }
 
-    func testModelFailsSafelyWhenProfileCredentialReferenceCannotBeLoaded() throws {
+    func testModelFailsSafelyWhenProfileCredentialReferenceCannotBeLoaded() async throws {
         let profile = try ConnectionProfile(
             displayName: "Desk",
             host: "desk.tailnet.ts.net",
@@ -96,7 +100,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
 
         XCTAssertEqual(connector.sessionRequests, [])
         XCTAssertEqual(model.snapshot.session?.state, .failed)
@@ -112,7 +116,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(connector.requests, [FakeFirstFrameConnector.Request(host: "desk.tailnet.ts.net", port: 5900)])
@@ -136,7 +140,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(connector.sessionRequests, [FakeFirstFrameConnector.Request(host: "desk.tailnet.ts.net", port: 5900)])
@@ -171,7 +175,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
 
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
@@ -199,7 +203,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertNotNil(model.snapshot.latestFramebuffer)
 
@@ -390,7 +394,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(50))
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .controlV)
@@ -446,7 +450,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             pipWatchController: pipController
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(40))
         model.startPiPWatch(at: Date(timeIntervalSince1970: 100))
         try await Task.sleep(for: .milliseconds(100))

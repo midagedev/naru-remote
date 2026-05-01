@@ -106,7 +106,7 @@ final class PiPLayerHostAttachmentTests: XCTestCase {
             pipWatchController: pipController
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(40))
         model.startPiPWatch(at: Date(timeIntervalSince1970: 100))
         try await Task.sleep(for: .milliseconds(120))

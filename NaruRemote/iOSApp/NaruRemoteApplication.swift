@@ -23,24 +23,31 @@ struct NaruRemoteApplication: App {
 
     private static func makeModel() -> NaruRemoteAppModel {
         let settingsPersistence = FileAppSettingsPersistence(fileURL: settingsStoreURL())
-        do {
-            let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
-            let store = try ConnectionProfileStore(persistence: persistence)
-            return NaruRemoteAppModel(
-                profileStore: store,
-                credentialStore: KeychainConnectionCredentialStore(),
-                settingsPersistence: settingsPersistence,
-                pipWatchController: PiPWatchPictureInPictureController(),
-                localClipboardWriter: UIPasteboardClipboardWriter()
-            )
-        } catch {
-            return NaruRemoteAppModel(
-                credentialStore: KeychainConnectionCredentialStore(),
-                settingsPersistence: settingsPersistence,
-                pipWatchController: PiPWatchPictureInPictureController(),
-                localClipboardWriter: UIPasteboardClipboardWriter()
-            )
+        // The profile store is now an `actor`; its initializer is
+        // `async` so we cannot construct it from this synchronous
+        // `@StateObject` factory.  Build a fresh model here without a
+        // store, then attach it on first appear via the `.task`
+        // modifier in `NaruRemoteAppShell` which calls
+        // `loadStoredProfiles()` to merge disk-backed profiles in.
+        let credentialStore = KeychainConnectionCredentialStore()
+        let model = NaruRemoteAppModel(
+            credentialStore: credentialStore,
+            settingsPersistence: settingsPersistence,
+            pipWatchController: PiPWatchPictureInPictureController(),
+            localClipboardWriter: UIPasteboardClipboardWriter()
+        )
+        Task { @MainActor in
+            do {
+                let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
+                let store = try await ConnectionProfileStore(persistence: persistence)
+                await model.attachProfileStore(store)
+            } catch {
+                // Profile store could not be opened — the model still
+                // works as an in-memory profile editor for this
+                // launch.  The next launch will retry.
+            }
         }
+        return model
     }
 
     private static func profileStoreURL() -> URL {
