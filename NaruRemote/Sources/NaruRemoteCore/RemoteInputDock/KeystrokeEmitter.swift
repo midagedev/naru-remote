@@ -45,6 +45,48 @@ public final class KeystrokeEmitter: Sendable {
         try await emitOrdered(keysym: keysym, modifiers: modifiers)
     }
 
+    /// Hardware-keyboard variant of the on-screen emit envelope —
+    /// same emission contract as `emit(keysym:modifiers:)`.  Wire
+    /// output for the same `(keysym, modifiers)` pair is byte-
+    /// identical between the two paths (SC-005), proven by
+    /// `HardwareOnScreenIdentityTests`.
+    ///
+    /// The separate name exists only to make the call site explicit
+    /// about the modifier-set source:
+    ///
+    /// - `emit(keysym:modifiers:)` is called from on-screen taps.
+    ///   The caller (model) consumes `StickyModifierState.armed`
+    ///   slots after the call returns.
+    /// - `emitHardware(keysym:modifiers:)` is the wrapping variant
+    ///   for callers that synthesize a logical "press + release"
+    ///   pair from a single UIPress (e.g. `UIKeyCommand` paths or
+    ///   tests).  The OS owns hardware modifier-key release events,
+    ///   so the caller does NOT consume sticky state (per
+    ///   `contracts/keystroke-emitter.md`).
+    public func emitHardware(
+        keysym: UInt32,
+        modifiers: Set<DirectKeystrokeModifier> = []
+    ) async throws {
+        try await emitOrdered(keysym: keysym, modifiers: modifiers)
+    }
+
+    /// Single-event hardware variant — sends exactly ONE
+    /// `KeyEvent` (down OR up) on the wire with no modifier
+    /// wrapping.  Used by the `pressesBegan` / `pressesEnded`
+    /// path where the OS already reports each modifier key as its
+    /// own UIPress, so wrapping would double-press the modifier.
+    ///
+    /// For example, a hardware Ctrl-c sequence reaches the wire as
+    /// four discrete `emitHardware(keysym:isDown:)` calls — one per
+    /// UIPress event (Ctrl down → c down → c up → Ctrl up) — which
+    /// is byte-identical to the on-screen Ctrl-c envelope.
+    public func emitHardware(
+        keysym: UInt32,
+        isDown: Bool
+    ) async throws {
+        try await client.sendKeyEvent(keysym: keysym, isDown: isDown)
+    }
+
     // MARK: - Internal emission core
 
     /// Canonical press order.  Release order is the reverse of

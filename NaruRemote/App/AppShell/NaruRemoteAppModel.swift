@@ -1482,6 +1482,64 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Drive a hardware-keyboard press / release through the wire.
+    ///
+    /// Called from `DirectKeystrokeResponderView.pressesBegan` /
+    /// `pressesEnded` for each `UIPress` whose `UIKey.keyCode`
+    /// resolved to a known X11 keysym.  Each call sends exactly
+    /// ONE `KeyEvent` (down OR up) on the wire — `KeystrokeEmitter`
+    /// does NOT wrap the press with modifier-down/up because the
+    /// OS already reports each modifier key as its own UIPress.
+    /// Wrapping would double-press the modifier.
+    ///
+    /// A hardware Ctrl-c sequence therefore reaches the wire as
+    /// four discrete calls — Ctrl down → c down → c up → Ctrl up
+    /// — which is byte-identical to the on-screen Ctrl-c envelope
+    /// emitted by `tapDirectKey(.character("c"))` while
+    /// `StickyModifierState[.control] == .armed` (SC-005).
+    ///
+    /// Drops silently when:
+    /// - Direct mode is not active (FR-007 — hardware path only
+    ///   fires when the user has opted into Direct mode).
+    /// - There is no active session (`keystrokeEmitter` is `nil`
+    ///   outside an active stream — `spec.md` IN-003 fallback).
+    ///
+    /// **Sticky state is not touched** — `consumeAfterNonModifierEmission()`
+    /// is the soft-keyboard "tap once → arm → consume" UX.  The
+    /// hardware path's modifiers come from `UIKey.modifierFlags` and
+    /// are already physically held by the user; consuming sticky
+    /// state on every hardware press would erase a pre-armed sticky
+    /// modifier the user pre-armed via the on-screen keyboard.
+    public func handleHardwareKey(
+        keysym: UInt32,
+        modifiers: Set<DirectKeystrokeModifier>,
+        isDown: Bool
+    ) async {
+        // FR-007 — hardware path only fires while the user has
+        // opted into Direct mode.  Stale press events that arrive
+        // during a mode toggle (e.g. the user releases a key just
+        // after toggling out) drop silently rather than leaking a
+        // press onto the wire.
+        guard directKeystrokeMode.isActive,
+              let emitter = keystrokeEmitter
+        else {
+            return
+        }
+        // `modifiers` is presently informational (matches what
+        // `UIKey.modifierFlags` reported on the press).  We do not
+        // wrap here — every hardware UIPress emits exactly one
+        // `KeyEvent`; the OS-reported modifier UIPresses fire
+        // their own `handleHardwareKey` calls and produce the
+        // adjacent modifier-down / modifier-up `KeyEvent`s
+        // directly.  We pass `modifiers` through the signature so
+        // future paths (e.g. `UIKeyCommand` shortcuts where iOS
+        // does NOT report the modifier as its own UIPress) can
+        // reuse `KeystrokeEmitter.emitHardware(keysym:modifiers:)`
+        // for wrapping without changing this caller surface.
+        _ = modifiers
+        try? await emitter.emitHardware(keysym: keysym, isDown: isDown)
+    }
+
     nonisolated private static func connectAndReadFirstFrame(
         connector: any RFBFirstFrameConnecting,
         host: String,
