@@ -20,12 +20,14 @@ struct NaruRemoteApplication: App {
             return NaruRemoteAppModel(
                 profileStore: store,
                 credentialStore: KeychainConnectionCredentialStore(),
-                pipWatchController: PiPWatchPictureInPictureController()
+                pipWatchController: PiPWatchPictureInPictureController(),
+                localClipboardWriter: UIPasteboardClipboardWriter()
             )
         } catch {
             return NaruRemoteAppModel(
                 credentialStore: KeychainConnectionCredentialStore(),
-                pipWatchController: PiPWatchPictureInPictureController()
+                pipWatchController: PiPWatchPictureInPictureController(),
+                localClipboardWriter: UIPasteboardClipboardWriter()
             )
         }
     }

@@ -66,11 +66,19 @@ public struct NaruRemoteAppShell: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                RemoteInputDockView(
-                    initialText: snapshot.composeDraft?.text ?? "",
-                    statusText: snapshot.inputStatusText,
-                    onSend: { model.sendComposedText($0) }
-                )
+                VStack(spacing: 0) {
+                    IncomingClipboardBanner(
+                        review: model.pendingIncomingClipboard,
+                        onAccept: { model.acceptIncomingClipboard() },
+                        onDismiss: { model.dismissIncomingClipboard() }
+                    )
+
+                    RemoteInputDockView(
+                        initialText: snapshot.composeDraft?.text ?? "",
+                        statusText: snapshot.inputStatusText,
+                        onSend: { model.sendComposedText($0) }
+                    )
+                }
             }
             .background(Color(red: 0.96, green: 0.97, blue: 0.96))
             .accessibilityIdentifier("naru.app.detail")
