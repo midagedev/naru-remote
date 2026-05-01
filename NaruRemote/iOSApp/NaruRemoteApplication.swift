@@ -8,9 +8,17 @@ struct NaruRemoteApplication: App {
 
     var body: some Scene {
         WindowGroup {
-            NaruRemoteAppShell(model: model)
+            NaruRemoteAppShell(model: model, buildVersion: Self.bundleBuildVersion())
                 .accessibilityIdentifier("naru.app.shell")
         }
+    }
+
+    /// Reads `CFBundleShortVersionString` so the diagnostic share
+    /// sheet header carries the marketing build label.  Returns
+    /// `nil` if the key is missing or the value is not a string;
+    /// `DiagnosticExport.renderShareText` renders that as `n/a`.
+    private static func bundleBuildVersion() -> String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
     private static func makeModel() -> NaruRemoteAppModel {

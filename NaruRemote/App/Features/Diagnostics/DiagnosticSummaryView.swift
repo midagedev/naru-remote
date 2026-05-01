@@ -2,9 +2,21 @@ import SwiftUI
 
 public struct DiagnosticSummaryView: View {
     private let rows: [DiagnosticSummaryRow]
+    /// Closure that produces the share-text payload on demand.
+    /// The shell wires this to
+    /// `model.makeDiagnosticExport().renderShareText(buildVersion:)`
+    /// so the view never reaches into `DiagnosticExport` directly.
+    /// `nil` hides the Share Diagnostics affordance entirely
+    /// (constitution §IV: prefer absence over a stub that could leak).
+    private let shareTextProvider: (() -> String)?
+    @State private var shareText: String?
 
-    public init(rows: [DiagnosticSummaryRow]) {
+    public init(
+        rows: [DiagnosticSummaryRow],
+        shareTextProvider: (() -> String)? = nil
+    ) {
         self.rows = rows
+        self.shareTextProvider = shareTextProvider
     }
 
     public var body: some View {
@@ -43,11 +55,43 @@ public struct DiagnosticSummaryView: View {
                     }
                 }
             }
+
+            if let shareTextProvider {
+                HStack {
+                    Spacer()
+                    Button {
+                        shareText = shareTextProvider()
+                    } label: {
+                        Label("Share Diagnostics", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("naru.diagnostics.share")
+                    .disabled(rows.isEmpty)
+                }
+            }
         }
         .padding(16)
         .background(Color(red: 0.98, green: 0.98, blue: 0.96))
         .accessibilityIdentifier("naru.diagnostics.summary")
+        #if os(iOS) && canImport(UIKit)
+        .sheet(item: Binding(
+            get: { shareText.map(DiagnosticShareText.init) },
+            set: { newValue in shareText = newValue?.text }
+        )) { payload in
+            DiagnosticExportShareSheet(shareText: payload.text)
+        }
+        #endif
     }
+}
+
+/// `Identifiable` wrapper used as the `sheet(item:)` payload.  The
+/// rendered share text is the identifier — tapping the button twice
+/// in a row produces a different timestamp and therefore a different
+/// id, which forces SwiftUI to re-present a fresh activity sheet.
+private struct DiagnosticShareText: Identifiable {
+    let text: String
+    var id: String { text }
 }
 
 private extension String {
