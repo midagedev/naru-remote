@@ -12,6 +12,7 @@ public struct RemoteInputDockView: View {
     private let onToggleDirectMode: () -> Void
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
+    private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
 
     public init(
         initialText: String,
@@ -21,7 +22,8 @@ public struct RemoteInputDockView: View {
         stickyModifierState: StickyModifierState = StickyModifierState(),
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
-        onTapDirectKey: @escaping (DirectKey) -> Void = { _ in }
+        onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
+        onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in }
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
@@ -32,6 +34,7 @@ public struct RemoteInputDockView: View {
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onTapDirectKey = onTapDirectKey
+        self.onHardwareKey = onHardwareKey
     }
 
     public var body: some View {
@@ -127,9 +130,12 @@ public struct RemoteInputDockView: View {
     private var directKeyboard: some View {
         VStack(spacing: 8) {
             #if canImport(UIKit)
-            DirectKeystrokeResponderView(isActive: true)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
+            DirectKeystrokeResponderView(
+                isActive: true,
+                onHardwareKey: onHardwareKey
+            )
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
             #endif
 
             DirectKeystrokeKeyboardView(

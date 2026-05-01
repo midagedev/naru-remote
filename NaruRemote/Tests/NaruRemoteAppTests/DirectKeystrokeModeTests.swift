@@ -307,6 +307,82 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertEqual(model.stickyModifierState, StickyModifierState())
     }
 
+    // MARK: - Hardware-keyboard path (Phase 5 / US-3 / T033 / T034)
+
+    func testHandleHardwareKeyDropsWhenDirectModeIsOff() async {
+        // FR-007 — hardware path only fires while the user has
+        // opted into Direct mode.  Stale press events that arrive
+        // during a mode toggle (e.g. the user releases a key just
+        // after toggling out) drop silently rather than leaking a
+        // press onto the wire.
+        let model = NaruRemoteAppModel()
+        XCTAssertFalse(model.directKeystrokeMode.isActive)
+
+        await model.handleHardwareKey(keysym: 0x0063, modifiers: [], isDown: true)
+        await model.handleHardwareKey(keysym: 0x0063, modifiers: [], isDown: false)
+
+        // No state perturbation; sticky state untouched.
+        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertFalse(model.directKeystrokeMode.isActive)
+    }
+
+    func testHandleHardwareKeyDropsWhenNoEmitter() async {
+        // No active session → no `keystrokeEmitter`.  Even with
+        // Direct mode active, the press drops silently per IN-003.
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+
+        await model.handleHardwareKey(keysym: 0xFF09, modifiers: [], isDown: true)
+        await model.handleHardwareKey(keysym: 0xFF09, modifiers: [], isDown: false)
+
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+    }
+
+    func testHandleHardwareKeyDoesNotConsumeStickyArmedState() async {
+        // The hardware path's modifier set comes from
+        // `UIKey.modifierFlags`, NOT `StickyModifierState`.
+        // Calling `handleHardwareKey` while Ctrl is armed via the
+        // soft keyboard MUST NOT consume the armed slot — the
+        // user expected the on-screen Ctrl to stay armed for
+        // their next on-screen tap, not get eaten by an
+        // unrelated hardware press.
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()
+
+        await model.tapDirectKey(.modifier(.control))
+        XCTAssertEqual(model.stickyModifierState.slot(for: .control), .armed)
+
+        // Hardware press of `c` (no emitter, so it drops at the
+        // guard — but even if it had reached the wire, the
+        // sticky-armed slot must survive).
+        await model.handleHardwareKey(keysym: 0x0063, modifiers: [], isDown: true)
+        await model.handleHardwareKey(keysym: 0x0063, modifiers: [], isDown: false)
+
+        XCTAssertEqual(
+            model.stickyModifierState.slot(for: .control),
+            .armed,
+            "hardware path must not consume sticky-armed state"
+        )
+        XCTAssertEqual(model.stickyModifierState.activeModifiers, [.control])
+    }
+
+    func testHandleHardwareKeyDoesNotConsumeStickyLockedState() async {
+        // Locked slots survive the on-screen consumption rule,
+        // and they must equally survive any hardware press.
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()
+
+        await model.tapDirectKey(.modifier(.shift))
+        await model.tapDirectKey(.modifier(.shift))  // lock within 400 ms
+        XCTAssertEqual(model.stickyModifierState.slot(for: .shift), .locked)
+
+        await model.handleHardwareKey(keysym: 0x0061, modifiers: [], isDown: true)
+        await model.handleHardwareKey(keysym: 0x0061, modifiers: [], isDown: false)
+
+        XCTAssertEqual(model.stickyModifierState.slot(for: .shift), .locked)
+    }
+
     func testToggleOutClearsLastTapTimestampSoNextEntryStartsFresh() async {
         // FR-012 (transient state) — `StickyModifierState`'s
         // internal `lastTapAt` map is reset when the struct is

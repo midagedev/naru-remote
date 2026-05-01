@@ -142,7 +142,16 @@ public struct NaruRemoteAppShell: View {
                         directKeystrokeMode: snapshot.directKeystrokeMode,
                         stickyModifierState: snapshot.stickyModifierState,
                         onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
-                        onTapDirectKey: { key in Task { await model.tapDirectKey(key) } }
+                        onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
+                        onHardwareKey: { keysym, modifiers, isDown in
+                            Task {
+                                await model.handleHardwareKey(
+                                    keysym: keysym,
+                                    modifiers: modifiers,
+                                    isDown: isDown
+                                )
+                            }
+                        }
                     )
                 }
             }
