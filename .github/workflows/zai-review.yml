@@ -37,9 +37,20 @@ jobs:
 
       - name: Read review prompt
         id: prompt
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         run: |
           {
             echo 'prompt<<NARU_PROMPT_EOF'
+            echo "## 리뷰 대상 PR"
+            echo ""
+            echo "이번 리뷰의 PR 번호는 **${PR_NUMBER}** 입니다."
+            echo "모든 \`gh pr view\`, \`gh pr diff\`, \`gh pr review\` 호출에"
+            echo "반드시 \`${PR_NUMBER}\`을 명시적으로 인자로 넘기세요"
+            echo "(예: \`gh pr view ${PR_NUMBER} --json ...\`,"
+            echo "\`gh pr review ${PR_NUMBER} --approve --body-file /tmp/claude-review.md\`)."
+            echo "현재 체크아웃은 detached HEAD라서 인자를 빼고 호출하면 실패합니다."
+            echo ""
             cat .github/zai-review-prompt.md
             echo 'NARU_PROMPT_EOF'
           } >> "$GITHUB_OUTPUT"
