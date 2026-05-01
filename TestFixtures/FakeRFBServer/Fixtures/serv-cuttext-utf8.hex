@@ -1,0 +1,16 @@
+# RFB 3.8 no-auth handshake followed by a ServerCutText message.
+# Sections:
+# - ProtocolVersion: "RFB 003.008\n"
+# - SecurityTypes: one type, None
+# - SecurityResult: OK
+# - ServerInit: 1024x768, 32bpp true-color, name "Desk"
+# - ServerCutText: type 3 + 3 padding bytes + length 19 + UTF-8 bytes for "안녕 클립보드"
+52 46 42 20 30 30 33 2e 30 30 38 0a
+01 01
+00 00 00 00
+04 00 03 00
+20 18 00 01 00 ff 00 ff 00 ff 10 08 00 00 00 00
+00 00 00 04 44 65 73 6b
+03 00 00 00
+00 00 00 13
+ec 95 88 eb 85 95 20 ed 81 b4 eb a6 bd eb b3 b4 eb 93 9c

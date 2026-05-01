@@ -102,6 +102,8 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
     case invalidProtocolVersion(String)
     case securityFailed(UInt32)
     case unexpectedMessageType(UInt8)
+    case truncatedServerCutText(expected: Int, actual: Int)
+    case invalidServerCutTextEncoding
 
     public var errorDescription: String? {
         switch self {
@@ -113,6 +115,10 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
             "RFB security result failed with status \(status)."
         case .unexpectedMessageType(let type):
             "Unexpected RFB message type \(type)."
+        case .truncatedServerCutText(let expected, let actual):
+            "Truncated RFB ServerCutText payload. Expected \(expected) bytes, received \(actual)."
+        case .invalidServerCutTextEncoding:
+            "RFB ServerCutText payload is not valid UTF-8."
         }
     }
 }
@@ -222,6 +228,51 @@ public enum RFBProtocolDecoder {
         }
 
         return RFBFramebufferUpdateHeader(rectangles: rectangles)
+    }
+
+    /// Parses an RFB ServerCutText message (server-to-client message type 3).
+    ///
+    /// Wire layout (RFC 6143 §7.6.4):
+    ///
+    ///   - 1 byte:  message type (must equal 3)
+    ///   - 3 bytes: padding (ignored)
+    ///   - 4 bytes: big-endian UInt32 length
+    ///   - N bytes: clipboard payload (decoded as UTF-8)
+    ///
+    /// The RFB 3.x specification calls the payload "Latin-1", but real-world
+    /// VNC servers and clients commonly transmit UTF-8 here, and the Naru
+    /// Remote outgoing path already does so. Decoding as UTF-8 preserves
+    /// multilingual round-trip.
+    ///
+    /// Returns the decoded payload string. Throws a typed
+    /// ``RFBProtocolDecoderError`` (never traps) on truncation, wrong message
+    /// type, or invalid UTF-8.
+    public static func parseServerCutText(_ data: Data) throws -> String {
+        let bytes = Array(data)
+        try require(bytes, count: 8)
+
+        guard bytes[0] == 3 else {
+            throw RFBProtocolDecoderError.unexpectedMessageType(bytes[0])
+        }
+
+        let payloadLength = Int(uint32(bytes, at: 4))
+        let expectedTotal = 8 + payloadLength
+        guard bytes.count >= expectedTotal else {
+            throw RFBProtocolDecoderError.truncatedServerCutText(
+                expected: expectedTotal,
+                actual: bytes.count
+            )
+        }
+
+        guard payloadLength > 0 else {
+            return ""
+        }
+
+        let payloadBytes = bytes[8..<expectedTotal]
+        guard let text = String(bytes: payloadBytes, encoding: .utf8) else {
+            throw RFBProtocolDecoderError.invalidServerCutTextEncoding
+        }
+        return text
     }
 
     private static func require(_ bytes: [UInt8], count: Int) throws {

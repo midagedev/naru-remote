@@ -223,6 +223,40 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         try connection.write(RFBClientMessageEncoder.pasteCommand(command), timeout: 2)
     }
 
+    /// Reads a single server-to-client `ServerCutText` message off the active
+    /// connection and returns its UTF-8 payload. The fixed 8-byte header
+    /// (1 byte message type + 3 bytes padding + 4 bytes big-endian length) is
+    /// pulled first, then the declared payload length is read in full. Truncated
+    /// or malformed payloads surface as typed
+    /// ``RFBProtocolDecoderError`` values — never as a trap.
+    ///
+    /// Note: callers must know the next message on the wire is a
+    /// `ServerCutText`. A non-3 message-type byte is rejected with
+    /// ``RFBProtocolDecoderError/unexpectedMessageType(_:)``.
+    public func receiveServerCutText(timeout: TimeInterval = 2) throws -> String {
+        guard let connection = currentActiveConnection() else {
+            throw TextInjectionError.clipboardUnavailable(
+                "No active RFB connection is available for clipboard receive."
+            )
+        }
+
+        let header = try connection.readExactly(byteCount: 8, timeout: timeout)
+        let headerBytes = Array(header)
+        guard headerBytes[0] == 3 else {
+            throw RFBProtocolDecoderError.unexpectedMessageType(headerBytes[0])
+        }
+
+        let payloadLength = Int(Self.uint32(headerBytes, at: 4))
+        let payload: Data
+        if payloadLength > 0 {
+            payload = try connection.readExactly(byteCount: payloadLength, timeout: timeout)
+        } else {
+            payload = Data()
+        }
+
+        return try RFBProtocolDecoder.parseServerCutText(header + payload)
+    }
+
     @discardableResult
     public func connectNoAuthTranscript(
         host: String,

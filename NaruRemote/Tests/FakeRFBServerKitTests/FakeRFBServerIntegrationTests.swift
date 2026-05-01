@@ -310,6 +310,27 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertNil(client.lastFrame)
     }
 
+    func testProductionRFBNetworkClientReceivesServerCutTextWithCJKPayload() throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("serv-cuttext-utf8"))
+        // Handshake bytes occupy 0..<46; everything after is the ServerCutText
+        // message that the fake server pushes after the no-auth handshake.
+        let handshakeByteCount = 46
+        let serverCutTextBytes = transcript.bytes.subdata(in: handshakeByteCount..<transcript.bytes.count)
+
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([serverCutTextBytes])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let received = try client.receiveServerCutText(timeout: 2)
+        XCTAssertEqual(received, "안녕 클립보드")
+    }
+
     func testProductionRFBNetworkClientRejectsShortTranscriptWithoutTrapping() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let shortTranscript = FakeRFBTranscript(bytes: transcript.bytes.prefix(18))
