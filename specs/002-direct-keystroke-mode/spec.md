@@ -117,8 +117,7 @@ Visual feedback for armed vs locked modifiers, double-tap window tuning, and rec
 - **FR-013**: User MUST be able to clear all sticky modifier state in one tap via a "Clear modifiers" affordance on the special-keys page.
 - **FR-014**: System MUST reset the mode to Compose & Send on every fresh session start (per profile connect). Direct mode MUST NOT persist across disconnect / reconnect cycles or app launches.
 - **FR-015**: System MUST drop hardware keystrokes that have no X11 keysym mapping silently, without emitting a `KeyEvent` and without surfacing an error.
-
-[NEEDS CLARIFICATION: should soft-key press-and-hold trigger key-repeat (continuous `KeyEvent` down at ~30 Hz until release, with a single `KeyEvent` up on release) or one-shot only — Chrome Remote Android does soft-key auto-repeat; one-shot is simpler and matches hardware-keyboard behavior in FR-006]
+- **FR-016**: System MUST treat every soft-key tap as **one-shot** — exactly one `KeyEvent` down + one `KeyEvent` up per tap. Press-and-hold on the on-screen keyboard MUST NOT synthesize repeated `KeyEvent`s. This unifies the on-screen and hardware paths (FR-006): both rely on the remote OS to own auto-repeat once `KeyEvent` down is held, and the remote only sees a held key when the user uses the hardware path. The trade-off — losing the long-press-to-repeat feel for `Backspace` and arrow keys on the on-screen keyboard — is accepted to keep the two emission paths byte-identical (SC-005) and to keep the local emitter simple and timing-independent.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -198,6 +197,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 - **Auto-detection of remote terminal vs GUI** — user picks the mode. Naru does not introspect remote app state.
 - **Remote secure-input detection** — Naru cannot detect macOS Secure Keyboard Entry or password fields; the persistent on-screen badge is the disclosure boundary.
 - **Naru-side auto-repeat for hardware keyboards** — the remote OS owns auto-repeat once a `KeyEvent` down is held.
+- **Soft-key press-and-hold auto-repeat** — every on-screen tap is one-shot (FR-016). To repeat a key the user taps it again. Trade-off accepted to keep the on-screen and hardware paths byte-identical and to avoid a local repeat clock the remote would not match.
 - **CapsLock, Fn, Globe, dictation, Siri activation keys** — no consistent X11 keysym mapping, deferred.
 - **macOS-style Cmd-key system shortcuts that don't map to X11** (e.g., screenshot, dictation) — deferred.
 - **Persisting Direct mode across disconnect / app relaunch** — always resets to Compose on session start (constitution §I default).
