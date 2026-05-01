@@ -43,6 +43,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
     private var activePointerClient: RFBPointerEventClient?
+    /// Last `(x, y)` coordinate that `sendPointerMoveTo(...)` actually
+    /// emitted on the wire for the currently active stream.  Used as a
+    /// throttle anchor: a subsequent move whose framebuffer-coord delta
+    /// from this anchor is `< 1` pixel is suppressed so a single-finger
+    /// pan does not flood the wire while the gesture pipeline runs at
+    /// the screen refresh rate.  Cleared on connect / disconnect /
+    /// profile change so a stale anchor from a previous session can
+    /// never suppress the first real move of the next drag.
+    private var lastEmittedDragCoord: (x: UInt16, y: UInt16)?
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -303,6 +312,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
             reconnectAttempts = 0
@@ -367,6 +377,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             activeTextClient = nil
             activePointerClient = nil
+            lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
             reconnectAttempts = 0
@@ -490,6 +501,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingIncomingClipboard = nil
             activeTextClient = nil
             activePointerClient = nil
+            lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
             reconnectAttempts = 0
@@ -617,6 +629,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             session = nextSession
             activeTextClient = nil
             activePointerClient = nil
+            lastEmittedDragCoord = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
@@ -656,6 +669,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
+                lastEmittedDragCoord = nil
                 if textClient != nil {
                     startIncomingClipboardReceive(receive: Self.makeReceive(connector: connector))
                 }
@@ -693,6 +707,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             } catch {
                 activeTextClient = nil
                 activePointerClient = nil
+                lastEmittedDragCoord = nil
                 stopIncomingClipboardReceive()
                 latestFramebuffer = nil
                 latestFrameDirtyRectangles = nil
@@ -761,6 +776,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 activeTextClient = streamingClient
                 activePointerClient = streamingClient
+                lastEmittedDragCoord = nil
                 startIncomingClipboardReceive(receive: Self.makeReceive(streamingClient: streamingClient))
 
                 while shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
@@ -895,6 +911,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         activeTextClient = nil
         activePointerClient = nil
+        lastEmittedDragCoord = nil
         stopIncomingClipboardReceive()
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
@@ -1095,6 +1112,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         pendingIncomingClipboard = nil
         activeTextClient = nil
         activePointerClient = nil
+        lastEmittedDragCoord = nil
         activeStreamProfile = nil
         activeStreamCredential = nil
         reconnectAttempts = 0
@@ -1571,6 +1589,152 @@ public final class NaruRemoteAppModel: ObservableObject {
                     self.activePointerClient = nil
                 }
             }
+        }
+    }
+
+    /// Translate the start of a single-finger drag (button-1 hold) in
+    /// the framebuffer view's coordinate space into a remote-side
+    /// button-down `PointerEvent` (RFC 6143 §7.5.5, mask `0x01`) at
+    /// the mapped framebuffer coords.
+    ///
+    /// Mirrors `sendTapAt(viewPoint:viewSize:)` for stream gating,
+    /// view→framebuffer mapping, and constitution §IV opacity:
+    /// coordinates are NOT logged anywhere persistent and the
+    /// diagnostic safe-detail catalog is unaffected.
+    ///
+    /// No-op cases (silent, returns without side effects):
+    ///   - `explicitlyDisconnected` is set (the user has torn the
+    ///     session down — drag must not resurrect any wire activity)
+    ///   - no `latestFramebuffer` (no first frame yet)
+    ///   - no streaming pointer client
+    ///   - the drag start falls in the letterbox/pillarbox bands
+    public func sendPointerDownAt(viewPoint: CGPoint, viewSize: CGSize) async {
+        guard !explicitlyDisconnected,
+              let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        // Anchor the throttle on the down event so the FIRST move that
+        // actually crosses the 1-pixel threshold gets emitted.
+        lastEmittedDragCoord = (mapped.x, mapped.y)
+
+        do {
+            try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
+        } catch {
+            guard self.activeFrameStreamID == streamID,
+                  self.session?.id == sessionID,
+                  self.selectedProfileID == profileID
+            else {
+                return
+            }
+            self.activePointerClient = nil
+            self.lastEmittedDragCoord = nil
+        }
+    }
+
+    /// Continue a single-finger drag (button-1 hold) by emitting a
+    /// `PointerEvent` with mask `0x01` at the mapped framebuffer
+    /// coords for `viewPoint`.  Throttle: a move whose framebuffer-
+    /// coord delta from the last emitted coord is `< 1` pixel on both
+    /// axes is suppressed to avoid flooding the wire.
+    ///
+    /// Mirrors `sendPointerDownAt(...)` for the same no-op preconditions.
+    public func sendPointerMoveTo(viewPoint: CGPoint, viewSize: CGSize) async {
+        guard !explicitlyDisconnected,
+              let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        // Sub-pixel throttle: drop moves whose framebuffer-coord delta
+        // does not advance the last emitted coord on either axis.
+        if let last = lastEmittedDragCoord, last.x == mapped.x, last.y == mapped.y {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        lastEmittedDragCoord = (mapped.x, mapped.y)
+
+        do {
+            try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
+        } catch {
+            guard self.activeFrameStreamID == streamID,
+                  self.session?.id == sessionID,
+                  self.selectedProfileID == profileID
+            else {
+                return
+            }
+            self.activePointerClient = nil
+            self.lastEmittedDragCoord = nil
+        }
+    }
+
+    /// Conclude a single-finger drag by emitting a button-up
+    /// `PointerEvent` (mask `0x00`) at the mapped framebuffer coords.
+    /// Clears the throttle anchor so the next drag starts fresh.
+    ///
+    /// Mirrors `sendPointerDownAt(...)` for the same no-op preconditions.
+    public func sendPointerUpAt(viewPoint: CGPoint, viewSize: CGSize) async {
+        guard !explicitlyDisconnected,
+              let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        do {
+            try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
+            self.lastEmittedDragCoord = nil
+        } catch {
+            guard self.activeFrameStreamID == streamID,
+                  self.session?.id == sessionID,
+                  self.selectedProfileID == profileID
+            else {
+                return
+            }
+            self.activePointerClient = nil
+            self.lastEmittedDragCoord = nil
         }
     }
 
