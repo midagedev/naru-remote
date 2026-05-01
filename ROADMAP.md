@@ -172,8 +172,15 @@ Status: started
   `CVPixelBuffer` / `CMSampleBuffer`, enqueues frames on
   `AVSampleBufferDisplayLayer`, and compiles an iOS
   `AVPictureInPictureController` content-source wrapper
-- Next: wire the wrapper into the app session surface and verify real
-  iPhone/iPad PiP behavior, return-to-app behavior, and background-mode policy
+- The shared `AVSampleBufferDisplayLayer` is now hosted in the SwiftUI
+  session surface via `PiPSampleBufferDisplayLayerView`
+  (`UIViewRepresentable`).  `NaruRemoteAppModel` owns a `PiPLayerHost`
+  that is the single sink for streaming frames, and the system PiP
+  controller attaches to the same layer through `prepare(layerHost:)`
+  so the in-app preview and the PiP content source share one renderer
+- Next: real iPhone/iPad system PiP enter/exit/return-to-app behavior
+  and background-mode policy verification — Phase 5 device residual-risk
+  follow-up
 - Next: system PiP renderer and profile settings UI for the opt-out
 
 ## Phase 7 - First-Run Onboarding

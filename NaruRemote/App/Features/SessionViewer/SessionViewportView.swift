@@ -1,6 +1,10 @@
 import NaruRemoteCore
 import SwiftUI
 
+#if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+import AVFoundation
+#endif
+
 public struct SessionViewportView: View {
     private let title: String
     private let subtitle: String
@@ -11,7 +15,35 @@ public struct SessionViewportView: View {
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
+    #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    private let pipLayerHost: PiPLayerHost?
+    #endif
 
+    #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    public init(
+        title: String,
+        subtitle: String,
+        session: RemoteSession?,
+        framebuffer: RFBRawFramebuffer? = nil,
+        isPiPWatchAvailable: Bool = false,
+        pipWatchStatusText: String = "PiP after first frame",
+        pipLayerHost: PiPLayerHost? = nil,
+        onRunChecks: (() -> Void)? = nil,
+        onConnect: (() -> Void)? = nil,
+        onStartPiPWatch: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.session = session
+        self.framebuffer = framebuffer
+        self.isPiPWatchAvailable = isPiPWatchAvailable
+        self.pipWatchStatusText = pipWatchStatusText
+        self.pipLayerHost = pipLayerHost
+        self.onRunChecks = onRunChecks
+        self.onConnect = onConnect
+        self.onStartPiPWatch = onStartPiPWatch
+    }
+    #else
     public init(
         title: String,
         subtitle: String,
@@ -33,6 +65,7 @@ public struct SessionViewportView: View {
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
     }
+    #endif
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -95,9 +128,7 @@ public struct SessionViewportView: View {
                     )
 
                 if let framebuffer {
-                    RemoteFramebufferPreview(framebuffer: framebuffer)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityIdentifier("naru.session.framebufferPreview")
+                    framebufferContent(framebuffer)
                 } else {
                     VStack(spacing: 8) {
                         Image(systemName: "display")
@@ -123,6 +154,29 @@ public struct SessionViewportView: View {
         }
         .padding(16)
         .accessibilityIdentifier("naru.session.viewport")
+    }
+
+    @ViewBuilder
+    private func framebufferContent(_ framebuffer: RFBRawFramebuffer) -> some View {
+        #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        if let pipLayerHost {
+            PiPSampleBufferDisplayLayerView(layerHost: pipLayerHost)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .aspectRatio(
+                    CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1)),
+                    contentMode: .fit
+                )
+                .accessibilityIdentifier("naru.session.framebufferPreview")
+        } else {
+            RemoteFramebufferPreview(framebuffer: framebuffer)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityIdentifier("naru.session.framebufferPreview")
+        }
+        #else
+        RemoteFramebufferPreview(framebuffer: framebuffer)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("naru.session.framebufferPreview")
+        #endif
     }
 
     private var statusText: String {

@@ -21,6 +21,18 @@ import AVKit
 import UIKit
 #endif
 
+/// Capability protocol for `PiPWatchControlling` implementations that
+/// support being attached to a long-lived `PiPLayerHost`.  The host's
+/// `AVSampleBufferDisplayLayer` is mounted in the SwiftUI view tree and
+/// becomes the single shared sink for streaming frames; both the
+/// hosted view and the system PiP controller render from the same
+/// layer instance to avoid double rendering.
+@MainActor
+public protocol PiPWatchLayerHostAttaching: PiPWatchControlling {
+    @discardableResult
+    func prepare(layerHost: PiPLayerHost) -> Bool
+}
+
 public enum PiPWatchSampleBufferRendererError: Error, Equatable, LocalizedError {
     case unrenderableFramebuffer(width: Int, height: Int)
     case pixelBufferCreationFailed
@@ -201,12 +213,13 @@ public final class PiPWatchSampleBufferRenderer {
 
 #if os(iOS) && canImport(AVKit) && canImport(UIKit)
 @MainActor
-public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControlling {
-    public let renderer: PiPWatchSampleBufferRenderer
+public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControlling, PiPWatchLayerHostAttaching {
+    public private(set) var layerHost: PiPLayerHost?
     public private(set) var pictureInPictureController: AVPictureInPictureController?
+    private let fallbackRenderer: PiPWatchSampleBufferRenderer
 
     public init(renderer: PiPWatchSampleBufferRenderer = PiPWatchSampleBufferRenderer()) {
-        self.renderer = renderer
+        self.fallbackRenderer = renderer
         super.init()
     }
 
@@ -214,6 +227,10 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         AVPictureInPictureController.isPictureInPictureSupported()
     }
 
+    /// Backwards-compatible no-host preparation.  Builds the controller
+    /// against the fallback renderer's display layer; the host-aware
+    /// overload `prepare(layerHost:)` should be preferred so the shared
+    /// in-app layer is the single source.
     @discardableResult
     public func prepare() -> Bool {
         guard isSupported else {
@@ -222,7 +239,32 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         }
 
         let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: renderer.displayLayer,
+            sampleBufferDisplayLayer: fallbackRenderer.displayLayer,
+            playbackDelegate: self
+        )
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.delegate = self
+        controller.requiresLinearPlayback = true
+        pictureInPictureController = controller
+        return true
+    }
+
+    /// Attach the controller to a live `PiPLayerHost`.  The hosted
+    /// layer is mounted in the SwiftUI view tree by
+    /// `PiPSampleBufferDisplayLayerView`, which is the lifecycle PiP
+    /// requires.  Frames are written through `layerHost.enqueue(_:)`,
+    /// so the controller does not own a separate renderer.
+    @discardableResult
+    public func prepare(layerHost: PiPLayerHost) -> Bool {
+        self.layerHost = layerHost
+
+        guard isSupported else {
+            pictureInPictureController = nil
+            return false
+        }
+
+        let source = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: layerHost.layer,
             playbackDelegate: self
         )
         let controller = AVPictureInPictureController(contentSource: source)
@@ -233,7 +275,15 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     }
 
     public func enqueue(_ framebuffer: RFBRawFramebuffer) throws {
-        _ = try renderer.enqueue(framebuffer)
+        // When an in-app `PiPLayerHost` is attached the model writes
+        // streamed frames into the host directly so the SwiftUI viewport
+        // and the AVPictureInPictureController content source share a
+        // single sink — skipping the redundant render here is what
+        // prevents double encoding.  Without an attached host, retain
+        // the legacy behavior of rendering through the fallback renderer.
+        if layerHost == nil {
+            _ = try fallbackRenderer.enqueue(framebuffer)
+        }
         pictureInPictureController?.invalidatePlaybackState()
     }
 
