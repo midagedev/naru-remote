@@ -109,7 +109,7 @@ final class PointerEventTapTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
 
         XCTAssertNotNil(model.snapshot.latestFramebuffer)
@@ -161,7 +161,7 @@ final class PointerEventTapTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
 
         // y=5 falls in the top letterbox band — a tap there must NOT
@@ -197,7 +197,7 @@ final class PointerEventTapTests: XCTestCase {
             connectorFactory: { connector }
         )
 
-        model.connectSelectedProfile()
+        await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
 
         let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test")

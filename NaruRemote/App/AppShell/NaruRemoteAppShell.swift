@@ -48,7 +48,7 @@ public struct NaruRemoteAppShell: View {
                     )
                 },
                 onDelete: { id in
-                    model.deleteProfile(id: id)
+                    Task { await model.deleteProfile(id: id) }
                 }
             )
             .navigationTitle("Naru Remote")
@@ -90,7 +90,7 @@ public struct NaruRemoteAppShell: View {
                         isPiPWatching: snapshot.pipWatchSession?.state == .watching,
                         pipLayerHost: model.pipLayerHost,
                         onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
-                        onConnect: snapshot.selectedProfile == nil ? nil : { model.connectSelectedProfile() },
+                        onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
                         onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
                         onFramebufferTap: { point, size in
                             model.sendTapAt(viewPoint: point, viewSize: size)
@@ -126,7 +126,7 @@ public struct NaruRemoteAppShell: View {
         }
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView { profile, password in
-                model.addProfile(profile, password: password)
+                Task { await model.addProfile(profile, password: password) }
             }
         }
         .sheet(item: $editingProfile) { editing in
@@ -134,8 +134,11 @@ public struct NaruRemoteAppShell: View {
                 editing: editing.profile,
                 hasExistingCredential: editing.hasExistingCredential
             ) { profile, password in
-                model.editProfile(profile, password: password)
+                Task { await model.editProfile(profile, password: password) }
             }
+        }
+        .task {
+            await model.loadStoredProfiles()
         }
     }
 }

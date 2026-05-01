@@ -56,30 +56,33 @@ final class ConnectionProfileStoreTests: XCTestCase {
         }
     }
 
-    func testStoreRoundTripsProfiles() throws {
+    func testStoreRoundTripsProfiles() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let profile = try ConnectionProfile(
             displayName: "Desk",
             host: "desk.tailnet.ts.net",
             favorite: true
         )
 
-        try store.save(profile)
+        try await store.save(profile)
 
-        let reloaded = try ConnectionProfileStore(persistence: persistence)
-        XCTAssertEqual(reloaded.allProfiles(), [profile])
-        XCTAssertEqual(reloaded.profile(id: profile.id), profile)
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let allProfiles = await reloaded.allProfiles()
+        let fetched = await reloaded.profile(id: profile.id)
+        XCTAssertEqual(allProfiles, [profile])
+        XCTAssertEqual(fetched, profile)
     }
 
-    func testFilePersistenceReturnsEmptyProfilesWhenFileIsMissing() throws {
+    func testFilePersistenceReturnsEmptyProfilesWhenFileIsMissing() async throws {
         let fileURL = try Self.temporaryProfileStoreURL()
         let persistence = FileConnectionProfilePersistence(fileURL: fileURL)
 
-        XCTAssertEqual(try persistence.loadProfiles(), [])
+        let loaded = try await persistence.loadProfiles()
+        XCTAssertEqual(loaded, [])
     }
 
-    func testFilePersistenceRoundTripsProfiles() throws {
+    func testFilePersistenceRoundTripsProfiles() async throws {
         let fileURL = try Self.temporaryProfileStoreURL()
         let persistence = FileConnectionProfilePersistence(fileURL: fileURL)
         let profile = try ConnectionProfile(
@@ -89,52 +92,63 @@ final class ConnectionProfileStoreTests: XCTestCase {
             allowsPiPWatch: false
         )
 
-        try persistence.saveProfiles([profile])
+        try await persistence.saveProfiles([profile])
 
-        let reloaded = try FileConnectionProfilePersistence(fileURL: fileURL).loadProfiles()
+        let reloaded = try await FileConnectionProfilePersistence(fileURL: fileURL).loadProfiles()
         XCTAssertEqual(reloaded, [profile])
     }
 
-    func testStoreDeletesProfileAndPersistsRemoval() throws {
+    func testStoreDeletesProfileAndPersistsRemoval() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
 
-        try store.save(profile)
-        let removed = try store.deleteProfile(id: profile.id)
+        try await store.save(profile)
+        let removed = try await store.deleteProfile(id: profile.id)
 
         XCTAssertEqual(removed, profile)
-        XCTAssertTrue(try ConnectionProfileStore(persistence: persistence).allProfiles().isEmpty)
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let allProfiles = await reloaded.allProfiles()
+        XCTAssertTrue(allProfiles.isEmpty)
     }
 
-    func testStoreAllowsConcurrentSavesWithoutLosingProfiles() throws {
+    func testStoreAllowsConcurrentSavesWithoutLosingProfiles() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
-        let store = try ConnectionProfileStore(persistence: persistence)
+        let store = try await ConnectionProfileStore(persistence: persistence)
         let profiles = try (0..<50).map { index in
             try ConnectionProfile(
                 displayName: "Desk \(index)",
                 host: "desk-\(index).tailnet.ts.net"
             )
         }
-        let queue = DispatchQueue(label: "naru.profile.store.tests", attributes: .concurrent)
-        let group = DispatchGroup()
-        let saveErrors = ThreadSafeErrorRecorder()
 
-        for profile in profiles {
-            group.enter()
-            queue.async {
-                do {
-                    _ = try store.save(profile)
-                } catch {
-                    saveErrors.record(error)
+        // Issue 50 concurrent saves through `withTaskGroup` so the
+        // actor's serialization point is exercised.  Equivalent to
+        // the prior `DispatchQueue` race; the actor's mailbox
+        // guarantees the same atomicity per save without any
+        // explicit lock.
+        await withTaskGroup(of: Result<Void, Error>.self) { group in
+            for profile in profiles {
+                group.addTask {
+                    do {
+                        _ = try await store.save(profile)
+                        return .success(())
+                    } catch {
+                        return .failure(error)
+                    }
                 }
-                group.leave()
+            }
+
+            for await result in group {
+                if case .failure(let error) = result {
+                    XCTFail("Concurrent save failed: \(error)")
+                }
             }
         }
 
-        XCTAssertEqual(group.wait(timeout: .now() + 2), .success)
-        XCTAssertTrue(saveErrors.isEmpty)
-        XCTAssertEqual(try ConnectionProfileStore(persistence: persistence).allProfiles().count, profiles.count)
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let allProfiles = await reloaded.allProfiles()
+        XCTAssertEqual(allProfiles.count, profiles.count)
     }
 }
 
@@ -147,22 +161,5 @@ private extension ConnectionProfileStoreTests {
             withIntermediateDirectories: true
         )
         return directoryURL.appendingPathComponent("profiles.json")
-    }
-}
-
-private final class ThreadSafeErrorRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var errors: [Error] = []
-
-    var isEmpty: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return errors.isEmpty
-    }
-
-    func record(_ error: Error) {
-        lock.lock()
-        errors.append(error)
-        lock.unlock()
     }
 }

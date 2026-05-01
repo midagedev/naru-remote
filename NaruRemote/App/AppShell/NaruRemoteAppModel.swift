@@ -31,7 +31,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
-    private let profileStore: ConnectionProfileStore?
+    private var profileStore: ConnectionProfileStore?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let settingsPersistence: AppSettingsPersisting?
     private let pipWatchController: (any PiPWatchControlling)?
@@ -67,8 +67,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30
     ) {
-        let storedProfiles = profileStore?.allProfiles() ?? []
-        let initialProfiles = snapshot.profiles.isEmpty ? storedProfiles : snapshot.profiles
+        // Profiles are no longer loaded synchronously from
+        // `profileStore` here — the store is now an `actor`, so its
+        // `allProfiles()` call is async.  Callers that want disk-backed
+        // profiles must invoke `loadStoredProfiles()` after
+        // construction (the iOS shell does this in a `.task` modifier).
+        let initialProfiles = snapshot.profiles
 
         // Settings are non-critical: a load failure falls back to
         // defaults rather than throwing from `init`.  The error is
@@ -111,6 +115,48 @@ public final class NaruRemoteAppModel: ObservableObject {
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
         #endif
+    }
+
+    /// Late-attach a `ConnectionProfileStore` after construction.
+    /// The iOS shell uses this because the store's initializer is
+    /// `async` (its persistence layer is now an `actor`) but the
+    /// `@StateObject` factory that constructs the model is sync.
+    /// Attaching a second store is a no-op so a stray double-attach
+    /// from a flaky simulator launch cannot replace the live store.
+    public func attachProfileStore(_ store: ConnectionProfileStore) async {
+        guard profileStore == nil else {
+            return
+        }
+        profileStore = store
+        await loadStoredProfiles()
+    }
+
+    /// Loads disk-backed profiles from the injected
+    /// `ConnectionProfileStore` and merges them into the model state.
+    /// Called from the iOS shell's `.task` modifier on first appear so
+    /// startup is non-blocking.  No-op if no `profileStore` was
+    /// injected, if a snapshot's profiles are already populated, or if
+    /// the user has already started adding profiles in this session.
+    public func loadStoredProfiles() async {
+        guard let profileStore else {
+            return
+        }
+        guard profiles.isEmpty else {
+            return
+        }
+        let storedProfiles = await profileStore.allProfiles()
+        guard !storedProfiles.isEmpty else {
+            return
+        }
+        // Re-check: a fast user could have added a profile while we
+        // were awaiting the store.  Don't clobber that.
+        guard profiles.isEmpty else {
+            return
+        }
+        profiles = storedProfiles
+        if selectedProfileID == nil {
+            selectedProfileID = storedProfiles.first?.id
+        }
     }
 
     /// Persists "user dismissed the first-run onboarding
@@ -214,7 +260,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         selectedProfileID = id
     }
 
-    public func addProfile(_ profile: ConnectionProfile, password: String? = nil) {
+    public func addProfile(_ profile: ConnectionProfile, password: String? = nil) async {
         profilePersistenceError = nil
         var profileToSave = profile
         let trimmedPassword = password?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -227,7 +273,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
             let credentialRef = profileToSave.credentialRef ?? Self.credentialReference(for: profileToSave.id)
             do {
-                try credentialStore.savePassword(trimmedPassword, for: credentialRef)
+                try await credentialStore.savePassword(trimmedPassword, for: credentialRef)
                 profileToSave.credentialRef = credentialRef
             } catch {
                 profilePersistenceError = "Password could not be saved on this device."
@@ -242,7 +288,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
-            try profileStore?.save(profileToSave)
+            try await profileStore?.save(profileToSave)
         } catch {
             profilePersistenceError = "Profile could not be saved on this device."
         }
@@ -283,7 +329,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// place (the user is iterating on the same target).  If the
     /// profile id is unknown, this is a no-op so a stale UI never
     /// resurrects a deleted profile.
-    public func editProfile(_ profile: ConnectionProfile, password: String?) {
+    public func editProfile(_ profile: ConnectionProfile, password: String?) async {
         profilePersistenceError = nil
 
         guard profiles.contains(where: { $0.id == profile.id }) else {
@@ -302,7 +348,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 // password that was never saved.
                 if let existingRef = profileToSave.credentialRef {
                     do {
-                        try credentialStore?.deletePassword(for: existingRef)
+                        try await credentialStore?.deletePassword(for: existingRef)
                     } catch {
                         profilePersistenceError = "Password could not be removed on this device."
                         return
@@ -317,7 +363,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 let credentialRef = profileToSave.credentialRef ?? Self.credentialReference(for: profileToSave.id)
                 do {
-                    try credentialStore.savePassword(trimmedPassword, for: credentialRef)
+                    try await credentialStore.savePassword(trimmedPassword, for: credentialRef)
                     profileToSave.credentialRef = credentialRef
                 } catch {
                     profilePersistenceError = "Password could not be saved on this device."
@@ -331,7 +377,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
-            try profileStore?.save(profileToSave)
+            try await profileStore?.save(profileToSave)
         } catch {
             profilePersistenceError = "Profile could not be saved on this device."
         }
@@ -346,7 +392,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// frame stream, incoming-clipboard review, diagnostics, and
     /// PiP watch state are all torn down and `selectedProfileID` is
     /// cleared so no stale UI references the missing profile.
-    public func deleteProfile(id: ConnectionProfile.ID) {
+    public func deleteProfile(id: ConnectionProfile.ID) async {
         profilePersistenceError = nil
 
         guard let removedProfile = profiles.first(where: { $0.id == id }) else {
@@ -359,7 +405,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         if let credentialRef = removedProfile.credentialRef {
             do {
-                try credentialStore?.deletePassword(for: credentialRef)
+                try await credentialStore?.deletePassword(for: credentialRef)
             } catch {
                 // The profile is already gone from the in-memory
                 // list and the disk store; surface a non-fatal
@@ -370,7 +416,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
-            _ = try profileStore?.deleteProfile(id: id)
+            _ = try await profileStore?.deleteProfile(id: id)
         } catch {
             profilePersistenceError = "Profile could not be removed on this device."
         }
@@ -433,12 +479,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
-    private func connectionCredential(for profile: ConnectionProfile) throws -> RFBConnectionCredential {
+    private func connectionCredential(for profile: ConnectionProfile) async throws -> RFBConnectionCredential {
         guard let credentialRef = profile.credentialRef else {
             return .none
         }
 
-        guard let password = try credentialStore?.password(for: credentialRef),
+        guard let password = try await credentialStore?.password(for: credentialRef),
               !password.isEmpty
         else {
             throw AppCredentialError.passwordMissing
@@ -473,7 +519,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         "vnc-password:\(profileID.uuidString)"
     }
 
-    public func connectSelectedProfile() {
+    public func connectSelectedProfile() async {
         guard let profile = selectedProfile else {
             return
         }
@@ -489,7 +535,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         let credential: RFBConnectionCredential
         do {
-            credential = try connectionCredential(for: profile)
+            credential = try await connectionCredential(for: profile)
         } catch {
             nextSession.markFailed("Credential unavailable")
             session = nextSession
