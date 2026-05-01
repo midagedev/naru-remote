@@ -48,6 +48,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ZAI_API_KEY }}
           prompt: ${{ steps.prompt.outputs.prompt }}
+          show_full_output: true
           claude_args: >-
             --allowed-tools
-            "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Write,Grep,Glob"
+            "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Read,Write,Grep,Glob"
