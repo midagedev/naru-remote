@@ -238,6 +238,8 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
             return false
         }
 
+        activateAudioSessionForPiP()
+
         let source = AVPictureInPictureController.ContentSource(
             sampleBufferDisplayLayer: fallbackRenderer.displayLayer,
             playbackDelegate: self
@@ -262,6 +264,8 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
             pictureInPictureController = nil
             return false
         }
+
+        activateAudioSessionForPiP()
 
         let source = AVPictureInPictureController.ContentSource(
             sampleBufferDisplayLayer: layerHost.layer,
@@ -303,6 +307,24 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
 
     public func stop() {
         pictureInPictureController?.stopPictureInPicture()
+        deactivateAudioSessionAfterPiP()
+    }
+
+    /// Best-effort audio-session activation so PiP keeps streaming
+    /// frames after the app moves to the background.  Naru does not
+    /// produce audio, so `mixWithOthers` ensures we never duck or
+    /// stomp on whatever the user is already playing.  Failures are
+    /// swallowed: PiP still works in the foreground without an
+    /// active session, and a backgrounded device that refused
+    /// activation would surface as the existing PiP-stops behavior.
+    private func activateAudioSessionForPiP() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+        try? session.setActive(true, options: [])
+    }
+
+    private func deactivateAudioSessionAfterPiP() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 }
 

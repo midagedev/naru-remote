@@ -333,6 +333,64 @@ Status: started
   `showsOnboardingReady` (sibling to `showsOnboardingGuide`) so the
   state is testable without mounting a SwiftUI view
 
+## Ship Readiness
+
+Status: in progress
+
+Punch list for first TestFlight / App Store submission, ordered by
+ship-blocker severity.  Items are not new product behavior; they are
+the metadata, manifest, and runtime configuration the App Store and
+iOS itself require before the existing MVP build is shippable.
+
+P0 — App Store rejects or runtime fails without these:
+
+- ✅ Privacy Manifest (`NaruRemote/iOSApp/PrivacyInfo.xcprivacy`).
+  Naru declares no tracking, no collected data types, and no
+  required-reason API usage; verified by grep against the documented
+  required-reason API list (file timestamps, UserDefaults, system
+  boot time, disk space, active keyboards) — none used in production
+  code paths.  Bundled as a Resource on the iOS app target through
+  XcodeGen
+- ✅ `NSLocalNetworkUsageDescription` in `Info.plist` so iOS 14+
+  does not silently block VNC connections to Tailnet / private-network
+  IPs on first connect.  String is Korean-first since the founder
+  workflow targets Korean private-network operators
+- ✅ `UIBackgroundModes: [audio]` plus `AVAudioSession` activation in
+  `PiPWatchPictureInPictureController.prepare(...)` (mode
+  `.moviePlayback`, options `[.mixWithOthers]`) so PiP Watch keeps
+  streaming frames after the app moves to the background and never
+  ducks or stomps on whatever the user is already playing.  PiP Watch
+  is watch-only (constitution + ROADMAP Phase 6) so no audio is ever
+  produced — the audio session declaration is the system handshake
+  that grants background frame delivery, not a real audio output
+- App Icon (`Assets.xcassets/AppIcon.appiconset`) — pending; needs
+  1024×1024 marketing plus iPhone/iPad sizes
+- Apple Developer account, bundle ID provisioning, and signing
+  configuration — pending; outside the agent loop
+
+P1 — App Store listing requires these:
+
+- App Store screenshots (6.7" iPhone 17 Pro Max mandatory; iPad 13"
+  recommended).  `artifacts/screenshots/` exists for compose-text
+  smoke checks but is not yet App Store-sized
+- App description, keywords, support URL, marketing URL (KR + EN)
+- Privacy Policy URL (hosted page)
+- App Privacy questionnaire answers — Naru collects nothing;
+  diagnostics share is local-only and uses the safe-detail catalog
+
+P2 — Constitution / product promise items:
+
+- One full physical-device session (iPhone) covering Tailnet → VNC →
+  IME compose → PiP enter / leave (constitution §III, §VI)
+- Korean localization (`Localizable.strings` / String Catalog).
+  Founder ICP is Korean-speaking sustained AI-coding from phone
+  (memory: founder workflow); current strings are English
+
+P3 — Nice to have:
+
+- Crash reporting beyond Xcode Organizer (Sentry / Firebase optional)
+- TestFlight 1-week soak with 2-3 external testers
+
 ## Phase 8 - Multi-Session And Session Parking
 
 Status: not started
