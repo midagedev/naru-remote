@@ -58,6 +58,9 @@ struct DirectKeystrokeKeyboardView: View {
         } label: {
             Text(descriptor.label)
                 .font(fontFor(role: descriptor.role))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+                .allowsTightening(true)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
