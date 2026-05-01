@@ -6,6 +6,11 @@ public final class FakeRFBServer: @unchecked Sendable {
         case transcript
         case noAuthHandshake
         case noAuthFramebufferUpdates([Data])
+        /// Sends each opaque server message immediately after the no-auth
+        /// handshake completes, without expecting `FramebufferUpdateRequest`
+        /// messages in between. Useful for `ServerCutText` and other
+        /// server-initiated messages.
+        case noAuthServerMessages([Data])
         case vncAuthentication(
             challenge: Data,
             expectedResponse: Data,
@@ -61,6 +66,12 @@ public final class FakeRFBServer: @unchecked Sendable {
                     transcript: transcript,
                     clientMessageRecorder: clientMessageRecorder,
                     frameUpdates: frameUpdates
+                ).start()
+            case .noAuthServerMessages(let serverMessages):
+                FakeRFBNoAuthServerMessagesConnection(
+                    connection: connection,
+                    transcript: transcript,
+                    serverMessages: serverMessages
                 ).start()
             case .vncAuthentication(let challenge, let expectedResponse, let securityResult, let frameUpdates):
                 FakeRFBVNCAuthenticationConnection(
@@ -200,6 +211,74 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
             }
 
             self.receiveClientMessages(into: recorder)
+        }
+    }
+}
+
+private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
+    private let connection: NWConnection
+    private let transcript: FakeRFBTranscript
+    private let serverMessages: [Data]
+
+    init(
+        connection: NWConnection,
+        transcript: FakeRFBTranscript,
+        serverMessages: [Data]
+    ) {
+        self.connection = connection
+        self.transcript = transcript
+        self.serverMessages = serverMessages
+    }
+
+    func start() {
+        send(transcript.bytes[safe: 0..<12]) { [self] in
+            receive(byteCount: 12) { [self] in
+                send(transcript.bytes[safe: 12..<14]) { [self] in
+                    receive(byteCount: 1) { [self] in
+                        send(transcript.bytes[safe: 14..<18]) { [self] in
+                            receive(byteCount: 1) { [self] in
+                                send(transcript.bytes[safe: 18..<46]) { [self] in
+                                    sendServerMessages(ArraySlice(serverMessages))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func sendServerMessages(_ remaining: ArraySlice<Data>) {
+        guard let next = remaining.first else {
+            connection.cancel()
+            return
+        }
+
+        send(next) { [self] in
+            sendServerMessages(remaining.dropFirst())
+        }
+    }
+
+    private func send(_ data: Data, completion: @escaping @Sendable () -> Void) {
+        connection.send(content: data, completion: .contentProcessed { error in
+            if error == nil {
+                completion()
+            } else {
+                self.connection.cancel()
+            }
+        })
+    }
+
+    private func receive(byteCount: Int, completion: @escaping @Sendable () -> Void) {
+        connection.receive(
+            minimumIncompleteLength: byteCount,
+            maximumLength: byteCount
+        ) { [connection] _, _, _, error in
+            if error == nil {
+                completion()
+            } else {
+                connection.cancel()
+            }
         }
     }
 }

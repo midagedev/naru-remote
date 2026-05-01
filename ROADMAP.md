@@ -98,6 +98,10 @@ lookup primitives
   version/security/ClientInit/framebuffer-update-request writes
 - Outgoing RFB `ClientCutText` and paste key-event writes are verified over the
   active fake-server connection
+- Incoming RFB `ServerCutText` (server-to-client clipboard text, message type 3)
+  is decoded into a UTF-8 string and surfaced through the
+  `RemoteClipboardTextClient` capability protocol; truncated and malformed
+  payloads return a typed `RFBProtocolDecoderError` instead of trapping
 - 32-bit true-color raw framebuffer rectangles can be decoded into RGBA pixels
   in the core module
 - `RFBNetworkClient` can keep a no-auth session open and request repeated raw
@@ -124,8 +128,10 @@ lookup primitives
 - Current boundary does not yet render full-rate pixels with SwiftUI/Metal,
   restore remote clipboard contents, emit broader pointer/keyboard events, or
   verify saved credentials against real VNC servers on physical devices
-- Next: add clipboard text message fixtures, SwiftUI/Metal frame presentation,
-  and real-server credential verification
+- Next: SwiftUI/Metal frame presentation, real-server credential verification,
+  and wiring the new `ServerCutText` receive primitive into local clipboard
+  coordination so a remote copy can be reviewed and accepted on the iPad
+  before being placed on the local pasteboard
 - Keep real-server compatibility claims blocked until this phase passes
 
 ## Phase 4 - VNC Client Implementation Choice

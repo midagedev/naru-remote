@@ -60,6 +60,29 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
 public protocol RemoteClipboardTextClient {
     func setClipboardText(_ text: String) throws
     func sendPasteCommand(_ command: PasteCommand) throws
+
+    /// Reads the next RFB `ServerCutText` (server-to-client clipboard text)
+    /// message from the active connection and returns the decoded UTF-8
+    /// payload.
+    ///
+    /// Mirrors the existing synchronous "request the next protocol event"
+    /// style used by the framebuffer-update path: callers drive the receive
+    /// loop on a detached task and re-enter the main actor when the value
+    /// is available.
+    ///
+    /// The default implementation throws
+    /// ``TextInjectionError/clipboardUnavailable(_:)`` so existing in-process
+    /// fakes (used only for the outgoing send-side path) keep compiling
+    /// without opting in to the receive side.
+    func receiveServerCutText(timeout: TimeInterval) throws -> String
+}
+
+public extension RemoteClipboardTextClient {
+    func receiveServerCutText(timeout: TimeInterval) throws -> String {
+        throw TextInjectionError.clipboardUnavailable(
+            "Remote clipboard receive is not supported by this client."
+        )
+    }
 }
 
 public enum TextInjectionError: Error, Equatable, LocalizedError {

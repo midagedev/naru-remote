@@ -67,6 +67,65 @@ final class RFBProtocolDecoderTests: XCTestCase {
         }
     }
 
+    func testParsesServerCutTextWithCJKAndEmojiUTF8RoundTrip() throws {
+        let payload = "안녕 클립보드 🚀"
+        let payloadBytes = Data(payload.utf8)
+
+        var message = Data([3, 0, 0, 0])
+        message.append(contentsOf: Self.uint32Bytes(UInt32(payloadBytes.count)))
+        message.append(payloadBytes)
+
+        let decoded = try RFBProtocolDecoder.parseServerCutText(message)
+        XCTAssertEqual(decoded, payload)
+    }
+
+    func testParsesEmptyServerCutTextPayload() throws {
+        let message = Data([3, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(try RFBProtocolDecoder.parseServerCutText(message), "")
+    }
+
+    func testRejectsTruncatedServerCutTextPayloadWithTypedError() {
+        // Header declares a 19-byte payload but only 5 payload bytes are present.
+        var message = Data([3, 0, 0, 0])
+        message.append(contentsOf: Self.uint32Bytes(19))
+        message.append(Data([0xec, 0x95, 0x88, 0xeb, 0x85])) // first 5 bytes of "안녕"
+
+        XCTAssertThrowsError(try RFBProtocolDecoder.parseServerCutText(message)) { error in
+            XCTAssertEqual(
+                error as? RFBProtocolDecoderError,
+                .truncatedServerCutText(expected: 27, actual: 13)
+            )
+        }
+    }
+
+    func testRejectsServerCutTextWithWrongMessageType() {
+        var message = Data([0, 0, 0, 0])
+        message.append(contentsOf: Self.uint32Bytes(0))
+
+        XCTAssertThrowsError(try RFBProtocolDecoder.parseServerCutText(message)) { error in
+            XCTAssertEqual(error as? RFBProtocolDecoderError, .unexpectedMessageType(0))
+        }
+    }
+
+    func testRejectsServerCutTextWithInvalidUTF8() {
+        var message = Data([3, 0, 0, 0])
+        message.append(contentsOf: Self.uint32Bytes(2))
+        message.append(Data([0xC0, 0xC1])) // overlong / invalid UTF-8 lead bytes
+
+        XCTAssertThrowsError(try RFBProtocolDecoder.parseServerCutText(message)) { error in
+            XCTAssertEqual(error as? RFBProtocolDecoderError, .invalidServerCutTextEncoding)
+        }
+    }
+
+    private static func uint32Bytes(_ value: UInt32) -> [UInt8] {
+        [
+            UInt8((value >> 24) & 0xff),
+            UInt8((value >> 16) & 0xff),
+            UInt8((value >> 8) & 0xff),
+            UInt8(value & 0xff)
+        ]
+    }
+
     private static func loadHexFixture(_ name: String) throws -> Data {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<4 {
