@@ -214,7 +214,14 @@ Status: started
   presents the profile editor, `diagnostics` runs connection checks (or
   falls back to the profile editor when none exists), `pipWatch` starts the
   PiP Watch lifecycle when available
-- Next: persist dismissal after settings persistence exists
+- Onboarding-checklist dismissal persists across launches through a new
+  app-level `AppSettings` document (Codable, file-backed via
+  `FileAppSettingsPersistence` to `Application Support/NaruRemote/settings.json`),
+  loaded eagerly by `NaruRemoteAppModel` and re-applied so a dismissed
+  checklist stays hidden on the next launch.  The persistence boundary
+  is forward-compat (`decodeIfPresent` for every key) so future toggles
+  (e.g. Phase 9 Direct Keystroke Streaming default) can be added without
+  breaking decode of older settings files
 
 ## Phase 8 - Multi-Session And Session Parking
 
