@@ -59,6 +59,12 @@ Status: complete for live MVP foundation
 - Saved private VNC profile model and store
 - Stage-based diagnostics
 - Diagnostic export that omits raw details by default
+- Diagnostic export safe-catalog share sheet: `DiagnosticExport.renderShareText(buildVersion:)`
+  emits an ISO8601-stamped header plus one safe-catalog `[stage-id] status — detail` line
+  per stage and never reaches caller-provided titles, details, next actions,
+  credential refs, composed draft text, raw clipboard contents, or pixel bytes.
+  The app shell wires it through a `UIActivityViewController`-backed
+  `DiagnosticExportShareSheet`
 - Local compose draft with failed/unknown send retention
 - Text injection adapter that reports `unknown` when remote app acceptance cannot
   be confirmed
@@ -74,7 +80,11 @@ Status: complete for MVP foundation
 - Profile list shell exists
 - Session viewport and HUD shell exists
 - Remote Input Dock shell exists
-- Diagnostic summary shell exists
+- Diagnostic summary shell exists, including a "Share Diagnostics"
+  affordance that presents the safe-catalog share text through
+  `UIActivityViewController` (iOS-only, gated `#if os(iOS)`) so users
+  can attach the summary to support threads without leaking
+  credentials, composed text, raw clipboard contents, or pixel data
 - First-run onboarding checklist shell exists
 - Model-driven profile selection, Add Profile, Edit Profile, Delete Profile,
   Checks, Connect, and Send actions are wired into the app shell.  Edit/Delete

@@ -10,13 +10,20 @@ public struct NaruRemoteAppShell: View {
     /// down and re-create the editor's state on each invocation, so
     /// pre-filled fields always reflect the latest stored values.
     @State private var editingProfile: EditingProfile?
+    /// Build version label used in the diagnostic share-text header.
+    /// The iOS app entry passes
+    /// `Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")`;
+    /// previews / tests pass `nil` and the formatter renders "n/a".
+    private let buildVersion: String?
 
-    public init(snapshot: NaruRemoteAppSnapshot) {
+    public init(snapshot: NaruRemoteAppSnapshot, buildVersion: String? = nil) {
         self._model = StateObject(wrappedValue: NaruRemoteAppModel(snapshot: snapshot))
+        self.buildVersion = buildVersion
     }
 
-    public init(model: NaruRemoteAppModel) {
+    public init(model: NaruRemoteAppModel, buildVersion: String? = nil) {
         self._model = StateObject(wrappedValue: model)
+        self.buildVersion = buildVersion
     }
 
     public var body: some View {
@@ -83,7 +90,13 @@ public struct NaruRemoteAppShell: View {
                         onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil
                     )
 
-                    DiagnosticSummaryView(rows: snapshot.diagnosticRows)
+                    DiagnosticSummaryView(
+                        rows: snapshot.diagnosticRows,
+                        shareTextProvider: { [buildVersion] in
+                            model.makeDiagnosticExport()
+                                .renderShareText(buildVersion: buildVersion)
+                        }
+                    )
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {

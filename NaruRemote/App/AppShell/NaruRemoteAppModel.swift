@@ -367,6 +367,23 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Build a `DiagnosticExport` from the current diagnostic state.
+    /// Returns an empty export (header-only when rendered) when no
+    /// run has been started yet.  This is the single entry point the
+    /// shell uses to compose share-sheet text — bypassing it would
+    /// risk leaking caller-provided raw details (constitution §IV).
+    public func makeDiagnosticExport() -> DiagnosticExport {
+        guard let run = diagnosticRun else {
+            return DiagnosticExport(
+                run: ConnectionDiagnosticRun(
+                    profileID: selectedProfileID ?? UUID(),
+                    stages: []
+                )
+            )
+        }
+        return DiagnosticExport(run: run)
+    }
+
     public func runConnectionChecks() {
         guard let profile = selectedProfile else {
             return
