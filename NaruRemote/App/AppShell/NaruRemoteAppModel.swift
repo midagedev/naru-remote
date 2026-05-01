@@ -75,7 +75,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// `handleStreamFailure` skips reconnect scheduling entirely so
     /// the user's explicit teardown is honored.  Reset by every
     /// fresh user-initiated `connectSelectedProfile()`.
-    private var explicitlyDisconnected: Bool = false
+    ///
+    /// Exposed `internal` (read-only) so `@testable` tests can assert
+    /// that user-initiated disconnect latched the no-auto-reconnect
+    /// guard without poking private state via reflection.  External
+    /// callers cannot mutate this flag — the only setters remain
+    /// `disconnect()` and `connectSelectedProfile()`.
+    internal private(set) var explicitlyDisconnected: Bool = false
     @Published public private(set) var profilePersistenceError: String?
     /// Most recent `AppSettingsPersisting` failure, if any.  We do
     /// not crash on settings persistence errors — settings are
@@ -1104,6 +1110,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// fresh `connectSelectedProfile()` call so a late-firing
     /// stream failure callback does not schedule a reconnect on
     /// the user's behalf.
+    ///
+    /// Also clears the rendered framebuffer so a torn-down session
+    /// does not leave a stale frame on screen — once the user has
+    /// explicitly ended the session, showing yesterday's pixels would
+    /// be misleading.  The selected profile and the persisted profile
+    /// list are intentionally retained: the user disconnected from
+    /// *this session*, not from *this profile*.
     public func disconnect() {
         explicitlyDisconnected = true
         cancelPendingReconnect()
@@ -1116,6 +1129,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamProfile = nil
         activeStreamCredential = nil
         reconnectAttempts = 0
+        latestFramebuffer = nil
+        latestFrameDirtyRectangles = nil
         if var current = session {
             current.state = .closed
             current.hudMessage = "Disconnected"
