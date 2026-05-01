@@ -13,6 +13,7 @@ public struct RemoteInputDockView: View {
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
+    private let onDismissDirectModeWarning: () -> Void
 
     public init(
         initialText: String,
@@ -23,7 +24,8 @@ public struct RemoteInputDockView: View {
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
-        onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in }
+        onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
+        onDismissDirectModeWarning: @escaping () -> Void = {}
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
@@ -35,13 +37,22 @@ public struct RemoteInputDockView: View {
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
+        self.onDismissDirectModeWarning = onDismissDirectModeWarning
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 8) {
                 Label("Remote Input Dock", systemImage: "keyboard")
                     .font(.headline)
+
+                // Dock-side Direct-mode badge.  Sits next to the
+                // dock title so the cue is always visible whenever
+                // the keyboard is on screen — FR-010 first sentence.
+                DirectModeBadge(
+                    isVisible: directKeystrokeMode.isActive,
+                    accessibilityID: "naru.direct.badge.dock"
+                )
 
                 Spacer()
 
@@ -69,6 +80,13 @@ public struct RemoteInputDockView: View {
         .onChange(of: initialText) { _, newValue in
             text = newValue
         }
+        // FR-009 — first-entry warning dialog attached at the dock
+        // level so the alert chrome sits over the dock and feels
+        // anchored to the mode picker the user just tapped.
+        .directModeEntryWarning(
+            mode: directKeystrokeMode,
+            onDismiss: onDismissDirectModeWarning
+        )
     }
 
     /// Segmented picker that switches between Compose and Direct

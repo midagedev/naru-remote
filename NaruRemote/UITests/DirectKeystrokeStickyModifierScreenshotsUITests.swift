@@ -85,6 +85,9 @@ final class DirectKeystrokeStickyModifierScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = "control"
+        // Phase 7: suppress the first-entry warning dialog so the
+        // prelock hook drops us straight onto the keyboard.
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         app.launch()
 
         XCTAssertTrue(
@@ -139,6 +142,10 @@ final class DirectKeystrokeStickyModifierScreenshotsUITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        // Phase 7: suppress the first-entry warning dialog so the
+        // sticky-modifier screenshots can land on the special-keys
+        // page without the dialog covering the keyboard.
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         app.launch()
         return app
     }

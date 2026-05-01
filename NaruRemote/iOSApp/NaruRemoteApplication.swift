@@ -48,8 +48,27 @@ struct NaruRemoteApplication: App {
             }
 
             applyTestStickyModifierOverrides(to: model)
+            applyTestSuppressDirectModeWarning(to: model)
         }
         return model
+    }
+
+    /// XCUITest hook — when the `NARU_TEST_SUPPRESS_DIRECT_WARNING`
+    /// launch environment variable is set to a truthy value, mark
+    /// the FR-009 first-entry warning as already dismissed so
+    /// existing screenshot tests (PR-C / PR-D) can drive directly
+    /// to the keyboard without seeing the new Phase 7 dialog.  No-op
+    /// in production because the variable is never set.  The Phase 7
+    /// screenshot tests deliberately leave it unset so they can
+    /// capture the warning UI itself.
+    @MainActor
+    private static func applyTestSuppressDirectModeWarning(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_SUPPRESS_DIRECT_WARNING"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        model.dismissDirectModeEntryWarning()
     }
 
     /// XCUITest screenshot hook — `swift test` is fast enough to

@@ -21,6 +21,13 @@ struct DirectKeystrokeKeyboardView: View {
     let stickyModifierState: StickyModifierState
     let onTapKey: (DirectKey) -> Void
 
+    /// Transient highlight that flashes the Clear-modifiers button
+    /// for ~200 ms after the user taps it (FR-013 visual feedback).
+    /// Kept local to the view because the model-level state machine
+    /// doesn't carry a "just-pressed" hint, and the flash is purely
+    /// presentational.
+    @State private var clearFlashing: Bool = false
+
     init(
         page: KeyboardPage,
         stickyModifierState: StickyModifierState = StickyModifierState(),
@@ -95,21 +102,33 @@ struct DirectKeystrokeKeyboardView: View {
         descriptor: DirectKeystrokeKeyboardLayouts.KeyDescriptor,
         unitWidth: CGFloat
     ) -> some View {
+        let isClear = descriptor.key == .clearModifiers
         Button {
             onTapKey(descriptor.key)
+            if isClear {
+                // Brief flash so the user gets visual confirmation
+                // that the panic clear actually fired (FR-013).
+                clearFlashing = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    await MainActor.run { clearFlashing = false }
+                }
+            }
         } label: {
             Text(descriptor.label)
                 .font(fontFor(role: descriptor.role))
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
                 .allowsTightening(true)
-                .foregroundStyle(.primary)
+                .foregroundStyle(isClear && clearFlashing ? Color.white : Color.primary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(width: descriptor.widthUnits * unitWidth)
-        .background(backgroundFor(role: descriptor.role))
+        .background(
+            (isClear && clearFlashing) ? Color.accentColor : backgroundFor(role: descriptor.role)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
