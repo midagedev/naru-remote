@@ -30,11 +30,11 @@ public struct NaruRemoteAppShell: View {
         let snapshot = model.snapshot
         // Derived from app state instead of `@State`: a fresh
         // launch with a `dismissed` flag in settings should keep
-        // the checklist hidden, and the dismiss button only
-        // needs to flip the persisted flag — re-render handles
-        // the rest.
-        let showsOnboardingGuide = !snapshot.onboardingGuide.isComplete
-            && !model.appSettings.dismissedOnboardingChecklist
+        // the checklist (and its successor affirmation) hidden,
+        // and the dismiss buttons only need to flip the persisted
+        // flag — re-render handles the rest.
+        let showsOnboardingGuide = model.showsOnboardingGuide
+        let showsOnboardingReady = model.showsOnboardingReady
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             ProfileListView(
@@ -72,6 +72,10 @@ public struct NaruRemoteAppShell: View {
                                     showsProfileEditor = true
                                 }
                             }
+                        )
+                    } else if showsOnboardingReady {
+                        OnboardingReadyView(
+                            onDismiss: { model.dismissOnboardingChecklist() }
                         )
                     }
 

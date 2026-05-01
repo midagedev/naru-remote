@@ -262,6 +262,18 @@ Status: started
   is forward-compat (`decodeIfPresent` for every key) so future toggles
   (e.g. Phase 9 Direct Keystroke Streaming default) can be added without
   breaking decode of older settings files
+- When every checklist step reaches `.complete` and the user has not
+  yet dismissed onboarding, the app shell replaces the in-progress
+  guide with a compact `OnboardingReadyView` affirmation ("You're
+  all set. Naru Remote is ready." + a "Got it" button).  The
+  affirmation is watch-only — it never shows composed draft text,
+  credential refs, or framebuffer data (constitution §IV) — and
+  routes its dismiss button through the same
+  `dismissOnboardingChecklist()` path the in-progress checklist
+  uses, so dismissal applies the same way and persists across
+  launches.  Visibility is exposed on `NaruRemoteAppModel` as
+  `showsOnboardingReady` (sibling to `showsOnboardingGuide`) so the
+  state is testable without mounting a SwiftUI view
 
 ## Phase 8 - Multi-Session And Session Parking
 
