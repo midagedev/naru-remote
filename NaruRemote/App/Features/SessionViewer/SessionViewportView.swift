@@ -185,6 +185,19 @@ public struct SessionViewportView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(10)
             }
+            .overlay(alignment: .topLeading) {
+                if let badge = reconnectBadgeText {
+                    Label(badge, systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .background(Color.blue.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(10)
+                        .accessibilityIdentifier("naru.session.reconnectBadge")
+                }
+            }
         }
         .padding(16)
         .accessibilityIdentifier("naru.session.viewport")
@@ -251,7 +264,26 @@ public struct SessionViewportView: View {
     }
 
     private var statusText: String {
-        session?.state.rawValue.capitalized ?? "No Session"
+        guard let state = session?.state else {
+            return "No Session"
+        }
+        if case let .reconnecting(attempt, total) = state {
+            return "Reconnecting (\(attempt)/\(total))…"
+        }
+        return state.identifier.capitalized
+    }
+
+    /// HUD badge text for `RemoteSessionState.reconnecting`.  Nil
+    /// when the session is not in the reconnect window so the
+    /// overlay collapses entirely.  No retry button is exposed
+    /// while reconnecting — the system is already trying.
+    private var reconnectBadgeText: String? {
+        guard let state = session?.state,
+              case let .reconnecting(attempt, total) = state
+        else {
+            return nil
+        }
+        return "Reconnecting (\(attempt)/\(total))…"
     }
 
     private var canStartPiPWatch: Bool {
