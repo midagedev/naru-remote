@@ -180,7 +180,10 @@ Status: started
 - Public endpoints are surfaced as advanced/manual rather than the first-run
   happy path
 - App shell shows a dismissible onboarding section while setup is incomplete
-- Next: wire onboarding actions to profile creation and diagnostics commands
+- Onboarding step actions are wired to model commands: `privateTarget`
+  presents the profile editor, `diagnostics` runs connection checks (or
+  falls back to the profile editor when none exists), `pipWatch` starts the
+  PiP Watch lifecycle when available
 - Next: persist dismissal after settings persistence exists
 
 ## Phase 8 - Multi-Session And Session Parking
