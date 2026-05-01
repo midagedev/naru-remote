@@ -12,12 +12,19 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var latestInjectionAttempt: TextInjectionAttempt?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
     @Published public private(set) var latestFramebuffer: RFBRawFramebuffer?
+    /// Pending remote→local clipboard review.  Set when an incoming
+    /// `ServerCutText` payload arrives on the active connection,
+    /// cleared on Accept, Dismiss, or profile change.  See
+    /// `IncomingClipboardBanner`.
+    @Published public private(set) var pendingIncomingClipboard: IncomingClipboardReview?
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let profileStore: ConnectionProfileStore?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let pipWatchController: (any PiPWatchControlling)?
+    private let localClipboardWriter: (any LocalClipboardWriting)?
+    private let incomingClipboardReceiveTimeout: TimeInterval
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
     #endif
@@ -25,6 +32,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
+    private var activeIncomingClipboardTask: Task<Void, Never>?
     @Published public private(set) var profilePersistenceError: String?
 
     public init(
@@ -36,7 +44,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             frameInterval: 0.25
         ),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
-        pipWatchController: (any PiPWatchControlling)? = nil
+        pipWatchController: (any PiPWatchControlling)? = nil,
+        localClipboardWriter: (any LocalClipboardWriting)? = nil,
+        incomingClipboardReceiveTimeout: TimeInterval = 30
     ) {
         let storedProfiles = profileStore?.allProfiles() ?? []
         let initialProfiles = snapshot.profiles.isEmpty ? storedProfiles : snapshot.profiles
@@ -54,6 +64,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.frameStreamConfiguration = frameStreamConfiguration
         self.connectorFactory = connectorFactory
         self.pipWatchController = pipWatchController
+        self.localClipboardWriter = localClipboardWriter
+        self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
         #endif
@@ -99,6 +111,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func selectProfile(id: ConnectionProfile.ID) {
         if selectedProfileID != id {
             stopFrameStream()
+            stopIncomingClipboardReceive()
+            pendingIncomingClipboard = nil
             activeTextClient = nil
             latestFramebuffer = nil
             diagnosticRun = nil
@@ -147,6 +161,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         selectedProfileID = profileToSave.id
         if session == nil || session?.profileID != profileToSave.id {
             stopFrameStream()
+            stopIncomingClipboardReceive()
+            pendingIncomingClipboard = nil
             let newSession = RemoteSession(profileID: profileToSave.id)
             session = newSession
             composeDraft = ComposeDraft(sessionID: newSession.id)
@@ -250,6 +266,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         let connector = connectorFactory()
         stopFrameStream()
+        stopIncomingClipboardReceive()
+        pendingIncomingClipboard = nil
         if let streamingClient = connector as? any RFBStreamingClient {
             startFrameStream(
                 streamingClient,
@@ -274,7 +292,11 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 nextSession.markFirstFrameReceived(at: connectionResult.frameCapturedAt)
                 latestFramebuffer = connectionResult.framebuffer
-                activeTextClient = connector as? RemoteClipboardTextClient
+                let textClient = connector as? RemoteClipboardTextClient
+                activeTextClient = textClient
+                if textClient != nil {
+                    startIncomingClipboardReceive(receive: Self.makeReceive(connector: connector))
+                }
                 session = nextSession
                 diagnosticRun = ConnectionDiagnosticRun(
                     profileID: profile.id,
@@ -308,6 +330,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             } catch {
                 activeTextClient = nil
+                stopIncomingClipboardReceive()
                 latestFramebuffer = nil
                 nextSession.markFailed("Connection failed")
                 session = nextSession
@@ -366,6 +389,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }
 
                 activeTextClient = streamingClient
+                startIncomingClipboardReceive(receive: Self.makeReceive(streamingClient: streamingClient))
 
                 while shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
                     if Task.isCancelled {
@@ -488,6 +512,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         activeTextClient = nil
+        stopIncomingClipboardReceive()
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
         if updatedSession.hasReceivedFrame {
@@ -538,6 +563,132 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameStreamTask = nil
         activeFramePump = nil
         activeFrameStreamID = nil
+    }
+
+    /// Begin a long-lived receive loop that pulls `ServerCutText`
+    /// payloads off the active connection and surfaces each one as a
+    /// pending review the user must Accept before the local
+    /// pasteboard is touched.
+    ///
+    /// Behavior on a payload arriving while a previous review is
+    /// still pending: REPLACE the previous review with the latest
+    /// arrival.  A queue could leak older context across user
+    /// attention shifts; replacing keeps the visible review aligned
+    /// with the most recent remote copy.
+    private func startIncomingClipboardReceive(receive: @escaping @Sendable (TimeInterval) -> IncomingClipboardReceiveResult) {
+        stopIncomingClipboardReceive()
+
+        let timeout = incomingClipboardReceiveTimeout
+
+        activeIncomingClipboardTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let result = await Task.detached {
+                    receive(timeout)
+                }.value
+
+                if Task.isCancelled {
+                    return
+                }
+
+                guard let self else {
+                    return
+                }
+
+                switch result {
+                case .text(let text):
+                    self.recordIncomingClipboard(text)
+                case .unsupported:
+                    return
+                case .transientError:
+                    continue
+                }
+            }
+        }
+    }
+
+    private func stopIncomingClipboardReceive() {
+        activeIncomingClipboardTask?.cancel()
+        activeIncomingClipboardTask = nil
+    }
+
+    /// Builds a `Sendable` receive closure for the long-lived
+    /// `RFBStreamingClient` path.  Captures only the Sendable
+    /// streaming client so the closure can cross actor boundaries
+    /// into a detached task.
+    nonisolated private static func makeReceive(
+        streamingClient: any RFBStreamingClient
+    ) -> @Sendable (TimeInterval) -> IncomingClipboardReceiveResult {
+        return { timeout in
+            do {
+                let text = try streamingClient.receiveServerCutText(timeout: timeout)
+                return .text(text)
+            } catch let error as TextInjectionError {
+                if case .clipboardUnavailable = error {
+                    return .unsupported
+                }
+                return .transientError
+            } catch {
+                return .transientError
+            }
+        }
+    }
+
+    /// Builds a `Sendable` receive closure for the legacy
+    /// first-frame connector path.  The receive surface is optional
+    /// on this protocol, so the closure short-circuits to
+    /// `.unsupported` when the connector does not adopt
+    /// `RemoteClipboardTextClient`.
+    nonisolated private static func makeReceive(
+        connector: any RFBFirstFrameConnecting
+    ) -> @Sendable (TimeInterval) -> IncomingClipboardReceiveResult {
+        return { timeout in
+            guard let textClient = connector as? RemoteClipboardTextClient else {
+                return .unsupported
+            }
+            do {
+                let text = try textClient.receiveServerCutText(timeout: timeout)
+                return .text(text)
+            } catch let error as TextInjectionError {
+                if case .clipboardUnavailable = error {
+                    return .unsupported
+                }
+                return .transientError
+            } catch {
+                return .transientError
+            }
+        }
+    }
+
+    /// Surfaces a fresh `ServerCutText` arrival as a pending review.
+    /// Public so deterministic tests can drive the receive surface
+    /// without spinning the live receive loop.  Discards empty
+    /// payloads — the protocol allows them but they would render an
+    /// empty banner with no useful preview.
+    public func recordIncomingClipboard(_ text: String, at date: Date = Date()) {
+        guard !text.isEmpty else {
+            return
+        }
+        // REPLACE policy: a newer arrival supersedes a still-pending
+        // older review.  See `startIncomingClipboardReceive` for
+        // rationale.
+        pendingIncomingClipboard = IncomingClipboardReview(text: text, arrivedAt: date)
+    }
+
+    /// User reviewed the preview and accepted the remote copy.
+    /// Writes the *full* text through the injected
+    /// `LocalClipboardWriting` boundary and clears the review.
+    public func acceptIncomingClipboard() {
+        guard let review = pendingIncomingClipboard else {
+            return
+        }
+        localClipboardWriter?.write(review.text)
+        pendingIncomingClipboard = nil
+    }
+
+    /// User dismissed the review.  Nothing is written to the local
+    /// pasteboard.  The full `text` is dropped on the floor.
+    public func dismissIncomingClipboard() {
+        pendingIncomingClipboard = nil
     }
 
     nonisolated private static func connectAndReadFirstFrame(
@@ -822,4 +973,19 @@ private struct ConnectionResult: Sendable {
 
 private enum AppCredentialError: Error {
     case passwordMissing
+}
+
+/// Outcome of one attempt to receive a `ServerCutText` payload from
+/// the remote computer.  The receive loop translates throws into
+/// these tagged cases so the long-running task does not log raw
+/// error strings (constitution §IV: never store user-entered or
+/// remote-content-bearing strings in logs by default).
+enum IncomingClipboardReceiveResult: Sendable {
+    case text(String)
+    /// The active client does not support `ServerCutText` — exit
+    /// the receive loop entirely.
+    case unsupported
+    /// A timeout, decode error, or other recoverable failure —
+    /// keep the loop alive and try again on the next iteration.
+    case transientError
 }

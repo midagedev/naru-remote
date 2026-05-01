@@ -102,6 +102,16 @@ lookup primitives
   is decoded into a UTF-8 string and surfaced through the
   `RemoteClipboardTextClient` capability protocol; truncated and malformed
   payloads return a typed `RFBProtocolDecoderError` instead of trapping
+- Incoming `ServerCutText` payloads are wired into a
+  review-then-accept flow: `NaruRemoteAppModel` runs a
+  cancellable receive loop on the active streaming client,
+  publishes a truncated-preview `IncomingClipboardReview`, and only
+  writes the full text to the local pasteboard through the
+  `LocalClipboardWriting` boundary on explicit Accept (constitution
+  §I, OUT direction).  Profile changes cancel the pending review
+  without touching the local pasteboard, and the
+  `DiagnosticExportSafeDetailCatalog` summary is unaffected by
+  receive/accept/dismiss events
 - 32-bit true-color raw framebuffer rectangles can be decoded into RGBA pixels
   in the core module
 - `RFBNetworkClient` can keep a no-auth session open and request repeated raw
@@ -136,10 +146,9 @@ lookup primitives
   broader pointer/keyboard events, or verify saved credentials against real
   VNC servers on physical devices
 - Next: real-server credential verification, dirty-rect partial Metal uploads
-  and on-device GPU profiling, and wiring the new `ServerCutText` receive
-  primitive into local clipboard coordination so a remote copy can be
-  reviewed and accepted on the iPad before being placed on the local
-  pasteboard
+  and on-device GPU profiling, and an iPad XCUITest covering the
+  `IncomingClipboardBanner` Accept/Dismiss flow on a real device
+  surface
 - Keep real-server compatibility claims blocked until this phase passes
 
 ## Phase 4 - VNC Client Implementation Choice
