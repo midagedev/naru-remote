@@ -9,10 +9,27 @@ import NaruRemoteCore
 ///
 /// FR-002: tapping the page-toggle key swaps pages without emitting
 /// any KeyEvent over the wire.
+///
+/// Phase 4: the four modifier slots on the special-keys page render
+/// as `ModifierKeyButton` instead of plain key buttons so the
+/// idle / armed / locked sticky-modifier states are visually
+/// distinct (FR-005).  The renderer reads slot state from
+/// `stickyModifierState` (or, in previews, the default `.init()`).
 struct DirectKeystrokeKeyboardView: View {
 
     let page: KeyboardPage
+    let stickyModifierState: StickyModifierState
     let onTapKey: (DirectKey) -> Void
+
+    init(
+        page: KeyboardPage,
+        stickyModifierState: StickyModifierState = StickyModifierState(),
+        onTapKey: @escaping (DirectKey) -> Void
+    ) {
+        self.page = page
+        self.stickyModifierState = stickyModifierState
+        self.onTapKey = onTapKey
+    }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -40,12 +57,37 @@ struct DirectKeystrokeKeyboardView: View {
             let unitWidth = max(0, (proxy.size.width - totalSpacing) / max(0.001, totalUnits))
             HStack(spacing: spacing) {
                 ForEach(Array(row.keys.enumerated()), id: \.offset) { _, descriptor in
-                    keyButton(descriptor: descriptor, unitWidth: unitWidth)
+                    keyView(descriptor: descriptor, unitWidth: unitWidth)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
         .frame(height: 42)
+    }
+
+    @ViewBuilder
+    private func keyView(
+        descriptor: DirectKeystrokeKeyboardLayouts.KeyDescriptor,
+        unitWidth: CGFloat
+    ) -> some View {
+        // Branch: sticky-modifier slots render as ModifierKeyButton
+        // (three visual states); everything else stays a plain
+        // keyButton.  We branch on the `.modifier(_)` payload of
+        // the DirectKey rather than `descriptor.role` because the
+        // role is layout-only — the truth of "is this a sticky
+        // modifier" is the key payload itself.
+        if case .modifier(let modifier) = descriptor.key {
+            ModifierKeyButton(
+                label: descriptor.label,
+                modifier: modifier,
+                slot: stickyModifierState.slot(for: modifier),
+                widthUnits: descriptor.widthUnits,
+                unitWidth: unitWidth,
+                onTap: { onTapKey(descriptor.key) }
+            )
+        } else {
+            keyButton(descriptor: descriptor, unitWidth: unitWidth)
+        }
     }
 
     @ViewBuilder
@@ -101,9 +143,11 @@ struct DirectKeystrokeKeyboardView: View {
         for descriptor: DirectKeystrokeKeyboardLayouts.KeyDescriptor
     ) -> String {
         switch descriptor.key {
-        case .character(let c): return "Key \(c)"
-        case .named(let named): return "Key \(named.rawValue)"
-        case .pageToggle:       return "Switch keyboard page"
+        case .character(let c):     return "Key \(c)"
+        case .named(let named):     return "Key \(named.rawValue)"
+        case .pageToggle:           return "Switch keyboard page"
+        case .modifier(let m):      return "\(m.rawValue) modifier"
+        case .clearModifiers:       return "Clear modifiers"
         }
     }
 
@@ -111,9 +155,11 @@ struct DirectKeystrokeKeyboardView: View {
         for descriptor: DirectKeystrokeKeyboardLayouts.KeyDescriptor
     ) -> String {
         switch descriptor.key {
-        case .character(let c): return "char.\(c.asciiValue.map { String($0) } ?? String(c))"
-        case .named(let named): return "named.\(named.rawValue)"
-        case .pageToggle:       return "pageToggle"
+        case .character(let c):     return "char.\(c.asciiValue.map { String($0) } ?? String(c))"
+        case .named(let named):     return "named.\(named.rawValue)"
+        case .pageToggle:           return "pageToggle"
+        case .modifier(let m):      return "modifier.\(m.rawValue)"
+        case .clearModifiers:       return "clearModifiers"
         }
     }
 }

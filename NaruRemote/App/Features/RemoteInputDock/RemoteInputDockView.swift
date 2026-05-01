@@ -8,6 +8,7 @@ public struct RemoteInputDockView: View {
     private let statusText: String
     private let onSend: (String) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
+    private let stickyModifierState: StickyModifierState
     private let onToggleDirectMode: () -> Void
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
@@ -17,6 +18,7 @@ public struct RemoteInputDockView: View {
         statusText: String,
         onSend: @escaping (String) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
+        stickyModifierState: StickyModifierState = StickyModifierState(),
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in }
@@ -26,6 +28,7 @@ public struct RemoteInputDockView: View {
         self.statusText = statusText
         self.onSend = onSend
         self.directKeystrokeMode = directKeystrokeMode
+        self.stickyModifierState = stickyModifierState
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onTapDirectKey = onTapDirectKey
@@ -131,6 +134,7 @@ public struct RemoteInputDockView: View {
 
             DirectKeystrokeKeyboardView(
                 page: directKeystrokeMode.page,
+                stickyModifierState: stickyModifierState,
                 onTapKey: onTapDirectKey
             )
         }

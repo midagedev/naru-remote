@@ -17,6 +17,12 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// and snapshot-driven previews that have no damage history.
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
     public var directKeystrokeMode: DirectKeystrokeMode
+    /// Sticky modifier slot state for the Direct-mode special-keys
+    /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
+    /// pattern — pure value type carried on the snapshot so views
+    /// render off the snapshot, not by reaching back into the
+    /// `@MainActor` model directly.
+    public var stickyModifierState: StickyModifierState
 
     public init(
         profiles: [ConnectionProfile] = [],
@@ -28,7 +34,8 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
-        directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode()
+        directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
+        stickyModifierState: StickyModifierState = StickyModifierState()
     ) {
         self.profiles = profiles
         self.selectedProfileID = selectedProfileID
@@ -40,6 +47,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
         self.directKeystrokeMode = directKeystrokeMode
+        self.stickyModifierState = stickyModifierState
     }
 
     public var selectedProfile: ConnectionProfile? {

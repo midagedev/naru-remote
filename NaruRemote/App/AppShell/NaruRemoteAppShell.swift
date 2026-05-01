@@ -140,6 +140,7 @@ public struct NaruRemoteAppShell: View {
                         statusText: snapshot.inputStatusText,
                         onSend: { model.sendComposedText($0) },
                         directKeystrokeMode: snapshot.directKeystrokeMode,
+                        stickyModifierState: snapshot.stickyModifierState,
                         onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
                         onTapDirectKey: { key in Task { await model.tapDirectKey(key) } }
                     )

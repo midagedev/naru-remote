@@ -31,12 +31,21 @@ public enum KeyboardPage: String, Sendable, Equatable, Codable {
 }
 
 /// Logical key event surfaced from the custom soft keyboard view to
-/// `NaruRemoteAppModel.tapDirectKey(_:)`. Phase 3 only handles
-/// `.character`, `.named`, and `.pageToggle`; Phase 4 will add
-/// `.modifier(_)` and `.clearModifiers` once `StickyModifierState`
-/// lands.
+/// `NaruRemoteAppModel.tapDirectKey(_:)`.
+///
+/// - `.character`/`.named` emit a wire `KeyEvent` (wrapped by any
+///   armed-or-locked modifiers from `StickyModifierState`).
+/// - `.pageToggle` swaps QWERTY ↔ special-keys page; never emits.
+/// - `.modifier(_)` taps a sticky-modifier slot
+///   (idle → armed → locked transitions); never emits a wire
+///   `KeyEvent` directly — the modifier is applied to the next
+///   non-modifier emission.
+/// - `.clearModifiers` is the FR-013 panic clear; resets all four
+///   sticky slots to idle.
 public enum DirectKey: Sendable, Equatable {
     case character(Character)
     case named(KeysymMapping.NamedKey)
     case pageToggle
+    case modifier(StickyModifierState.Modifier)
+    case clearModifiers
 }
