@@ -10,6 +10,7 @@ public struct SessionViewportView: View {
     private let subtitle: String
     private let session: RemoteSession?
     private let framebuffer: RFBRawFramebuffer?
+    private let frameDirtyRectangles: [RFBFrameDamageRect]?
     private let isPiPWatchAvailable: Bool
     private let pipWatchStatusText: String
     private let isPiPWatching: Bool
@@ -26,6 +27,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
@@ -38,6 +40,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.frameDirtyRectangles = frameDirtyRectangles
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
@@ -52,6 +55,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
@@ -63,6 +67,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.frameDirtyRectangles = frameDirtyRectangles
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
@@ -191,7 +196,10 @@ public struct SessionViewportView: View {
     ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
         if MetalFramebufferView.isSupported() {
-            MetalFramebufferView(framebuffer: framebuffer)
+            MetalFramebufferView(
+                framebuffer: framebuffer,
+                dirtyRectangles: frameDirtyRectangles
+            )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .aspectRatio(aspectRatio, contentMode: .fit)
                 .accessibilityIdentifier("naru.session.framebufferPreview")

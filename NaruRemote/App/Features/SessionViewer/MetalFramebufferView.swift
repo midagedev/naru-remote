@@ -23,15 +23,18 @@ import MetalKit
 /// branch to the sampled `Canvas` preview when the device is missing.
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
+    private let dirtyRectangles: [RFBFrameDamageRect]?
     private let device: MTLDevice?
     private let accessibilityIdentifier: String
 
     public init(
         framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]? = nil,
         device: MTLDevice? = MTLCreateSystemDefaultDevice(),
         accessibilityIdentifier: String = "naru.session.metalFramebuffer"
     ) {
         self.framebuffer = framebuffer
+        self.dirtyRectangles = dirtyRectangles
         self.device = device
         self.accessibilityIdentifier = accessibilityIdentifier
     }
@@ -50,12 +53,17 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.isAccessibilityElement = true
         host.accessibilityLabel = "Remote framebuffer rendered with Metal"
         host.backgroundColor = .black
-        context.coordinator.enqueue(framebuffer)
+        // The very first frame after the view is constructed must
+        // perform a full upload — the texture has just been created
+        // and there is nothing prior on the GPU to combine with the
+        // damage rects.  Pass nil here so the renderer takes the
+        // full-frame path regardless of what the pump reported.
+        context.coordinator.enqueue(framebuffer, dirtyRectangles: nil)
         return host
     }
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
-        context.coordinator.enqueue(framebuffer)
+        context.coordinator.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
         uiView.requestRedraw()
     }
 
@@ -79,8 +87,11 @@ public struct MetalFramebufferView: UIViewRepresentable {
             }
         }
 
-        func enqueue(_ framebuffer: RFBRawFramebuffer) {
-            renderer?.enqueue(framebuffer)
+        func enqueue(
+            _ framebuffer: RFBRawFramebuffer,
+            dirtyRectangles: [RFBFrameDamageRect]? = nil
+        ) {
+            renderer?.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
         }
     }

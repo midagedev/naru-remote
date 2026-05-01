@@ -12,6 +12,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var latestInjectionAttempt: TextInjectionAttempt?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
     @Published public private(set) var latestFramebuffer: RFBRawFramebuffer?
+    /// Damage rectangles paired with `latestFramebuffer`.  Populated
+    /// whenever a streaming frame arrives from a damage-tracking pump
+    /// source (`RFBFramePumpFrame.dirtyRectangles`); cleared on
+    /// disconnect, profile changes, and full-frame fallback paths so
+    /// the renderer falls back to a full-frame upload when the pairing
+    /// no longer applies.
+    @Published public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -89,6 +96,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestInjectionAttempt = snapshot.latestInjectionAttempt
         self.pipWatchSession = snapshot.pipWatchSession
         self.latestFramebuffer = snapshot.latestFramebuffer
+        self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
         self.appSettings = loadedSettings
         self.settingsPersistenceError = loadError
         self.profileStore = profileStore
@@ -136,7 +144,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             composeDraft: composeDraft,
             latestInjectionAttempt: latestInjectionAttempt,
             pipWatchSession: pipWatchSession,
-            latestFramebuffer: latestFramebuffer
+            latestFramebuffer: latestFramebuffer,
+            latestFrameDirtyRectangles: latestFrameDirtyRectangles
         )
     }
 
@@ -171,6 +180,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingIncomingClipboard = nil
             activeTextClient = nil
             latestFramebuffer = nil
+            latestFrameDirtyRectangles = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
             clearPiPWatchSession()
@@ -226,6 +236,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestInjectionAttempt = nil
             clearPiPWatchSession()
             latestFramebuffer = nil
+            latestFrameDirtyRectangles = nil
             activeTextClient = nil
         }
     }
@@ -316,6 +327,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             session = nextSession
             activeTextClient = nil
             latestFramebuffer = nil
+            latestFrameDirtyRectangles = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
             return
         }
@@ -348,6 +360,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 nextSession.markFirstFrameReceived(at: connectionResult.frameCapturedAt)
                 latestFramebuffer = connectionResult.framebuffer
+                // Single-shot first-frame path has no damage history.
+                latestFrameDirtyRectangles = nil
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 if textClient != nil {
@@ -388,6 +402,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activeTextClient = nil
                 stopIncomingClipboardReceive()
                 latestFramebuffer = nil
+                latestFrameDirtyRectangles = nil
                 nextSession.markFailed("Connection failed")
                 session = nextSession
                 diagnosticRun = ConnectionDiagnosticRun(
@@ -515,6 +530,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
         updatedSession.markFirstFrameReceived(at: frame.capturedAt)
         latestFramebuffer = frame.framebuffer
+        // Only forward damage rectangles for incremental frames.  The
+        // first frame in a stream is non-incremental and the renderer
+        // must perform a full upload (its texture has just been
+        // allocated for these dimensions); pass nil so the dirty-rect
+        // path is bypassed for that frame.
+        latestFrameDirtyRectangles = frame.isIncremental ? frame.dirtyRectangles : nil
         session = updatedSession
         forwardFrameToLayerHost(frame.framebuffer)
         updatePiPWatchFrameIfNeeded(
@@ -581,6 +602,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         updatedSession.markFailed("Connection failed")
         latestFramebuffer = nil
+        latestFrameDirtyRectangles = nil
         session = updatedSession
         diagnosticRun = ConnectionDiagnosticRun(
             profileID: profile.id,

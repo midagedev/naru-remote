@@ -13,6 +13,15 @@ import MetalKit
 /// texture is recreated only when framebuffer dimensions change so
 /// steady-state streaming avoids per-frame allocations.
 ///
+/// When the caller supplies `dirtyRectangles` for an incremental frame
+/// and the texture dimensions still match the incoming buffer, the
+/// renderer issues one `replaceRegion` call per damage rect — only the
+/// changed region is copied to the GPU.  When dirty rectangles are nil
+/// or empty (full frame, first frame), or when the texture had to be
+/// recreated for a dimension change, the renderer falls back to a
+/// single full-frame upload.  The two paths are mutually exclusive on
+/// any given frame so we never double-upload pixels.
+///
 /// Rendering uses an inline Metal Shading Language source (no separate
 /// `.metal` file is needed for the fullscreen-quad pass).  The pipeline
 /// state is built once at init; aspect-fit is applied at draw time by
@@ -26,6 +35,14 @@ public final class MetalFramebufferRenderer: NSObject {
     private let pipelineState: MTLRenderPipelineState
     private var texture: MTLTexture?
     private var pendingFramebuffer: RFBRawFramebuffer?
+    private var pendingDirtyRectangles: [RFBFrameDamageRect]?
+
+    /// Test/inspection helper.  Counts the number of `replaceRegion`
+    /// calls (full or partial) issued during the most recent
+    /// `applyPendingFramebuffer` invocation.  Reset at the start of
+    /// every upload attempt so tests can assert per-frame upload
+    /// arithmetic without keeping their own running tally.
+    public private(set) var lastUploadRegionCount: Int = 0
 
     /// Creates a renderer bound to the given device.  Returns `nil`
     /// when the system cannot supply a `MTLCommandQueue` or fails to
@@ -52,11 +69,20 @@ public final class MetalFramebufferRenderer: NSObject {
     /// Stores the next framebuffer.  Texture allocation/upload happens
     /// during `MTKView` draw callbacks so we never block the RFB stream
     /// on GPU work.
-    public func enqueue(_ framebuffer: RFBRawFramebuffer) {
+    ///
+    /// `dirtyRectangles` (when non-empty) lets the renderer skip
+    /// untouched regions on the GPU upload.  Pass `nil` (or omit) to
+    /// force a full-frame upload — appropriate for first frames or any
+    /// path that does not have damage tracking from the RFB pump.
+    public func enqueue(
+        _ framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]? = nil
+    ) {
         guard framebuffer.width > 0, framebuffer.height > 0 else {
             return
         }
         pendingFramebuffer = framebuffer
+        pendingDirtyRectangles = dirtyRectangles
     }
 
     /// Test/inspection helper.  Reflects the current texture dimensions
@@ -100,10 +126,18 @@ public final class MetalFramebufferRenderer: NSObject {
         guard let framebuffer = pendingFramebuffer else {
             return false
         }
+        let dirtyRectangles = pendingDirtyRectangles
         pendingFramebuffer = nil
+        pendingDirtyRectangles = nil
+        lastUploadRegionCount = 0
 
         // Recreate the texture when dimensions change to avoid a
-        // partial-overwrite of a stale-sized texture.
+        // partial-overwrite of a stale-sized texture.  A recreate
+        // forces the full-upload path because every pixel of the
+        // freshly allocated texture is uninitialized — partial
+        // dirty-rect uploads would leave the rest of the texture
+        // black.
+        let textureWasRecreated: Bool
         if texture?.width != framebuffer.width || texture?.height != framebuffer.height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
                 pixelFormat: .rgba8Unorm,
@@ -117,6 +151,9 @@ public final class MetalFramebufferRenderer: NSObject {
                 return false
             }
             texture = newTexture
+            textureWasRecreated = true
+        } else {
+            textureWasRecreated = false
         }
 
         guard let texture else {
@@ -127,16 +164,60 @@ public final class MetalFramebufferRenderer: NSObject {
         // matches that ordering byte-for-byte, so we can copy the pixel
         // array directly without per-channel swizzling.
         let bytesPerRow = framebuffer.width * 4
-        framebuffer.pixels.withUnsafeBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else {
+
+        // Decide between the partial dirty-rect path and the full
+        // upload path.  These paths are exclusive: a fall-through to
+        // full upload must NOT also perform per-rect uploads, or we
+        // would copy the same pixels twice on the same frame.
+        let canUsePartialUpload =
+            !textureWasRecreated
+            && dirtyRectangles?.isEmpty == false
+            && texture.width == framebuffer.width
+            && texture.height == framebuffer.height
+
+        framebuffer.pixels.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
                 return
             }
-            texture.replace(
-                region: MTLRegionMake2D(0, 0, framebuffer.width, framebuffer.height),
-                mipmapLevel: 0,
-                withBytes: baseAddress,
-                bytesPerRow: bytesPerRow
-            )
+            let basePointer = baseAddress.assumingMemoryBound(to: UInt8.self)
+
+            if canUsePartialUpload, let rectangles = dirtyRectangles {
+                for rect in rectangles {
+                    guard rect.width > 0, rect.height > 0 else {
+                        continue
+                    }
+                    // Skip out-of-bounds rectangles defensively.  The
+                    // server is expected to clip to framebuffer
+                    // dimensions, but a single mis-clipped rect must
+                    // not crash the session — log nothing (this
+                    // renderer has no error channel) and let the next
+                    // frame catch up.
+                    guard rect.x >= 0,
+                          rect.y >= 0,
+                          rect.x + rect.width <= texture.width,
+                          rect.y + rect.height <= texture.height
+                    else {
+                        continue
+                    }
+                    let sourceOffset = (rect.y * bytesPerRow) + (rect.x * 4)
+                    let sourcePointer = basePointer.advanced(by: sourceOffset)
+                    texture.replace(
+                        region: MTLRegionMake2D(rect.x, rect.y, rect.width, rect.height),
+                        mipmapLevel: 0,
+                        withBytes: sourcePointer,
+                        bytesPerRow: bytesPerRow
+                    )
+                    lastUploadRegionCount += 1
+                }
+            } else {
+                texture.replace(
+                    region: MTLRegionMake2D(0, 0, framebuffer.width, framebuffer.height),
+                    mipmapLevel: 0,
+                    withBytes: basePointer,
+                    bytesPerRow: bytesPerRow
+                )
+                lastUploadRegionCount = 1
+            }
         }
         return true
     }

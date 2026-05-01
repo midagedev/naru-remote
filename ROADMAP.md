@@ -142,13 +142,21 @@ lookup primitives
   `AVSampleBufferDisplayLayer` (PR #5) remains the watch-mode path; the
   `SessionViewportView` selects between Metal and the PiP layer using
   `pipWatchSession?.state == .watching` so the GPU does not double render
+- Incremental frames carry their `RFBFramePumpFrame.dirtyRectangles`
+  through the snapshot/app-model surface and the renderer issues one
+  `texture.replaceRegion` call per damage rect (with bounds validation
+  and source-offset arithmetic against the contiguous BGRA buffer).
+  Full-frame uploads are still used for first frames, dimension
+  changes, empty/nil rect lists, and any path without damage history,
+  and the partial path is mutually exclusive with the full path on a
+  given frame so we never double-upload pixels
 - Current boundary does not yet restore remote clipboard contents, emit
   broader pointer/keyboard events, or verify saved credentials against real
   VNC servers on physical devices
-- Next: real-server credential verification, dirty-rect partial Metal uploads
-  and on-device GPU profiling, and an iPad XCUITest covering the
-  `IncomingClipboardBanner` Accept/Dismiss flow on a real device
-  surface
+- Next: real-server credential verification, on-device GPU profiling
+  of the dirty-rect path (Phase 5 follow-up), and an iPad XCUITest
+  covering the `IncomingClipboardBanner` Accept/Dismiss flow on a real
+  device surface
 - Keep real-server compatibility claims blocked until this phase passes
 
 ## Phase 4 - VNC Client Implementation Choice
