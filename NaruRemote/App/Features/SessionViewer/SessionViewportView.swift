@@ -18,9 +18,20 @@ public struct SessionViewportView: View {
     private let onConnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
     private let onFramebufferTap: ((CGPoint, CGSize) -> Void)?
+    private let onFramebufferRightClick: ((CGPoint, CGSize) -> Void)?
+    private let onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)?
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     private let pipLayerHost: PiPLayerHost?
     #endif
+
+    /// Local view-only zoom scale driven by pinch.  Constitution §I:
+    /// pinch is a LOCAL composition step — it never produces an RFB
+    /// message.  Clamped to `[minZoomScale, maxZoomScale]` on every
+    /// update.
+    @State private var zoomScale: CGFloat = 1.0
+
+    private static let minZoomScale: CGFloat = 0.5
+    private static let maxZoomScale: CGFloat = 4.0
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public init(
@@ -36,7 +47,9 @@ public struct SessionViewportView: View {
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
-        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil
+        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -51,6 +64,8 @@ public struct SessionViewportView: View {
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
+        self.onFramebufferRightClick = onFramebufferRightClick
+        self.onFramebufferScroll = onFramebufferScroll
     }
     #else
     public init(
@@ -65,7 +80,9 @@ public struct SessionViewportView: View {
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
-        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil
+        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -79,6 +96,8 @@ public struct SessionViewportView: View {
         self.onConnect = onConnect
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
+        self.onFramebufferRightClick = onFramebufferRightClick
+        self.onFramebufferScroll = onFramebufferScroll
     }
     #endif
 
@@ -204,18 +223,28 @@ public struct SessionViewportView: View {
             MetalFramebufferView(
                 framebuffer: framebuffer,
                 dirtyRectangles: frameDirtyRectangles,
-                onTap: onFramebufferTap
+                onTap: onFramebufferTap,
+                onRightClick: onFramebufferRightClick,
+                onScroll: onFramebufferScroll,
+                onPinch: { newScale in
+                    // Constitution §I: pinch is a LOCAL view
+                    // transform, never an RFB message.
+                    zoomScale = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
+                }
             )
+                .scaleEffect(zoomScale)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .aspectRatio(aspectRatio, contentMode: .fit)
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         } else {
             RemoteFramebufferPreview(framebuffer: framebuffer)
+                .scaleEffect(zoomScale)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         }
         #else
         RemoteFramebufferPreview(framebuffer: framebuffer)
+            .scaleEffect(zoomScale)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif

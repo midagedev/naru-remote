@@ -29,25 +29,52 @@ import MetalKit
 /// `MetalFramebufferRenderer.aspectFitViewport`.
 public typealias MetalFramebufferTapHandler = @MainActor (CGPoint, CGSize) -> Void
 
+/// Closure invoked when the user performs a long-press on the
+/// rendered framebuffer.  Same coordinate contract as
+/// `MetalFramebufferTapHandler` — the model maps to a button-3
+/// (right-click) PointerEvent pair.
+public typealias MetalFramebufferRightClickHandler = @MainActor (CGPoint, CGSize) -> Void
+
+/// Closure invoked while the user is two-finger panning.  `delta`
+/// is the per-callback translation in points (NOT cumulative — the
+/// recognizer resets translation to zero between callbacks).  The
+/// model accumulates these into discrete RFB scroll-wheel ticks.
+public typealias MetalFramebufferScrollHandler = @MainActor (_ point: CGPoint, _ viewSize: CGSize, _ delta: CGSize) -> Void
+
+/// Closure invoked while the user is pinching the rendered
+/// framebuffer.  `scale` is the new (clamped) local view scale —
+/// pinch is a LOCAL view transform per constitution §I and never
+/// produces an RFB message.
+public typealias MetalFramebufferPinchHandler = @MainActor (_ scale: CGFloat) -> Void
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
     private let device: MTLDevice?
     private let accessibilityIdentifier: String
     private let onTap: MetalFramebufferTapHandler?
+    private let onRightClick: MetalFramebufferRightClickHandler?
+    private let onScroll: MetalFramebufferScrollHandler?
+    private let onPinch: MetalFramebufferPinchHandler?
 
     public init(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
         device: MTLDevice? = MTLCreateSystemDefaultDevice(),
         accessibilityIdentifier: String = "naru.session.metalFramebuffer",
-        onTap: MetalFramebufferTapHandler? = nil
+        onTap: MetalFramebufferTapHandler? = nil,
+        onRightClick: MetalFramebufferRightClickHandler? = nil,
+        onScroll: MetalFramebufferScrollHandler? = nil,
+        onPinch: MetalFramebufferPinchHandler? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
         self.device = device
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onTap = onTap
+        self.onRightClick = onRightClick
+        self.onScroll = onScroll
+        self.onPinch = onPinch
     }
 
     public static func isSupported() -> Bool {
@@ -65,6 +92,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.accessibilityLabel = "Remote framebuffer rendered with Metal"
         host.backgroundColor = .black
         host.tapHandler = onTap
+        host.rightClickHandler = onRightClick
+        host.scrollHandler = onScroll
+        host.pinchHandler = onPinch
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
         // and there is nothing prior on the GPU to combine with the
@@ -77,6 +107,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
         context.coordinator.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
         uiView.tapHandler = onTap
+        uiView.rightClickHandler = onRightClick
+        uiView.scrollHandler = onScroll
+        uiView.pinchHandler = onPinch
         uiView.requestRedraw()
     }
 
@@ -114,12 +147,16 @@ public struct MetalFramebufferView: UIViewRepresentable {
 /// subview so the host can clip the layer to its own bounds and, when
 /// Metal is unavailable, leave its background color visible.
 ///
-/// Hosts a single `UITapGestureRecognizer` that forwards taps in the
-/// host view's coordinate space to `tapHandler`.  This is the entry
-/// point for the post-MVP Phase 3 pointer click — the watch-only PiP
-/// path (`PiPSampleBufferDisplayLayerView`) intentionally does NOT
-/// install a similar recognizer.
-public final class MetalFramebufferHostingView: UIView {
+/// Hosts the input gestures for the non-PiP main preview:
+///   - `UITapGestureRecognizer` → `tapHandler` (button-1 click)
+///   - `UILongPressGestureRecognizer` → `rightClickHandler` (button-3)
+///   - Two-finger `UIPanGestureRecognizer` → `scrollHandler` (wheel)
+///   - `UIPinchGestureRecognizer` → `pinchHandler` (LOCAL view scale,
+///     constitution §I — never translated to an RFB message)
+///
+/// The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
+/// intentionally does NOT install any of these recognizers.
+public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDelegate {
     private weak var metalView: MTKView?
     private weak var coordinator: MetalFramebufferView.Coordinator?
 
@@ -127,6 +164,33 @@ public final class MetalFramebufferHostingView: UIView {
     /// the SwiftUI representable on every `updateUIView` so the model
     /// reference stays current across re-renders.
     public var tapHandler: MetalFramebufferTapHandler?
+
+    /// Closure invoked at the start of a long-press.  We fire once on
+    /// `.began` so the user gets immediate feedback when the press
+    /// passes the recognizer's `minimumPressDuration` threshold.
+    public var rightClickHandler: MetalFramebufferRightClickHandler?
+
+    /// Closure invoked while the user two-finger pans.  Receives the
+    /// per-callback translation; the model accumulates ticks across
+    /// calls.
+    public var scrollHandler: MetalFramebufferScrollHandler?
+
+    /// Closure invoked while the user pinches.  Receives the new
+    /// (clamped) local view scale.  Pinch is LOCAL — no RFB message
+    /// is generated by this path.
+    public var pinchHandler: MetalFramebufferPinchHandler?
+
+    /// Current local zoom scale, owned by the host view so the
+    /// recognizer can clamp incrementally between callbacks.  The
+    /// SwiftUI parent mirrors the value through `pinchHandler` and
+    /// applies a `.scaleEffect` to the framebuffer presentation.
+    private var currentZoomScale: CGFloat = 1.0
+
+    /// Local clamp range applied to the zoom scale.  Mirrors the
+    /// range applied by `SessionViewportView` so the host view's
+    /// internal accumulator never drifts past the visible clamp.
+    private static let minZoomScale: CGFloat = 0.5
+    private static let maxZoomScale: CGFloat = 4.0
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -169,7 +233,38 @@ public final class MetalFramebufferHostingView: UIView {
         )
         tapRecognizer.numberOfTapsRequired = 1
         tapRecognizer.cancelsTouchesInView = false
+
+        let longPressRecognizer = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleLongPressGesture(_:))
+        )
+        longPressRecognizer.minimumPressDuration = 0.5
+        longPressRecognizer.cancelsTouchesInView = false
+        // A press long enough to be a right-click should NOT also be
+        // dispatched as a single tap — the user's intent is button-3,
+        // not button-1.
+        tapRecognizer.require(toFail: longPressRecognizer)
+
+        let panRecognizer = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handlePanGesture(_:))
+        )
+        panRecognizer.minimumNumberOfTouches = 2
+        panRecognizer.maximumNumberOfTouches = 2
+        panRecognizer.cancelsTouchesInView = false
+        panRecognizer.delegate = self
+
+        let pinchRecognizer = UIPinchGestureRecognizer(
+            target: self,
+            action: #selector(handlePinchGesture(_:))
+        )
+        pinchRecognizer.cancelsTouchesInView = false
+        pinchRecognizer.delegate = self
+
         addGestureRecognizer(tapRecognizer)
+        addGestureRecognizer(longPressRecognizer)
+        addGestureRecognizer(panRecognizer)
+        addGestureRecognizer(pinchRecognizer)
         isUserInteractionEnabled = true
     }
 
@@ -195,6 +290,71 @@ public final class MetalFramebufferHostingView: UIView {
         }
         let point = recognizer.location(in: self)
         handler(point, bounds.size)
+    }
+
+    @MainActor
+    @objc private func handleLongPressGesture(_ recognizer: UILongPressGestureRecognizer) {
+        // Fire on .began so the right-click feedback lands the moment
+        // the press qualifies; later .changed/.ended states do not
+        // re-trigger another button-3 dispatch.
+        guard recognizer.state == .began,
+              let handler = rightClickHandler
+        else {
+            return
+        }
+        let point = recognizer.location(in: self)
+        handler(point, bounds.size)
+    }
+
+    @MainActor
+    @objc private func handlePanGesture(_ recognizer: UIPanGestureRecognizer) {
+        guard let handler = scrollHandler else {
+            return
+        }
+        switch recognizer.state {
+        case .changed, .ended:
+            let translation = recognizer.translation(in: self)
+            // Reset to zero so the next callback delivers an
+            // incremental delta the model can accumulate against the
+            // tick threshold.
+            recognizer.setTranslation(.zero, in: self)
+            guard translation != .zero else {
+                return
+            }
+            let location = recognizer.location(in: self)
+            handler(location, bounds.size, CGSize(width: translation.x, height: translation.y))
+        default:
+            break
+        }
+    }
+
+    @MainActor
+    @objc private func handlePinchGesture(_ recognizer: UIPinchGestureRecognizer) {
+        guard recognizer.state == .changed || recognizer.state == .began else {
+            return
+        }
+        let proposed = currentZoomScale * recognizer.scale
+        recognizer.scale = 1.0
+        let clamped = min(max(proposed, Self.minZoomScale), Self.maxZoomScale)
+        currentZoomScale = clamped
+        // Constitution §I: pinch is a LOCAL view transform.  We must
+        // never translate this into a remote scroll/zoom event.  The
+        // handler is wired only to the SwiftUI `.scaleEffect`.
+        pinchHandler?(clamped)
+    }
+
+    // MARK: UIGestureRecognizerDelegate
+
+    /// Allow the two-finger scroll pan and the pinch to coexist with
+    /// the long-press / tap recognizers — a long-press should still
+    /// fire even if a stray pan recognizer is also tracking.  The
+    /// long-press → tap dependency is handled with an explicit
+    /// `require(toFail:)` above.
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 #endif
