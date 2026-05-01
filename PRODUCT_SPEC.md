@@ -420,17 +420,32 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 
 #### 흐름
 
-1. 사용자가 Remote Input Dock의 입력 모드 토글에서 "Direct Keystroke"를 선택한다.
+1. 사용자가 Remote Input Dock 상단의 segmented mode picker에서
+   "Compose" / "Direct" 두 세그먼트 중 "Direct"를 선택한다(shipped UI 라벨은
+   짧게 "Direct"; "Direct Keystroke"가 아니다 — 도크의 좁은 폭에 맞춘
+   결정이다).
 2. iOS 시스템 키보드가 내려가고 화면 하단에 Naru의 커스텀 소프트 키보드(QWERTY 페이지)가
-   올라오며, 입력 도크에 "Direct mode" 배지가 표시된다.
-3. 첫 진입 시(세션당 1회) IME/자동완성/받아쓰기/예측 입력이 작동하지 않는다는 경고가
-   표시된다.
+   올라오며, 도크 헤더와 세션 HUD 두 곳에 "Direct mode" 배지가 동시에
+   표시된다(도크 배지는 키보드와 함께, HUD 배지는 키보드를 접거나 다른
+   시트로 전환해도 유지된다 — FR-010).
+3. 첫 진입 시(세션당 1회) `confirmationDialog`로 경고가 표시된다. 본문은 영어로
+   "Keystrokes go straight to the remote computer. IME input (Korean,
+   Chinese, Japanese, emoji) will not work in this mode. Switch back to
+   Compose & Send for multilingual text." 이며 단일 액션 버튼 "Got it"로
+   닫는다(도크 chrome의 다른 영문 라벨 — Compose / Direct / Send — 과 톤을
+   맞춘 결과로 영어로 출시; 한국어 로컬라이제이션은 Ship Readiness P2의
+   `Localizable.strings` 작업에서 다룬다).
 4. 커스텀 키보드의 각 탭이 즉시 RFB KeyEvent로 송신된다(키-다운/키-업 한 쌍). 사용자가
    특수키 페이지 토글을 누르면 Tab/Esc/Ctrl/Alt/Cmd/Shift/방향키/F1-F12/Home/End/PgUp/PgDn/
    Insert/Delete를 포함한 페이지로 전환된다(전환 자체는 KeyEvent를 발생시키지 않는다).
-5. 모디파이어(Ctrl/Shift/Alt/Cmd)는 sticky 동작이다 — 1회 탭하면 다음 비-모디파이어 키
-   하나에만 적용되고 자동 해제, 400ms 안에 2회 탭하면 lock(다시 탭할 때까지 유지).
-   페이지에는 한 번에 모든 sticky 상태를 비우는 "Clear modifiers" 어포던스가 있다.
+5. 모디파이어(Ctrl/Shift/Alt/Cmd)는 sticky 동작이다 — 1회 탭하면 armed
+   상태로 들어가 다음 비-모디파이어 키 하나에만 적용된 뒤 자동 해제,
+   400ms 안에 2회 탭하면 locked 상태로 lock(다시 탭할 때까지 유지). 세 가지
+   상태(idle / armed / locked)는 ModifierKeyButton의 시각으로 구분되며 (헌법
+   원칙: 시각이 표시기) accessibility label에도 "Control modifier, idle"
+   형태로 노출된다. 페이지에는 한 번에 모든 sticky 상태를 비우는 "Clr"
+   버튼이 있다(spec 초안의 "Clear modifiers" 어포던스를 좁은 키 폭에 맞게
+   라벨만 단축한 것이며 동작은 동일하다 — `model.tapDirectKey(.clearModifiers)`).
 6. 블루투스/Magic Keyboard가 연결돼 있으면 하드웨어 키스트로크가 동일한 키심 매핑 표를
    거쳐 RFB KeyEvent로 송신된다(`UIKeyCommand`/`pressesBegan`/`pressesEnded` 경유).
    하드웨어와 온스크린 입력은 충돌 없이 공존하며, 하드웨어 자동 반복은 원격 OS가 소유한다
