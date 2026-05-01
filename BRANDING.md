@@ -194,7 +194,9 @@
 
 더 좁은 카테고리:
 
-> iPad-first remote input workbench for private networks
+> iPhone-first remote input workbench for private networks (iPad-graceful)
+
+이 좁은 카테고리는 constitution §VI("Phone-First, iPad-Graceful")의 결과다. 일차 설계 대상은 iPhone이며, 사용 시나리오에는 원격 머신의 터미널 환경과 AI 코딩 CLI 세션을 폰에서 30분~수 시간 이어가는 sustained workspace transport가 포함된다.
 
 ## 3.2 차별화 문장
 
@@ -224,8 +226,10 @@
 4. Human-supervised agents
    - agent 기능은 자동화 과시가 아니라 관찰, 승인, 중단, 기록이 가능한 조심스러운 작업 위임이어야 한다.
 
-5. iPad-native
-   - 데스크톱 앱을 작게 만든 느낌이 아니라, iPad의 키보드, 펜, 음성, 사진, 파일, 외부 디스플레이를 제대로 쓰는 느낌이어야 한다.
+5. iPhone-first, iPad-graceful (constitution §VI)
+   - 일차 설계 대상은 iPhone이다. 작은 화면, 셀룰러 네트워크, 짧은 attention window 위에서도 사용자가 원격 머신의 데스크톱 터미널과 AI 에이전트 세션을 깨끗하게 이어갈 수 있어야 한다.
+   - iPad는 같은 워크플로우의 자연스러운 확장이다. 외장 키보드, Stage Manager, 펜, 외부 디스플레이를 제대로 쓰되, 그 풍요로움이 iPhone 경험의 디자인 우선순위를 흐리지 않는다.
+   - 데스크톱 앱을 작게 만든 느낌이 아니라, iOS의 키보드, 음성, 사진, 파일, 클립보드를 제대로 쓰는 느낌이어야 한다.
 
 ## 4. 메시징
 

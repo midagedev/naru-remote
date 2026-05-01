@@ -1,6 +1,23 @@
 <!--
 Sync Impact Report
-Version change: template -> 0.1.0
+Version change: 0.1.0 -> 0.2.0
+Modified principles:
+- (none modified in 0.2.0)
+Added principles:
+- VI. Phone-First, iPad-Graceful
+Added sections:
+- (none)
+Removed sections:
+- (none)
+Templates requiring updates:
+- .specify/templates/spec-template.md: re-check for iPhone-first language and verification primacy
+- .specify/templates/plan-template.md: re-check that the verification matrix lists an iPhone path before any iPad path
+- .specify/templates/tasks-template.md: re-check for iPhone-first acceptance scenarios
+Deferred items:
+- Template re-check (above) — pending next planning cycle
+
+Earlier history (for reference)
+Version change: template -> 0.1.0 (ratified 2026-04-29)
 Modified principles:
 - Template principle 1 -> I. Input Is Composed Locally
 - Template principle 2 -> II. Tailnet-Native, Public-Internet-Optional
@@ -92,6 +109,50 @@ Agents MUST update the relevant spec artifact when implementation changes the
 behavior, limitations, or verification result. Code that diverges from the spec
 is a spec failure until reconciled.
 
+### VI. Phone-First, iPad-Graceful
+
+Naru Remote is designed for the iPhone first. Specs and plans MUST treat
+iPhone as the canonical target for layout, input, gesture, render quality,
+session lifecycle, and reconnect behavior. iPad MUST work, but as a graceful
+scaling of the same workflow — design pressure flows from the small screen
+up, not the large screen down.
+
+This does NOT mean iPhone use is brief intervention only. The product
+explicitly supports sustained workspace use on iPhone, including
+terminal-mediated workflows: a developer remoting into a desktop terminal
+emulator (Ghostty, Wezterm, Alacritty), AI-coding CLIs (Codex, Claude Code,
+aider, and successors), and long-running agent monitoring that consume
+text-heavy framebuffers for thirty minutes to several hours. Specs MUST NOT
+frame iPhone use as "confirmation surface only" or scope features as if
+iPhone sessions were inherently short.
+
+Implications enforced at review time:
+
+- Render quality and text legibility (font sharpness, scaling accuracy,
+  dirty-rectangle responsiveness, latency-to-echo) are first-class iPhone
+  requirements, not iPad-only refinements.
+- Compose & Send applies to AI-coding prompts, terminal commands, and
+  chat-style instructions to coding agents — not only natural-language
+  messaging. Korean/CJK prompt composition for AI CLIs is a primary use
+  case, not an edge case.
+- PiP Watch is an iPhone-class primary feature (long agent-task watch
+  while the phone is used for other things), not an iPad bonus.
+- Reconnect, session persistence across backgrounding, and graceful
+  cellular↔Wi-Fi transitions are core requirements, not edge cases.
+- iPad-only affordances (Stage Manager, multi-window, external display,
+  hardware trackpad) are layered enhancements, not gates for shipping.
+- Verification matrices MUST list an iPhone path before any iPad path,
+  including IME, dictation, soft-keyboard typing speed, PiP enter/exit
+  on a physical iPhone, and reconnect across cellular handoff.
+
+This ordering follows the founder's lived workflow (iPhone → GUI remote
+desktop → real terminal emulator and AI CLI on a private-network
+machine) and the broader shift in developer tooling toward terminal-rich
+AI agents that demand a fidelity beyond what iOS SSH client emulators
+provide. Naru Remote competes by transporting the user's real desktop
+terminal session to their pocket without breaking multilingual input —
+not by being a pocket-sized SSH client.
+
 ## Product Scope
 
 The product name is Naru Remote. The initial product is an iPhone/iPad VNC
@@ -169,4 +230,4 @@ implementation begins. If a feature intentionally violates a principle, the plan
 MUST include a complexity entry explaining why and naming the rejected simpler
 alternative.
 
-**Version**: 0.1.0 | **Ratified**: 2026-04-29 | **Last Amended**: 2026-04-29
+**Version**: 0.2.0 | **Ratified**: 2026-04-29 | **Last Amended**: 2026-05-01

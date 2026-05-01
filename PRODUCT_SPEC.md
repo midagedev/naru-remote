@@ -12,9 +12,11 @@
 
 확장 차별점으로는 iPhone/iPad의 사진, 스크린샷, 파일 이미지를 원격 앱에 자연스럽게 붙여넣는 Image Paste Bridge를 둔다. 이 기능은 텍스트 입력과 같은 철학을 따른다. 사용자는 iOS에서 이미지를 고르고, 앱은 대상 환경에 맞는 가장 안정적인 주입 방식을 선택한다.
 
+Naru Remote는 iPhone을 일차 설계 대상으로 둔다(constitution §VI). iPad는 같은 워크플로우가 더 큰 화면, 외장 키보드, Stage Manager로 자연스럽게 확장되는 형태로 지원하되, 디자인 압력은 작은 화면에서 위로 흐른다. iPhone에서의 사용은 짧은 개입에 그치지 않고, 사용자가 원격 머신의 진짜 터미널 환경(Ghostty/Wezterm/Alacritty 등)과 AI 코딩 CLI(Codex, Claude Code, aider 및 후속 도구) 세션을 폰에서 30분~수 시간 이어가는 sustained workspace transport 시나리오를 정면 use case로 둔다. 이 시나리오는 raw key 스트리밍으로는 한국어/일본어/중국어 IME가 깨지기 때문에 Compose & Send가 핵심 입력 경로가 되며, AI CLI에 한국어 프롬프트를 합성해 보내는 흐름도 같은 경로 위에서 이루어진다. iOS SSH 클라이언트의 자체 터미널 에뮬레이터로는 모던 AI CLI의 풍부한 TUI를 충실히 재현하기 어렵다는 한계가 이 포지셔닝의 시장 근거다.
+
 핵심 제품 문장은 다음과 같다.
 
-> iPhone에서 말하고, iPad에서 다듬고, Tailnet 안의 컴퓨터에 그대로 입력하는 VNC viewer.
+> iPhone에서 합성하고, Tailnet 안의 컴퓨터에 정확히 보낸다. 데스크톱 터미널과 AI 에이전트를 주머니에 — 한국어가 깨지지 않은 채로.
 
 ## 2. 배경과 문제
 
@@ -36,9 +38,10 @@
 ### 3.1 1차 사용자
 
 - Mac, Windows, Linux 장비를 Tailscale로 묶어 쓰는 개발자
+- iPhone에서 외출 중·이동 중에 원격 머신의 터미널 환경(Ghostty/Wezterm 등)과 AI 코딩 CLI(Codex, Claude Code, aider) 세션을 30분~수 시간 단위로 이어 작업하는 사용자 (constitution §VI 1차 페르소나)
 - iPad에서 서버, 워크스테이션, 홈랩, 사무실 PC에 자주 접속하는 사용자
 - 한글과 영어를 섞어 쓰거나, 일본어/중국어 등 IME 입력이 많은 사용자
-- 원격 터미널, 브라우저, IDE, 문서 편집기에 긴 문장을 넣는 사용자
+- 원격 터미널, 브라우저, IDE, 문서 편집기, AI CLI 프롬프트 입력란에 긴 문장이나 다국어 프롬프트를 넣는 사용자
 
 ### 3.2 2차 사용자
 
@@ -165,7 +168,16 @@ Naru Remote의 첫 경험은 "원격 화면 앱" 설명보다 "지금 연결을 
 - view-only mode
 - connection quality indicator
 
-### iPad UX
+### iPhone UX (1차 설계 대상; constitution §VI)
+
+- compose bar 우선 UX — sustained 터미널/AI CLI 세션을 폰에서 이어가는 것이 기준 시나리오다
+- 화면 조작을 방해하지 않는 compact toolbar
+- 한 손 thumb mode
+- quick zoom to cursor — 텍스트 위주 framebuffer에서 가독성/정확성을 최우선으로 둔다
+- 셀룰러↔Wi-Fi 전환과 백그라운드 복귀 시 끊김 없는 reconnect/세션 지속성
+- 외장 키보드는 옵션. 외장 키보드가 없는 상태에서 Compose & Send만으로 모든 기본 입력이 가능해야 한다
+
+### iPad UX (graceful scaling)
 
 - 전체 화면 원격 화면
 - 하단 compose bar
@@ -174,13 +186,7 @@ Naru Remote의 첫 경험은 "원격 화면 앱" 설명보다 "지금 연결을 
 - command palette
 - split view 대응
 - Stage Manager 대응
-
-### iPhone UX
-
-- 화면 조작을 방해하지 않는 compact toolbar
-- 한 손 thumb mode
-- quick zoom to cursor
-- compose bar 우선 UX
+- 외장 키보드 + 외부 디스플레이 + 펜은 layered enhancement이며, iPhone 우선순위를 흐리지 않는다
 
 ### PiP Watch Mode
 
