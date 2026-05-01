@@ -282,7 +282,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestInjectionAttempt: latestInjectionAttempt,
             pipWatchSession: pipWatchSession,
             latestFramebuffer: latestFramebuffer,
-            latestFrameDirtyRectangles: latestFrameDirtyRectangles
+            latestFrameDirtyRectangles: latestFrameDirtyRectangles,
+            directKeystrokeMode: directKeystrokeMode
         )
     }
 

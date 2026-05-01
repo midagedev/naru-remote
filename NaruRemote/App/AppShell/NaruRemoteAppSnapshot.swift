@@ -16,6 +16,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// this is the right default for first frames, the fallback path,
     /// and snapshot-driven previews that have no damage history.
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    public var directKeystrokeMode: DirectKeystrokeMode
 
     public init(
         profiles: [ConnectionProfile] = [],
@@ -26,7 +27,8 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestInjectionAttempt: TextInjectionAttempt? = nil,
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
-        latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil
+        latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode()
     ) {
         self.profiles = profiles
         self.selectedProfileID = selectedProfileID
@@ -37,6 +39,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
+        self.directKeystrokeMode = directKeystrokeMode
     }
 
     public var selectedProfile: ConnectionProfile? {
