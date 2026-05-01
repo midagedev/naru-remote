@@ -6,10 +6,13 @@ import NaruRemoteCore
 /// each row is a list of keys.  No SwiftUI types here — the
 /// `DirectKeystrokeKeyboardView` consumes these and renders.
 ///
-/// Phase 3 surface only — modifier sticky-state visuals land in
-/// Phase 4 (`ModifierKeyButton`); for now Ctrl/Alt/Cmd/Shift on the
-/// special page emit a single down/up like any other named key
-/// (one-shot — no held state).
+/// Phase 4: Ctrl/Alt/Cmd/Shift on the special-keys page now route
+/// through `DirectKey.modifier(_)` so the renderer can branch on
+/// `.modifier` role and render `ModifierKeyButton` (three visual
+/// states: idle / armed / locked).  The Shift on the QWERTY page
+/// stays as a `.named(.shiftLeft)` one-shot for now — sticky shift
+/// on the alphabetic page is a separate UX item that ships only
+/// when the page-level layout allows it.
 enum DirectKeystrokeKeyboardLayouts {
 
     /// The full layout for a single page.
@@ -115,14 +118,14 @@ enum DirectKeystrokeKeyboardLayouts {
         ]),
         // row 4: terminal-essential modifiers + Tab + Esc
         Row(keys: [
-            KeyDescriptor(label: "Tab",   widthUnits: 1.25, key: .named(.tab),         role: .wide),
-            KeyDescriptor(label: "Esc",   widthUnits: 1.25, key: .named(.escape),      role: .wide),
-            KeyDescriptor(label: "⌃",     widthUnits: 1.0,  key: .named(.controlLeft), role: .modifier),
-            KeyDescriptor(label: "⌥",     widthUnits: 1.0,  key: .named(.altLeft),     role: .modifier),
-            KeyDescriptor(label: "⌘",     widthUnits: 1.0,  key: .named(.metaLeft),    role: .modifier),
-            KeyDescriptor(label: "⇧",     widthUnits: 1.0,  key: .named(.shiftLeft),   role: .modifier),
-            KeyDescriptor(label: "⌫",     widthUnits: 1.25, key: .named(.backspace),   role: .wide),
-            KeyDescriptor(label: "↵",     widthUnits: 1.25, key: .named(.return),      role: .wide),
+            KeyDescriptor(label: "Tab",   widthUnits: 1.25, key: .named(.tab),          role: .wide),
+            KeyDescriptor(label: "Esc",   widthUnits: 1.25, key: .named(.escape),       role: .wide),
+            KeyDescriptor(label: "⌃",     widthUnits: 1.0,  key: .modifier(.control),   role: .modifier),
+            KeyDescriptor(label: "⌥",     widthUnits: 1.0,  key: .modifier(.alt),       role: .modifier),
+            KeyDescriptor(label: "⌘",     widthUnits: 1.0,  key: .modifier(.meta),      role: .modifier),
+            KeyDescriptor(label: "⇧",     widthUnits: 1.0,  key: .modifier(.shift),     role: .modifier),
+            KeyDescriptor(label: "⌫",     widthUnits: 1.25, key: .named(.backspace),    role: .wide),
+            KeyDescriptor(label: "↵",     widthUnits: 1.25, key: .named(.return),       role: .wide),
         ]),
         // row 5: nav cluster + page-back
         Row(keys: [

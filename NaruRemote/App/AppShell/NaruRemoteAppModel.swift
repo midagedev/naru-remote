@@ -36,6 +36,14 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// app launches.
     @Published public private(set) var directKeystrokeMode: DirectKeystrokeMode = .init()
 
+    /// Sticky-modifier state for the Direct Keystroke special-keys
+    /// page (Ctrl / Shift / Alt / Cmd).  Each slot is independently
+    /// `idle | armed | locked` per `StickyModifierState`.
+    /// Resets in lockstep with `directKeystrokeMode` — disconnect,
+    /// fresh connect, profile change, and `toggleDirectKeystrokeMode`
+    /// off all clear the state (FR-012).
+    @Published public private(set) var stickyModifierState: StickyModifierState = .init()
+
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
@@ -283,7 +291,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             pipWatchSession: pipWatchSession,
             latestFramebuffer: latestFramebuffer,
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
-            directKeystrokeMode: directKeystrokeMode
+            directKeystrokeMode: directKeystrokeMode,
+            stickyModifierState: stickyModifierState
         )
     }
 
@@ -343,6 +352,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
+            stickyModifierState = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -411,6 +421,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
+            stickyModifierState = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -538,6 +549,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
+            stickyModifierState = .init()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -669,6 +681,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
+            stickyModifierState = .init()
             lastEmittedDragCoord = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
@@ -959,6 +972,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeKeyEventClient = nil
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
+        stickyModifierState = .init()
         lastEmittedDragCoord = nil
         stopIncomingClipboardReceive()
 
@@ -1170,6 +1184,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeKeyEventClient = nil
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
+        stickyModifierState = .init()
         lastEmittedDragCoord = nil
         activeStreamProfile = nil
         activeStreamCredential = nil
@@ -1371,27 +1386,53 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     /// Drive a logical key event from the custom soft keyboard.
-    /// Phase 3 handles `.character`, `.named`, and `.pageToggle`
-    /// only.  `.modifier(_)` and `.clearModifiers` will land in
-    /// Phase 4 alongside `StickyModifierState`.
+    ///
+    /// - `.pageToggle` swaps QWERTY ↔ special-keys page; never
+    ///   emits a `KeyEvent` (FR-002).
+    /// - `.character`/`.named` emit a wire `KeyEvent` wrapped by
+    ///   the currently-active sticky modifier set.  After a
+    ///   successful (or attempted) emission, armed modifiers are
+    ///   consumed; locked modifiers stay locked (FR-005).
+    /// - `.modifier(_)` taps a sticky-modifier slot through the
+    ///   `StickyModifierState` state machine.  No `KeyEvent` is
+    ///   emitted; the slot transitions
+    ///   idle → armed → locked → idle per the 400 ms double-tap
+    ///   window.
+    /// - `.clearModifiers` is the FR-013 panic clear; resets all
+    ///   four sticky slots to idle and emits no `KeyEvent`.
     ///
     /// `KeyEvent`s are dropped silently when there is no active
     /// session (`spec.md` IN-003) — `keystrokeEmitter` is `nil`
     /// outside an active stream.  Direct mode being inactive
     /// (`directKeystrokeMode.isActive == false`) also drops the
     /// emission so a stale view-tree tap during a transition
-    /// cannot leak through.
+    /// cannot leak through.  Sticky-modifier taps and clear DO
+    /// update state even when no session exists — the user can
+    /// pre-arm modifiers before the wire is up.
     ///
     /// Per `contracts/keystroke-emitter.md`, throws from the
-    /// emitter are surfaced to the caller.  The caller (View
-    /// layer) is responsible for any visual feedback; sticky
-    /// modifier state is cleared by the caller on throw — Phase 4
-    /// will wire that release path.
+    /// emitter are surfaced via `try?` here; on throw, sticky-
+    /// armed state is still consumed so the user is not stranded
+    /// with phantom-armed modifiers after a partial wire write.
     public func tapDirectKey(_ key: DirectKey) async {
         switch key {
         case .pageToggle:
             setDirectKeystrokePage(directKeystrokeMode.page == .qwerty ? .special : .qwerty)
             return
+
+        case .modifier(let modifier):
+            // Sticky-modifier taps update state regardless of
+            // active-session presence — the user may pre-arm a
+            // modifier before the wire is up; we just won't have
+            // anywhere to emit until they tap a non-modifier key
+            // with an emitter present.
+            stickyModifierState.tap(modifier, at: ContinuousClock.now)
+            return
+
+        case .clearModifiers:
+            stickyModifierState.clear()
+            return
+
         case .character(let character):
             guard directKeystrokeMode.isActive,
                   let emitter = keystrokeEmitter,
@@ -1399,7 +1440,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             else {
                 return
             }
-            try? await emitter.emit(keysym: keysym, modifiers: [])
+            let modifiers = stickyModifierState.activeModifiers
+            try? await emitter.emit(keysym: keysym, modifiers: modifiers)
+            stickyModifierState.consumeAfterNonModifierEmission()
+
         case .named(let namedKey):
             guard directKeystrokeMode.isActive,
                   let emitter = keystrokeEmitter
@@ -1407,7 +1451,9 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
             let keysym = KeysymMapping.keysym(for: namedKey)
-            try? await emitter.emit(keysym: keysym, modifiers: [])
+            let modifiers = stickyModifierState.activeModifiers
+            try? await emitter.emit(keysym: keysym, modifiers: modifiers)
+            stickyModifierState.consumeAfterNonModifierEmission()
         }
     }
 

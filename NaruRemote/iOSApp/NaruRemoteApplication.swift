@@ -46,8 +46,49 @@ struct NaruRemoteApplication: App {
                 // works as an in-memory profile editor for this
                 // launch.  The next launch will retry.
             }
+
+            applyTestStickyModifierOverrides(to: model)
         }
         return model
+    }
+
+    /// XCUITest screenshot hook — `swift test` is fast enough to
+    /// exercise the 400 ms double-tap lock window directly, but
+    /// XCUITest taps land ~600 ms apart so the locked-state
+    /// screenshot path can't reach `.locked` through real taps.
+    /// Honour the `NARU_TEST_PRELOCK_MODIFIERS` launch environment
+    /// variable so the screenshot harness can land on the locked
+    /// visual deterministically.  The variable is a comma-list of
+    /// `StickyModifierState.Modifier` raw values
+    /// (e.g. `"control"` or `"control,shift"`).  No-op in production
+    /// because the variable is never set.
+    @MainActor
+    private static func applyTestStickyModifierOverrides(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_PRELOCK_MODIFIERS"],
+              !raw.isEmpty
+        else {
+            return
+        }
+
+        // Open Direct mode so the special-keys page is reachable
+        // when the test takes the screenshot.
+        if !model.directKeystrokeMode.isActive {
+            model.toggleDirectKeystrokeMode()
+        }
+
+        let names = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        for name in names {
+            guard let modifier = StickyModifierState.Modifier(rawValue: name) else { continue }
+            // Back-to-back taps in the same `Task` land < 400 ms
+            // apart (same `@MainActor` continuation), which is the
+            // double-tap window — idle → armed → locked.  Bypasses
+            // the XCUITest tap-cadence gap (~600 ms between real
+            // taps).
+            Task { @MainActor in
+                await model.tapDirectKey(.modifier(modifier))
+                await model.tapDirectKey(.modifier(modifier))
+            }
+        }
     }
 
     private static func profileStoreURL() -> URL {
