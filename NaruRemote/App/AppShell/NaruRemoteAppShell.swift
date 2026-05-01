@@ -54,6 +54,7 @@ public struct NaruRemoteAppShell: View {
                         framebuffer: snapshot.latestFramebuffer,
                         isPiPWatchAvailable: model.canStartPiPWatch,
                         pipWatchStatusText: model.pipWatchStatusText,
+                        pipLayerHost: model.pipLayerHost,
                         onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
                         onConnect: snapshot.selectedProfile == nil ? nil : { model.connectSelectedProfile() },
                         onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil

@@ -18,6 +18,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let profileStore: ConnectionProfileStore?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let pipWatchController: (any PiPWatchControlling)?
+    #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    public let pipLayerHost: PiPLayerHost
+    #endif
     private var activeTextClient: RemoteClipboardTextClient?
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
@@ -51,6 +54,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.frameStreamConfiguration = frameStreamConfiguration
         self.connectorFactory = connectorFactory
         self.pipWatchController = pipWatchController
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        self.pipLayerHost = PiPLayerHost()
+        #endif
     }
 
     public var snapshot: NaruRemoteAppSnapshot {
@@ -430,6 +436,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         updatedSession.markFirstFrameReceived(at: frame.capturedAt)
         latestFramebuffer = frame.framebuffer
         session = updatedSession
+        forwardFrameToLayerHost(frame.framebuffer)
         updatePiPWatchFrameIfNeeded(
             framebuffer: frame.framebuffer,
             sessionID: updatedSession.id,
@@ -681,13 +688,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        guard pipWatchController.isSupported, pipWatchController.prepare() else {
+        guard pipWatchController.isSupported, prepareController(pipWatchController) else {
             watchSession.markUnavailable("System PiP is unavailable on this device.")
             pipWatchSession = watchSession
             return
         }
 
         do {
+            forwardFrameToLayerHost(latestFramebuffer)
             try pipWatchController.enqueue(latestFramebuffer)
         } catch {
             watchSession.fail("PiP frame could not be rendered.")
@@ -772,6 +780,37 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func clearPiPWatchSession() {
         pipWatchController?.stop()
         pipWatchSession = nil
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        pipLayerHost.flush()
+        #endif
+    }
+
+    /// Streams a freshly arrived framebuffer into the shared
+    /// `PiPLayerHost`.  This is the single sink that drives both the
+    /// in-app `PiPSampleBufferDisplayLayerView` and any attached system
+    /// PiP controller — a render failure is intentionally swallowed
+    /// here because failures specific to the active PiP session are
+    /// surfaced through `updatePiPWatchFrameIfNeeded`.
+    private func forwardFrameToLayerHost(_ framebuffer: RFBRawFramebuffer) {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        do {
+            _ = try pipLayerHost.enqueue(framebuffer)
+        } catch {
+            // The PiP-session bookkeeping will surface a render failure
+            // through `updatePiPWatchFrameIfNeeded` when a session is
+            // active.  Outside an active session, dropping the frame
+            // is acceptable.
+        }
+        #endif
+    }
+
+    private func prepareController(_ controller: any PiPWatchControlling) -> Bool {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        if let attaching = controller as? any PiPWatchLayerHostAttaching {
+            return attaching.prepare(layerHost: pipLayerHost)
+        }
+        #endif
+        return controller.prepare()
     }
 }
 
