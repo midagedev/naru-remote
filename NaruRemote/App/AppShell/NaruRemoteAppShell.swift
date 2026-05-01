@@ -94,6 +94,17 @@ public struct NaruRemoteAppShell: View {
                         onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
                         onFramebufferTap: { point, size in
                             model.sendTapAt(viewPoint: point, viewSize: size)
+                        },
+                        onFramebufferRightClick: { point, size in
+                            model.sendRightClickAt(viewPoint: point, viewSize: size)
+                        },
+                        onFramebufferScroll: { point, size, delta in
+                            model.sendScrollAt(
+                                viewPoint: point,
+                                viewSize: size,
+                                deltaX: delta.width,
+                                deltaY: delta.height
+                            )
                         }
                     )
 

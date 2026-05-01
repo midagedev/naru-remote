@@ -1175,6 +1175,179 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Translate a long-press in the framebuffer view's coordinate
+    /// space into a remote-side button-3 (right-click) click and
+    /// dispatch it as a pair of `PointerEvent` messages: button-down
+    /// (mask `0x04`, RFC 6143 §7.5.5 bit 2) followed by button-up
+    /// (mask `0x00`) at the same `(x, y)`.
+    ///
+    /// Mirrors `sendTapAt(viewPoint:viewSize:)` for stream gating,
+    /// view→framebuffer mapping, and constitution §IV opacity:
+    /// coordinates are NOT logged anywhere persistent and the
+    /// diagnostic safe-detail catalog is unaffected.
+    public func sendRightClickAt(viewPoint: CGPoint, viewSize: CGSize) {
+        guard let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        Task { [weak self, pointerClient, mapped] in
+            do {
+                try await pointerClient.sendPointerEvent(buttonMask: 0x04, x: mapped.x, y: mapped.y)
+                try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
+            } catch {
+                guard let self else { return }
+                await MainActor.run {
+                    guard self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID
+                    else {
+                        return
+                    }
+                    self.activePointerClient = nil
+                }
+            }
+        }
+    }
+
+    /// Default scroll-tick threshold (in points) used when callers
+    /// invoke `sendScrollAt(viewPoint:viewSize:deltaX:deltaY:)`
+    /// without an explicit threshold.  Picked so a casual two-finger
+    /// pan emits roughly one tick per ~24pt of accumulated motion —
+    /// close to a single mouse-wheel notch on a desktop trackpad.
+    public static let scrollTickThreshold: CGFloat = 24
+
+    /// Translate a two-finger pan delta into discrete RFB
+    /// scroll-wheel ticks at a single `(x, y)` and dispatch them.
+    ///
+    /// Mask layout (RFC 6143 §7.5.5, bits 3..6):
+    ///   - 0x08: wheel-up    (positive `deltaY`, panning content downward)
+    ///   - 0x10: wheel-down  (negative `deltaY`)
+    ///   - 0x20: wheel-left  (negative `deltaX`)
+    ///   - 0x40: wheel-right (positive `deltaX`)
+    ///
+    /// Each tick is a button-down (mask) followed by button-up
+    /// (mask `0x00`) at the same coords.  Sub-threshold deltas are a
+    /// no-op — the caller is expected to accumulate across `.changed`
+    /// callbacks so a slow drag still eventually crosses the
+    /// threshold.  See `scrollTicks(forDelta:threshold:)` for the
+    /// pure helper used both here and by tests.
+    ///
+    /// Constitution §IV: the `(x, y)` coordinates and the per-axis
+    /// deltas are NOT logged anywhere persistent.
+    public func sendScrollAt(
+        viewPoint: CGPoint,
+        viewSize: CGSize,
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        threshold: CGFloat = scrollTickThreshold
+    ) {
+        guard let framebuffer = latestFramebuffer,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        guard let mapped = Self.framebufferCoordinate(
+            forViewPoint: viewPoint,
+            viewSize: viewSize,
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height
+        ) else {
+            return
+        }
+
+        let verticalMask: UInt8 = deltaY >= 0 ? 0x08 : 0x10
+        let horizontalMask: UInt8 = deltaX >= 0 ? 0x40 : 0x20
+
+        let ticks = Self.scrollTicks(
+            forDelta: (x: deltaX, y: deltaY),
+            threshold: threshold,
+            verticalMask: verticalMask,
+            horizontalMask: horizontalMask
+        )
+
+        guard !ticks.isEmpty else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        Task { [weak self, pointerClient, mapped, ticks] in
+            do {
+                for tick in ticks {
+                    for _ in 0..<tick.count {
+                        try await pointerClient.sendPointerEvent(buttonMask: tick.mask, x: mapped.x, y: mapped.y)
+                        try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
+                    }
+                }
+            } catch {
+                guard let self else { return }
+                await MainActor.run {
+                    guard self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID
+                    else {
+                        return
+                    }
+                    self.activePointerClient = nil
+                }
+            }
+        }
+    }
+
+    /// Pure helper that converts a 2D pan delta into a sequence of
+    /// `(mask, count)` scroll-wheel ticks.  Vertical and horizontal
+    /// axes each emit at most one entry, in `(vertical, horizontal)`
+    /// order so vertical pans dispatch before horizontal pans on a
+    /// mixed two-finger drag.  Sub-threshold magnitudes drop the
+    /// axis entirely — there is no fractional tick.
+    ///
+    /// Exposed publicly so tests can verify the threshold logic
+    /// without touching the network or the app model.
+    public static func scrollTicks(
+        forDelta delta: (x: CGFloat, y: CGFloat),
+        threshold: CGFloat = scrollTickThreshold,
+        verticalMask: UInt8? = nil,
+        horizontalMask: UInt8? = nil
+    ) -> [(mask: UInt8, count: Int)] {
+        guard threshold > 0 else {
+            return []
+        }
+
+        var ticks: [(mask: UInt8, count: Int)] = []
+
+        let verticalCount = Int((abs(delta.y) / threshold).rounded(.down))
+        if verticalCount > 0 {
+            let mask = verticalMask ?? (delta.y >= 0 ? UInt8(0x08) : UInt8(0x10))
+            ticks.append((mask: mask, count: verticalCount))
+        }
+
+        let horizontalCount = Int((abs(delta.x) / threshold).rounded(.down))
+        if horizontalCount > 0 {
+            let mask = horizontalMask ?? (delta.x >= 0 ? UInt8(0x40) : UInt8(0x20))
+            ticks.append((mask: mask, count: horizontalCount))
+        }
+
+        return ticks
+    }
+
     /// Pure aspect-fit math used by `sendTapAt(viewPoint:viewSize:)`.
     /// Public for test access — kept as a static so tests do not have
     /// to construct a full app model just to verify the mapping.

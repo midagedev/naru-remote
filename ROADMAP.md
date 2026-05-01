@@ -176,11 +176,25 @@ lookup primitives
   install a tap recognizer — only the Metal main preview accepts
   taps.  Verified end-to-end against `FakeRFBServer` with a button-1
   click pair recorded as two `(mask, x, y)` triples
-- Pointer follow-ups deferred to a later phase: right-click
-  (`buttonMask` bit 2, RFB button 3), scroll-wheel events
-  (`buttonMask` bits 3..4 with RFB's wheel-tick convention), pinch
-  zoom of the framebuffer view, two-finger drag pan inside a zoomed
-  view, and hover/cursor preview for hardware pointer devices on iPad
+- Right-click (long-press → button-3, `buttonMask` 0x04 → 0x00),
+  scroll-wheel ticks (two-finger pan; vertical 0x08/0x10 and
+  horizontal 0x40/0x20 mapped from accumulated pan delta with a
+  ~24pt-per-tick threshold), and LOCAL pinch zoom of the framebuffer
+  view (clamped to `[0.5, 4.0]`; pinch is a LOCAL view transform per
+  constitution §I and never produces an RFB message).  The model
+  exposes `sendRightClickAt(viewPoint:viewSize:)`,
+  `sendScrollAt(viewPoint:viewSize:deltaX:deltaY:)`, and the pure
+  `scrollTicks(forDelta:threshold:)` helper.  Verified end-to-end
+  against `FakeRFBServer` with a right-click pair and a scroll-down
+  tick recorded as four `(mask, x, y)` triples.  Coordinates and
+  per-axis deltas are NOT logged anywhere persistent (constitution
+  §IV); the diagnostic safe-detail catalog is unaffected by scroll
+  bursts.  The watch-only PiP path
+  (`PiPSampleBufferDisplayLayerView`) intentionally does NOT install
+  any of these recognizers.
+- Pointer follow-ups deferred to a later phase: pan (drag-to-move
+  with mouse-button-1 hold), hardware-trackpad parity, hover/cursor
+  preview for hardware pointer devices on iPad
 - Current boundary does not yet restore remote clipboard contents, emit
   keyboard events beyond the existing paste shim, support multi-button
   pointer or scroll, or verify saved credentials against real VNC

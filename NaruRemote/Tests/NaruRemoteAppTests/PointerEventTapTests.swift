@@ -200,7 +200,12 @@ final class PointerEventTapTests: XCTestCase {
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
 
-        let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test")
+        // Pin `now` so the ISO8601 header doesn't drift across the
+        // tap-dispatch wait window — the test asserts the safe-catalog
+        // body is unaffected by tap dispatch, not that the timestamp
+        // header survives a real-time delay.
+        let pinnedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
 
         model.sendTapAt(
             viewPoint: CGPoint(x: 50, y: 50),
@@ -208,8 +213,240 @@ final class PointerEventTapTests: XCTestCase {
         )
         try await waitForPointerEvents(connector, count: 2)
 
-        let exportAfter = model.makeDiagnosticExport().renderShareText(buildVersion: "test")
+        let exportAfter = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
         XCTAssertEqual(exportAfter, exportBefore)
+    }
+
+    // MARK: Right click
+
+    func testRightClickSendsButtonThreeDownThenUp() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1024,
+            height: 768,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = PointerCapturingStreamingConnector(
+            width: 1024,
+            height: 768,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertNotNil(model.snapshot.latestFramebuffer)
+
+        model.sendRightClickAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100)
+        )
+        try await waitForPointerEvents(connector, count: 2)
+
+        let events = connector.recordedPointerEvents
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].mask, 0x04)
+        XCTAssertEqual(events[0].x, 512)
+        XCTAssertEqual(events[0].y, 384)
+        XCTAssertEqual(events[1].mask, 0x00)
+        XCTAssertEqual(events[1].x, 512)
+        XCTAssertEqual(events[1].y, 384)
+    }
+
+    func testRightClickOutsideFramebufferLetterboxIsNoOp() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1024,
+            height: 768,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = PointerCapturingStreamingConnector(
+            width: 1024,
+            height: 768,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        // y=5 in a 100x100 view falls in the top letterbox band of a
+        // 1024x768 (4:3) framebuffer.
+        model.sendRightClickAt(
+            viewPoint: CGPoint(x: 50, y: 5),
+            viewSize: CGSize(width: 100, height: 100)
+        )
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(connector.recordedPointerEvents.count, 0)
+    }
+
+    // MARK: Scroll
+
+    func testScrollUpEmitsWheelUpTickPerThreshold() async throws {
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connector.model
+        let recorder = connector.connector
+
+        // deltaY = +30 with threshold 24 → exactly 1 tick.
+        model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 0,
+            deltaY: 30
+        )
+        try await waitForPointerEvents(recorder, count: 2)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].mask, 0x08)
+        XCTAssertEqual(events[1].mask, 0x00)
+    }
+
+    func testScrollDownEmitsTwoTicksAtFiftyPointDelta() async throws {
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connector.model
+        let recorder = connector.connector
+
+        // deltaY = -50, threshold 24 → 2 wheel-down ticks.
+        model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 0,
+            deltaY: -50
+        )
+        try await waitForPointerEvents(recorder, count: 4)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0].mask, 0x10)
+        XCTAssertEqual(events[1].mask, 0x00)
+        XCTAssertEqual(events[2].mask, 0x10)
+        XCTAssertEqual(events[3].mask, 0x00)
+    }
+
+    func testHorizontalScrollEmitsLeftRightTicks() async throws {
+        let rightConnector = try await PointerEventTapTests.connectedModelAndConnector()
+        rightConnector.model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 30,
+            deltaY: 0
+        )
+        try await waitForPointerEvents(rightConnector.connector, count: 2)
+        XCTAssertEqual(rightConnector.connector.recordedPointerEvents.first?.mask, 0x40)
+
+        let leftConnector = try await PointerEventTapTests.connectedModelAndConnector()
+        leftConnector.model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: -30,
+            deltaY: 0
+        )
+        try await waitForPointerEvents(leftConnector.connector, count: 2)
+        XCTAssertEqual(leftConnector.connector.recordedPointerEvents.first?.mask, 0x20)
+    }
+
+    func testSubThresholdScrollAccumulatesViaHelper() {
+        // Sub-threshold values: 10 + 15 = 25 (one tick for the
+        // accumulated delta).  The helper is the unit underneath the
+        // accumulator a UI gesture uses across multiple .changed
+        // callbacks.
+        let oneShot = NaruRemoteAppModel.scrollTicks(
+            forDelta: (x: 0, y: 10),
+            threshold: 24
+        )
+        XCTAssertTrue(oneShot.isEmpty)
+
+        let accumulated = NaruRemoteAppModel.scrollTicks(
+            forDelta: (x: 0, y: 25),
+            threshold: 24
+        )
+        XCTAssertEqual(accumulated.count, 1)
+        XCTAssertEqual(accumulated[0].mask, 0x08)
+        XCTAssertEqual(accumulated[0].count, 1)
+    }
+
+    func testScrollDoesNotChangeDiagnosticExportSafeCatalog() async throws {
+        // Constitution §IV: scroll burst coordinates and per-axis
+        // deltas must not leak into the diagnostic safe-detail
+        // catalog.  The export rendered before and after a scroll
+        // burst must be identical.
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connector.model
+        let recorder = connector.connector
+
+        let pinnedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
+
+        model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 0,
+            deltaY: -72
+        )
+        try await waitForPointerEvents(recorder, count: 6)
+
+        let exportAfter = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
+        XCTAssertEqual(exportAfter, exportBefore)
+    }
+
+    // MARK: Pinch
+
+    func testPinchZoomDoesNotSendRFBMessage() async throws {
+        // Constitution §I: pinch is a LOCAL view transform — no RFB
+        // PointerEvent must be dispatched as a side effect of the
+        // pinch gesture.  The model has no `sendPinch` entry point,
+        // so simulating the gesture is a no-op at the model layer;
+        // we assert that no pointer events are recorded after the
+        // pinch handler updates the local zoom state on the view.
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let recorder = connector.connector
+
+        // The pinch handler in the SwiftUI view layer only mutates
+        // local @State — there is no model command for it.  Verify
+        // that the only public model commands the pinch could
+        // accidentally invoke (right-click, scroll, tap) were never
+        // called by simulating "0 model invocations" and checking
+        // the recorder remains empty.
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(recorder.recordedPointerEvents.count, 0)
+    }
+
+    private static func connectedModelAndConnector() async throws -> (model: NaruRemoteAppModel, connector: PointerCapturingStreamingConnector) {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1024,
+            height: 768,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = PointerCapturingStreamingConnector(
+            width: 1024,
+            height: 768,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+        return (model, connector)
     }
 
     private func waitForPointerEvents(

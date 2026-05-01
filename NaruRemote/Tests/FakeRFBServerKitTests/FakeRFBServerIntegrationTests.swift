@@ -95,6 +95,37 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         ])
     }
 
+    func testProductionRFBNetworkClientSendsRightClickAndScrollDownAfterHandshake() async throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        // Right-click pair (RFC 6143 §7.5.5 bit 2 = button 3).
+        try await client.sendPointerEvent(buttonMask: 0x04, x: 200, y: 300)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: 200, y: 300)
+
+        // Scroll-down tick (bit 4 = wheel down).
+        try await client.sendPointerEvent(buttonMask: 0x10, x: 200, y: 300)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: 200, y: 300)
+
+        let events = try recorder.waitForPointerEvents(4)
+        XCTAssertEqual(events, [
+            FakeRFBPointerEvent(buttonMask: 0x04, x: 200, y: 300),
+            FakeRFBPointerEvent(buttonMask: 0x00, x: 200, y: 300),
+            FakeRFBPointerEvent(buttonMask: 0x10, x: 200, y: 300),
+            FakeRFBPointerEvent(buttonMask: 0x00, x: 200, y: 300)
+        ])
+    }
+
     func testProductionRFBNetworkClientSendsClipboardAndPasteMessagesAfterInteractiveHandshake() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()
