@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: zai-review-${{ github.event.pull_request.number || inputs.pr_number }}
@@ -22,39 +23,28 @@ jobs:
   review:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ZAI_API_KEY }}
+      API_TIMEOUT_MS: '3000000'
+      ANTHROPIC_DEFAULT_SONNET_MODEL: glm-4.7
+      ANTHROPIC_DEFAULT_OPUS_MODEL: glm-4.7
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: glm-4.5-air
     steps:
-      - name: Resolve PR metadata
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
-            echo "base_sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-            echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
-          else
-            pr_json=$(gh pr view "${{ inputs.pr_number }}" --repo "${{ github.repository }}" --json number,baseRefOid,headRefOid,headRefName)
-            echo "number=$(echo "$pr_json" | jq -r .number)" >> "$GITHUB_OUTPUT"
-            echo "base_sha=$(echo "$pr_json" | jq -r .baseRefOid)" >> "$GITHUB_OUTPUT"
-            echo "head_sha=$(echo "$pr_json" | jq -r .headRefOid)" >> "$GITHUB_OUTPUT"
-            echo "head_ref=$(echo "$pr_json" | jq -r .headRefName)" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout PR head
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ steps.pr.outputs.head_sha }}
 
-      - name: Run Z.ai review
-        env:
-          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
-          ZAI_MODEL: glm-4.7
-          ZAI_MAX_DIFF_BYTES: '120000'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-        run: ./scripts/zai-review.sh
+      - name: Read review prompt
+        id: prompt
+        run: |
+          {
+            echo 'prompt<<NARU_PROMPT_EOF'
+            cat .github/zai-review-prompt.md
+            echo 'NARU_PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ZAI_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.prompt }}
