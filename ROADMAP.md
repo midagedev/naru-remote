@@ -164,9 +164,27 @@ lookup primitives
   changes, empty/nil rect lists, and any path without damage history,
   and the partial path is mutually exclusive with the full path on a
   given frame so we never double-upload pixels
+- Basic tap-to-click pointer events: a tap on the rendered framebuffer
+  view is mapped through the same aspect-fit math the Metal renderer
+  uses and dispatched as an RFB `PointerEvent` (RFC 6143 §7.5.5,
+  message type 5) pair — button-down (`buttonMask` 0x01) followed by
+  button-up (0x00) at the same `(x, y)`.  Coordinates are NOT logged
+  anywhere persistent (constitution §IV); the diagnostic safe-detail
+  catalog is unaffected by tap dispatch.  Letterbox/pillarbox bands
+  produce a no-op rather than a clamped edge click.  The watch-only
+  PiP path (`PiPSampleBufferDisplayLayerView`) intentionally does NOT
+  install a tap recognizer — only the Metal main preview accepts
+  taps.  Verified end-to-end against `FakeRFBServer` with a button-1
+  click pair recorded as two `(mask, x, y)` triples
+- Pointer follow-ups deferred to a later phase: right-click
+  (`buttonMask` bit 2, RFB button 3), scroll-wheel events
+  (`buttonMask` bits 3..4 with RFB's wheel-tick convention), pinch
+  zoom of the framebuffer view, two-finger drag pan inside a zoomed
+  view, and hover/cursor preview for hardware pointer devices on iPad
 - Current boundary does not yet restore remote clipboard contents, emit
-  broader pointer/keyboard events, or verify saved credentials against real
-  VNC servers on physical devices
+  keyboard events beyond the existing paste shim, support multi-button
+  pointer or scroll, or verify saved credentials against real VNC
+  servers on physical devices
 - Next: real-server credential verification, on-device GPU profiling
   of the dirty-rect path (Phase 5 follow-up), and an iPad XCUITest
   covering the `IncomingClipboardBanner` Accept/Dismiss flow on a real

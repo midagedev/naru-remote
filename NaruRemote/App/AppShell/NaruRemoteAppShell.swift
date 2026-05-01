@@ -87,7 +87,10 @@ public struct NaruRemoteAppShell: View {
                         pipLayerHost: model.pipLayerHost,
                         onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
                         onConnect: snapshot.selectedProfile == nil ? nil : { model.connectSelectedProfile() },
-                        onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil
+                        onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
+                        onFramebufferTap: { point, size in
+                            model.sendTapAt(viewPoint: point, viewSize: size)
+                        }
                     )
 
                     DiagnosticSummaryView(

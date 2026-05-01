@@ -69,6 +69,32 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(client.lastFrame?.height, 768)
     }
 
+    func testProductionRFBNetworkClientSendsPointerEventsAfterInteractiveHandshake() async throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        // RFC 6143 §7.5.5: a button-1 click is button-down (mask 0x01)
+        // followed by button-up (mask 0x00) at the same (x, y).
+        try await client.sendPointerEvent(buttonMask: 0x01, x: 100, y: 200)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: 100, y: 200)
+
+        let events = try recorder.waitForPointerEvents(2)
+        XCTAssertEqual(events, [
+            FakeRFBPointerEvent(buttonMask: 0x01, x: 100, y: 200),
+            FakeRFBPointerEvent(buttonMask: 0x00, x: 100, y: 200)
+        ])
+    }
+
     func testProductionRFBNetworkClientSendsClipboardAndPasteMessagesAfterInteractiveHandshake() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()

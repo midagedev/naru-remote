@@ -305,5 +305,10 @@ private final class FakeStreamingFramebufferConnector: RFBStreamingClient, @unch
 
     func setClipboardText(_ text: String) throws {}
     func sendPasteCommand(_ command: PasteCommand) throws {}
+
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        // PiP layer-host tests do not drive pointer events; satisfy
+        // the protocol with a no-op.
+    }
 }
 #endif

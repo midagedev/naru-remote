@@ -223,6 +223,24 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         try connection.write(RFBClientMessageEncoder.pasteCommand(command), timeout: 2)
     }
 
+    /// Sends a single `PointerEvent` (RFC 6143 §7.5.5) on the active
+    /// connection. The (x, y) coordinates come from the caller already in
+    /// remote framebuffer pixel space — view→framebuffer mapping is the
+    /// caller's responsibility.
+    ///
+    /// Per constitution §IV the coordinates are not logged at this
+    /// boundary; if the connection has been torn down the call surfaces
+    /// `RFBNetworkClientError.notConnected` with no extra detail.
+    public func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        guard let connection = currentActiveConnection() else {
+            throw RFBNetworkClientError.notConnected
+        }
+        try connection.write(
+            RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y),
+            timeout: 2
+        )
+    }
+
     /// Reads a single server-to-client `ServerCutText` message off the active
     /// connection and returns its UTF-8 payload. The fixed 8-byte header
     /// (1 byte message type + 3 bytes padding + 4 bytes big-endian length) is
