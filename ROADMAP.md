@@ -367,13 +367,17 @@ P0 — App Store rejects or runtime fails without these:
   1024×1024 marketing plus iPhone/iPad sizes
 - Apple Developer account, bundle ID provisioning, and signing
   configuration — pending; outside the agent loop
-- **Direct Keystroke Streaming Mode** — pending; spec at
-  `specs/002-direct-keystroke-mode/spec.md`. Ship-blocker because
-  founder ICP (iPhone → Ghostty/Codex via VNC, sustained AI coding
-  from phone) cannot run on Compose & Send alone — Tab, Ctrl-key
-  combos, arrows, Esc are unreachable. Custom soft keyboard
-  (QWERTY + special pages, bottom-docked) plus Bluetooth / Magic
-  Keyboard passthrough; floating keyboard deferred
+- ✅ **Direct Keystroke Streaming Mode** — implemented (PRs #28–#34;
+  Phase 8 verification PR #35). Spec at
+  `specs/002-direct-keystroke-mode/spec.md`. Custom soft keyboard
+  (QWERTY + special pages, bottom-docked), sticky modifiers (1-tap
+  one-shot / 2-tap lock), and Bluetooth / Magic Keyboard passthrough
+  shipped. FR-001 / FR-009 / FR-010 covered by
+  `DirectKeystrokeFR001UITests` / `DirectKeystrokeFR009UITests` /
+  `DirectKeystrokeFR010UITests` on iPhone 17 Pro / iOS 26.2.
+  Residual risk: physical-device manual tests (T045 vim, T046 BT
+  Magic Keyboard) deferred until iPhone hardware access — recorded
+  per constitution §III
 
 P1 — App Store listing requires these:
 
@@ -410,16 +414,21 @@ Status: not started
 
 ## Phase 9 - Post-MVP Input Expansion
 
-Status: split — keyboard sub-track is **promoted to ship-blocker**, the rest stays deferred.
+Status: split — keyboard sub-track is **implemented (PRs #28–#34, Phase 8 verification PR #35)**, the rest stays deferred.
 
-- **Direct Keystroke Streaming Mode** — promoted to ship scope per founder
-  workflow signal (see `feedback_phase9_keyboard_is_ship_blocker` memory).
-  Spec lives at `specs/002-direct-keystroke-mode/spec.md`; covers a custom
-  in-app soft keyboard (QWERTY + special-keys pages, bottom-docked,
-  Chrome Remote Desktop Android pattern), sticky modifiers (1-tap one-shot
-  / 2-tap lock), and Bluetooth / Magic Keyboard hardware passthrough via
-  `UIKeyCommand`. Floating / repositionable keyboard UI is an explicit
-  Non-Goal in v1.
+- ✅ **Direct Keystroke Streaming Mode** — implemented (PRs #28–#34, Phase 8
+  XCUITest + docs PR #35). Spec lives at
+  `specs/002-direct-keystroke-mode/spec.md`; ships a custom in-app soft
+  keyboard (QWERTY + special-keys pages, bottom-docked, Chrome Remote
+  Desktop Android pattern), sticky modifiers (1-tap one-shot / 2-tap lock,
+  with a "Clr" affordance), Bluetooth / Magic Keyboard hardware passthrough
+  via `pressesBegan` / `pressesEnded`, persistent dock + HUD "Direct mode"
+  badges, and a one-time-per-session entry warning. Floating /
+  repositionable keyboard UI is an explicit Non-Goal in v1. Residual risk:
+  physical-device manual tests (T045 vim, T046 BT Magic Keyboard) deferred
+  until iPhone hardware access — recorded per constitution §III. The
+  `feedback_phase9_keyboard_is_ship_blocker` memory becomes historical
+  audit trail; do not delete.
 - Voice compose — deferred
 - Image paste — deferred
 - File drop — deferred
