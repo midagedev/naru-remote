@@ -112,6 +112,16 @@ Status: complete for MVP foundation
   reconnect sleep.  HUD shows a "Reconnecting (n/N)…" badge near
   the connection HUD; no retry button while the system is already
   trying.  iPhone first (constitution §VI).
+- Session viewport surfaces a "Disconnect" affordance that wires to
+  the existing `NaruRemoteAppModel.disconnect()` command.  The button
+  is visible only while the session is `.active` or `.reconnecting`,
+  so the action row stays compact on iPhone (constitution §VI).
+  Tapping it tears down the active stream, cancels any pending
+  reconnect sleep, clears the rendered framebuffer, and latches
+  `explicitlyDisconnected` so a late-firing stream failure cannot
+  schedule another reconnect on the user's behalf.  The selected
+  profile is retained — the user disconnected from this *session*,
+  not from this *profile*.
 
 ## Phase 3 - Deterministic RFB Integration
 

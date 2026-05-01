@@ -16,6 +16,7 @@ public struct SessionViewportView: View {
     private let isPiPWatching: Bool
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
+    private let onDisconnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
     private let onFramebufferTap: ((CGPoint, CGSize) -> Void)?
     private let onFramebufferRightClick: ((CGPoint, CGSize) -> Void)?
@@ -49,6 +50,7 @@ public struct SessionViewportView: View {
         pipLayerHost: PiPLayerHost? = nil,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
+        onDisconnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
@@ -68,6 +70,7 @@ public struct SessionViewportView: View {
         self.pipLayerHost = pipLayerHost
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
+        self.onDisconnect = onDisconnect
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
@@ -88,6 +91,7 @@ public struct SessionViewportView: View {
         isPiPWatching: Bool = false,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
+        onDisconnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
@@ -106,6 +110,7 @@ public struct SessionViewportView: View {
         self.isPiPWatching = isPiPWatching
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
+        self.onDisconnect = onDisconnect
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
@@ -149,6 +154,19 @@ public struct SessionViewportView: View {
                     .disabled(onConnect == nil)
                     .help("Connect to selected profile")
                     .accessibilityIdentifier("naru.session.connect")
+
+                    if showsDisconnectButton {
+                        Button {
+                            onDisconnect?()
+                        } label: {
+                            Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .disabled(onDisconnect == nil)
+                        .help("End the active session and stop auto-reconnect")
+                        .accessibilityIdentifier("naru.session.disconnect")
+                    }
 
                     Button {
                         onStartPiPWatch?()
@@ -306,6 +324,24 @@ public struct SessionViewportView: View {
 
     private var canStartPiPWatch: Bool {
         isPiPWatchAvailable && onStartPiPWatch != nil
+    }
+
+    /// Disconnect is only meaningful while a session is actively
+    /// streaming or in the bounded auto-reconnect window.  In every
+    /// other state (no session, connecting, authenticating, degraded,
+    /// closed, failed) showing it would be either redundant — the
+    /// system is already not running — or actively misleading, e.g.
+    /// while the user is still completing a connect handshake.
+    /// Hiding the button entirely (vs. disabling it) keeps the
+    /// action row compact on iPhone (constitution §VI).
+    private var showsDisconnectButton: Bool {
+        guard let state = session?.state else { return false }
+        switch state {
+        case .active, .reconnecting:
+            return true
+        case .connecting, .authenticating, .degraded, .failed, .closed:
+            return false
+        }
     }
 
     private var pipWatchButtonHelp: String {
