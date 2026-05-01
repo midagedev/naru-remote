@@ -1,4 +1,5 @@
 import Foundation
+import os
 import XCTest
 @testable import NaruRemoteCore
 
@@ -116,59 +117,58 @@ final class RFBFramePumpTests: XCTestCase {
     }
 }
 
-private final class FakeFramebufferUpdateSource: RFBFramebufferUpdating, @unchecked Sendable {
+private final class FakeFramebufferUpdateSource: RFBFramebufferUpdating {
     enum Error: Swift.Error, Equatable {
         case noFrame
     }
 
-    private let lock = NSLock()
-    private var framebuffers: [RFBRawFramebuffer]
-    private var incrementalFlags: [Bool] = []
+    private struct State {
+        var framebuffers: [RFBRawFramebuffer]
+        var incrementalFlags: [Bool] = []
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
 
     init(framebuffers: [RFBRawFramebuffer]) {
-        self.framebuffers = framebuffers
+        self.state = OSAllocatedUnfairLock(initialState: State(framebuffers: framebuffers))
     }
 
     var requestedIncrementalFlags: [Bool] {
-        lock.lock()
-        defer { lock.unlock() }
-        return incrementalFlags
+        state.withLock { $0.incrementalFlags }
     }
 
     func requestRawFramebufferUpdate(
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        lock.lock()
-        defer { lock.unlock() }
-
-        incrementalFlags.append(incremental)
-
-        guard !framebuffers.isEmpty else {
-            throw Error.noFrame
+        try state.withLock { state in
+            state.incrementalFlags.append(incremental)
+            guard !state.framebuffers.isEmpty else {
+                throw Error.noFrame
+            }
+            return state.framebuffers.removeFirst()
         }
-
-        return framebuffers.removeFirst()
     }
 }
 
-private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating, @unchecked Sendable {
+private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating {
     enum Error: Swift.Error, Equatable {
         case noFrame
     }
 
-    private let lock = NSLock()
-    private var results: [RFBFramebufferUpdateResult]
-    private var incrementalFlags: [Bool] = []
+    private struct State {
+        var results: [RFBFramebufferUpdateResult]
+        var incrementalFlags: [Bool] = []
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
 
     init(results: [RFBFramebufferUpdateResult]) {
-        self.results = results
+        self.state = OSAllocatedUnfairLock(initialState: State(results: results))
     }
 
     var requestedIncrementalFlags: [Bool] {
-        lock.lock()
-        defer { lock.unlock() }
-        return incrementalFlags
+        state.withLock { $0.incrementalFlags }
     }
 
     func requestRawFramebufferUpdate(
@@ -185,15 +185,12 @@ private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTracking
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBFramebufferUpdateResult {
-        lock.lock()
-        defer { lock.unlock() }
-
-        incrementalFlags.append(incremental)
-
-        guard !results.isEmpty else {
-            throw Error.noFrame
+        try state.withLock { state in
+            state.incrementalFlags.append(incremental)
+            guard !state.results.isEmpty else {
+                throw Error.noFrame
+            }
+            return state.results.removeFirst()
         }
-
-        return results.removeFirst()
     }
 }

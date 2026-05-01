@@ -1,3 +1,4 @@
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -232,16 +233,19 @@ private final class LegacyFakePiPWatchController: PiPWatchControlling {
     }
 }
 
-private final class FakeStreamingFramebufferConnector: RFBStreamingClient, @unchecked Sendable {
-    private let lock = NSLock()
+private final class FakeStreamingFramebufferConnector: RFBStreamingClient {
+    private struct State {
+        var framebuffers: [RFBRawFramebuffer]
+    }
+
+    private let recording: OSAllocatedUnfairLock<State>
     private let width: Int
     private let height: Int
-    private var framebuffers: [RFBRawFramebuffer]
 
     init(width: Int, height: Int, framebuffers: [RFBRawFramebuffer]) {
         self.width = width
         self.height = height
-        self.framebuffers = framebuffers
+        self.recording = OSAllocatedUnfairLock(initialState: State(framebuffers: framebuffers))
     }
 
     var state: RFBClientState { .receivingFrames }
@@ -293,9 +297,9 @@ private final class FakeStreamingFramebufferConnector: RFBStreamingClient, @unch
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        lock.lock()
-        let framebuffer = framebuffers.isEmpty ? nil : framebuffers.removeFirst()
-        lock.unlock()
+        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+            state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+        }
 
         guard let framebuffer else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)

@@ -1,3 +1,4 @@
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -205,13 +206,16 @@ private final class RecordingClipboardWriter: LocalClipboardWriting {
     }
 }
 
-private final class ReceivingStreamingConnector: RFBStreamingClient, @unchecked Sendable {
-    private let lock = NSLock()
+private final class ReceivingStreamingConnector: RFBStreamingClient {
+    private struct State {
+        var framebuffers: [RFBRawFramebuffer]
+        var pendingIncomingPayloads: [String]
+    }
+
+    private let recording: OSAllocatedUnfairLock<State>
     private let width: Int
     private let height: Int
     private let name: String
-    private var framebuffers: [RFBRawFramebuffer]
-    private var pendingIncomingPayloads: [String]
 
     init(
         width: Int,
@@ -223,8 +227,12 @@ private final class ReceivingStreamingConnector: RFBStreamingClient, @unchecked 
         self.width = width
         self.height = height
         self.name = name
-        self.framebuffers = framebuffers
-        self.pendingIncomingPayloads = incomingPayloads
+        self.recording = OSAllocatedUnfairLock(
+            initialState: State(
+                framebuffers: framebuffers,
+                pendingIncomingPayloads: incomingPayloads
+            )
+        )
     }
 
     var state: RFBClientState { .receivingFrames }
@@ -263,9 +271,9 @@ private final class ReceivingStreamingConnector: RFBStreamingClient, @unchecked 
     }
 
     func requestRawFramebufferUpdate(incremental: Bool, timeout: TimeInterval) throws -> RFBRawFramebuffer {
-        lock.lock()
-        let framebuffer = framebuffers.isEmpty ? nil : framebuffers.removeFirst()
-        lock.unlock()
+        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+            state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+        }
 
         guard let framebuffer else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
@@ -277,15 +285,15 @@ private final class ReceivingStreamingConnector: RFBStreamingClient, @unchecked 
     func sendPasteCommand(_ command: PasteCommand) throws {}
 
     func receiveServerCutText(timeout: TimeInterval) throws -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        if pendingIncomingPayloads.isEmpty {
-            // Stay in the receive loop without producing more payloads.
-            // A transient-style error keeps the loop alive but does
-            // not advance the test.
-            throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
+        try recording.withLock { state in
+            if state.pendingIncomingPayloads.isEmpty {
+                // Stay in the receive loop without producing more payloads.
+                // A transient-style error keeps the loop alive but does
+                // not advance the test.
+                throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
+            }
+            return state.pendingIncomingPayloads.removeFirst()
         }
-        return pendingIncomingPayloads.removeFirst()
     }
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {

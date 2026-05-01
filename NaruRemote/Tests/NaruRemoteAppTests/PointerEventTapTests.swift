@@ -1,4 +1,5 @@
 import Foundation
+import os
 import NaruRemoteApp
 import NaruRemoteCore
 import XCTest
@@ -624,19 +625,24 @@ final class PointerEventTapTests: XCTestCase {
 /// for the pointer-click tests. Otherwise mirrors the
 /// `FakeStreamingConnector` used elsewhere — kept private to this
 /// file so the existing tests stay structurally unchanged.
-private final class PointerCapturingStreamingConnector: RFBStreamingClient, @unchecked Sendable {
-    private let lock = NSLock()
+private final class PointerCapturingStreamingConnector: RFBStreamingClient {
+    private struct Recording {
+        var framebuffers: [RFBRawFramebuffer]
+        var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private var framebuffers: [RFBRawFramebuffer]
-    private var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
 
     init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
         self.width = width
         self.height = height
         self.name = name
-        self.framebuffers = [framebuffer, framebuffer, framebuffer]
+        self.recording = OSAllocatedUnfairLock(
+            initialState: Recording(framebuffers: [framebuffer, framebuffer, framebuffer])
+        )
     }
 
     var state: RFBClientState { .receivingFrames }
@@ -645,9 +651,7 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient, @unc
     }
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedPointerEventsList
+        recording.withLock { $0.recordedPointerEventsList }
     }
 
     func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
@@ -683,9 +687,9 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient, @unc
     }
 
     func requestRawFramebufferUpdate(incremental: Bool, timeout: TimeInterval) throws -> RFBRawFramebuffer {
-        lock.lock()
-        let framebuffer = framebuffers.isEmpty ? nil : framebuffers.removeFirst()
-        lock.unlock()
+        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+            state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+        }
         guard let framebuffer else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
         }
@@ -696,8 +700,8 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient, @unc
     func sendPasteCommand(_ command: PasteCommand) throws {}
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
-        lock.withLock {
-            recordedPointerEventsList.append((buttonMask, x, y))
+        recording.withLock { state in
+            state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }
 }

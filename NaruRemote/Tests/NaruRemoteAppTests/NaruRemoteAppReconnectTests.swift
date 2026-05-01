@@ -1,3 +1,4 @@
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -276,63 +277,64 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
 /// Each `programFrame()` queues one successful framebuffer; each
 /// `programFailure()` queues one throw on the next
 /// `requestRawFramebufferUpdate` call.
-private final class FlakyStreamingConnector: RFBStreamingClient, @unchecked Sendable {
+private final class FlakyStreamingConnector: RFBStreamingClient {
     struct ConnectRequest: Equatable {
         let host: String
         let port: UInt16
     }
 
-    private enum Step {
+    fileprivate enum Step {
         case frame(RFBRawFramebuffer)
         case failure
     }
 
-    private let lock = NSLock()
+    fileprivate struct Recording {
+        var steps: [Step] = []
+        var recordedSessionRequests: [ConnectRequest] = []
+        var recordedCredentialsList: [RFBConnectionCredential] = []
+        var recordedClipboardPayloads: [String] = []
+        var recordedPasteCommands: [PasteCommand] = []
+        var lastDeliveredFramebuffer: RFBRawFramebuffer?
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private var steps: [Step] = []
-    private var recordedSessionRequests: [ConnectRequest] = []
-    private var recordedCredentialsList: [RFBConnectionCredential] = []
-    private var recordedClipboardPayloads: [String] = []
-    private var recordedPasteCommands: [PasteCommand] = []
 
     init(width: Int, height: Int, name: String) {
         self.width = width
         self.height = height
         self.name = name
+        self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
 
     func programFrame() {
-        lock.lock()
-        defer { lock.unlock() }
-        steps.append(
-            .frame(
-                RFBRawFramebuffer(
-                    width: width,
-                    height: height,
-                    fill: RFBColor(red: 10, green: 0, blue: 0)
+        recording.withLock { state in
+            state.steps.append(
+                .frame(
+                    RFBRawFramebuffer(
+                        width: width,
+                        height: height,
+                        fill: RFBColor(red: 10, green: 0, blue: 0)
+                    )
                 )
             )
-        )
+        }
     }
 
     func programFailure() {
-        lock.lock()
-        defer { lock.unlock() }
-        steps.append(.failure)
+        recording.withLock { state in
+            state.steps.append(.failure)
+        }
     }
 
     var sessionRequests: [ConnectRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedSessionRequests
+        recording.withLock { $0.recordedSessionRequests }
     }
 
     var recordedCredentials: [RFBConnectionCredential] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedCredentialsList
+        recording.withLock { $0.recordedCredentialsList }
     }
 
     var state: RFBClientState { .receivingFrames }
@@ -361,10 +363,10 @@ private final class FlakyStreamingConnector: RFBStreamingClient, @unchecked Send
         credential: RFBConnectionCredential,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
-        lock.lock()
-        recordedSessionRequests.append(ConnectRequest(host: host, port: port))
-        recordedCredentialsList.append(credential)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedSessionRequests.append(ConnectRequest(host: host, port: port))
+            state.recordedCredentialsList.append(credential)
+        }
         return RFBServerInit(
             width: width,
             height: height,
@@ -388,46 +390,40 @@ private final class FlakyStreamingConnector: RFBStreamingClient, @unchecked Send
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        lock.lock()
-        let next = steps.isEmpty ? nil : steps.removeFirst()
-        let lastFramebuffer = lastDeliveredFramebuffer
-        lock.unlock()
-
-        switch next {
-        case .frame(let framebuffer):
-            lock.lock()
-            lastDeliveredFramebuffer = framebuffer
-            lock.unlock()
-            return framebuffer
-        case .failure:
-            throw FlakyConnectorError.programmedFailure
-        case .none:
-            // Out of programmed steps: repeat the last delivered
-            // frame so a stream that has drained its scripted
-            // failures keeps quietly streaming.  Tests assert on
-            // the count of `sessionRequests` and on
-            // `session.state` to verify reconnect behavior.  If no
-            // frame was ever delivered, throw so the test does not
-            // silently spin.
-            guard let lastFramebuffer else {
+        try recording.withLock { state -> RFBRawFramebuffer in
+            let next = state.steps.isEmpty ? nil : state.steps.removeFirst()
+            switch next {
+            case .frame(let framebuffer):
+                state.lastDeliveredFramebuffer = framebuffer
+                return framebuffer
+            case .failure:
                 throw FlakyConnectorError.programmedFailure
+            case .none:
+                // Out of programmed steps: repeat the last delivered
+                // frame so a stream that has drained its scripted
+                // failures keeps quietly streaming.  Tests assert on
+                // the count of `sessionRequests` and on
+                // `session.state` to verify reconnect behavior.  If no
+                // frame was ever delivered, throw so the test does not
+                // silently spin.
+                guard let lastFramebuffer = state.lastDeliveredFramebuffer else {
+                    throw FlakyConnectorError.programmedFailure
+                }
+                return lastFramebuffer
             }
-            return lastFramebuffer
         }
     }
 
-    private var lastDeliveredFramebuffer: RFBRawFramebuffer?
-
     func setClipboardText(_ text: String) throws {
-        lock.lock()
-        recordedClipboardPayloads.append(text)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedClipboardPayloads.append(text)
+        }
     }
 
     func sendPasteCommand(_ command: PasteCommand) throws {
-        lock.lock()
-        recordedPasteCommands.append(command)
-        lock.unlock()
+        recording.withLock { state in
+            state.recordedPasteCommands.append(command)
+        }
     }
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
