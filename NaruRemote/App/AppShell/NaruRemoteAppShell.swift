@@ -138,7 +138,10 @@ public struct NaruRemoteAppShell: View {
                     RemoteInputDockView(
                         initialText: snapshot.composeDraft?.text ?? "",
                         statusText: snapshot.inputStatusText,
-                        onSend: { model.sendComposedText($0) }
+                        onSend: { model.sendComposedText($0) },
+                        directKeystrokeMode: snapshot.directKeystrokeMode,
+                        onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+                        onTapDirectKey: { key in Task { await model.tapDirectKey(key) } }
                     )
                 }
             }
