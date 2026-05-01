@@ -116,7 +116,12 @@ enum DirectKeystrokeKeyboardLayouts {
             KeyDescriptor(label: "F11", key: .named(.f11)),
             KeyDescriptor(label: "F12", key: .named(.f12)),
         ]),
-        // row 4: terminal-essential modifiers + Tab + Esc
+        // row 4: terminal-essential modifiers + Tab + Esc + Clear
+        // (Phase 7 / FR-013): Clear sits next to the four sticky
+        // modifiers as the panic affordance — one tap drops every
+        // armed-or-locked slot back to idle.  Visually styled as a
+        // wide key (matching ⌫ / ↵) so it doesn't read as a
+        // modifier itself.
         Row(keys: [
             KeyDescriptor(label: "Tab",   widthUnits: 1.25, key: .named(.tab),          role: .wide),
             KeyDescriptor(label: "Esc",   widthUnits: 1.25, key: .named(.escape),       role: .wide),
@@ -124,6 +129,7 @@ enum DirectKeystrokeKeyboardLayouts {
             KeyDescriptor(label: "⌥",     widthUnits: 1.0,  key: .modifier(.alt),       role: .modifier),
             KeyDescriptor(label: "⌘",     widthUnits: 1.0,  key: .modifier(.meta),      role: .modifier),
             KeyDescriptor(label: "⇧",     widthUnits: 1.0,  key: .modifier(.shift),     role: .modifier),
+            KeyDescriptor(label: "Clr",   widthUnits: 1.0,  key: .clearModifiers,       role: .wide),
             KeyDescriptor(label: "⌫",     widthUnits: 1.25, key: .named(.backspace),    role: .wide),
             KeyDescriptor(label: "↵",     widthUnits: 1.25, key: .named(.return),       role: .wide),
         ]),
