@@ -477,57 +477,100 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "14-sidebar-multiple-\(deviceTag)-\(mode.suffix).png")
     }
 
+    // MARK: - iPhone — sidebar with per-profile diagnostic verdicts (state #14b)
+
+    func testSidebarMultipleProfilesWithVerdicts_light() throws {
+        try runSidebarMultipleProfilesWithVerdicts(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSidebarMultipleProfilesWithVerdicts_dark() throws {
+        try runSidebarMultipleProfilesWithVerdicts(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runSidebarMultipleProfilesWithVerdicts(mode: ColorMode, deviceTag: String) throws {
+        // Closes UX punch-list #109.  The four profiles in the
+        // `sidebar-with-verdicts` fixture deliberately mirror the
+        // `runSidebarMultipleProfiles` seed (Studio Mac / Office Linux
+        // / Home NUC / Public test) but pre-populate
+        // `lastDiagnosticVerdict` with one of each color so the
+        // colored leading status dots actually render in the captured
+        // PNG (passed = green, warning = amber, failed = red, unknown
+        // = gray).
+        let app = launchAppWithFixture(.sidebarWithVerdicts, mode: mode)
+
+        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+        revealSidebarIfNeeded(app: app)
+        XCTAssertTrue(
+            app.staticTexts["Studio Mac"].waitForExistence(timeout: 4),
+            "Sidebar should display fixture profiles after back-navigation"
+        )
+
+        try saveScreen(named: "14-sidebar-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
+    }
+
     // MARK: - iPad — graceful scaling
 
     func testIPadStates() throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
-
-        // Interleaved states 1, 4, 7, 8 in light + dark on iPad.
-        for mode in [ColorMode.light, ColorMode.dark] {
-            // State 1 — empty state
-            do {
-                let app = launchApp(mode: mode)
-                XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
-                try saveScreen(named: "01-firstlaunch-ipad-landscape-\(mode.suffix).png")
-                app.terminate()
+        // Capture each iPad state in BOTH portrait and landscape so
+        // the audit can grade iPad layout in both orientations
+        // (closes UX punch-list #206).  PR #36 fixed the rotation
+        // metadata so landscape PNGs are no longer 90° off.
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            let orientationTag: String
+            switch orientation {
+            case .portrait: orientationTag = "portrait"
+            case .landscapeLeft, .landscapeRight: orientationTag = "landscape"
+            default: orientationTag = "portrait"
             }
 
-            // State 4 — profile selected (pre-seeded via JSON)
-            do {
-                let app = launchApp(
-                    mode: mode,
-                    seedProfiles: [
-                        SeedProfile(
-                            displayName: "Studio Mac",
-                            host: "studio.tailnet.ts.net"
-                        )
-                    ]
-                )
-                _ = findChecksButton(in: app).waitForExistence(timeout: 8)
-                try saveScreen(named: "04-profile-selected-ipad-landscape-\(mode.suffix).png")
-                app.terminate()
-            }
+            for mode in [ColorMode.light, ColorMode.dark] {
+                XCUIDevice.shared.orientation = orientation
 
-            // State 7 — compose with text
-            do {
-                let app = launchApp(mode: mode)
-                let editor = app.textViews["Remote input text"]
-                XCTAssertTrue(editor.waitForExistence(timeout: 8))
-                editor.tap()
-                editor.typeText("Hello world")
-                try saveScreen(named: "07-compose-text-ipad-landscape-\(mode.suffix).png")
-                app.terminate()
-            }
+                // State 1 — empty state
+                do {
+                    let app = launchApp(mode: mode)
+                    XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+                    try saveScreen(named: "01-firstlaunch-ipad-\(orientationTag)-\(mode.suffix).png")
+                    app.terminate()
+                }
 
-            // State 8 — direct mode QWERTY
-            do {
-                let app = launchAppSuppressingDirectWarning(mode: mode)
-                let directSegment = app.buttons["Direct"]
-                XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
-                directSegment.tap()
-                XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 4))
-                try saveScreen(named: "08-direct-qwerty-ipad-landscape-\(mode.suffix).png")
-                app.terminate()
+                // State 4 — profile selected (pre-seeded via JSON)
+                do {
+                    let app = launchApp(
+                        mode: mode,
+                        seedProfiles: [
+                            SeedProfile(
+                                displayName: "Studio Mac",
+                                host: "studio.tailnet.ts.net"
+                            )
+                        ]
+                    )
+                    _ = findChecksButton(in: app).waitForExistence(timeout: 8)
+                    try saveScreen(named: "04-profile-selected-ipad-\(orientationTag)-\(mode.suffix).png")
+                    app.terminate()
+                }
+
+                // State 7 — compose with text
+                do {
+                    let app = launchApp(mode: mode)
+                    let editor = app.textViews["Remote input text"]
+                    XCTAssertTrue(editor.waitForExistence(timeout: 8))
+                    editor.tap()
+                    editor.typeText("Hello world")
+                    try saveScreen(named: "07-compose-text-ipad-\(orientationTag)-\(mode.suffix).png")
+                    app.terminate()
+                }
+
+                // State 8 — direct mode QWERTY
+                do {
+                    let app = launchAppSuppressingDirectWarning(mode: mode)
+                    let directSegment = app.buttons["Direct"]
+                    XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
+                    directSegment.tap()
+                    XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 4))
+                    try saveScreen(named: "08-direct-qwerty-ipad-\(orientationTag)-\(mode.suffix).png")
+                    app.terminate()
+                }
             }
         }
     }
@@ -583,6 +626,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         case onboardingDone = "onboarding-done"
         case diagnosticErrorDNS = "diagnostic-error-dns"
         case incomingClipboard = "incoming-clipboard"
+        case sidebarWithVerdicts = "sidebar-with-verdicts"
     }
 
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
