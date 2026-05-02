@@ -176,7 +176,7 @@ public struct NaruRemoteAppShell: View {
                     .background(Color.clear)
                 }
             }
-            .background(Color(red: 0.96, green: 0.97, blue: 0.96))
+            .background(NaruColors.canvas)
             .accessibilityIdentifier("naru.app.detail")
         }
         .sheet(isPresented: $showsProfileEditor) {
