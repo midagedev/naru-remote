@@ -10,6 +10,11 @@ public struct NaruRemoteAppShell: View {
     /// down and re-create the editor's state on each invocation, so
     /// pre-filled fields always reflect the latest stored values.
     @State private var editingProfile: EditingProfile?
+    /// Mirrors the compose `TextEditor` focus state inside
+    /// `RemoteInputDockView`.  When true, the iOS keyboard is up
+    /// and `OnboardingGuideView` is rendered in its compact
+    /// 1-line summary form (UX punch-list #009).
+    @State private var composeFieldFocused = false
     /// Build version label used in the diagnostic share-text header.
     /// The iOS app entry passes
     /// `Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")`;
@@ -66,6 +71,7 @@ public struct NaruRemoteAppShell: View {
                     if showsOnboardingGuide {
                         OnboardingGuideView(
                             guide: snapshot.onboardingGuide,
+                            isCompact: composeFieldFocused,
                             onDismiss: { Task { await model.dismissOnboardingChecklist() } },
                             onAction: { stepID in
                                 model.handleOnboardingAction(stepID) {
@@ -152,7 +158,10 @@ public struct NaruRemoteAppShell: View {
                                 )
                             }
                         },
-                        onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() }
+                        onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
+                        onComposeFocusChange: { focused in
+                            composeFieldFocused = focused
+                        }
                     )
                 }
             }

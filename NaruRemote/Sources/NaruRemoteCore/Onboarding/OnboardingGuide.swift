@@ -68,7 +68,7 @@ public struct OnboardingGuide: Codable, Equatable, Sendable {
                 id: .privateTarget,
                 state: .next,
                 title: "Private target",
-                detail: "Add a MagicDNS name or private host.",
+                detail: "Use your Tailscale MagicDNS name (e.g. studio.tailnet.ts.net) or any private host you can reach.",
                 actionTitle: "Add Profile"
             )
         }

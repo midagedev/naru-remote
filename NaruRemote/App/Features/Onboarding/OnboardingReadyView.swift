@@ -42,7 +42,7 @@ public struct OnboardingReadyView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(red: 0.94, green: 0.96, blue: 0.94))
+        .background(NaruColors.dock)
         .overlay(alignment: .bottom) {
             Divider()
         }
