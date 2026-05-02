@@ -45,6 +45,7 @@ public struct NaruRemoteAppShell: View {
             ProfileListView(
                 profiles: snapshot.profiles,
                 selectedProfileID: snapshot.selectedProfile?.id,
+                verdicts: snapshot.lastDiagnosticVerdict,
                 onSelect: model.selectProfile(id:),
                 onEdit: { profile in
                     editingProfile = EditingProfile(

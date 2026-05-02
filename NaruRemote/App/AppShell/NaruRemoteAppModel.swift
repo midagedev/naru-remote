@@ -8,6 +8,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public var selectedProfileID: ConnectionProfile.ID?
     @Published public private(set) var session: RemoteSession?
     @Published public private(set) var diagnosticRun: ConnectionDiagnosticRun?
+    /// Per-profile cache of the most recent diagnostic verdict
+    /// (UX punch-list #109).  Memory-only — diagnostic results from
+    /// yesterday do not reflect today's network state, so the dict
+    /// is intentionally not persisted across app launches.  Populated
+    /// at every site that finishes a `ConnectionDiagnosticRun` (the
+    /// "running" placeholder run from `runConnectionChecks()` does
+    /// NOT update the cache — only finished runs do, per
+    /// `ConnectionDiagnosticRun.verdict`'s `.unknown` semantics).
+    @Published public private(set) var lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     @Published public private(set) var composeDraft: ComposeDraft?
     @Published public private(set) var latestInjectionAttempt: TextInjectionAttempt?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
@@ -154,6 +163,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.selectedProfileID = snapshot.selectedProfileID ?? initialProfiles.first?.id
         self.session = snapshot.session
         self.diagnosticRun = snapshot.diagnosticRun
+        self.lastDiagnosticVerdict = snapshot.lastDiagnosticVerdict
         self.composeDraft = snapshot.composeDraft
         self.latestInjectionAttempt = snapshot.latestInjectionAttempt
         self.pipWatchSession = snapshot.pipWatchSession
@@ -292,7 +302,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFramebuffer: latestFramebuffer,
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
             directKeystrokeMode: directKeystrokeMode,
-            stickyModifierState: stickyModifierState
+            stickyModifierState: stickyModifierState,
+            lastDiagnosticVerdict: lastDiagnosticVerdict
         )
     }
 
@@ -520,6 +531,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         let wasActive = selectedProfileID == id || session?.profileID == id
 
         profiles.removeAll { $0.id == id }
+        // Drop any cached verdict for the deleted profile so the
+        // sidebar dot doesn't outlive the row (UX punch-list #109).
+        lastDiagnosticVerdict.removeValue(forKey: id)
 
         if let credentialRef = removedProfile.credentialRef {
             do {
@@ -604,6 +618,28 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             ]
         )
+        // The placeholder "running" run is intentionally not finished
+        // — its verdict resolves to `.unknown`, which is exactly what
+        // the sidebar should show until the network attempt resolves.
+        recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
+    }
+
+    /// Stamps the per-profile verdict cache for #109's leading status
+    /// dot.  Centralizing the write here means every diagnostic
+    /// completion path (success, failure, credential failure,
+    /// reconnect drop) flows through the same safe-catalog-derived
+    /// verdict — no caller can pipe a freeform string into the
+    /// sidebar (constitution §IV).  Pass `nil` to clear the entry
+    /// (e.g. on profile change / disconnect-clears-state paths).
+    private func recordDiagnosticVerdict(
+        for profileID: ConnectionProfile.ID,
+        from run: ConnectionDiagnosticRun?
+    ) {
+        guard let run else {
+            lastDiagnosticVerdict.removeValue(forKey: profileID)
+            return
+        }
+        lastDiagnosticVerdict[profileID] = run.verdict
     }
 
     private func connectionCredential(for profile: ConnectionProfile) async throws -> RFBConnectionCredential {
@@ -686,6 +722,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
+            recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             return
         }
 
@@ -760,6 +797,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         )
                     ]
                 )
+                recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             } catch {
                 activeTextClient = nil
                 activePointerClient = nil
@@ -788,6 +826,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         )
                     ]
                 )
+                recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             }
         }
     }
@@ -955,6 +994,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                 ]
             )
+            recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
         }
     }
 
@@ -1035,6 +1075,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                 ]
             )
+            recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             return
         }
 
@@ -1064,6 +1105,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             ]
         )
+        recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
     }
 
     /// Schedule the next reconnect attempt.  Sleeps `backoff` then

@@ -556,6 +556,117 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.snapshot.diagnosticRun)
         XCTAssertNil(model.snapshot.pipWatchSession)
     }
+
+    // MARK: - Per-profile diagnostic verdict cache (UX punch-list #109)
+
+    func testRunConnectionChecksLeavesVerdictUnknownWhileRunIsInFlight() throws {
+        // The "running" placeholder run should stamp `.unknown` so
+        // the sidebar dot stays neutral until the real attempt
+        // resolves — never optimistically green.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id)
+        )
+
+        model.runConnectionChecks()
+
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[profile.id], .unknown)
+    }
+
+    func testStreamingConnectStampsPassedVerdictForActiveProfile() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Desk", framebuffer: framebuffer)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[profile.id], .passed)
+    }
+
+    func testCredentialFailureStampsFailedVerdictForActiveProfile() async throws {
+        // Credential lookup fails → the catalog-built run finishes
+        // immediately with an `.authentication` failure → verdict
+        // is `.failed`.
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            credentialRef: "vnc-password:missing"
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[profile.id], .failed)
+    }
+
+    func testVerdictCacheIsScopedPerProfile() async throws {
+        // A second profile's selection + diagnostic should not stomp
+        // the first profile's recorded verdict — the dict is per-id
+        // by design (sidebar shows verdicts for ALL profiles at
+        // once).
+        let first = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let second = try ConnectionProfile(displayName: "Office", host: "office.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Studio", framebuffer: framebuffer)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [first, second],
+                selectedProfileID: first.id
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[first.id], .passed)
+
+        // Switch to the second profile — the first profile's
+        // verdict must remain in the cache.
+        model.selectProfile(id: second.id)
+
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[first.id], .passed)
+        XCTAssertNil(model.snapshot.lastDiagnosticVerdict[second.id])
+    }
+
+    func testDeletingProfileEvictsItsVerdictFromTheCache() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            lastDiagnosticVerdict: [profile.id: .passed]
+        )
+        let model = NaruRemoteAppModel(snapshot: snapshot)
+        XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[profile.id], .passed)
+
+        await model.deleteProfile(id: profile.id)
+
+        XCTAssertNil(model.snapshot.lastDiagnosticVerdict[profile.id])
+    }
 }
 
 private enum FakePiPWatchError: Error {
