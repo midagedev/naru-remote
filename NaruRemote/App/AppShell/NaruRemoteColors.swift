@@ -36,6 +36,44 @@ public enum NaruColors {
         dark: rgb(0x30, 0x38, 0x45)
     )
 
+    /// `Surface Key` — primary fill for letter / number tiles on the
+    /// Direct-mode soft keyboard.  Used to be hardcoded `Color.white`
+    /// in `DirectKeystrokeKeyboardView.backgroundFor(role:)`, which
+    /// rendered as white-on-white in dark mode (`Color.primary` text
+    /// resolves to white) — UX punch-list #301.  Maps to the
+    /// BRANDING.md §7 `Surface` token so the tile fill reads as the
+    /// raised paper-on-canvas surface in light mode and a slate panel
+    /// in dark.
+    /// Light: `#FFFFFF`  Dark: `#1A1E25`
+    public static let surfaceKey: Color = adaptive(
+        light: rgb(0xFF, 0xFF, 0xFF),
+        dark: rgb(0x1A, 0x1E, 0x25)
+    )
+
+    /// `Surface Key Alt` — secondary fill for wide / spacebar /
+    /// modifier / page-toggle tiles on the Direct-mode soft keyboard.
+    /// Slightly darker than `surfaceKey` so the row reads as a
+    /// two-tier keyboard (alphas ↑ vs. system keys ↓), matching the
+    /// iOS keyboard idiom without baking white into the swatch.
+    /// Light: `#EAEDF0` (between Surface and Surface Raised)
+    /// Dark: `#2C313B` (between Dark Surface and Dark Surface Raised)
+    public static let surfaceKeyAlt: Color = adaptive(
+        light: rgb(0xEA, 0xED, 0xF0),
+        dark: rgb(0x2C, 0x31, 0x3B)
+    )
+
+    /// `Surface Editor` — fill for the Compose `TextEditor` inside
+    /// the Remote Input Dock.  Used to be hardcoded
+    /// `Color.white.opacity(0.74)`, which read as a stark bright
+    /// rectangle on the dark canvas (UX punch-list #302).  Same hex
+    /// pair as `surfaceKey` (BRANDING.md §7 `Surface`) — the editor
+    /// is conceptually a sheet of paper sitting on the dock surface.
+    /// Light: `#FFFFFF`  Dark: `#1A1E25`
+    public static let surfaceEditor: Color = adaptive(
+        light: rgb(0xFF, 0xFF, 0xFF),
+        dark: rgb(0x1A, 0x1E, 0x25)
+    )
+
     /// `Coral` token — error / blocked / advanced-public-endpoint
     /// warning color (BRANDING.md §7).  Used by the sidebar's
     /// public-IP profile cue per UX punch-list #006 and constitution

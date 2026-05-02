@@ -139,53 +139,41 @@ PRs in the workstream: **#36 → #43**.
 
 ### P1 — Dark mode
 
-- ❗ **#301 Direct keystroke keyboard letter / number keys render as
-  blank white tiles in dark mode** — `08-direct-qwerty-iphone-dark.png`,
-  `09-direct-special-iphone-dark.png`,
-  `11-modifier-locked-iphone-dark.png`.
-  Code: `NaruRemote/App/Features/RemoteInputDock/DirectKeystrokeKeyboardView.swift:155-158`
-  hard-codes `Color.white` for `role: .standard` keys.  In dark mode
-  the key fill stays bright white but the label uses `Color.primary`
-  which resolves to white-on-white → labels invisible.  Special keys
-  ("Tab", "Esc", "Clr", "return") render fine because they use a
-  different role + accessibility label path.
-  *Fix sketch*: route `backgroundFor(role:)` through `NaruColors` /
-  asset-catalog tokens (e.g. `naru.surface.keyTile`) that adapt to
-  light + dark, or wrap the key in `.background(.regularMaterial)`
-  so the system handles dark mode.
+- ✅ **#301** Direct keystroke keyboard letter / number keys render
+  as blank white tiles in dark mode — **PR (UX Chunk 9)** routed
+  `DirectKeystrokeKeyboardView.backgroundFor(role:)` through new
+  adaptive tokens `NaruColors.surfaceKey` (light `#FFFFFF` / dark
+  `#1A1E25`) for `.standard` letter/number tiles and
+  `NaruColors.surfaceKeyAlt` (light `#EAEDF0` / dark `#2C313B`) for
+  `.wide` / `.toggle` / `.modifier` tiles.  Two-tier visual hierarchy
+  (alpha row vs. system keys) preserved.  Verified in
+  `08-direct-qwerty-iphone-dark.png`,
+  `08-direct-qwerty-ipad-portrait-dark.png`,
+  `08-direct-qwerty-ipad-landscape-dark.png`.
 
-- ❗ **#302 Compose `TextEditor` background is hard-coded
-  `Color.white.opacity(0.74)` so the editor reads as a stark bright
-  rectangle in dark mode** — `04-profile-selected-iphone-dark.png`,
+- ✅ **#302** Compose `TextEditor` background hard-coded
+  `Color.white.opacity(0.74)` reads as a stark bright rectangle in
+  dark mode — **PR (UX Chunk 9)** replaced the hardcoded fill with
+  `NaruColors.surfaceEditor` (light `#FFFFFF` / dark `#1A1E25`,
+  matching BRANDING.md §7 `Surface`).  Opacity hack dropped — the
+  adaptive system color already has the right contrast at full
+  alpha.  Verified in `04-profile-selected-iphone-dark.png`,
   `07-compose-text-iphone-dark.png`,
   `12-incoming-clipboard-iphone-dark.png`.
-  Code: `NaruRemote/App/Features/RemoteInputDock/RemoteInputDockView.swift:162`.
-  Light mode is unaffected.
-  *Fix sketch*: replace with `NaruColors.surfaceRaised` (or a new
-  `naru.surface.editor` token) that darkens to a low-saturation slate
-  in dark mode — matching the dock background tier.
-
-These are both P1 because they appear immediately on first launch in
-dark mode and undermine the dark-mode delivery from PR #36.
 
 ### P2 — iPad portrait pill stacking
 
-- **#303 iPad portrait first-launch action-row pills wrap their
-  labels vertically** — `01-firstlaunch-ipad-portrait-light.png`,
-  `08-direct-qwerty-ipad-portrait-light.png`,
-  `07-compose-text-ipad-portrait-light.png`.  iPad reports
-  `horizontalSizeClass == .regular` even in portrait, so the action
-  row uses `.titleAndIcon` and lays out title + three pills + status
-  on a single line.  When the leading title is short ("Pick a
-  computer") the pills are squeezed into ~50pt-wide buckets and the
-  labels wrap to "Ch / ec / ks" / "Con / nec / t" / "PiP / Wa / tch".
-  Code: `NaruRemote/App/Features/SessionViewer/SessionViewportView.swift:124-186`.
-  iPad landscape and iPad-portrait-with-profile-selected (longer
-  title row) lay out fine.
-  *Fix sketch*: gate the compact action-row stacking on width, not
-  size class — e.g. `if title.count + actionLabelLength > threshold`,
-  or always stack pills below title when the empty-state title is
-  the single short hero.  Defer to post-MVP polish.
+- ✅ **#303** iPad portrait first-launch action-row pills wrap their
+  labels vertically ("Ch / ec / ks") — **PR (UX Chunk 9)** wrapped
+  the regular-width header in `ViewThatFits(in: .horizontal)` so the
+  inline `regularHeader` is preferred when the detail column has
+  room and the stacked `compactHeader` is automatically substituted
+  when it doesn't (iPad portrait with sidebar visible).  No width
+  thresholds to maintain.  Verified in
+  `01-firstlaunch-ipad-portrait-light.png` /
+  `01-firstlaunch-ipad-portrait-dark.png` —
+  Checks, Connect, PiP Watch, and the "None" status badge no longer
+  cram into ~50pt buckets.
 
 ### Coverage gaps still open
 
@@ -203,13 +191,15 @@ dark mode and undermine the dark-mode delivery from PR #36.
 
 These are the things a single-day follow-up agent could close.
 
-- **#301** Route Direct-keyboard key backgrounds through
+- ✅ **#301** Route Direct-keyboard key backgrounds through
   `NaruColors` so dark mode actually shows letter labels.  P1.
-- **#302** Replace `Color.white.opacity(0.74)` on the compose
+  Closed by **UX Chunk 9**.
+- ✅ **#302** Replace `Color.white.opacity(0.74)` on the compose
   `TextEditor` with an adaptive token — fixes the bright rectangle in
-  dark mode.  P1.
-- **#303** Defer / gate the empty-state pill row on iPad portrait so
-  it stops stacking labels vertically on the first-launch screen.  P2.
+  dark mode.  P1.  Closed by **UX Chunk 9**.
+- ✅ **#303** Defer / gate the empty-state pill row on iPad portrait
+  so it stops stacking labels vertically on the first-launch screen.
+  P2.  Closed by **UX Chunk 9** (`ViewThatFits` fallback).
 - (Coverage) Add iPhone landscape captures to the audit harness for
   the founder's actual sustained-terminal workflow.
 - (Coverage) Add a real-framebuffer fixture so PiP active and
