@@ -52,12 +52,32 @@ struct NaruRemoteApplication: App {
         // modifier in `NaruRemoteAppShell` which calls
         // `loadStoredProfiles()` to merge disk-backed profiles in.
         let credentialStore = KeychainConnectionCredentialStore()
-        let model = NaruRemoteAppModel(
-            credentialStore: credentialStore,
-            settingsPersistence: settingsPersistence,
-            pipWatchController: PiPWatchPictureInPictureController(),
-            localClipboardWriter: UIPasteboardClipboardWriter()
-        )
+
+        // XCUITest fixture hook — when `NARU_TEST_FIXTURE_SNAPSHOT`
+        // is set the model is seeded with a synthetic snapshot so
+        // the audit harness can drive states the live persistence
+        // path can't reach without a real RFB session.  Returns
+        // `nil` (and `init(snapshot:)` defaults to the empty
+        // snapshot) when the env var is unset — production behaviour,
+        // zero runtime cost.
+        let fixtureSnapshot = UXAuditFixtures.loadFixtureSnapshot()
+        let model: NaruRemoteAppModel
+        if let fixtureSnapshot {
+            model = NaruRemoteAppModel(
+                snapshot: fixtureSnapshot,
+                credentialStore: credentialStore,
+                settingsPersistence: settingsPersistence,
+                pipWatchController: PiPWatchPictureInPictureController(),
+                localClipboardWriter: UIPasteboardClipboardWriter()
+            )
+        } else {
+            model = NaruRemoteAppModel(
+                credentialStore: credentialStore,
+                settingsPersistence: settingsPersistence,
+                pipWatchController: PiPWatchPictureInPictureController(),
+                localClipboardWriter: UIPasteboardClipboardWriter()
+            )
+        }
         Task { @MainActor in
             do {
                 let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
@@ -71,6 +91,10 @@ struct NaruRemoteApplication: App {
 
             applyTestStickyModifierOverrides(to: model)
             applyTestSuppressDirectModeWarning(to: model)
+            // Apply post-init mutations (e.g. `pendingIncomingClipboard`)
+            // for the fixture, if any.  No-op when the env var is
+            // unset.
+            UXAuditFixtures.applyFixturePostInitMutations(to: model)
         }
         return model
     }

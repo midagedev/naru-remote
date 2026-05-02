@@ -129,13 +129,41 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // State 4: profile selected
         try saveScreen(named: "04-profile-selected-\(deviceTag)-\(mode.suffix).png")
 
-        // State 5: diagnostics populated by tapping Checks (which
-        // synthesises a stage list immediately even before any
-        // network result returns).
-        checksButton.tap()
-        // Give SwiftUI one render cycle to publish the diagnostic
-        // rows.
-        _ = app.staticTexts["Diagnostics"].waitForExistence(timeout: 4)
+        // State 5: diagnostics populated.  Closes UX punch-list #007
+        // — previously this state re-launched the app and tapped the
+        // Checks pill, but `runConnectionChecks()` only seeds two
+        // stages and the second flips to .running asynchronously, so
+        // the screenshot landed before any rows rendered and was
+        // byte-identical to #04.  Drive the state through the
+        // `NARU_TEST_FIXTURE_SNAPSHOT=diagnostics-populated` hook
+        // instead — four deterministic stages including the running
+        // authentication row.
+        let diagnosticsApp = launchAppWithFixture(.diagnosticsPopulated, mode: mode)
+        XCTAssertTrue(
+            diagnosticsApp.staticTexts["Diagnostics"].waitForExistence(timeout: 8),
+            "Diagnostics summary must be mounted"
+        )
+        // The fixture's first stage is "Host resolved" — wait for
+        // it so we know the rows are mounted in the SwiftUI tree.
+        XCTAssertTrue(
+            diagnosticsApp.staticTexts["Host resolved"].waitForExistence(timeout: 4),
+            "Diagnostic rows must render before screenshot"
+        )
+        // The DiagnosticSummaryView lives at the bottom of the
+        // detail-column ScrollView, below SessionViewportView; on
+        // iPhone it sits below the fold at first paint.  Scroll up
+        // by swiping inside the detail content so the diagnostic
+        // rows are actually visible in the captured PNG.
+        let detail = diagnosticsApp.scrollViews.firstMatch
+        if detail.exists {
+            detail.swipeUp()
+            detail.swipeUp()
+        } else {
+            diagnosticsApp.swipeUp()
+            diagnosticsApp.swipeUp()
+        }
+        // Re-confirm a row is still visible after the scroll.
+        _ = diagnosticsApp.staticTexts["Host resolved"].waitForExistence(timeout: 2)
         try saveScreen(named: "05-diagnostics-populated-\(deviceTag)-\(mode.suffix).png")
     }
 
@@ -150,22 +178,22 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runOnboardingMidProgress(mode: ColorMode, deviceTag: String) throws {
-        // Pre-seed a profile so step 1 ("Private target") is already
-        // complete.  Then tap Checks to advance step 2.
-        let app = launchApp(
-            mode: mode,
-            seedProfiles: [
-                SeedProfile(
-                    displayName: "Studio Mac",
-                    host: "studio.tailnet.ts.net"
-                )
-            ]
-        )
+        // Closes UX punch-list #007 (second half).  Drive state via
+        // the `NARU_TEST_FIXTURE_SNAPSHOT=onboarding-progress`
+        // fixture: a private profile + a fully-passing diagnostic
+        // run, but no `RemoteSession`.  That leaves
+        // `OnboardingGuide` with steps 1-2 complete and "Compose
+        // locally" as the active step — different cell mix from #04.
+        let app = launchAppWithFixture(.onboardingProgress, mode: mode)
 
-        let checks = findChecksButton(in: app)
-        XCTAssertTrue(checks.waitForExistence(timeout: 8))
-        checks.tap()
-        _ = app.staticTexts["First Run"].waitForExistence(timeout: 2)
+        XCTAssertTrue(
+            app.staticTexts["First Run"].waitForExistence(timeout: 8),
+            "First Run checklist must be visible"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Compose locally"].waitForExistence(timeout: 4),
+            "Compose locally step must be present in the checklist"
+        )
 
         try saveScreen(named: "06-onboarding-progress-\(deviceTag)-\(mode.suffix).png")
     }
@@ -312,6 +340,93 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "13-pip-disabled-\(deviceTag)-\(mode.suffix).png")
     }
 
+    // MARK: - iPhone — incoming clipboard banner (state #12)
+
+    func testIncomingClipboardBanner_light() throws {
+        try runIncomingClipboardBanner(mode: .light, deviceTag: "iphone")
+    }
+
+    func testIncomingClipboardBanner_dark() throws {
+        try runIncomingClipboardBanner(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runIncomingClipboardBanner(mode: ColorMode, deviceTag: String) throws {
+        // Closes UX punch-list coverage gap: incoming-clipboard
+        // banner accept/dismiss visual was never captured.  Drive
+        // through the `incoming-clipboard` fixture which seeds an
+        // .active session and calls `recordIncomingClipboard(...)`
+        // post-init, so the banner mounts above the dock at first
+        // paint.
+        let app = launchAppWithFixture(.incomingClipboard, mode: mode)
+
+        XCTAssertTrue(
+            app.otherElements["naru.input.incomingClipboard.preview"]
+                .waitForExistence(timeout: 8) ||
+            app.staticTexts["Remote clipboard ready"].waitForExistence(timeout: 4),
+            "Incoming clipboard banner must be visible"
+        )
+
+        try saveScreen(named: "12-incoming-clipboard-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — diagnostic error (DNS) — state #15
+
+    func testDiagnosticErrorDNS_light() throws {
+        try runDiagnosticErrorDNS(mode: .light, deviceTag: "iphone")
+    }
+
+    func testDiagnosticErrorDNS_dark() throws {
+        try runDiagnosticErrorDNS(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runDiagnosticErrorDNS(mode: ColorMode, deviceTag: String) throws {
+        // Closes UX punch-list coverage gap: connection error states
+        // (DNS fails, RFB handshake fails, auth required) were never
+        // captured.  Start with the most-common case — DNS failure
+        // — using the `diagnostic-error-dns` fixture, which seeds a
+        // `ConnectionDiagnosticRun` whose only stage is the catalog
+        // DNS-failed result.
+        let app = launchAppWithFixture(.diagnosticErrorDNS, mode: mode)
+
+        XCTAssertTrue(
+            app.staticTexts["MagicDNS did not resolve"].waitForExistence(timeout: 8),
+            "Failed-stage row must be visible"
+        )
+
+        try saveScreen(named: "15-diagnostic-error-dns-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — onboarding done (state #16)
+
+    func testOnboardingDone_light() throws {
+        try runOnboardingDone(mode: .light, deviceTag: "iphone")
+    }
+
+    func testOnboardingDone_dark() throws {
+        try runOnboardingDone(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runOnboardingDone(mode: ColorMode, deviceTag: String) throws {
+        // Closes UX punch-list coverage gap: `OnboardingReadyView`
+        // final affirmation was never captured.  Drive through the
+        // `onboarding-done` fixture: private profile + active
+        // session + passing diagnostic + .watching PiP, mirroring
+        // `OnboardingReadyTests.makeCompleteSnapshot`.  When every
+        // step is `.complete` and the user has not yet dismissed the
+        // checklist, the shell renders `OnboardingReadyView` —
+        // `naru.onboarding.ready` is the matching a11y identifier.
+        let app = launchAppWithFixture(.onboardingDone, mode: mode)
+
+        XCTAssertTrue(
+            app.otherElements["naru.onboarding.ready"].waitForExistence(timeout: 8) ||
+            app.staticTexts["You're all set. Naru Remote is ready."]
+                .waitForExistence(timeout: 4),
+            "OnboardingReadyView must be visible"
+        )
+
+        try saveScreen(named: "16-onboarding-done-\(deviceTag)-\(mode.suffix).png")
+    }
+
     // MARK: - iPhone — sidebar with multiple profiles
 
     func testSidebarMultipleProfiles_light() throws {
@@ -452,6 +567,34 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
+    /// Subset of `UXAuditFixtureToken` mirrored into the UITest
+    /// target — the production enum lives in
+    /// `NaruRemote/iOSApp/UXAuditFixtures.swift` and is not visible
+    /// here because UITests don't link the iOS-app sources.
+    /// Keep these raw values in sync with that enum.
+    private enum FixtureToken: String {
+        case diagnosticsPopulated = "diagnostics-populated"
+        case onboardingProgress = "onboarding-progress"
+        case onboardingDone = "onboarding-done"
+        case diagnosticErrorDNS = "diagnostic-error-dns"
+        case incomingClipboard = "incoming-clipboard"
+    }
+
+    /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
+    /// drives the model to a deterministic synthetic state — see
+    /// `UXAuditFixtures.swift`.
+    private func launchAppWithFixture(_ token: FixtureToken, mode: ColorMode) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
         applyColorMode(mode, to: app)
         app.launch()
         return app
