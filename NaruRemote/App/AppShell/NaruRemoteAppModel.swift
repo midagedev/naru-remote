@@ -624,6 +624,128 @@ public final class NaruRemoteAppModel: ObservableObject {
         recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
     }
 
+    /// One-shot DNS+TCP+RFB-handshake against an arbitrary
+    /// `(host, port[, password])` triple supplied from the profile
+    /// editor's "Test" affordance.  The triple is NOT a persisted
+    /// `ConnectionProfile` — this is a verify-then-save flow, so the
+    /// user can prove a target before the keychain credential is
+    /// stored (UX punch-list #102, constitution §III "Verification
+    /// Before Confidence").
+    ///
+    /// Side-effect-free with respect to model state: this DOES NOT
+    /// touch `session`, `diagnosticRun`, `lastDiagnosticVerdict`,
+    /// `latestFramebuffer`, `composeDraft`, or any active stream.
+    /// The view consumes the returned `ProfileEditorTestOutcome` and
+    /// renders `safeMessage` directly under the form.
+    ///
+    /// Constitution §IV: the rendered message is sourced exclusively
+    /// from `DiagnosticMessageCatalog` — raw `RFBNetworkClientError`
+    /// strings never reach the UI.
+    public func runProfileEditorReachabilityTest(
+        host: String,
+        port: Int,
+        password: String? = nil
+    ) async -> ProfileEditorTestOutcome {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty else {
+            return ProfileEditorTestOutcome(
+                verdict: .failed,
+                safeMessage: "Host is required."
+            )
+        }
+        guard (1...65535).contains(port), let portValue = UInt16(exactly: port) else {
+            return ProfileEditorTestOutcome(
+                verdict: .failed,
+                safeMessage: "Port must be between 1 and 65535."
+            )
+        }
+
+        let credential: RFBConnectionCredential
+        if let password, !password.isEmpty {
+            credential = .vncPassword(password)
+        } else {
+            credential = .none
+        }
+
+        let connector = connectorFactory()
+        let endpoint = "\(trimmedHost):\(port)"
+
+        do {
+            _ = try await Task.detached {
+                try Self.connectAndReadFirstFrame(
+                    connector: connector,
+                    host: trimmedHost,
+                    port: portValue,
+                    credential: credential,
+                    timeout: 3
+                )
+            }.value
+            // No throw → handshake completed.  When the user supplied
+            // a password the handshake exercised the auth path; when
+            // they did not, the server accepted the no-auth route.
+            let result = DiagnosticMessageCatalog.reachabilitySuccess(
+                host: trimmedHost,
+                port: port,
+                requiresAuthentication: credential != .none
+            )
+            return ProfileEditorTestOutcome(
+                verdict: .passed,
+                safeMessage: "\(result.safeTitle) — \(result.safeDetail)"
+            )
+        } catch let error as RFBNetworkClientError {
+            // Map the wire-error to a safe-catalog stage and surface
+            // the catalog's safe text — never `error.localizedDescription`.
+            let stage = Self.stage(for: error)
+            // Special-case: a no-auth probe against a server that
+            // requires authentication is a positive reachability
+            // signal — the host exists and the VNC service is up;
+            // the user just needs to enter a password.  Surface this
+            // as `.passed`/"requires VNC password" so the editor's
+            // outcome line matches the spec example.
+            if case .authenticationRequired = error, credential == .none {
+                let result = DiagnosticMessageCatalog.reachabilitySuccess(
+                    host: trimmedHost,
+                    port: port,
+                    requiresAuthentication: true
+                )
+                return ProfileEditorTestOutcome(
+                    verdict: .passed,
+                    safeMessage: "\(result.safeTitle) — \(result.safeDetail)"
+                )
+            }
+            let failure = DiagnosticMessageCatalog.failure(for: stage)
+            return ProfileEditorTestOutcome(
+                verdict: .failed,
+                safeMessage: "\(endpoint) — \(failure.safeDetail)"
+            )
+        } catch {
+            // Any other error (timeout, IO failure) falls through to
+            // a generic handshake-failed catalog entry.
+            let failure = DiagnosticMessageCatalog.failure(for: .rfbHandshake)
+            return ProfileEditorTestOutcome(
+                verdict: .failed,
+                safeMessage: "\(endpoint) — \(failure.safeDetail)"
+            )
+        }
+    }
+
+    /// Map an `RFBNetworkClientError` to the closest safe-catalog
+    /// stage so the profile-editor "Test" outcome line reuses the
+    /// existing localized strings.  Constitution §IV: callers MUST
+    /// NOT pipe `error.localizedDescription` to the UI — they must
+    /// re-derive the displayed string from
+    /// `DiagnosticMessageCatalog.failure(for:)`.
+    nonisolated private static func stage(for error: RFBNetworkClientError) -> DiagnosticStage {
+        switch error {
+        case .invalidPort, .timedOut, .connectionFailed, .writeFailed, .notConnected:
+            return .tcp
+        case .incompleteTranscript, .unsupportedFramebufferEncoding:
+            return .rfbHandshake
+        case .authenticationRequired, .unsupportedSecurityTypes:
+            return .authentication
+        }
+    }
+
     /// Stamps the per-profile verdict cache for #109's leading status
     /// dot.  Centralizing the write here means every diagnostic
     /// completion path (success, failure, credential failure,

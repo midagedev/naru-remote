@@ -193,4 +193,56 @@ public enum DiagnosticMessageCatalog {
             )
         }
     }
+
+    /// Safe-catalog success message for the profile-editor "Test"
+    /// affordance.  The editor's reachability check runs before the
+    /// profile is persisted, so the verdict is informational only —
+    /// constitution §IV still requires that the rendered string come
+    /// from the catalog and never from a raw network error.
+    ///
+    /// Two variants are surfaced:
+    ///
+    /// - `requiresAuthentication: false` — the server accepted the
+    ///   no-auth path, suggesting the VNC server is configured for
+    ///   anonymous access.
+    /// - `requiresAuthentication: true` — the server advertised a
+    ///   security type that requires a password.  The Test affordance
+    ///   does not actually authenticate (the entered password may not
+    ///   be saved yet), so reaching this point still counts as
+    ///   "reachable" — the user just needs to provide a credential
+    ///   before connect.
+    public static func reachabilitySuccess(
+        host: String,
+        port: Int,
+        requiresAuthentication: Bool,
+        timestamp: Date = Date()
+    ) -> DiagnosticStageResult {
+        let endpoint = "\(host):\(port)"
+        let detail = requiresAuthentication
+            ? "\(endpoint) — reachable, requires VNC password."
+            : "\(endpoint) — reachable, no password required."
+        return DiagnosticStageResult(
+            stage: .rfbHandshake,
+            status: .passed,
+            safeTitle: "Reachable",
+            safeDetail: detail,
+            nextAction: nil,
+            timestamp: timestamp
+        )
+    }
+}
+
+/// One-shot verdict + safe-catalog message returned by the profile
+/// editor's "Test" affordance.  The editor renders `safeMessage`
+/// verbatim under the form (constitution §IV — no caller-provided
+/// raw strings reach the UI).  `verdict` drives the foreground color
+/// (Coral on `.failed`, ink/secondary on `.passed`).
+public struct ProfileEditorTestOutcome: Equatable, Sendable {
+    public let verdict: DiagnosticVerdict
+    public let safeMessage: String
+
+    public init(verdict: DiagnosticVerdict, safeMessage: String) {
+        self.verdict = verdict
+        self.safeMessage = safeMessage
+    }
 }
