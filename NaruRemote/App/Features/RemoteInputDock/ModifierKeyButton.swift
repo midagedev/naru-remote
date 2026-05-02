@@ -13,11 +13,20 @@ import NaruRemoteCore
 /// - **fill colour** (`Color(.systemGray5)` idle, `accentColor`
 ///   tinted armed, solid `accentColor` locked)
 /// - **stroke** (no stroke idle, accent-coloured stroke armed,
-///   double-stroke + filled badge locked)
+///   double-stroke + filled bottom rule locked)
 /// - **foreground** (`.primary` idle/armed, `.white` on the
 ///   tinted locked fill so the glyph still reads)
-/// - **a small status badge** ("•" armed, "⏼" locked) so the
-///   state is unambiguous in screenshots and to assistive tech.
+/// - **a small status badge** ("•" armed) so the armed state is
+///   unambiguous in screenshots and to assistive tech.
+///
+/// UX punch-list #110: the locked state previously rendered the
+/// inline Latin text "LOCK" inside the key, which was small,
+/// English-only, and weak for Korean users who toggled Caps Lock
+/// by accident.  The visual carriers are now the solid Signal
+/// Blue fill plus a thin filled bottom rule under the glyph —
+/// no Latin literal.  The accessibility label announces
+/// "<modifier> modifier locked" so VoiceOver still reads
+/// state changes.
 ///
 /// Accessibility: `accessibilityLabel` announces the modifier
 /// kind and the slot state ("Control modifier, armed").  The
@@ -45,12 +54,20 @@ struct ModifierKeyButton: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(strokeColor, lineWidth: strokeWidth)
 
-                // Inner double-line on locked, for unambiguous
-                // visual difference vs armed at a glance.
+                // Locked state: thin filled bottom rule (3pt under
+                // the glyph) reads as a status carrier without
+                // resorting to inline Latin text.  Combined with
+                // the solid Signal Blue fill above, the lock is
+                // visually unambiguous in screenshots.
                 if slot == .locked {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.white.opacity(0.65), lineWidth: 1)
-                        .padding(2)
+                    VStack {
+                        Spacer()
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.white.opacity(0.85))
+                            .frame(height: 3)
+                            .padding(.horizontal, 6)
+                            .padding(.bottom, 4)
+                    }
                 }
 
                 VStack(spacing: 1) {
@@ -135,14 +152,23 @@ struct ModifierKeyButton: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(Color.accentColor)
         case .locked:
-            Text("LOCK")
-                .font(.system(size: 7, weight: .heavy))
-                .tracking(0.5)
-                .foregroundStyle(Color.white)
+            // The bottom rule overlay carries the locked-state
+            // signal; reserve a blank line of identical height so
+            // the glyph doesn't jump when the slot transitions.
+            Text(" ")
+                .font(.system(size: 8))
+                .foregroundStyle(Color.clear)
         }
     }
 
     private var accessibilityLabelText: String {
+        // Punch-list #110: previously "<Modifier> modifier, <state>"
+        // for all three slots, with the locked state relying on
+        // the inline Latin "LOCK" text plus a state-changed
+        // announcement.  Keep the existing comma-separated format
+        // (existing UITests anchor on it) but pin the locked state
+        // copy to "<modifier> modifier, locked" so VoiceOver users
+        // hear the slot transition unambiguously.
         let stateText: String
         switch slot {
         case .idle:   stateText = "idle"

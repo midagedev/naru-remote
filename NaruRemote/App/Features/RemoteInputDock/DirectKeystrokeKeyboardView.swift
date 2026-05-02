@@ -47,7 +47,12 @@ struct DirectKeystrokeKeyboardView: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 8)
-        .background(Color(red: 0.84, green: 0.86, blue: 0.88))
+        // UX punch-list #205: the keyboard surface used a
+        // hard-coded mid-grey that made the keyboard read as a
+        // generic iOS-style surface.  Reuse the existing
+        // `naru.surface.dock` token so the keyboard reads as
+        // part of Naru, and adapts in dark mode.
+        .background(NaruColors.dock)
         .accessibilityIdentifier("naru.direct.keyboard.\(page.rawValue)")
     }
 
@@ -151,8 +156,15 @@ struct DirectKeystrokeKeyboardView: View {
         switch role {
         case .standard:
             return Color.white
-        case .wide, .space:
+        case .wide:
             return Color(white: 0.92)
+        case .space:
+            // UX punch-list #205: the spacebar previously used the
+            // same neutral grey as wide keys, leaving the QWERTY
+            // page indistinguishable from the iOS system keyboard
+            // at a glance.  A faint accent stripe says "this is
+            // Naru's keyboard" without overpowering the row.
+            return Color.accentColor.opacity(0.15)
         case .toggle, .modifier:
             return Color(white: 0.86)
         }

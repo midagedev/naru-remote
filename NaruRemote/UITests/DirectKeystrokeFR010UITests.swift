@@ -2,23 +2,27 @@ import XCTest
 
 /// FR-010 verification (T044 in `specs/002-direct-keystroke-mode/tasks.md`).
 ///
-/// Asserts the persistent "Direct mode" badge contract: while Direct
-/// keystroke streaming is active, the user must always have a visible
-/// cue, BOTH alongside the dock soft keyboard AND on the session HUD
-/// (so the badge survives keyboard collapse / sheet / tab changes).
+/// Asserts the persistent "Direct — IME off" badge contract: while
+/// Direct keystroke streaming is active, the user must always have a
+/// visible cue alongside the dock soft keyboard.
 ///
-/// PR-G shipped two `DirectModeBadge` instances:
+/// History: PR-G originally shipped two `DirectModeBadge` instances —
+/// a dock badge and a session HUD badge — with the intent that the
+/// HUD copy survives keyboard collapse.  In practice the dock is
+/// always pinned via `.safeAreaInset(edge: .bottom)`, so the dock
+/// badge is always on screen while Direct mode is active and the HUD
+/// instance only collided visually with it (UX punch-list #107).
+/// Chunk 7 removed the HUD instance; the dock badge alone now carries
+/// the FR-010 contract.  The badge copy was also tightened to
+/// "Direct — IME off" (Coral fill) so a returning user immediately
+/// sees that IME is disabled (UX punch-list #008).
 ///
-/// - dock badge — `accessibilityIdentifier = "naru.direct.badge.dock"`
-/// - HUD badge  — `accessibilityIdentifier = "naru.direct.badge.hud"`
-///
-/// Both share the accessibility label "Direct keystroke mode active".
-/// In the SwiftUI a11y tree, the per-element identifier is sometimes
-/// clobbered by an ancestor (`naru.app.detail`, same finding as the
-/// existing screenshot tests), so we count by accessibility-label
-/// matches as the primary assertion and try the identifier path as a
-/// best-effort secondary check.  Two label matches → both badges are
-/// rendered; zero matches → neither is.
+/// The badge identifier is `naru.direct.badge.dock` and the
+/// accessibility label is "Direct keystroke mode active, IME
+/// disabled".  In the SwiftUI a11y tree, the per-element identifier
+/// is sometimes clobbered by an ancestor (`naru.app.detail`, same
+/// finding as the existing screenshot tests), so we count by label
+/// matches.  One label match → badge rendered; zero → not rendered.
 ///
 /// Pure assertion test — no screenshots; the screenshot-evidence
 /// test already lives in `DirectKeystrokeBadgeAndWarningScreenshotsUITests`
@@ -26,7 +30,7 @@ import XCTest
 @MainActor
 final class DirectKeystrokeFR010UITests: XCTestCase {
 
-    func testBothBadgesAppearOnDirectAndDisappearOnCompose() {
+    func testDockBadgeAppearsOnDirectAndDisappearsOnCompose() {
         let app = launchAppWithEmptyProfileStore()
 
         XCTAssertTrue(
@@ -40,41 +44,48 @@ final class DirectKeystrokeFR010UITests: XCTestCase {
         directSegment.tap()
 
         // Anchor on the QWERTY keyboard so we know the dock has
-        // reached its Direct-mode layout before sampling badges.
+        // reached its Direct-mode layout before sampling the badge.
         XCTAssertTrue(
             app.buttons["Key q"].waitForExistence(timeout: 4),
-            "Direct keyboard must render after toggle so badges have time to mount"
+            "Direct keyboard must render after toggle so the badge has time to mount"
         )
 
-        // Primary assertion: both badges render the same
-        // accessibility label "Direct keystroke mode active".
+        // Primary assertion: the badge renders the accessibility
+        // label "Direct keystroke mode active, IME disabled".
         // SwiftUI's `accessibilityElement(children: .ignore)` makes
         // the badge surface as a single element, but in an
-        // `otherElements`/`staticTexts` query the inner Text("Direct
-        // mode") leaks through.  Match via label predicate against
-        // the catch-all `descendants(matching: .any)` query so we
-        // pick up whichever element the SwiftUI snapshot exposes.
-        let badgeLabel = NSPredicate(format: "label == %@", "Direct keystroke mode active")
-        let directModeStaticText = NSPredicate(format: "label == %@", "Direct mode")
+        // `otherElements`/`staticTexts` query the inner Text
+        // ("Direct — IME off") leaks through.  Match via label
+        // predicate against the catch-all `descendants(matching:
+        // .any)` query so we pick up whichever element the SwiftUI
+        // snapshot exposes.
+        let badgeLabel = NSPredicate(
+            format: "label == %@",
+            "Direct keystroke mode active, IME disabled"
+        )
+        let directModeStaticText = NSPredicate(
+            format: "label == %@",
+            "Direct — IME off"
+        )
 
         XCTAssertTrue(
             waitForBadgeCount(
                 in: app,
                 matching: badgeLabel,
                 fallback: directModeStaticText,
-                expected: 2,
+                expected: 1,
                 timeout: 4
             ),
-            "Both dock and HUD Direct mode badges must be visible while Direct mode is active (FR-010)"
+            "Dock Direct-mode badge must be visible while Direct mode is active (FR-010)"
         )
 
-        // Toggle back to Compose; both badges must disappear.
+        // Toggle back to Compose; the badge must disappear.
         let composeSegment = app.buttons["Compose"]
         XCTAssertTrue(composeSegment.waitForExistence(timeout: 2))
         composeSegment.tap()
 
         // The custom keyboard going away is a positive signal that
-        // the toggle settled before we sample the badges.
+        // the toggle settled before we sample the badge.
         XCTAssertTrue(
             app.buttons["Key q"].waitForNonExistence(timeout: 3),
             "Custom keyboard must dismiss after toggling to Compose"
@@ -88,7 +99,7 @@ final class DirectKeystrokeFR010UITests: XCTestCase {
                 expected: 0,
                 timeout: 3
             ),
-            "Both Direct mode badges must disappear after toggling to Compose (FR-010 inverse)"
+            "Dock Direct-mode badge must disappear after toggling to Compose (FR-010 inverse)"
         )
     }
 
@@ -97,11 +108,12 @@ final class DirectKeystrokeFR010UITests: XCTestCase {
     /// Polls the app's accessibility tree until the badge count
     /// reaches `expected` or the timeout elapses.  Tries the badge's
     /// canonical accessibility label first (the
-    /// `accessibilityLabel("Direct keystroke mode active")` set by
-    /// `DirectModeBadge`); falls back to the inner `Text("Direct
-    /// mode")` because SwiftUI sometimes exposes both forms.  Either
-    /// path counts a single badge as one match — the test asserts the
-    /// total across both query paths reaches the expected count.
+    /// `accessibilityLabel("Direct keystroke mode active, IME
+    /// disabled")` set by `DirectModeBadge`); falls back to the
+    /// inner `Text("Direct — IME off")` because SwiftUI sometimes
+    /// exposes both forms.  Either path counts a single badge as
+    /// one match — the test asserts the total across both query
+    /// paths reaches the expected count.
     private func waitForBadgeCount(
         in app: XCUIApplication,
         matching primary: NSPredicate,
