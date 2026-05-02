@@ -151,8 +151,8 @@ public enum DiagnosticMessageCatalog {
                 stage: .tcp,
                 status: .failed,
                 safeTitle: "Host reached, VNC port closed",
-                safeDetail: "The host resolved, but the VNC port is not reachable.",
-                nextAction: "Check the VNC server and port.",
+                safeDetail: "VNC port did not respond. The host may be off, the port may be closed, or your iPhone's Local Network permission may be denied for Naru Remote.",
+                nextAction: "On iOS: Settings → Naru Remote → Local Network. On the host: confirm port 5900 is open.",
                 timestamp: timestamp
             )
         case .rfbHandshake:
@@ -160,8 +160,8 @@ public enum DiagnosticMessageCatalog {
                 stage: .rfbHandshake,
                 status: .failed,
                 safeTitle: "VNC handshake failed",
-                safeDetail: "The service did not complete a compatible RFB handshake.",
-                nextAction: "Check the server type and security settings.",
+                safeDetail: "The server did not offer a compatible RFB security type. macOS hosts must enable 'VNC viewers may control screen with password' in System Settings → General → Sharing → Screen Sharing → ⓘ.",
+                nextAction: "Enable the VNC viewers checkbox in macOS Sharing settings.",
                 timestamp: timestamp
             )
         case .authentication:
@@ -169,8 +169,8 @@ public enum DiagnosticMessageCatalog {
                 stage: .authentication,
                 status: .failed,
                 safeTitle: "Authentication failed",
-                safeDetail: "The VNC server rejected the supplied credentials.",
-                nextAction: "Check the VNC password.",
+                safeDetail: "The VNC password was rejected. macOS uses a separate VNC password from your account password — set it in System Settings → General → Sharing → Screen Sharing → ⓘ. VNC Auth uses only the first 8 characters.",
+                nextAction: "Re-check the VNC password (first 8 chars only) under macOS Sharing settings.",
                 timestamp: timestamp
             )
         case .firstFrame:
