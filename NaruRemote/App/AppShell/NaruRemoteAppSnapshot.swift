@@ -58,11 +58,16 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     }
 
     public var title: String {
-        selectedProfile?.displayName ?? "Naru Remote"
+        // Empty-state hero copy is intentionally actionable rather than
+        // marketing — see UX punch-list #201 / `BRANDING.md` §9.1.
+        // The product name lives on the sidebar nav bar and Settings
+        // → About; the home detail column should tell the user what
+        // to do next, not what they bought.
+        selectedProfile?.displayName ?? "Pick a computer"
     }
 
     public var subtitle: String {
-        selectedProfile?.endpoint ?? "Private Network Remote Desktop"
+        selectedProfile?.endpoint ?? "Choose a profile from the sidebar to begin."
     }
 
     public var inputStatusText: String {

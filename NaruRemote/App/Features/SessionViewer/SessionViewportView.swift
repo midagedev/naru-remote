@@ -34,6 +34,14 @@ public struct SessionViewportView: View {
     /// update.
     @State private var zoomScale: CGFloat = 1.0
 
+    /// Drives the title vs. action-row split.  iPhone (`.compact`)
+    /// drops the action pills onto their own row below the title so
+    /// each Label keeps a horizontal icon+text silhouette and the
+    /// status badge has room to render without mid-word wrap (UX
+    /// punch-list #005 / #104).  iPad (`.regular`) keeps the inline
+    /// layout — there is no horizontal pressure there.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     private static let minZoomScale: CGFloat = 0.5
     private static let maxZoomScale: CGFloat = 4.0
 
@@ -123,67 +131,10 @@ public struct SessionViewportView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.title2.weight(.semibold))
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                HStack(spacing: 10) {
-                    Button {
-                        onRunChecks?()
-                    } label: {
-                        Label("Checks", systemImage: "checklist")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(onRunChecks == nil)
-                    .help("Run connection checks")
-                    .accessibilityIdentifier("naru.session.checks")
-
-                    Button {
-                        onConnect?()
-                    } label: {
-                        Label("Connect", systemImage: "bolt.horizontal.circle")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(onConnect == nil)
-                    .help("Connect to selected profile")
-                    .accessibilityIdentifier("naru.session.connect")
-
-                    if showsDisconnectButton {
-                        Button {
-                            onDisconnect?()
-                        } label: {
-                            Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
-                        .disabled(onDisconnect == nil)
-                        .help("End the active session and stop auto-reconnect")
-                        .accessibilityIdentifier("naru.session.disconnect")
-                    }
-
-                    Button {
-                        onStartPiPWatch?()
-                    } label: {
-                        Label("PiP Watch", systemImage: "rectangle.on.rectangle")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!canStartPiPWatch)
-                    .help(pipWatchButtonHelp)
-                    .accessibilityIdentifier("naru.session.pipWatch")
-
-                    Label(statusText, systemImage: statusSymbolName)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(statusColor)
-                        .labelStyle(.titleAndIcon)
-                        .help("Connection state")
-                }
+            if horizontalSizeClass == .compact {
+                compactHeader
+            } else {
+                regularHeader
             }
 
             ZStack {
@@ -209,14 +160,23 @@ public struct SessionViewportView: View {
             }
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
             .overlay(alignment: .topTrailing) {
-                Label(pipWatchStatusText, systemImage: "rectangle.on.rectangle")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 8)
-                    .background(Color.black.opacity(0.32))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(10)
+                // UX punch-list #103: the "PiP after first frame"
+                // affordance is only meaningful once a session has been
+                // attempted — rendering it on the empty-state home
+                // screen reads as a dead UI chip.  Gate on session
+                // presence (any state, including .connecting) so the
+                // chip appears as soon as the user starts a session
+                // and disappears again on disconnect.
+                if showsPiPHudChip {
+                    Label(pipWatchStatusText, systemImage: "rectangle.on.rectangle")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .background(Color.black.opacity(0.32))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(10)
+                }
             }
             .overlay(alignment: .topLeading) {
                 if let badge = reconnectBadgeText {
@@ -234,6 +194,145 @@ public struct SessionViewportView: View {
         }
         .padding(16)
         .accessibilityIdentifier("naru.session.viewport")
+    }
+
+    // MARK: - Header layouts
+
+    /// iPad / regular-width path.  Mirrors the historical inline
+    /// layout: title on the left, action pills + status badge on the
+    /// right.  The only divergence from the pre-cleanup version is
+    /// the `.fixedSize` on the status `Label` so even the iPad row
+    /// won't wrap mid-word if the status string ever grows past the
+    /// trailing column width.
+    @ViewBuilder
+    private var regularHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            titleStack
+            Spacer()
+
+            HStack(spacing: 10) {
+                checksButton(iconOnly: false)
+                connectButton
+                if showsDisconnectButton {
+                    disconnectButton
+                }
+                pipWatchButton(iconOnly: false)
+                statusBadge
+            }
+        }
+    }
+
+    /// iPhone / compact-width path.  The action pills move to a
+    /// dedicated row below the title so each Label keeps a horizontal
+    /// icon+text silhouette and the status badge has room to render
+    /// without mid-word wrap (UX punch-list #005 / #104).  Checks +
+    /// PiP Watch render `.iconOnly` to keep the row from spilling off
+    /// the right edge on the smallest iPhone widths.
+    @ViewBuilder
+    private var compactHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            titleStack
+
+            HStack(spacing: 8) {
+                checksButton(iconOnly: true)
+                connectButton
+                if showsDisconnectButton {
+                    disconnectButton
+                }
+                pipWatchButton(iconOnly: true)
+                Spacer(minLength: 4)
+                statusBadge
+            }
+        }
+    }
+
+    private var titleStack: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.title2.weight(.semibold))
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func checksButton(iconOnly: Bool) -> some View {
+        Button {
+            onRunChecks?()
+        } label: {
+            if iconOnly {
+                Label("Checks", systemImage: "checklist")
+                    .labelStyle(.iconOnly)
+            } else {
+                Label("Checks", systemImage: "checklist")
+            }
+        }
+        .buttonStyle(.bordered)
+        .disabled(onRunChecks == nil)
+        .help("Run connection checks")
+        .accessibilityLabel("Checks")
+        .accessibilityIdentifier("naru.session.checks")
+    }
+
+    private var connectButton: some View {
+        Button {
+            onConnect?()
+        } label: {
+            Label("Connect", systemImage: "bolt.horizontal.circle")
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(onConnect == nil)
+        .help("Connect to selected profile")
+        .accessibilityIdentifier("naru.session.connect")
+    }
+
+    @ViewBuilder
+    private var disconnectButton: some View {
+        Button {
+            onDisconnect?()
+        } label: {
+            if horizontalSizeClass == .compact {
+                Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
+                    .labelStyle(.iconOnly)
+            } else {
+                Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(.red)
+        .disabled(onDisconnect == nil)
+        .help("End the active session and stop auto-reconnect")
+        .accessibilityLabel("Disconnect")
+        .accessibilityIdentifier("naru.session.disconnect")
+    }
+
+    @ViewBuilder
+    private func pipWatchButton(iconOnly: Bool) -> some View {
+        Button {
+            onStartPiPWatch?()
+        } label: {
+            if iconOnly {
+                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
+                    .labelStyle(.iconOnly)
+            } else {
+                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
+            }
+        }
+        .buttonStyle(.bordered)
+        .disabled(!canStartPiPWatch)
+        .help(pipWatchButtonHelp)
+        .accessibilityLabel("PiP Watch")
+        .accessibilityIdentifier("naru.session.pipWatch")
+    }
+
+    private var statusBadge: some View {
+        Label(statusText, systemImage: statusSymbolName)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(statusColor)
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: true, vertical: false)
+            .help("Connection state")
     }
 
     @ViewBuilder
@@ -300,13 +399,28 @@ public struct SessionViewportView: View {
     }
 
     private var statusText: String {
+        // "None" instead of "No Session" — terse copy keeps the badge
+        // single-word so it never wraps mid-glyph on compact width
+        // (UX punch-list #005).  The icon next to it already carries
+        // the "this is the session-state slot" semantics.
         guard let state = session?.state else {
-            return "No Session"
+            return "None"
         }
         if case let .reconnecting(attempt, total) = state {
             return "Reconnecting (\(attempt)/\(total))…"
         }
         return state.identifier.capitalized
+    }
+
+    /// PiP HUD chip is gated on session presence so the dead-UI chip
+    /// never renders on the empty-state home screen (UX punch-list
+    /// #103).  `latestFramebuffer != nil` would also work but `session
+    /// != nil` is strictly broader — the chip can appear during the
+    /// connect handshake's "PiP after first frame" wait — and matches
+    /// the action-row's own gating (Connect button enabled iff a
+    /// profile is selected, which implies a session can exist).
+    private var showsPiPHudChip: Bool {
+        session != nil || framebuffer != nil
     }
 
     /// HUD badge text for `RemoteSessionState.reconnecting`.  Nil
