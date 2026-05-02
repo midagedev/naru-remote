@@ -1,0 +1,591 @@
+import XCTest
+
+/// Drives the simulator through the canonical Naru Remote screens and
+/// saves PNGs for an offline UX & design audit.  No assertions on
+/// visual quality — those happen in vision review.  Only sanity
+/// assertions that the screenshots wrote out non-empty.
+///
+/// Output directory is hard-coded to the repo's `artifacts/` tree to
+/// match `DirectKeystrokeKeyboardScreenshotsUITests` and friends.
+/// TODO: parameterise once the screenshot loop is unified.
+///
+/// One test method per state-group, no shared mutable state, so the
+/// run order is irrelevant and any single state can be exercised in
+/// isolation via `-only-testing`.
+@MainActor
+final class UXAuditScreenshotsUITests: XCTestCase {
+
+    private let outputDirectory = "/Users/hckim/repo/naru-remote/artifacts/screenshots/ux-audit"
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = true
+        // Default to portrait so iPhone screenshots reflect the
+        // canonical phone-first design target (constitution §VI).
+        // The iPad test forces landscape inside its body.
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    // MARK: - iPhone — empty state + onboarding
+
+    func testEmptyStateAndOnboarding_light() throws {
+        try runEmptyStateAndOnboarding(mode: .light, deviceTag: "iphone")
+    }
+
+    func testEmptyStateAndOnboarding_dark() throws {
+        try runEmptyStateAndOnboarding(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runEmptyStateAndOnboarding(mode: ColorMode, deviceTag: String) throws {
+        let app = launchApp(mode: mode)
+
+        XCTAssertTrue(
+            app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8),
+            "Dock heading must be visible after launch"
+        )
+
+        // State 1: first launch — empty profile list, onboarding,
+        // empty session viewport.
+        try saveScreen(named: "01-firstlaunch-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — profile editor (add)
+
+    func testProfileEditorAdd_light() throws {
+        try runProfileEditorAdd(mode: .light, deviceTag: "iphone")
+    }
+
+    func testProfileEditorAdd_dark() throws {
+        try runProfileEditorAdd(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runProfileEditorAdd(mode: ColorMode, deviceTag: String) throws {
+        let app = launchApp(mode: mode)
+
+        // On compact width (iPhone) the sidebar collapses into the
+        // detail column; the "Add Profile" toolbar button only shows
+        // when the sidebar is visible.  Open it via the back-link
+        // navigation toolbar.
+        revealSidebarIfNeeded(app: app)
+
+        let addProfile = app.buttons["Add Profile"]
+        XCTAssertTrue(addProfile.waitForExistence(timeout: 8))
+        addProfile.tap()
+
+        XCTAssertTrue(app.navigationBars["Add Profile"].waitForExistence(timeout: 4))
+        // Brief settle so the form lays out.
+        XCTAssertTrue(app.textFields["Profile name"].waitForExistence(timeout: 2))
+
+        // State 2: empty form
+        try saveScreen(named: "02-profile-editor-empty-\(deviceTag)-\(mode.suffix).png")
+
+        // State 3: filled form
+        let nameField = app.textFields["Profile name"]
+        let hostField = app.textFields["MagicDNS or private host"]
+        nameField.tap()
+        nameField.typeText("Studio Mac")
+        hostField.tap()
+        hostField.typeText("studio.tailnet.ts.net")
+        // Dismiss keyboard so the form layout looks like the
+        // resting "I just typed and tapped Done" state.
+        app.toolbars.buttons["Return"].tap(if: \.exists)
+
+        try saveScreen(named: "03-profile-editor-filled-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — selected profile + diagnostics
+
+    func testProfileSelectedAndDiagnostics_light() throws {
+        try runProfileSelectedAndDiagnostics(mode: .light, deviceTag: "iphone")
+    }
+
+    func testProfileSelectedAndDiagnostics_dark() throws {
+        try runProfileSelectedAndDiagnostics(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runProfileSelectedAndDiagnostics(mode: ColorMode, deviceTag: String) throws {
+        // Pre-seed a profile so the app auto-selects it and lands
+        // directly on the detail column on iPhone — no sidebar
+        // back-navigation needed.
+        let app = launchApp(
+            mode: mode,
+            seedProfiles: [
+                SeedProfile(
+                    displayName: "Studio Mac",
+                    host: "studio.tailnet.ts.net"
+                )
+            ]
+        )
+
+        let checksButton = findChecksButton(in: app)
+        XCTAssertTrue(
+            checksButton.waitForExistence(timeout: 8),
+            "Run Checks button must be visible with a profile selected"
+        )
+
+        // State 4: profile selected
+        try saveScreen(named: "04-profile-selected-\(deviceTag)-\(mode.suffix).png")
+
+        // State 5: diagnostics populated by tapping Checks (which
+        // synthesises a stage list immediately even before any
+        // network result returns).
+        checksButton.tap()
+        // Give SwiftUI one render cycle to publish the diagnostic
+        // rows.
+        _ = app.staticTexts["Diagnostics"].waitForExistence(timeout: 4)
+        try saveScreen(named: "05-diagnostics-populated-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — onboarding mid-progress
+
+    func testOnboardingMidProgress_light() throws {
+        try runOnboardingMidProgress(mode: .light, deviceTag: "iphone")
+    }
+
+    func testOnboardingMidProgress_dark() throws {
+        try runOnboardingMidProgress(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runOnboardingMidProgress(mode: ColorMode, deviceTag: String) throws {
+        // Pre-seed a profile so step 1 ("Private target") is already
+        // complete.  Then tap Checks to advance step 2.
+        let app = launchApp(
+            mode: mode,
+            seedProfiles: [
+                SeedProfile(
+                    displayName: "Studio Mac",
+                    host: "studio.tailnet.ts.net"
+                )
+            ]
+        )
+
+        let checks = findChecksButton(in: app)
+        XCTAssertTrue(checks.waitForExistence(timeout: 8))
+        checks.tap()
+        _ = app.staticTexts["First Run"].waitForExistence(timeout: 2)
+
+        try saveScreen(named: "06-onboarding-progress-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — compose dock with text
+
+    func testComposeDockWithText_light() throws {
+        try runComposeDockWithText(mode: .light, deviceTag: "iphone")
+    }
+
+    func testComposeDockWithText_dark() throws {
+        try runComposeDockWithText(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runComposeDockWithText(mode: ColorMode, deviceTag: String) throws {
+        let app = launchApp(mode: mode)
+
+        let editor = app.textViews["Remote input text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.tap()
+        editor.typeText("Hello world")
+
+        // State 7: compose mode with text typed, Send enabled.
+        try saveScreen(named: "07-compose-text-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — direct mode pages
+
+    func testDirectQwerty_light() throws {
+        try runDirectMode(mode: .light, deviceTag: "iphone", page: .qwerty)
+    }
+
+    func testDirectQwerty_dark() throws {
+        try runDirectMode(mode: .dark, deviceTag: "iphone", page: .qwerty)
+    }
+
+    func testDirectSpecial_light() throws {
+        try runDirectMode(mode: .light, deviceTag: "iphone", page: .special)
+    }
+
+    func testDirectSpecial_dark() throws {
+        try runDirectMode(mode: .dark, deviceTag: "iphone", page: .special)
+    }
+
+    private enum DirectPage { case qwerty, special }
+
+    private func runDirectMode(mode: ColorMode, deviceTag: String, page: DirectPage) throws {
+        let app = launchAppSuppressingDirectWarning(mode: mode)
+
+        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+
+        let directSegment = app.buttons["Direct"]
+        XCTAssertTrue(directSegment.waitForExistence(timeout: 4))
+        directSegment.tap()
+
+        let qKey = app.buttons["Key q"]
+        XCTAssertTrue(qKey.waitForExistence(timeout: 4))
+
+        if page == .qwerty {
+            try saveScreen(named: "08-direct-qwerty-\(deviceTag)-\(mode.suffix).png")
+            return
+        }
+
+        let pageToggle = app.buttons["Switch keyboard page"]
+        XCTAssertTrue(pageToggle.waitForExistence(timeout: 2))
+        pageToggle.tap()
+
+        XCTAssertTrue(app.buttons["Key f1"].waitForExistence(timeout: 4))
+        try saveScreen(named: "09-direct-special-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — direct mode warning dialog
+
+    func testDirectWarningDialog_light() throws {
+        try runDirectWarningDialog(mode: .light, deviceTag: "iphone")
+    }
+
+    func testDirectWarningDialog_dark() throws {
+        try runDirectWarningDialog(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runDirectWarningDialog(mode: ColorMode, deviceTag: String) throws {
+        // Deliberately do NOT suppress the warning so we can capture
+        // it on first Direct entry.
+        let app = launchApp(mode: mode)
+
+        let directSegment = app.buttons["Direct"]
+        XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
+        directSegment.tap()
+
+        let confirm = app.buttons["Got it"].firstMatch
+        XCTAssertTrue(
+            confirm.waitForExistence(timeout: 4),
+            "Direct-mode warning must show on first activation"
+        )
+
+        try saveScreen(named: "10-direct-warning-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — sticky modifier locked
+
+    func testStickyModifierLocked_light() throws {
+        try runStickyModifierLocked(mode: .light, deviceTag: "iphone")
+    }
+
+    func testStickyModifierLocked_dark() throws {
+        try runStickyModifierLocked(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runStickyModifierLocked(mode: ColorMode, deviceTag: String) throws {
+        let app = launchAppPrelockingControl(mode: mode)
+
+        XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 8))
+
+        let pageToggle = app.buttons["Switch keyboard page"]
+        XCTAssertTrue(pageToggle.waitForExistence(timeout: 2))
+        pageToggle.tap()
+
+        XCTAssertTrue(
+            app.buttons["Control modifier, locked"].waitForExistence(timeout: 4),
+            "Control modifier must be locked via prelock hook"
+        )
+
+        try saveScreen(named: "11-modifier-locked-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — PiP Watch disabled
+
+    func testPiPWatchDisabled_light() throws {
+        try runPiPWatchDisabled(mode: .light, deviceTag: "iphone")
+    }
+
+    func testPiPWatchDisabled_dark() throws {
+        try runPiPWatchDisabled(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runPiPWatchDisabled(mode: ColorMode, deviceTag: String) throws {
+        let app = launchApp(mode: mode)
+
+        let pip = app.buttons["PiP Watch"]
+        XCTAssertTrue(pip.waitForExistence(timeout: 8))
+        XCTAssertFalse(pip.isEnabled, "PiP Watch must be disabled with no session")
+
+        try saveScreen(named: "13-pip-disabled-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — sidebar with multiple profiles
+
+    func testSidebarMultipleProfiles_light() throws {
+        try runSidebarMultipleProfiles(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSidebarMultipleProfiles_dark() throws {
+        try runSidebarMultipleProfiles(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runSidebarMultipleProfiles(mode: ColorMode, deviceTag: String) throws {
+        let app = launchApp(
+            mode: mode,
+            seedProfiles: [
+                SeedProfile(
+                    displayName: "Studio Mac",
+                    host: "studio.tailnet.ts.net",
+                    hostKind: "magicDNS"
+                ),
+                SeedProfile(
+                    displayName: "Office Linux",
+                    host: "office.tailnet.ts.net",
+                    hostKind: "magicDNS"
+                ),
+                SeedProfile(
+                    displayName: "Home NUC",
+                    host: "10.0.0.42",
+                    hostKind: "privateAddress"
+                ),
+                SeedProfile(
+                    displayName: "Public test",
+                    host: "203.0.113.5",
+                    hostKind: "advancedManualPublicEndpoint"
+                )
+            ]
+        )
+
+        // Wait for detail column to settle (auto-selected first
+        // profile lands here on iPhone), then navigate back to the
+        // sidebar so the screenshot shows the profile list.
+        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+        revealSidebarIfNeeded(app: app)
+        XCTAssertTrue(
+            app.staticTexts["Studio Mac"].waitForExistence(timeout: 4),
+            "Sidebar should display seeded profiles after back-navigation"
+        )
+
+        try saveScreen(named: "14-sidebar-multiple-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPad — graceful scaling
+
+    func testIPadStates() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+
+        // Interleaved states 1, 4, 7, 8 in light + dark on iPad.
+        for mode in [ColorMode.light, ColorMode.dark] {
+            // State 1 — empty state
+            do {
+                let app = launchApp(mode: mode)
+                XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+                try saveScreen(named: "01-firstlaunch-ipad-landscape-\(mode.suffix).png")
+                app.terminate()
+            }
+
+            // State 4 — profile selected (pre-seeded via JSON)
+            do {
+                let app = launchApp(
+                    mode: mode,
+                    seedProfiles: [
+                        SeedProfile(
+                            displayName: "Studio Mac",
+                            host: "studio.tailnet.ts.net"
+                        )
+                    ]
+                )
+                _ = findChecksButton(in: app).waitForExistence(timeout: 8)
+                try saveScreen(named: "04-profile-selected-ipad-landscape-\(mode.suffix).png")
+                app.terminate()
+            }
+
+            // State 7 — compose with text
+            do {
+                let app = launchApp(mode: mode)
+                let editor = app.textViews["Remote input text"]
+                XCTAssertTrue(editor.waitForExistence(timeout: 8))
+                editor.tap()
+                editor.typeText("Hello world")
+                try saveScreen(named: "07-compose-text-ipad-landscape-\(mode.suffix).png")
+                app.terminate()
+            }
+
+            // State 8 — direct mode QWERTY
+            do {
+                let app = launchAppSuppressingDirectWarning(mode: mode)
+                let directSegment = app.buttons["Direct"]
+                XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
+                directSegment.tap()
+                XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 4))
+                try saveScreen(named: "08-direct-qwerty-ipad-landscape-\(mode.suffix).png")
+                app.terminate()
+            }
+        }
+    }
+
+    // MARK: - Helpers — launching
+
+    private enum ColorMode {
+        case light
+        case dark
+
+        var suffix: String {
+            switch self {
+            case .light: return "light"
+            case .dark: return "dark"
+            }
+        }
+    }
+
+    private func launchApp(mode: ColorMode, seedProfiles: [SeedProfile] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        if !seedProfiles.isEmpty {
+            try? writeSeedProfiles(seedProfiles, to: storeURL)
+        }
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
+    private func launchAppSuppressingDirectWarning(mode: ColorMode) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
+    private func launchAppPrelockingControl(mode: ColorMode) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = "control"
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
+    /// Plain-data shape for pre-seeding the profile store JSON file
+    /// used by `FileConnectionProfilePersistence.loadProfiles`.  We
+    /// intentionally write the JSON ourselves rather than importing
+    /// `NaruRemoteCore` into the UITest target — the existing
+    /// `naru.profile.add` UI path is the contract we are testing
+    /// elsewhere; here we just need a profile to land on detail.
+    fileprivate struct SeedProfile {
+        let id: UUID
+        let displayName: String
+        let host: String
+        let port: Int
+        let hostKind: String  // "magicDNS" | "privateAddress" | "advancedManualPublicEndpoint"
+
+        init(displayName: String, host: String, port: Int = 5900, hostKind: String = "magicDNS") {
+            self.id = UUID()
+            self.displayName = displayName
+            self.host = host
+            self.port = port
+            self.hostKind = hostKind
+        }
+    }
+
+    private func writeSeedProfiles(_ profiles: [SeedProfile], to fileURL: URL) throws {
+        let dir = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
+        let array: [[String: Any]] = profiles.map { p in
+            [
+                "id": p.id.uuidString,
+                "displayName": p.displayName,
+                "host": p.host,
+                "port": p.port,
+                "hostKind": p.hostKind,
+                "favorite": false,
+                "allowsPiPWatch": true
+            ]
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: array,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fileURL, options: [.atomic])
+    }
+
+    private func applyColorMode(_ mode: ColorMode, to app: XCUIApplication) {
+        // The reliable lever in the simulator is the launch
+        // argument the AppKit/UIKit harness honours.  Use the
+        // `-AppleInterfaceStyle Dark` pair (both args separately —
+        // a single-arg form does not parse).
+        switch mode {
+        case .light:
+            app.launchArguments.append(contentsOf: ["-AppleInterfaceStyle", "Light"])
+        case .dark:
+            app.launchArguments.append(contentsOf: ["-AppleInterfaceStyle", "Dark"])
+        }
+    }
+
+    // MARK: - Helpers — navigation
+
+    /// On compact width the sidebar may be collapsed.  Tap the
+    /// system back-button on the navigation bar if it exists.
+    private func revealSidebarIfNeeded(app: XCUIApplication) {
+        // SwiftUI's NavigationSplitView exposes a back button on
+        // the navigation bar when the sidebar is collapsed.  The
+        // accessibility label is localised but the system identifier
+        // for the leading nav button is "Naru Remote" (the sidebar
+        // title).  Try a few selectors.
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        if backButton.exists && backButton.isHittable {
+            backButton.tap()
+        }
+    }
+
+
+    /// `app.buttons["Checks"]` matches by accessibilityIdentifier
+    /// first, but an ancestor in the SwiftUI tree clobbers per-button
+    /// identifiers with `naru.app.detail` (same finding as the
+    /// existing `DirectKeystrokeKeyboardScreenshotsUITests`).  Match
+    /// by accessibility label predicate instead.
+    private func findChecksButton(in app: XCUIApplication) -> XCUIElement {
+        let predicate = NSPredicate(format: "label == 'Checks'")
+        return app.buttons.matching(predicate).firstMatch
+    }
+
+    // MARK: - Helpers — saving
+
+    private func saveScreen(named filename: String) throws {
+        let screenshot = XCUIScreen.main.screenshot()
+
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.lifetime = .keepAlways
+        attachment.name = filename
+        add(attachment)
+
+        let fm = FileManager.default
+        try? fm.createDirectory(
+            atPath: outputDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let url = URL(fileURLWithPath: outputDirectory)
+            .appendingPathComponent(filename)
+        try screenshot.pngRepresentation.write(to: url)
+
+        let attrs = try fm.attributesOfItem(atPath: url.path)
+        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(size, 0, "Screenshot \(filename) must not be empty")
+    }
+}
+
+private extension XCUIElement {
+    /// Tap when `condition` holds; otherwise skip without failing
+    /// the test.  Used for "dismiss keyboard if a Return key is
+    /// exposed by SwiftUI's toolbar" — a fragile a11y target.
+    func tap(if condition: (XCUIElement) -> Bool) {
+        if condition(self) {
+            tap()
+        }
+    }
+}
