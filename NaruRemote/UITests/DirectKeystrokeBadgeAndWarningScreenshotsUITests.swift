@@ -1,16 +1,19 @@
 import XCTest
 
 /// Captures iPhone-simulator screenshots of the Phase 7 / US-5
-/// deliverables: warning dialog, dock badge, HUD badge.
+/// deliverables: warning dialog and the dock badge.
 ///
 /// - `us5-warning.png` shows the FR-009 first-entry confirmation
 ///   dialog over the dock chrome.
 /// - `us5-badge-keyboard.png` shows the FR-010 dock badge alongside
 ///   the soft keyboard after the warning is dismissed.
-/// - `us5-badge-hud.png` proves the FR-010 second-sentence HUD
-///   badge exists at the top of the detail column.  Per the spec,
-///   the dock badge can be present in the same frame — the assertion
-///   is simply that `naru.direct.badge.hud` is rendered.
+///
+/// History: PR-G originally captured a third "us5-badge-hud.png"
+/// for an HUD-mounted instance of the same badge.  UX punch-list
+/// #107 retired the HUD instance because the dock is always pinned
+/// via `.safeAreaInset(edge: .bottom)` and the two badges visually
+/// collided whenever the keyboard was up.  The dock badge now
+/// carries the FR-010 contract on its own.
 ///
 /// TODO (matching the existing screenshot tests): parameterise the
 /// output directory once the broader screenshot loop is unified.
@@ -54,35 +57,25 @@ final class DirectKeystrokeBadgeAndWarningScreenshotsUITests: XCTestCase {
             "QWERTY page must render after dismissing warning"
         )
 
-        // Dock + HUD badges share the same accessibility label
-        // ("Direct keystroke mode active") because both render the
-        // same `DirectModeBadge` view.  An ancestor in the SwiftUI
-        // tree clobbers per-element `accessibilityIdentifier` with
+        // Punch-list #107 retired the HUD badge — only the dock
+        // badge remains.  An ancestor in the SwiftUI tree clobbers
+        // per-element `accessibilityIdentifier` with
         // `naru.app.detail` (same finding as the existing
         // `DirectKeystrokeKeyboardScreenshotsUITests` /
         // `DirectKeystrokeStickyModifierScreenshotsUITests`), so we
-        // count by label.  Two matches → both badges rendered.
-        let badgeQuery = app.staticTexts.matching(NSPredicate(format: "label == 'Direct mode'"))
+        // count by label.  At least one match → dock badge
+        // rendered.  Punch-list #008 changed the badge copy to
+        // "Direct — IME off" (Coral fill); match the new text.
+        let badgeQuery = app.staticTexts.matching(
+            NSPredicate(format: "label == 'Direct — IME off'")
+        )
         XCTAssertGreaterThanOrEqual(
             badgeQuery.count,
             1,
-            "At least the dock-side Direct mode badge must be visible while keyboard is up"
+            "Dock-side Direct-mode badge must be visible while keyboard is up"
         )
 
         try saveFullScreenScreenshot(named: "us5-badge-keyboard.png", from: app)
-
-        // The HUD badge is unconditional while Direct mode is active
-        // (FR-010 second sentence).  Real "collapsed keyboard" state
-        // would need a dock-collapse affordance which the dock does
-        // not currently expose; the HUD badge being present here in
-        // the same frame as the dock badge proves the contract.
-        XCTAssertGreaterThanOrEqual(
-            badgeQuery.count,
-            2,
-            "Both dock-side and HUD-side Direct mode badges must be visible while Direct mode is active"
-        )
-
-        try saveFullScreenScreenshot(named: "us5-badge-hud.png", from: app)
     }
 
     // MARK: - Helpers

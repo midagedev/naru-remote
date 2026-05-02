@@ -85,7 +85,14 @@ public struct RemoteInputDockView: View {
         .padding(16)
         .background(NaruColors.dock)
         .overlay(alignment: .top) {
-            Divider()
+            // UX punch-list #203: the system `Divider()` rendered
+            // nearly invisible against the mint-tinted canvas.
+            // Use the BRANDING.md Hairline token (1pt) so the dock
+            // reads as a separate input surface in both light and
+            // dark.
+            Rectangle()
+                .fill(NaruColors.hairline)
+                .frame(height: 1)
         }
         .accessibilityIdentifier("naru.input.dock")
         .onChange(of: initialText) { _, newValue in
@@ -141,7 +148,12 @@ public struct RemoteInputDockView: View {
     }
 
     private var composeRow: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        // UX punch-list #204: bumped HStack spacing 12 → 16 and
+        // padded the editor's trailing inset so the Send paperplane
+        // no longer sits flush against the editor stroke.  Also
+        // gives the disabled-state Send button visible breathing
+        // room in static screenshots.
+        HStack(alignment: .bottom, spacing: 16) {
             TextEditor(text: $text)
                 .focused($composeFieldFocused)
                 .font(.body)
@@ -153,6 +165,7 @@ public struct RemoteInputDockView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.black.opacity(0.10), lineWidth: 1)
                 )
+                .padding(.trailing, 4)
                 .accessibilityLabel("Remote input text")
                 .accessibilityIdentifier("naru.input.editor")
 

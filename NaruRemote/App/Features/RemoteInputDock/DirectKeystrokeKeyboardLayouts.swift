@@ -82,11 +82,18 @@ enum DirectKeystrokeKeyboardLayouts {
         } + [
             KeyDescriptor(label: "⌫",  widthUnits: 1.5, key: .named(.backspace),  role: .wide),
         ]),
-        // row 4: 123 (page-toggle), space, return
+        // row 4: page-toggle, space, return.  Punch-list #205:
+        // the toggle label was previously "123", which read like a
+        // generic mode shift (and like the iOS system keyboard).
+        // Use the bidirectional arrow glyph "⇄" so the affordance
+        // says "switches to special keys" at a glance.  The
+        // label "Direct space" on the spacebar plus the
+        // surface-raised key fills (see `backgroundFor(role:)`)
+        // round out the differentiation from the iOS keyboard.
         Row(keys: [
-            KeyDescriptor(label: "123",     widthUnits: 1.5, key: .pageToggle,         role: .toggle),
-            KeyDescriptor(label: "space",   widthUnits: 5.0, key: .character(" "),     role: .space),
-            KeyDescriptor(label: "return",  widthUnits: 2.5, key: .named(.return),     role: .wide),
+            KeyDescriptor(label: "⇄",            widthUnits: 1.5, key: .pageToggle,     role: .toggle),
+            KeyDescriptor(label: "Direct space", widthUnits: 5.0, key: .character(" "), role: .space),
+            KeyDescriptor(label: "return",       widthUnits: 2.5, key: .named(.return), role: .wide),
         ]),
     ])
 
@@ -133,9 +140,11 @@ enum DirectKeystrokeKeyboardLayouts {
             KeyDescriptor(label: "⌫",     widthUnits: 1.25, key: .named(.backspace),    role: .wide),
             KeyDescriptor(label: "↵",     widthUnits: 1.25, key: .named(.return),       role: .wide),
         ]),
-        // row 5: nav cluster + page-back
+        // row 5: nav cluster + page-back.  Same bidirectional
+        // arrow as the QWERTY toggle — the glyph reads "switch
+        // pages" regardless of which page the user is currently on.
         Row(keys: [
-            KeyDescriptor(label: "ABC",   widthUnits: 1.5, key: .pageToggle,           role: .toggle),
+            KeyDescriptor(label: "⇄",     widthUnits: 1.5, key: .pageToggle,           role: .toggle),
             KeyDescriptor(label: "←",     key: .named(.left)),
             KeyDescriptor(label: "↓",     key: .named(.down)),
             KeyDescriptor(label: "↑",     key: .named(.up)),

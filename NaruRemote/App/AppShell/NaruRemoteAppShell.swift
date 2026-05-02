@@ -166,26 +166,15 @@ public struct NaruRemoteAppShell: View {
                     )
                 }
             }
-            // Session-level "Direct mode" HUD badge (FR-010 second
-            // sentence).  Sits in the detail column's top safe-area
-            // inset so the cue stays visible even when the keyboard
-            // is collapsed or hidden by another sheet.  Uses a
-            // distinct accessibility id from the dock badge so
-            // XCUITests can target the two independently.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if snapshot.directKeystrokeMode.isActive {
-                    HStack {
-                        Spacer()
-                        DirectModeBadge(
-                            isVisible: true,
-                            accessibilityID: "naru.direct.badge.hud"
-                        )
-                        .padding(.trailing, 12)
-                        .padding(.top, 4)
-                    }
-                    .background(Color.clear)
-                }
-            }
+            // UX punch-list #107: the HUD badge collided with the
+            // dock badge whenever the soft keyboard was up — they
+            // sat ~10pt apart vertically and read as duplicate cues.
+            // The dock is always pinned via `.safeAreaInset(edge:
+            // .bottom)` so the dock badge is always on screen while
+            // Direct mode is active; the HUD instance is redundant.
+            // Removing the HUD instance is the chosen fix; if a
+            // future revision lets the dock collapse, re-add an HUD
+            // fallback gated on `dockBadgeIsVisible == false`.
             .background(NaruColors.canvas)
             .accessibilityIdentifier("naru.app.detail")
         }
