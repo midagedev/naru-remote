@@ -111,7 +111,7 @@ Visual feedback for armed vs locked modifiers, double-tap window tuning, and rec
 - **FR-007**: System MUST NOT stream hardware keystrokes when Direct mode is *off* — Compose & Send remains the path (constitution §I default).
 - **FR-008**: System MUST NOT touch the local or remote clipboard during Direct mode keystroke emission. The clipboard remains owned by Compose & Send and `RemoteClipboardTextClient`.
 - **FR-009**: System MUST show a one-time-per-session warning the first time the user enters Direct mode informing them that IME composition, autocorrect, predictive text, and dictation are bypassed.
-- **FR-010**: System MUST show a persistent "Direct mode" indicator on the Remote Input Dock while the mode is active, and the same indicator MUST surface on a session-level HUD so the mode is visible even when the keyboard is collapsed.
+- **FR-010**: System MUST show a persistent "Direct — IME off" indicator on the Remote Input Dock while the mode is active, calling out the constitution-required IME-off warning (constitution §I) in the persistent disclosure itself rather than only in the first-entry dialog (FR-009). The Remote Input Dock is always pinned via `.safeAreaInset(edge: .bottom)`, so the dock badge remains visible even when the soft keyboard is collapsed and a session-level HUD instance is not required (UX punch-list #107 — duplicating the badge in a HUD collided with the dock badge whenever the keyboard pushed the dock up). If a future revision allows the dock to collapse, an HUD fallback badge MUST re-appear gated on `dockBadgeIsVisible == false`.
 - **FR-011**: System MUST preserve a partial Compose draft when the user toggles into Direct mode, and restore it when toggling back to Compose. Toggling MUST NOT send the draft.
 - **FR-012**: System MUST clear all sticky modifier state when the user toggles out of Direct mode, when the session ends, when the active profile changes, and on `connect` start. A new Direct mode session begins with all modifiers idle.
 - **FR-013**: User MUST be able to clear all sticky modifier state in one tap via a "Clear modifiers" affordance on the special-keys page.
@@ -163,7 +163,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 | Direct mode entry dismisses iOS keyboard and shows custom keyboard | XCUITest | iPhone (simulator) | XCUITest screenshot diff |
 | One-time-per-session warning appears on first Direct entry, not on subsequent toggles | XCUITest | iPhone (simulator) | XCUITest assertion |
 | Hardware keyboard chord (`Ctrl-C`) over `UIKeyCommand` produces same wire bytes as on-screen `Ctrl`+`c` | Unit | iPhone (simulator) | `swift test` against shared `KeysymMapping` |
-| Persistent "Direct mode" badge visible on session HUD when keyboard is collapsed | XCUITest | iPhone (simulator) | XCUITest screenshot |
+| Persistent "Direct — IME off" badge visible on the dock when keyboard is collapsed (dock pinned via `.safeAreaInset(edge: .bottom)`) | XCUITest | iPhone (simulator) | XCUITest screenshot |
 | Real Mac VNC + Bluetooth Magic Keyboard: vim navigation `Esc h j k l : w q` works end-to-end | Manual device | iPhone (physical) | Manual device test log + short screen recording |
 | Real Mac VNC: shell pipeline `Tab` completion + `Ctrl-R` history search work | Manual device | iPhone (physical) | Manual device test log |
 | Sticky modifier visual states (idle / armed / locked) are distinct on iPad too | Manual | iPad-graceful (simulator) | Screenshot |

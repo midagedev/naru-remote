@@ -378,6 +378,28 @@ P0 — App Store rejects or runtime fails without these:
   Residual risk: physical-device manual tests (T045 vim, T046 BT
   Magic Keyboard) deferred until iPhone hardware access — recorded
   per constitution §III
+- ✅ **UX & design polish workstream** — original audit captured in
+  `chore/ux-audit-screenshots` flagged 9 P0, 10 P1, and 6 P2 items
+  against the iPhone-first first-launch / onboarding / compose /
+  Direct mode / sidebar surfaces. Closed across PRs **#36 → #43**:
+  dark-mode override + adaptive surfaces + iPad rotation harness fix
+  (#36); audit fixture richness drives diagnostics / onboarding /
+  error / clipboard states (#37); SessionViewport layout polish —
+  hero clipping, action-row stacking, status wrap, PiP chip gating,
+  empty-state copy (#38); onboarding cluster — collapse-when-done,
+  active-row hierarchy, Tailscale framing, single CTA, keyboard-
+  aware compact mode (#39); sidebar polish — public-IP warning,
+  selection emphasis, per-profile diagnostic-verdict status dots
+  (#40); profile editor — validation, port label, Test reachability
+  button (#41); Direct mode polish — IME-warning badge, badge dedup,
+  locked-key cue, dock divider, Send breathing room, keyboard
+  differentiation (#42); re-audit + final sweep + spec sync (#43).
+  Re-audit evidence in
+  `artifacts/screenshots/ux-audit/`; resolution table and remaining
+  residual findings in `artifacts/ux-audit/PUNCH_LIST.md`.  Two new
+  P1 dark-mode regressions on the Direct keystroke keyboard +
+  compose `TextEditor` background were surfaced by Chunk 8 and
+  filed for follow-up under #301 / #302.
 
 P1 — App Store listing requires these:
 
