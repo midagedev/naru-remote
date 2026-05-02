@@ -3,6 +3,14 @@ import NaruRemoteCore
 
 public struct RemoteInputDockView: View {
     @State private var text: String
+    /// Tracks whether the compose `TextEditor` has firstResponder.
+    /// Forwarded to the parent via `onComposeFocusChange` so the
+    /// app shell can collapse its OnboardingGuide into a 1-line
+    /// summary banner whenever the iOS keyboard is presented —
+    /// closes UX punch-list #009.  Direct mode renders its own
+    /// keyboard, so the focus signal is only meaningful for the
+    /// Compose path.
+    @FocusState private var composeFieldFocused: Bool
 
     private let initialText: String
     private let statusText: String
@@ -14,6 +22,7 @@ public struct RemoteInputDockView: View {
     private let onTapDirectKey: (DirectKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     private let onDismissDirectModeWarning: () -> Void
+    private let onComposeFocusChange: (Bool) -> Void
 
     public init(
         initialText: String,
@@ -25,7 +34,8 @@ public struct RemoteInputDockView: View {
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
-        onDismissDirectModeWarning: @escaping () -> Void = {}
+        onDismissDirectModeWarning: @escaping () -> Void = {},
+        onComposeFocusChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
@@ -38,6 +48,7 @@ public struct RemoteInputDockView: View {
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
         self.onDismissDirectModeWarning = onDismissDirectModeWarning
+        self.onComposeFocusChange = onComposeFocusChange
     }
 
     public var body: some View {
@@ -80,6 +91,23 @@ public struct RemoteInputDockView: View {
         .onChange(of: initialText) { _, newValue in
             text = newValue
         }
+        .onChange(of: composeFieldFocused) { _, newValue in
+            // Only meaningful when Compose is the visible mode —
+            // Direct mode swaps the editor for the soft keyboard,
+            // so its focus signal is irrelevant.  Forward an
+            // explicit `false` whenever we're not in Compose so
+            // stale focus from a previous mode-switch can't leave
+            // the OnboardingGuide collapsed.
+            onComposeFocusChange(directKeystrokeMode.isActive ? false : newValue)
+        }
+        .onChange(of: directKeystrokeMode.isActive) { _, isDirect in
+            // Switching to Direct mode hides the editor entirely;
+            // explicitly clear the focus signal so the app shell
+            // can restore the full checklist.
+            if isDirect {
+                onComposeFocusChange(false)
+            }
+        }
         // FR-009 — first-entry warning dialog attached at the dock
         // level so the alert chrome sits over the dock and feels
         // anchored to the mode picker the user just tapped.
@@ -115,6 +143,7 @@ public struct RemoteInputDockView: View {
     private var composeRow: some View {
         HStack(alignment: .bottom, spacing: 12) {
             TextEditor(text: $text)
+                .focused($composeFieldFocused)
                 .font(.body)
                 .frame(minHeight: 72, maxHeight: 120)
                 .scrollContentBackground(.hidden)
