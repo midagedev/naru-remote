@@ -159,7 +159,13 @@ public struct RemoteInputDockView: View {
                 .font(.body)
                 .frame(minHeight: 72, maxHeight: 120)
                 .scrollContentBackground(.hidden)
-                .background(Color.white.opacity(0.74))
+                // UX punch-list #302: was `Color.white.opacity(0.74)`
+                // which rendered as a stark bright rectangle on the
+                // dark canvas.  Adaptive `NaruColors.surfaceEditor`
+                // (BRANDING.md §7 `Surface`) reads as paper on light,
+                // slate on dark.  Opacity dropped — the system color
+                // already has the right contrast at full alpha.
+                .background(NaruColors.surfaceEditor)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)

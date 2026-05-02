@@ -38,8 +38,11 @@ public struct SessionViewportView: View {
     /// drops the action pills onto their own row below the title so
     /// each Label keeps a horizontal icon+text silhouette and the
     /// status badge has room to render without mid-word wrap (UX
-    /// punch-list #005 / #104).  iPad (`.regular`) keeps the inline
-    /// layout — there is no horizontal pressure there.
+    /// punch-list #005 / #104).  iPad (`.regular`) prefers the inline
+    /// layout when there's room, but falls back to the compact stack
+    /// when the available width can't fit it (iPad portrait with the
+    /// sidebar visible — UX punch-list #303).  The `ViewThatFits`
+    /// branch in `body` handles that fallback at draw time.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private static let minZoomScale: CGFloat = 0.5
@@ -134,7 +137,19 @@ public struct SessionViewportView: View {
             if horizontalSizeClass == .compact {
                 compactHeader
             } else {
-                regularHeader
+                // UX punch-list #303: iPad reports `.regular` even in
+                // portrait, but with the sidebar visible the detail
+                // column is narrow enough that the historical inline
+                // header layout cramped the action pills into ~50pt
+                // buckets, wrapping each label into vertical glyph
+                // strips ("Ch / ec / ks").  `ViewThatFits` lets the
+                // system pick the inline layout when it fits and
+                // gracefully fall back to the stacked `compactHeader`
+                // when it doesn't — no width thresholds to maintain.
+                ViewThatFits(in: .horizontal) {
+                    regularHeader
+                    compactHeader
+                }
             }
 
             ZStack {

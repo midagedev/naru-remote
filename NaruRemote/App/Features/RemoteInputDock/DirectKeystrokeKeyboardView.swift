@@ -155,9 +155,18 @@ struct DirectKeystrokeKeyboardView: View {
     private func backgroundFor(role: DirectKeystrokeKeyboardLayouts.KeyDescriptor.Role) -> Color {
         switch role {
         case .standard:
-            return Color.white
+            // UX punch-list #301: was hardcoded `Color.white` so dark
+            // mode rendered key tiles as white-on-white (`Color.primary`
+            // resolves to white in dark).  Adaptive `NaruColors.surfaceKey`
+            // token follows BRANDING.md §7 `Surface` so the tile reads
+            // as paper in light, slate in dark.
+            return NaruColors.surfaceKey
         case .wide:
-            return Color(white: 0.92)
+            // UX punch-list #301: same root cause as `.standard`.
+            // Wide keys (Tab/Esc/return/backspace) use a slightly
+            // darker tier so the alpha row vs. system-key row reads
+            // as two visual tiers.  Adaptive in dark mode.
+            return NaruColors.surfaceKeyAlt
         case .space:
             // UX punch-list #205: the spacebar previously used the
             // same neutral grey as wide keys, leaving the QWERTY
@@ -166,7 +175,10 @@ struct DirectKeystrokeKeyboardView: View {
             // Naru's keyboard" without overpowering the row.
             return Color.accentColor.opacity(0.15)
         case .toggle, .modifier:
-            return Color(white: 0.86)
+            // UX punch-list #301: same root cause.  Toggle / modifier
+            // tiles share the same darker tier as `.wide` so the
+            // keyboard reads as two tiers (alphas vs. system keys).
+            return NaruColors.surfaceKeyAlt
         }
     }
 
