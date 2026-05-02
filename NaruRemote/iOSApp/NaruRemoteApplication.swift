@@ -10,6 +10,28 @@ struct NaruRemoteApplication: App {
         WindowGroup {
             NaruRemoteAppShell(model: model, buildVersion: Self.bundleBuildVersion())
                 .accessibilityIdentifier("naru.app.shell")
+                .preferredColorScheme(Self.testOverrideColorScheme())
+        }
+    }
+
+    /// XCUITest screenshot hook — when the
+    /// `NARU_TEST_OVERRIDE_INTERFACE_STYLE` launch environment
+    /// variable is set to `Light` or `Dark` (case-insensitive), force
+    /// the root scene's color scheme to that value via
+    /// `.preferredColorScheme`.  Returns `nil` when the variable is
+    /// unset or unrecognised, which leaves SwiftUI to honour the
+    /// device-level setting (production behaviour, zero runtime
+    /// cost).  Closes UX punch-list #001 — the previously-used
+    /// `-AppleInterfaceStyle Dark` launch argument is a macOS-only
+    /// user-default key and is silently ignored on iOS.
+    private static func testOverrideColorScheme() -> ColorScheme? {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_OVERRIDE_INTERFACE_STYLE"],
+              !raw.isEmpty
+        else { return nil }
+        switch raw.lowercased() {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
         }
     }
 

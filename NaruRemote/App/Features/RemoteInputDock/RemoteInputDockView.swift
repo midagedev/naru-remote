@@ -72,7 +72,7 @@ public struct RemoteInputDockView: View {
             }
         }
         .padding(16)
-        .background(Color(red: 0.91, green: 0.94, blue: 0.94))
+        .background(NaruColors.dock)
         .overlay(alignment: .top) {
             Divider()
         }
