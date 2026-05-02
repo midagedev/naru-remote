@@ -190,17 +190,34 @@ public struct NaruRemoteAppShell: View {
             .accessibilityIdentifier("naru.app.detail")
         }
         .sheet(isPresented: $showsProfileEditor) {
-            ProfileEditorView { profile, password in
-                Task { await model.addProfile(profile, password: password) }
-            }
+            ProfileEditorView(
+                onTest: { host, port, password in
+                    await model.runProfileEditorReachabilityTest(
+                        host: host,
+                        port: port,
+                        password: password
+                    )
+                },
+                onSave: { profile, password in
+                    Task { await model.addProfile(profile, password: password) }
+                }
+            )
         }
         .sheet(item: $editingProfile) { editing in
             ProfileEditorView(
                 editing: editing.profile,
-                hasExistingCredential: editing.hasExistingCredential
-            ) { profile, password in
-                Task { await model.editProfile(profile, password: password) }
-            }
+                hasExistingCredential: editing.hasExistingCredential,
+                onTest: { host, port, password in
+                    await model.runProfileEditorReachabilityTest(
+                        host: host,
+                        port: port,
+                        password: password
+                    )
+                },
+                onSave: { profile, password in
+                    Task { await model.editProfile(profile, password: password) }
+                }
+            )
         }
         .task {
             await model.loadStoredProfiles()
