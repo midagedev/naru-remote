@@ -23,6 +23,15 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// render off the snapshot, not by reaching back into the
     /// `@MainActor` model directly.
     public var stickyModifierState: StickyModifierState
+    /// Per-profile diagnostic verdict cache (UX punch-list #109).
+    /// Memory-only — never persisted.  Populated whenever a
+    /// `ConnectionDiagnosticRun` finishes for a profile so the
+    /// sidebar can render a colored status dot at a glance without
+    /// re-running diagnostics on every render.  Profiles missing
+    /// from this map are rendered as `.unknown` (gray).  Constitution
+    /// §IV: the verdict is derived through `ConnectionDiagnosticRun
+    /// .verdict` — never from caller-provided strings.
+    public var lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict]
 
     public init(
         profiles: [ConnectionProfile] = [],
@@ -35,7 +44,8 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
-        stickyModifierState: StickyModifierState = StickyModifierState()
+        stickyModifierState: StickyModifierState = StickyModifierState(),
+        lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     ) {
         self.profiles = profiles
         self.selectedProfileID = selectedProfileID
@@ -48,6 +58,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
+        self.lastDiagnosticVerdict = lastDiagnosticVerdict
     }
 
     public var selectedProfile: ConnectionProfile? {

@@ -4,6 +4,7 @@ import SwiftUI
 public struct ProfileListView: View {
     private let profiles: [ConnectionProfile]
     private let selectedProfileID: ConnectionProfile.ID?
+    private let verdicts: [ConnectionProfile.ID: DiagnosticVerdict]
     private let onSelect: (ConnectionProfile.ID) -> Void
     private let onEdit: (ConnectionProfile) -> Void
     private let onDelete: (ConnectionProfile.ID) -> Void
@@ -16,12 +17,14 @@ public struct ProfileListView: View {
     public init(
         profiles: [ConnectionProfile],
         selectedProfileID: ConnectionProfile.ID? = nil,
+        verdicts: [ConnectionProfile.ID: DiagnosticVerdict] = [:],
         onSelect: @escaping (ConnectionProfile.ID) -> Void = { _ in },
         onEdit: @escaping (ConnectionProfile) -> Void = { _ in },
         onDelete: @escaping (ConnectionProfile.ID) -> Void = { _ in }
     ) {
         self.profiles = profiles
         self.selectedProfileID = selectedProfileID
+        self.verdicts = verdicts
         self.onSelect = onSelect
         self.onEdit = onEdit
         self.onDelete = onDelete
@@ -34,28 +37,65 @@ public struct ProfileListView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(profiles) { profile in
+                    let isSelected = profile.id == selectedProfileID
+                    let isPublicEndpoint = profile.hostKind == .advancedManualPublicEndpoint
+                    let verdict = verdicts[profile.id] ?? .unknown
+
                     Button {
                         onSelect(profile.id)
                     } label: {
                         HStack(spacing: 12) {
+                            // Leading status dot — at-a-glance reachability cue
+                            // (UX punch-list #109).  Sourced from the
+                            // memory-only `lastDiagnosticVerdict` cache on the
+                            // app model; defaults to `.unknown` (gray) when no
+                            // diagnostic has run for this profile yet.
+                            ProfileStatusDot(verdict: verdict)
+                                .accessibilityIdentifier(
+                                    "naru.profile.row.status.\(verdict.rawValue)"
+                                )
+
                             Image(systemName: profile.hostKind.symbolName)
-                                .foregroundStyle(.teal)
+                                .foregroundStyle(
+                                    isPublicEndpoint
+                                        ? NaruColors.coral
+                                        : .teal
+                                )
                                 .frame(width: 24)
                                 .help(profile.hostKind.accessibilityLabel)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(profile.displayName)
-                                    .font(.headline)
+                                    .font(
+                                        isSelected
+                                            ? .headline.weight(.semibold)
+                                            : .headline
+                                    )
                                 Text(profile.endpoint)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+
+                                if isPublicEndpoint {
+                                    // Constitution §II + BRANDING.md §7:
+                                    // public VNC must show an explicit
+                                    // warning, not a single bare icon.  Coral
+                                    // caption sits directly under the host:port
+                                    // line so a phone-screen scan can never
+                                    // miss it.
+                                    Text("Public address — advanced")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(NaruColors.coral)
+                                        .accessibilityIdentifier(
+                                            "naru.profile.row.publicWarning"
+                                        )
+                                }
                             }
 
                             Spacer()
 
-                            if profile.id == selectedProfileID {
+                            if isSelected {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
                                     .help("Selected profile")
@@ -64,6 +104,11 @@ public struct ProfileListView: View {
                         .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
+                    .listRowBackground(
+                        isSelected
+                            ? Color.accentColor.opacity(0.08)
+                            : Color.clear
+                    )
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button {
                             onEdit(profile)
@@ -123,6 +168,48 @@ public struct ProfileListView: View {
             }
         } message: { _ in
             Text("This removes the saved password.")
+        }
+    }
+}
+
+/// Leading status dot for a profile row.  Renders the most recent
+/// diagnostic verdict from the app model's memory-only cache:
+/// gray (no diagnostic ever run), green (every stage passed), amber
+/// (passed with warnings — e.g. clipboard text path skipped), red
+/// (some stage failed).  See `DiagnosticVerdict`.
+private struct ProfileStatusDot: View {
+    let verdict: DiagnosticVerdict
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+            .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var color: Color {
+        switch verdict {
+        case .unknown:
+            return .secondary.opacity(0.45)
+        case .passed:
+            return .green
+        case .warning:
+            return .orange
+        case .failed:
+            return NaruColors.coral
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch verdict {
+        case .unknown:
+            return "Status unknown"
+        case .passed:
+            return "Reachable"
+        case .warning:
+            return "Reachable with warnings"
+        case .failed:
+            return "Last attempt failed"
         }
     }
 }

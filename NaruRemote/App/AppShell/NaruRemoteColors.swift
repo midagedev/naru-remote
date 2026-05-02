@@ -36,6 +36,17 @@ public enum NaruColors {
         dark: rgb(0x30, 0x38, 0x45)
     )
 
+    /// `Coral` token — error / blocked / advanced-public-endpoint
+    /// warning color (BRANDING.md §7).  Used by the sidebar's
+    /// public-IP profile cue per UX punch-list #006 and constitution
+    /// §II ("public VNC is an advanced/manual path with explicit
+    /// warnings").
+    /// Light: `#E85D4F`  Dark: `#FF756B`
+    public static let coral: Color = adaptive(
+        light: rgb(0xE8, 0x5D, 0x4F),
+        dark: rgb(0xFF, 0x75, 0x6B)
+    )
+
     // MARK: - Helpers
 
     #if canImport(UIKit)

@@ -75,6 +75,60 @@ public struct ConnectionDiagnosticRun: Codable, Equatable, Identifiable, Sendabl
 
         return "\(finalStage.safeTitle): \(finalStage.safeDetail)"
     }
+
+    /// Reduces a diagnostic run to a single high-level verdict suitable
+    /// for at-a-glance UI cues (e.g. the per-profile status dot in the
+    /// sidebar).  Constitution §IV: this never returns raw stage detail
+    /// strings — only the safe-catalog status enum.  The verdict is
+    /// derived as follows:
+    ///
+    /// - `.failed` if any stage failed.
+    /// - `.warning` if no stage failed but a stage was skipped (we
+    ///   reached a degraded-but-usable state — e.g. clipboard text
+    ///   path skipped on a server that does not advertise it).
+    /// - `.passed` if every recorded stage passed and the run has
+    ///   finished.
+    /// - `.unknown` while the run is still in flight, or for empty
+    ///   runs / runs with only `.notStarted` / `.running` stages.
+    public var verdict: DiagnosticVerdict {
+        if stages.contains(where: { $0.status == .failed }) {
+            return .failed
+        }
+        guard finishedAt != nil else {
+            return .unknown
+        }
+        if stages.isEmpty {
+            return .unknown
+        }
+        if stages.contains(where: { $0.status == .skipped }) {
+            return .warning
+        }
+        if stages.allSatisfy({ $0.status == .passed }) {
+            return .passed
+        }
+        return .unknown
+    }
+}
+
+/// At-a-glance diagnostic verdict for a profile's most recent
+/// `ConnectionDiagnosticRun`.  Values are derived through
+/// `ConnectionDiagnosticRun.verdict` only — there is no setter that
+/// accepts caller-provided raw strings, which keeps this in line with
+/// the constitution §IV "fixed safe-detail catalog" rule.
+public enum DiagnosticVerdict: String, Codable, Equatable, Sendable {
+    /// No diagnostic has been run yet, or the most recent run is
+    /// still in progress.  UI should render this as a neutral cue
+    /// (gray dot) and not imply success.
+    case unknown
+    /// Every recorded stage passed and the run has finished.
+    case passed
+    /// The run finished without a hard failure but at least one
+    /// stage was skipped — the connection is reachable in a
+    /// degraded form (e.g. text clipboard unavailable).
+    case warning
+    /// Some stage failed.  UI should render this as the strongest
+    /// "do not tap blindly" cue (red dot).
+    case failed
 }
 
 public enum DiagnosticMessageCatalog {
