@@ -718,6 +718,18 @@ public final class NaruRemoteAppModel: ObservableObject {
                 verdict: .failed,
                 safeMessage: "\(endpoint) — \(failure.safeDetail)"
             )
+        } catch let error as RFBProtocolDecoderError {
+            // Wrong-password against macOS Screen Sharing surfaces as
+            // `RFBProtocolDecoderError.securityFailed(1)` from
+            // `parseSecurityResult`.  Without this branch the catch-all
+            // below would mis-stage that as `.rfbHandshake` — the
+            // exact misleading message this PR fixes.
+            let stage = Self.stage(for: error)
+            let failure = DiagnosticMessageCatalog.failure(for: stage)
+            return ProfileEditorTestOutcome(
+                verdict: .failed,
+                safeMessage: "\(endpoint) — \(failure.safeDetail)"
+            )
         } catch {
             // Any other error (timeout, IO failure) falls through to
             // a generic handshake-failed catalog entry.
@@ -744,6 +756,40 @@ public final class NaruRemoteAppModel: ObservableObject {
         case .authenticationRequired, .unsupportedSecurityTypes:
             return .authentication
         }
+    }
+
+    /// Map an `RFBProtocolDecoderError` to the closest safe-catalog
+    /// stage.  In particular, `.securityFailed` (status != 0 from the
+    /// server's SecurityResult) means the supplied VNC password was
+    /// rejected — that is an authentication failure, NOT a generic
+    /// "handshake failed".  All other decoder errors mean the server
+    /// produced bytes we could not parse against the RFB spec, so they
+    /// surface as `.rfbHandshake` (our closest existing stage).
+    nonisolated private static func stage(for error: RFBProtocolDecoderError) -> DiagnosticStage {
+        switch error {
+        case .securityFailed:
+            return .authentication
+        case .insufficientData,
+             .invalidProtocolVersion,
+             .unexpectedMessageType,
+             .truncatedServerCutText,
+             .invalidServerCutTextEncoding:
+            return .rfbHandshake
+        }
+    }
+
+    /// Generic `Error` overload: routes through the typed mappings
+    /// above when the error is recognized, otherwise falls back to
+    /// `.rfbHandshake` so the user still gets a catalog message
+    /// (constitution §IV) and never `error.localizedDescription`.
+    nonisolated private static func stage(for error: Error) -> DiagnosticStage {
+        if let networkError = error as? RFBNetworkClientError {
+            return stage(for: networkError)
+        }
+        if let decoderError = error as? RFBProtocolDecoderError {
+            return stage(for: decoderError)
+        }
+        return .rfbHandshake
     }
 
     /// Stamps the per-profile verdict cache for #109's leading status
@@ -927,7 +973,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                 stopIncomingClipboardReceive()
                 latestFramebuffer = nil
                 latestFrameDirtyRectangles = nil
-                nextSession.markFailed("Connection failed")
+                // Derive the actual failed stage from the error so the
+                // user sees an actionable message — not a hardcoded
+                // "VNC handshake failed" / "Connection failed" pair
+                // regardless of whether the cause was TCP unreachable,
+                // wrong password, or a real handshake mismatch
+                // (constitution §IV).
+                let failedStage = Self.stage(for: error)
+                let failure = DiagnosticMessageCatalog.failure(for: failedStage)
+                nextSession.markFailed(failure.safeTitle)
                 session = nextSession
                 diagnosticRun = ConnectionDiagnosticRun(
                     profileID: profile.id,
@@ -939,13 +993,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                             safeTitle: "Profile ready",
                             safeDetail: "Private profile is selected."
                         ),
-                        DiagnosticStageResult(
-                            stage: .rfbHandshake,
-                            status: .failed,
-                            safeTitle: "VNC handshake failed",
-                            safeDetail: "The selected host did not complete the MVP no-auth first-frame path.",
-                            nextAction: "Check host, port, VNC server, and security settings."
-                        )
+                        failure
                     ]
                 )
                 recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
@@ -1035,7 +1083,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 handleStreamFailure(
                     profile: profile,
                     sessionID: pendingSession.id,
-                    streamID: streamID
+                    streamID: streamID,
+                    error: error
                 )
             }
         }
@@ -1123,7 +1172,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func handleStreamFailure(
         profile: ConnectionProfile,
         sessionID: RemoteSession.ID,
-        streamID: UUID
+        streamID: UUID,
+        error: Error
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
             return
@@ -1201,7 +1251,15 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        updatedSession.markFailed("Connection failed")
+        // Initial connect (no frame ever delivered) failed — derive
+        // the actual stage from the error so a wrong-password,
+        // unreachable-port, or genuine handshake mismatch each get
+        // their own actionable catalog message instead of a hardcoded
+        // "VNC handshake failed" / "Connection failed" pair
+        // (constitution §IV).
+        let failedStage = Self.stage(for: error)
+        let failure = DiagnosticMessageCatalog.failure(for: failedStage)
+        updatedSession.markFailed(failure.safeTitle)
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
         session = updatedSession
@@ -1218,13 +1276,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     safeTitle: "Profile ready",
                     safeDetail: "Private profile is selected."
                 ),
-                DiagnosticStageResult(
-                    stage: .rfbHandshake,
-                    status: .failed,
-                    safeTitle: "VNC handshake failed",
-                    safeDetail: "The selected host did not complete the MVP frame stream path.",
-                    nextAction: "Check host, port, VNC server, and security settings."
-                )
+                failure
             ]
         )
         recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)

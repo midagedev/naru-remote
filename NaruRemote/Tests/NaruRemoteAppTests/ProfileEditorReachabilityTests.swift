@@ -90,10 +90,12 @@ final class ProfileEditorReachabilityTests: XCTestCase {
         XCTAssertEqual(outcome.verdict, .failed)
         XCTAssertTrue(outcome.safeMessage.contains("studio.tailnet.ts.net:5900"))
         // Catalog message for the TCP stage (constitution §IV: never
-        // the raw `RFBNetworkClientError` description).
-        XCTAssertEqual(
-            outcome.safeMessage,
-            "studio.tailnet.ts.net:5900 — The host resolved, but the VNC port is not reachable."
+        // the raw `RFBNetworkClientError` description).  Asserts the
+        // first sentence — leaves room for future copy iteration on
+        // the macOS-specific guidance.
+        XCTAssertTrue(
+            outcome.safeMessage.contains("VNC port did not respond"),
+            "expected TCP catalog detail, got: \(outcome.safeMessage)"
         )
     }
 
@@ -108,9 +110,10 @@ final class ProfileEditorReachabilityTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.verdict, .failed)
-        XCTAssertEqual(
-            outcome.safeMessage,
-            "studio.tailnet.ts.net:5900 — The service did not complete a compatible RFB handshake."
+        XCTAssertTrue(outcome.safeMessage.contains("studio.tailnet.ts.net:5900"))
+        XCTAssertTrue(
+            outcome.safeMessage.contains("did not offer a compatible RFB security type"),
+            "expected handshake catalog detail, got: \(outcome.safeMessage)"
         )
     }
 
@@ -126,6 +129,35 @@ final class ProfileEditorReachabilityTests: XCTestCase {
 
         XCTAssertEqual(outcome.verdict, .failed)
         XCTAssertTrue(outcome.safeMessage.contains("studio.tailnet.ts.net:5900"))
+    }
+
+    func testReturnsFailedVerdictWithAuthStageWhenServerRejectsPassword() async {
+        // Real macOS Screen Sharing surfaces a wrong-password as
+        // `RFBProtocolDecoderError.securityFailed(1)` — pre-fix, that
+        // collapsed into the generic catch and rendered the wrong
+        // "VNC handshake failed" message.  With the dedicated
+        // `RFBProtocolDecoderError` catch + `Self.stage(for:)`
+        // overload the editor must now route this to the
+        // authentication catalog, which carries the macOS-specific
+        // separate-VNC-password / 8-char hint.
+        let connector = FakeAuthenticatedReachabilityConnector(behavior: .throwSecurityFailed)
+        let model = NaruRemoteAppModel(connectorFactory: { connector })
+
+        let outcome = await model.runProfileEditorReachabilityTest(
+            host: "studio.tailnet.ts.net",
+            port: 5900,
+            password: "wrongpw"
+        )
+
+        XCTAssertEqual(outcome.verdict, .failed)
+        XCTAssertTrue(outcome.safeMessage.contains("studio.tailnet.ts.net:5900"))
+        // Assert on the first sentence only — keeps the test resilient
+        // to minor copy iteration on the macOS-specific guidance that
+        // follows.
+        XCTAssertTrue(
+            outcome.safeMessage.contains("VNC password was rejected"),
+            "expected authentication catalog detail, got: \(outcome.safeMessage)"
+        )
     }
 
     // MARK: - Side-effect-free guarantee
@@ -180,6 +212,11 @@ private enum FakeReachabilityBehavior: Sendable {
     case throwConnectionFailed
     case throwIncompleteTranscript
     case throwAuthenticationRequired
+    /// Mirrors what real macOS Screen Sharing sends back on a wrong
+    /// VNC password: `RFBProtocolDecoderError.securityFailed(1)`
+    /// thrown out of `parseSecurityResult`.  Without an explicit
+    /// catch, callers mis-stage this as `.rfbHandshake`.
+    case throwSecurityFailed
     case throwGeneric
 }
 
@@ -220,6 +257,8 @@ private final class FakeReachabilityConnector: RFBFirstFrameConnecting {
             throw RFBNetworkClientError.incompleteTranscript(expected: 62, actual: 0)
         case .throwAuthenticationRequired:
             throw RFBNetworkClientError.authenticationRequired([2])
+        case .throwSecurityFailed:
+            throw RFBProtocolDecoderError.securityFailed(1)
         case .throwGeneric:
             throw FakeUnknownError()
         }
@@ -310,6 +349,8 @@ private final class FakeAuthenticatedReachabilityConnector: RFBAuthenticatedFirs
             throw RFBNetworkClientError.incompleteTranscript(expected: 62, actual: 0)
         case .throwAuthenticationRequired:
             throw RFBNetworkClientError.authenticationRequired([2])
+        case .throwSecurityFailed:
+            throw RFBProtocolDecoderError.securityFailed(1)
         case .throwGeneric:
             throw FakeUnknownError()
         }
