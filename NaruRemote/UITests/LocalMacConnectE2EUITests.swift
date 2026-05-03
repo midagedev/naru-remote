@@ -29,7 +29,24 @@ import UIKit
 @MainActor
 final class LocalMacConnectE2EUITests: XCTestCase {
 
-    private let outputDirectory = "/Users/hckim/repo/naru-remote/artifacts/screenshots/local-mac-e2e"
+    /// Where `saveScreen(named:)` writes its PNGs.  Resolved at call
+    /// time so each runner's environment picks an appropriate location:
+    ///
+    ///   1. `NARU_E2E_OUTPUT_DIR` — explicit override (CI artefact path,
+    ///      developer's working tree, etc.).
+    ///   2. `NSTemporaryDirectory()` + `naru-e2e-screenshots/` —
+    ///      portable default, never points at an absent path.
+    ///
+    /// Screenshots are best-effort — `try?` on the disk write means a
+    /// missing directory only loses the artefact, never fails the test.
+    private var outputDirectory: String {
+        if let override = ProcessInfo.processInfo.environment["NARU_E2E_OUTPUT_DIR"],
+           !override.isEmpty
+        {
+            return override
+        }
+        return (NSTemporaryDirectory() as NSString).appendingPathComponent("naru-e2e-screenshots")
+    }
 
     private var host: String {
         ProcessInfo.processInfo.environment["NARU_E2E_HOST"] ?? "192.168.45.148"
