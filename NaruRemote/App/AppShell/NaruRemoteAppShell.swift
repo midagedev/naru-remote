@@ -11,9 +11,10 @@ public struct NaruRemoteAppShell: View {
     /// pre-filled fields always reflect the latest stored values.
     @State private var editingProfile: EditingProfile?
     /// Mirrors the compose `TextEditor` focus state inside
-    /// `RemoteInputDockView`.  When true, the iOS keyboard is up
-    /// and `OnboardingGuideView` is rendered in its compact
-    /// 1-line summary form (UX punch-list #009).
+    /// `RemoteInputDockView`.  Reserved for future keyboard-aware
+    /// surfaces; today no overlay reads it (the first-run checklist
+    /// that used to depend on it was removed when onboarding was
+    /// reduced to a single empty-state CTA — spec FR-015).
     @State private var composeFieldFocused = false
     /// Build version label used in the diagnostic share-text header.
     /// The iOS app entry passes
@@ -33,13 +34,13 @@ public struct NaruRemoteAppShell: View {
 
     public var body: some View {
         let snapshot = model.snapshot
-        // Derived from app state instead of `@State`: a fresh
-        // launch with a `dismissed` flag in settings should keep
-        // the checklist (and its successor affirmation) hidden,
-        // and the dismiss buttons only need to flip the persisted
-        // flag — re-render handles the rest.
-        let showsOnboardingGuide = model.showsOnboardingGuide
-        let showsOnboardingReady = model.showsOnboardingReady
+        // First-launch surface (spec FR-015): zero saved profiles
+        // → render exactly one primary "add a computer" CTA and
+        // hide the session viewport / diagnostic chrome.  No
+        // capability checklist, no feature preview.  Visibility is
+        // derived purely from `profiles.isEmpty` — no persisted
+        // dismissal flag.
+        let isEmptyHome = snapshot.profiles.isEmpty
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             ProfileListView(
@@ -69,101 +70,96 @@ public struct NaruRemoteAppShell: View {
         } detail: {
             ScrollView {
                 VStack(spacing: 0) {
-                    if showsOnboardingGuide {
-                        OnboardingGuideView(
-                            guide: snapshot.onboardingGuide,
-                            isCompact: composeFieldFocused,
-                            onDismiss: { Task { await model.dismissOnboardingChecklist() } },
-                            onAction: { stepID in
-                                model.handleOnboardingAction(stepID) {
-                                    showsProfileEditor = true
-                                }
+                    if isEmptyHome {
+                        EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                    } else {
+                        SessionViewportView(
+                            title: snapshot.title,
+                            subtitle: snapshot.subtitle,
+                            session: snapshot.session,
+                            framebuffer: snapshot.latestFramebuffer,
+                            frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
+                            isPiPWatchAvailable: model.canStartPiPWatch,
+                            pipWatchStatusText: model.pipWatchStatusText,
+                            isPiPWatching: snapshot.pipWatchSession?.state == .watching,
+                            pipLayerHost: model.pipLayerHost,
+                            onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
+                            onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
+                            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
+                            onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
+                            onFramebufferTap: { point, size in
+                                model.sendTapAt(viewPoint: point, viewSize: size)
+                            },
+                            onFramebufferRightClick: { point, size in
+                                model.sendRightClickAt(viewPoint: point, viewSize: size)
+                            },
+                            onFramebufferScroll: { point, size, delta in
+                                model.sendScrollAt(
+                                    viewPoint: point,
+                                    viewSize: size,
+                                    deltaX: delta.width,
+                                    deltaY: delta.height
+                                )
+                            },
+                            onFramebufferPointerDown: { point, size in
+                                Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
+                            },
+                            onFramebufferPointerMove: { point, size in
+                                Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
+                            },
+                            onFramebufferPointerUp: { point, size in
+                                Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
                             }
                         )
-                    } else if showsOnboardingReady {
-                        OnboardingReadyView(
-                            onDismiss: { Task { await model.dismissOnboardingChecklist() } }
+
+                        DiagnosticSummaryView(
+                            rows: snapshot.diagnosticRows,
+                            shareTextProvider: { [buildVersion] in
+                                model.makeDiagnosticExport()
+                                    .renderShareText(buildVersion: buildVersion)
+                            }
                         )
                     }
-
-                    SessionViewportView(
-                        title: snapshot.title,
-                        subtitle: snapshot.subtitle,
-                        session: snapshot.session,
-                        framebuffer: snapshot.latestFramebuffer,
-                        frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
-                        isPiPWatchAvailable: model.canStartPiPWatch,
-                        pipWatchStatusText: model.pipWatchStatusText,
-                        isPiPWatching: snapshot.pipWatchSession?.state == .watching,
-                        pipLayerHost: model.pipLayerHost,
-                        onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
-                        onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
-                        onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
-                        onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
-                        onFramebufferTap: { point, size in
-                            model.sendTapAt(viewPoint: point, viewSize: size)
-                        },
-                        onFramebufferRightClick: { point, size in
-                            model.sendRightClickAt(viewPoint: point, viewSize: size)
-                        },
-                        onFramebufferScroll: { point, size, delta in
-                            model.sendScrollAt(
-                                viewPoint: point,
-                                viewSize: size,
-                                deltaX: delta.width,
-                                deltaY: delta.height
-                            )
-                        },
-                        onFramebufferPointerDown: { point, size in
-                            Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
-                        },
-                        onFramebufferPointerMove: { point, size in
-                            Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
-                        },
-                        onFramebufferPointerUp: { point, size in
-                            Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
-                        }
-                    )
-
-                    DiagnosticSummaryView(
-                        rows: snapshot.diagnosticRows,
-                        shareTextProvider: { [buildVersion] in
-                            model.makeDiagnosticExport()
-                                .renderShareText(buildVersion: buildVersion)
-                        }
-                    )
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    IncomingClipboardBanner(
-                        review: model.pendingIncomingClipboard,
-                        onAccept: { model.acceptIncomingClipboard() },
-                        onDismiss: { model.dismissIncomingClipboard() }
-                    )
+                // Spec FR-015: empty home → no Compose/Direct preview,
+                // no clipboard banner.  The dock has nothing to send
+                // to until a profile exists, and surfacing it before
+                // the user has added a computer is exactly the
+                // pre-announcement of capabilities the empty-home CTA
+                // is meant to remove.
+                if !isEmptyHome {
+                    VStack(spacing: 0) {
+                        IncomingClipboardBanner(
+                            review: model.pendingIncomingClipboard,
+                            onAccept: { model.acceptIncomingClipboard() },
+                            onDismiss: { model.dismissIncomingClipboard() }
+                        )
 
-                    RemoteInputDockView(
-                        initialText: snapshot.composeDraft?.text ?? "",
-                        statusText: snapshot.inputStatusText,
-                        onSend: { model.sendComposedText($0) },
-                        directKeystrokeMode: snapshot.directKeystrokeMode,
-                        stickyModifierState: snapshot.stickyModifierState,
-                        onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
-                        onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
-                        onHardwareKey: { keysym, modifiers, isDown in
-                            Task {
-                                await model.handleHardwareKey(
-                                    keysym: keysym,
-                                    modifiers: modifiers,
-                                    isDown: isDown
-                                )
+                        RemoteInputDockView(
+                            initialText: snapshot.composeDraft?.text ?? "",
+                            statusText: snapshot.inputStatusText,
+                            onSend: { model.sendComposedText($0) },
+                            directKeystrokeMode: snapshot.directKeystrokeMode,
+                            stickyModifierState: snapshot.stickyModifierState,
+                            onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+                            onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
+                            onHardwareKey: { keysym, modifiers, isDown in
+                                Task {
+                                    await model.handleHardwareKey(
+                                        keysym: keysym,
+                                        modifiers: modifiers,
+                                        isDown: isDown
+                                    )
+                                }
+                            },
+                            onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
+                            onComposeFocusChange: { focused in
+                                composeFieldFocused = focused
                             }
-                        },
-                        onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
-                        onComposeFocusChange: { focused in
-                            composeFieldFocused = focused
-                        }
-                    )
+                        )
+                    }
                 }
             }
             // UX punch-list #107: the HUD badge collided with the

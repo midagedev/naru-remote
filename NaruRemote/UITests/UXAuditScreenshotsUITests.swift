@@ -29,26 +29,25 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
-    // MARK: - iPhone — empty state + onboarding
+    // MARK: - iPhone — empty home (zero saved profiles, single CTA)
 
-    func testEmptyStateAndOnboarding_light() throws {
-        try runEmptyStateAndOnboarding(mode: .light, deviceTag: "iphone")
+    func testEmptyHome_light() throws {
+        try runEmptyHome(mode: .light, deviceTag: "iphone")
     }
 
-    func testEmptyStateAndOnboarding_dark() throws {
-        try runEmptyStateAndOnboarding(mode: .dark, deviceTag: "iphone")
+    func testEmptyHome_dark() throws {
+        try runEmptyHome(mode: .dark, deviceTag: "iphone")
     }
 
-    private func runEmptyStateAndOnboarding(mode: ColorMode, deviceTag: String) throws {
+    private func runEmptyHome(mode: ColorMode, deviceTag: String) throws {
         let app = launchApp(mode: mode)
 
+        // First-launch surface (spec FR-015): zero profiles → exactly
+        // one primary CTA into the profile editor, no checklist.
         XCTAssertTrue(
-            app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8),
-            "Dock heading must be visible after launch"
+            app.buttons["naru.home.empty.addProfile"].waitForExistence(timeout: 8),
+            "Empty-home Add Computer CTA must be visible after launch"
         )
-
-        // State 1: first launch — empty profile list, onboarding,
-        // empty session viewport.
         try saveScreen(named: "01-firstlaunch-\(deviceTag)-\(mode.suffix).png")
     }
 
@@ -167,36 +166,6 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "05-diagnostics-populated-\(deviceTag)-\(mode.suffix).png")
     }
 
-    // MARK: - iPhone — onboarding mid-progress
-
-    func testOnboardingMidProgress_light() throws {
-        try runOnboardingMidProgress(mode: .light, deviceTag: "iphone")
-    }
-
-    func testOnboardingMidProgress_dark() throws {
-        try runOnboardingMidProgress(mode: .dark, deviceTag: "iphone")
-    }
-
-    private func runOnboardingMidProgress(mode: ColorMode, deviceTag: String) throws {
-        // Closes UX punch-list #007 (second half).  Drive state via
-        // the `NARU_TEST_FIXTURE_SNAPSHOT=onboarding-progress`
-        // fixture: a private profile + a fully-passing diagnostic
-        // run, but no `RemoteSession`.  That leaves
-        // `OnboardingGuide` with steps 1-2 complete and "Compose
-        // locally" as the active step — different cell mix from #04.
-        let app = launchAppWithFixture(.onboardingProgress, mode: mode)
-
-        XCTAssertTrue(
-            app.staticTexts["First Run"].waitForExistence(timeout: 8),
-            "First Run checklist must be visible"
-        )
-        XCTAssertTrue(
-            app.staticTexts["Compose locally"].waitForExistence(timeout: 4),
-            "Compose locally step must be present in the checklist"
-        )
-
-        try saveScreen(named: "06-onboarding-progress-\(deviceTag)-\(mode.suffix).png")
-    }
 
     // MARK: - iPhone — compose dock with text
 
@@ -396,37 +365,6 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "15-diagnostic-error-dns-\(deviceTag)-\(mode.suffix).png")
     }
 
-    // MARK: - iPhone — onboarding done (state #16)
-
-    func testOnboardingDone_light() throws {
-        try runOnboardingDone(mode: .light, deviceTag: "iphone")
-    }
-
-    func testOnboardingDone_dark() throws {
-        try runOnboardingDone(mode: .dark, deviceTag: "iphone")
-    }
-
-    private func runOnboardingDone(mode: ColorMode, deviceTag: String) throws {
-        // Closes UX punch-list coverage gap: `OnboardingReadyView`
-        // final affirmation was never captured.  Drive through the
-        // `onboarding-done` fixture: private profile + active
-        // session + passing diagnostic + .watching PiP, mirroring
-        // `OnboardingReadyTests.makeCompleteSnapshot`.  When every
-        // step is `.complete` and the user has not yet dismissed the
-        // checklist, the shell renders `OnboardingReadyView` —
-        // `naru.onboarding.ready` is the matching a11y identifier.
-        let app = launchAppWithFixture(.onboardingDone, mode: mode)
-
-        XCTAssertTrue(
-            app.otherElements["naru.onboarding.ready"].waitForExistence(timeout: 8) ||
-            app.staticTexts["You're all set. Naru Remote is ready."]
-                .waitForExistence(timeout: 4),
-            "OnboardingReadyView must be visible"
-        )
-
-        try saveScreen(named: "16-onboarding-done-\(deviceTag)-\(mode.suffix).png")
-    }
-
     // MARK: - iPhone — sidebar with multiple profiles
 
     func testSidebarMultipleProfiles_light() throws {
@@ -622,8 +560,6 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     /// Keep these raw values in sync with that enum.
     private enum FixtureToken: String {
         case diagnosticsPopulated = "diagnostics-populated"
-        case onboardingProgress = "onboarding-progress"
-        case onboardingDone = "onboarding-done"
         case diagnosticErrorDNS = "diagnostic-error-dns"
         case incomingClipboard = "incoming-clipboard"
         case sidebarWithVerdicts = "sidebar-with-verdicts"

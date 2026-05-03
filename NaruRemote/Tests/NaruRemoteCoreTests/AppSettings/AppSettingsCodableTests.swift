@@ -2,17 +2,14 @@ import XCTest
 @testable import NaruRemoteCore
 
 final class AppSettingsCodableTests: XCTestCase {
-    func testRoundTripWithDefaultValuesPreservesDefaults() throws {
-        let settings = AppSettings()
-
-        let data = try JSONEncoder().encode(settings)
+    func testEmptyStructRoundTrips() throws {
+        let data = try JSONEncoder().encode(AppSettings())
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
 
-        XCTAssertEqual(decoded, settings)
-        XCTAssertFalse(decoded.dismissedOnboardingChecklist)
+        XCTAssertEqual(decoded, AppSettings())
     }
 
-    func testEmptyJSONObjectDecodesAsDefaults() throws {
+    func testEmptyJSONObjectDecodes() throws {
         let data = try XCTUnwrap("{}".data(using: .utf8))
 
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
@@ -20,10 +17,13 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, AppSettings())
     }
 
-    func testDecodingTolratesUnknownKeysForForwardCompat() throws {
+    func testDecodingTolratesUnknownAndLegacyKeysForForwardCompat() throws {
         // A future build may add fields this build does not know
-        // about.  Older binaries must still load the file rather
-        // than fail and force the user to start fresh.
+        // about.  A legacy file written by an older build that still
+        // had `dismissedOnboardingChecklist` (removed when first-run
+        // onboarding was reduced to a stateless empty-state CTA per
+        // spec FR-015) must still load rather than fail and force the
+        // user to start fresh.
         let json = """
         {
           "dismissedOnboardingChecklist": true,
@@ -35,16 +35,15 @@ final class AppSettingsCodableTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
 
-        XCTAssertTrue(decoded.dismissedOnboardingChecklist)
+        XCTAssertEqual(decoded, AppSettings())
     }
 
-    func testRoundTripWithDismissedOnboardingChecklistTrue() throws {
-        let settings = AppSettings(dismissedOnboardingChecklist: true)
+    func testEncodingProducesEmptyJSONObject() throws {
+        let data = try JSONEncoder().encode(AppSettings())
+        let json = String(decoding: data, as: UTF8.self)
 
-        let data = try JSONEncoder().encode(settings)
-        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
-
-        XCTAssertEqual(decoded, settings)
-        XCTAssertTrue(decoded.dismissedOnboardingChecklist)
+        // Stable on-disk shape so the persistence pipeline is
+        // unambiguous when the next setting is added.
+        XCTAssertEqual(json, "{}")
     }
 }

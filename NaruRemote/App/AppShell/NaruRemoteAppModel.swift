@@ -33,9 +33,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// cleared on Accept, Dismiss, or profile change.  See
     /// `IncomingClipboardBanner`.
     @Published public private(set) var pendingIncomingClipboard: IncomingClipboardReview?
-    /// App-level user preferences (e.g. onboarding-checklist
-    /// dismissal).  Loaded eagerly in `init` and re-published on
-    /// every update through `dismissOnboardingChecklist()`.
+    /// App-level user preferences not tied to a single
+    /// `ConnectionProfile`.  Loaded eagerly in `init` and
+    /// re-published when a future setting toggle writes through
+    /// `settingsPersistence`.  `AppSettings` is intentionally empty
+    /// today — the first field, `dismissedOnboardingChecklist`, was
+    /// removed when first-run onboarding was reduced to a stateless
+    /// empty-state CTA (spec FR-015).  The pipeline is kept so the
+    /// next setting (Phase 9 Direct mode default, etc.) can plug in
+    /// without re-introducing a persistence layer.
     @Published public private(set) var appSettings: AppSettings
 
     /// Direct Keystroke Streaming Mode state (the named §I "MAY"
@@ -268,28 +274,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// in-memory flag still flips so the current session honors
     /// the dismissal.
     ///
-    /// Now `async` so the underlying actor-isolated save can be
-    /// awaited.  The in-memory flag flip still happens synchronously
-    /// at the top of the body so the published `appSettings` value
-    /// updates immediately for the SwiftUI shell; only the
-    /// persistence write is awaited.
-    public func dismissOnboardingChecklist() async {
-        var updated = appSettings
-        updated.dismissedOnboardingChecklist = true
-        appSettings = updated
-        settingsPersistenceError = nil
-
-        guard let settingsPersistence else {
-            return
-        }
-
-        do {
-            try await settingsPersistence.save(updated)
-        } catch {
-            settingsPersistenceError = "Settings could not be saved on this device."
-        }
-    }
-
     public var snapshot: NaruRemoteAppSnapshot {
         NaruRemoteAppSnapshot(
             profiles: profiles,
@@ -313,27 +297,6 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public var canStartPiPWatch: Bool {
         snapshot.isPiPWatchAvailable && (pipWatchController?.isSupported ?? false)
-    }
-
-    /// True while the first-run checklist has unfinished steps and
-    /// the user has not persistently dismissed it.  Mirrors the
-    /// in-shell derivation kept compatible with PR #8 — exposed on
-    /// the model so tests can assert visibility without mounting a
-    /// SwiftUI view.
-    public var showsOnboardingGuide: Bool {
-        !snapshot.onboardingGuide.isComplete
-            && !appSettings.dismissedOnboardingChecklist
-    }
-
-    /// True only while every checklist step is `.complete` and the
-    /// user has not yet dismissed the affirmation.  The shell shows
-    /// `OnboardingReadyView` exactly when this flips true; tapping
-    /// its dismiss button routes through
-    /// `dismissOnboardingChecklist()` so the affirmation never
-    /// re-appears across launches.
-    public var showsOnboardingReady: Bool {
-        snapshot.onboardingGuide.isComplete
-            && !appSettings.dismissedOnboardingChecklist
     }
 
     public var pipWatchStatusText: String {
@@ -1826,29 +1789,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             framebuffer: nil,
             frameCapturedAt: Date()
         )
-    }
-
-    public func handleOnboardingAction(
-        _ id: OnboardingStepID,
-        presentProfileEditor: () -> Void
-    ) {
-        switch id {
-        case .privateTarget:
-            presentProfileEditor()
-        case .diagnostics:
-            guard selectedProfile != nil else {
-                presentProfileEditor()
-                return
-            }
-            runConnectionChecks()
-        case .compose:
-            break
-        case .pipWatch:
-            guard canStartPiPWatch else {
-                return
-            }
-            startPiPWatch()
-        }
     }
 
     public func sendComposedText(_ text: String, pasteCommand: PasteCommand = .commandV) {

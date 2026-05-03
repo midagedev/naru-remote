@@ -140,30 +140,38 @@ active control, and stale/unsupported states produce user-safe messages.
 
 ---
 
-### User Story 6 - Complete First-Run Setup Without Guesswork (Priority: P1)
+### User Story 6 - Reach Profile Entry On First Launch Without Guidance (Priority: P1)
 
-A new user opens Naru Remote and sees a concise setup checklist that points to
-the next required step: private target, connection checks, local compose, or PiP
-watch readiness.
+A new user opens Naru Remote, sees an empty home with a single primary
+"add a computer" call-to-action, taps it to enter a host (MagicDNS or private
+IP) plus optional credential, and is ready to connect.  The app must not
+pre-announce features the user has not asked about (PiP Watch, compose path,
+diagnostics tour).
 
-**Why this priority**: The product depends on setup assumptions that are not
-obvious in a generic VNC viewer. Onboarding must make private-network setup,
-diagnostics, local composition, and PiP policy visible without exposing secrets.
+**Why this priority**: The first action a user wants is to connect to their
+computer.  An up-front feature checklist that previews capabilities (PiP,
+compose, diagnostics readiness) before the user has even saved a profile is
+noise that delays the only path that matters at first launch.  Features become
+discoverable when the user actually reaches them.
 
-**Independent Test**: Launch the app shell with no profile, with a private
-profile, with failed diagnostics, and with a composed draft, then verify that the
-checklist shows safe next steps and never echoes composed text or credentials.
+**Independent Test**: Launch the app shell with zero profiles and verify that
+the empty home shows exactly one primary CTA leading to the profile editor;
+launch with one or more saved profiles and verify the empty-state CTA is gone.
 
 **Acceptance Scenarios**:
 
-1. **Given** no profile exists, **When** the app launches, **Then** onboarding
-   points first to adding a MagicDNS or private host profile.
-2. **Given** diagnostics fail, **When** onboarding renders, **Then** it shows the
-   failed stage title without raw credential, composed text, or diagnostic detail.
-3. **Given** a compose draft contains multilingual text, **When** onboarding
-   renders, **Then** it does not display the draft contents.
-4. **Given** PiP is disabled for a sensitive profile, **When** onboarding
-   renders, **Then** it shows a safe blocked PiP status.
+1. **Given** no profile exists, **When** the app launches, **Then** the home
+   surface shows a single "add a computer" primary action and does not render
+   any feature checklist, capability preview, or status row.
+2. **Given** the user taps the empty-state CTA, **When** the profile editor
+   appears, **Then** the host field is the focused entry point so the user can
+   start typing immediately.
+3. **Given** at least one profile exists, **When** the app launches, **Then**
+   the empty-state CTA is hidden and the home surface goes straight to the
+   profile list and session viewport.
+4. **Given** a connection attempt fails, **When** diagnostics render, **Then**
+   the failed stage shows safe-catalog detail without echoing composed text or
+   credentials (covered by US 1's diagnostic privacy scenario).
 
 ### Edge Cases
 
@@ -180,8 +188,9 @@ checklist shows safe next steps and never echoes composed text or credentials.
 - The user leaves and returns to the app during an active connection attempt.
 - A sensitive profile has PiP Watch Mode disabled even when the session is active
   and has received frames.
-- No saved profile exists yet, so onboarding must not imply public internet
-  setup is the primary path.
+- No saved profile exists yet — the first-launch home must offer one direct
+  path to profile entry without implying public-internet setup or pre-listing
+  feature capabilities.
 
 ## Requirements *(mandatory)*
 
@@ -216,14 +225,16 @@ checklist shows safe next steps and never echoes composed text or credentials.
   preparing, watching, stale, failed, and stopped.
 - **FR-014**: System MUST enforce profile-level PiP Watch opt-out before
   enabling any PiP start action.
-- **FR-015**: System MUST show a first-run onboarding checklist that covers
-  private target setup, connection checks, local compose readiness, and PiP Watch
-  readiness.
-- **FR-016**: Onboarding MUST derive status from safe app state and MUST NOT
-  display composed text, credentials, raw clipboard payloads, or framebuffer
-  contents.
-- **FR-017**: Onboarding MUST treat public endpoint setup as advanced/manual, not
-  the primary first-run path.
+- **FR-015**: When zero profiles exist, the home surface MUST present exactly
+  one primary action — entry into the profile editor — and MUST NOT render a
+  feature checklist, capability preview, or staged setup tour.  When at least
+  one profile exists, the empty-state action MUST be hidden.
+- **FR-016**: First-launch surfaces MUST NOT display composed text, credentials,
+  raw clipboard payloads, or framebuffer contents.  Diagnostic detail rendered
+  after a connect attempt comes from the safe catalog (FR-008).
+- **FR-017**: Public endpoint setup remains advanced/manual; the first-launch
+  empty-state CTA MUST NOT route users into a public-IP entry path or imply
+  that public IPs are the expected default (constitution §II).
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -281,10 +292,10 @@ checklist shows safe next steps and never echoes composed text or credentials.
 - **PiPFrameSnapshot**: Metadata for the latest frame offered to PiP rendering,
   including size, timestamp, and change activity without storing screenshots in
   logs or diagnostic exports.
-- **OnboardingGuide**: Derived first-run checklist state for private target,
-  diagnostics, compose readiness, and PiP Watch readiness.
-- **OnboardingStep**: One safe setup row with id, state, title, detail, and
-  optional action label; does not contain user-entered payloads.
+- **EmptyHome**: View-level state for the first-launch surface — `.empty`
+  (zero saved profiles → one CTA into the profile editor) or `.populated`
+  (≥ 1 saved profile → no first-launch chrome).  No persisted "dismissed"
+  flag; visibility is derived purely from `profiles.isEmpty`.
 
 ## Acceptance Test Matrix *(mandatory)*
 
@@ -299,7 +310,7 @@ checklist shows safe next steps and never echoes composed text or credentials.
 | Diagnostic export privacy | Unit test | Export excludes credentials and composed text |
 | PiP watch-only state | Unit/UI test | PiP state disables remote input and reports stale/unsupported states safely |
 | PiP sensitive profile opt-out | Unit/UI test | Profile-level opt-out prevents PiP availability and shows a safe status |
-| First-run onboarding checklist | Unit/UI test | Checklist shows safe next steps and never echoes composed text or credential detail |
+| First-launch empty home | Unit/UI test | Zero profiles → one CTA into profile editor, no checklist or feature preview; ≥ 1 profile → CTA hidden |
 
 ## Success Criteria *(mandatory)*
 
@@ -315,8 +326,9 @@ checklist shows safe next steps and never echoes composed text or credentials.
 - **SC-005**: Diagnostic export contains no composed text or credential material.
 - **SC-006**: A sensitive profile can disable PiP Watch Mode, and the app does
   not enable a PiP start action for that profile.
-- **SC-007**: First-run onboarding identifies the next setup step without showing
-  composed user text, credential material, or framebuffer contents.
+- **SC-007**: First launch with zero profiles surfaces exactly one primary
+  action (profile editor entry) and does not render any feature checklist,
+  capability preview, or staged setup tour.
 
 ## Assumptions
 
@@ -334,8 +346,9 @@ checklist shows safe next steps and never echoes composed text or credentials.
   action, Connect action wired to the RFB first-frame boundary, and Send action
   wired to the active RFB text client when a connection exists.
 - The installable app starts from app-local saved profiles in Application
-  Support instead of a hard-coded demo profile. With no saved profiles, it shows
-  the first-run private target path.
+  Support instead of a hard-coded demo profile.  With no saved profiles, the
+  home surface renders an empty state with one primary "add a computer" CTA
+  (FR-015) and no feature checklist or capability preview.
 - Automated RFB compatibility currently proves an interactive RFB 3.8 no-auth
   first-frame handshake against the fake server and captures framebuffer
   metadata. The same fake-server path verifies outgoing UTF-8 `ClientCutText`

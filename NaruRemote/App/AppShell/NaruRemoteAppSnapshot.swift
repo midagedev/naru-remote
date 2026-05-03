@@ -129,16 +129,6 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         }
     }
 
-    public var onboardingGuide: OnboardingGuide {
-        OnboardingGuide(
-            profile: selectedProfile,
-            session: session,
-            diagnosticRun: diagnosticRun,
-            latestInjectionAttempt: latestInjectionAttempt,
-            pipWatchSession: pipWatchSession
-        )
-    }
-
     public var diagnosticRows: [DiagnosticSummaryRow] {
         diagnosticRun?.stages.enumerated().map { index, stage in
             DiagnosticSummaryRow(

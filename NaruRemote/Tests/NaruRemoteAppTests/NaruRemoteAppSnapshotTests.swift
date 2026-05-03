@@ -46,26 +46,6 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.inputStatusText, "Paste command sent; remote app confirmation unavailable.")
     }
 
-    func testOnboardingGuideDoesNotExposeComposeDraftText() throws {
-        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
-        let session = RemoteSession(profileID: profile.id, state: .active)
-        let draft = ComposeDraft(
-            sessionID: session.id,
-            text: "한글과 English 😊를 같이 입력합니다"
-        )
-
-        let snapshot = NaruRemoteAppSnapshot(
-            profiles: [profile],
-            session: session,
-            composeDraft: draft
-        )
-        let onboardingText = snapshot.onboardingGuide.steps
-            .map { "\($0.title) \($0.detail)" }
-            .joined(separator: "\n")
-
-        XCTAssertFalse(onboardingText.contains(draft.text))
-    }
-
     func testDiagnosticRowsExposeSafeStageText() {
         let profileID = UUID()
         let run = ConnectionDiagnosticRun(
