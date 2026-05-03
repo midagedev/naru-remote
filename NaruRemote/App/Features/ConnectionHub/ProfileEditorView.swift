@@ -143,6 +143,8 @@ public struct ProfileEditorView: View {
                     if shouldShowPasswordField {
                         SecureField(passwordPlaceholder, text: $password)
                             .focused($focusedField, equals: .password)
+                            .textContentType(.oneTimeCode)
+                            .accessibilityIdentifier("naru.profile.editor.password")
                     } else {
                         Text("Saved password kept")
                             .font(.caption)

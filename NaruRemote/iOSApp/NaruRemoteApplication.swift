@@ -79,6 +79,14 @@ struct NaruRemoteApplication: App {
             )
         }
         Task { @MainActor in
+            // XCUITest E2E hook — pre-populate the keychain with a
+            // known password BEFORE the profile store loads so the
+            // model's `connectSelectedProfile` path can find a
+            // credential without driving the editor UI.  No-op when
+            // the env var is unset (production).  See
+            // `LocalMacConnectE2EUITests`.
+            await applyTestInjectKeychainPassword(into: credentialStore)
+
             do {
                 let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
                 let store = try await ConnectionProfileStore(persistence: persistence)
@@ -153,6 +161,32 @@ struct NaruRemoteApplication: App {
                 await model.tapDirectKey(.modifier(modifier))
                 await model.tapDirectKey(.modifier(modifier))
             }
+        }
+    }
+
+    /// XCUITest E2E hook — when `NARU_TEST_INJECT_KEYCHAIN_REF` and
+    /// `NARU_TEST_INJECT_KEYCHAIN_PASSWORD` are both set, write the
+    /// password into the supplied `KeychainConnectionCredentialStore`
+    /// at the given credential reference before any profile flow
+    /// runs.  Pair with a seeded profile whose `credentialRef`
+    /// matches so `connectSelectedProfile` finds the credential
+    /// without driving the editor UI.  No-op in production because
+    /// the variables are never set.
+    private static func applyTestInjectKeychainPassword(
+        into store: KeychainConnectionCredentialStore
+    ) async {
+        let env = ProcessInfo.processInfo.environment
+        guard let ref = env["NARU_TEST_INJECT_KEYCHAIN_REF"],
+              !ref.isEmpty,
+              let password = env["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"],
+              !password.isEmpty
+        else { return }
+        do {
+            try await store.savePassword(password, for: ref)
+        } catch {
+            // Silently ignore — production never hits this branch and
+            // a test failure will surface as "credential unavailable"
+            // when Connect is tapped.
         }
     }
 
