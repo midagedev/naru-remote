@@ -4,12 +4,13 @@ import NaruRemoteCore
 public struct RemoteInputDockView: View {
     @State private var text: String
     /// Tracks whether the compose `TextEditor` has firstResponder.
-    /// Forwarded to the parent via `onComposeFocusChange` so the
-    /// app shell can collapse its OnboardingGuide into a 1-line
-    /// summary banner whenever the iOS keyboard is presented —
-    /// closes UX punch-list #009.  Direct mode renders its own
-    /// keyboard, so the focus signal is only meaningful for the
-    /// Compose path.
+    /// Forwarded to the parent via `onComposeFocusChange` so future
+    /// keyboard-aware surfaces can react to it.  Today no overlay
+    /// reads it (the first-run checklist that used to depend on
+    /// keyboard focus was removed when onboarding was reduced to a
+    /// single empty-state CTA — spec FR-015).  Direct mode renders
+    /// its own keyboard, so the focus signal is only meaningful for
+    /// the Compose path.
     @FocusState private var composeFieldFocused: Bool
 
     private let initialText: String
@@ -102,9 +103,9 @@ public struct RemoteInputDockView: View {
             // Only meaningful when Compose is the visible mode —
             // Direct mode swaps the editor for the soft keyboard,
             // so its focus signal is irrelevant.  Forward an
-            // explicit `false` whenever we're not in Compose so
-            // stale focus from a previous mode-switch can't leave
-            // the OnboardingGuide collapsed.
+            // explicit `false` whenever we're not in Compose so a
+            // stale focus from a previous mode-switch never leaks
+            // into a future keyboard-aware overlay.
             onComposeFocusChange(directKeystrokeMode.isActive ? false : newValue)
         }
         .onChange(of: directKeystrokeMode.isActive) { _, isDirect in

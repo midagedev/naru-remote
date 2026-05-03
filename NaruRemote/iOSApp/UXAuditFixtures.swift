@@ -19,8 +19,6 @@ import NaruRemoteCore
 /// `chore/ux-02-audit-fixture-richness`).
 enum UXAuditFixtureToken: String {
     case diagnosticsPopulated = "diagnostics-populated"
-    case onboardingProgress = "onboarding-progress"
-    case onboardingDone = "onboarding-done"
     case diagnosticErrorDNS = "diagnostic-error-dns"
     case incomingClipboard = "incoming-clipboard"
     case sidebarWithVerdicts = "sidebar-with-verdicts"
@@ -45,10 +43,6 @@ enum UXAuditFixtures {
         switch token {
         case .diagnosticsPopulated:
             return diagnosticsPopulatedSnapshot()
-        case .onboardingProgress:
-            return onboardingProgressSnapshot()
-        case .onboardingDone:
-            return onboardingDoneSnapshot()
         case .diagnosticErrorDNS:
             return diagnosticErrorDNSSnapshot()
         case .incomingClipboard:
@@ -76,8 +70,6 @@ enum UXAuditFixtures {
                 "Hello from the remote computer — this is a clipboard payload that arrived from the VNC server."
             )
         case .diagnosticsPopulated,
-             .onboardingProgress,
-             .onboardingDone,
              .diagnosticErrorDNS,
              .sidebarWithVerdicts:
             // All snapshot-driven; no post-init mutation needed.
@@ -128,93 +120,6 @@ enum UXAuditFixtures {
             profiles: [profile],
             selectedProfileID: profile.id,
             diagnosticRun: run
-        )
-    }
-
-    private static func onboardingProgressSnapshot() -> NaruRemoteAppSnapshot {
-        // Step 1 (private target) complete via the seeded profile.
-        // Step 2 (diagnostics) complete via a passing run.
-        // Step 3 (compose) is still .waiting because there's no
-        // active `RemoteSession` — that's the "Compose locally"
-        // active step the punch list calls for.
-        let profile = sampleProfile()
-        let run = ConnectionDiagnosticRun(
-            profileID: profile.id,
-            startedAt: fixedDate(offsetSeconds: 0),
-            finishedAt: fixedDate(offsetSeconds: 4),
-            stages: [
-                DiagnosticStageResult(
-                    stage: .dns,
-                    status: .passed,
-                    safeTitle: "Host resolved",
-                    safeDetail: "MagicDNS returned a private address.",
-                    timestamp: fixedDate(offsetSeconds: 1)
-                ),
-                DiagnosticStageResult(
-                    stage: .tcp,
-                    status: .passed,
-                    safeTitle: "VNC port open",
-                    safeDetail: "TCP connection to the VNC port succeeded.",
-                    timestamp: fixedDate(offsetSeconds: 2)
-                ),
-                DiagnosticStageResult(
-                    stage: .rfbHandshake,
-                    status: .passed,
-                    safeTitle: "RFB handshake complete",
-                    safeDetail: "Server speaks a compatible RFB version.",
-                    timestamp: fixedDate(offsetSeconds: 3)
-                )
-            ]
-        )
-        return NaruRemoteAppSnapshot(
-            profiles: [profile],
-            selectedProfileID: profile.id,
-            diagnosticRun: run
-        )
-    }
-
-    private static func onboardingDoneSnapshot() -> NaruRemoteAppSnapshot {
-        // Mirrors `OnboardingReadyTests.makeCompleteSnapshot`: a
-        // private profile, a passing diagnostic run, an .active
-        // session whose lastFrameAt is set (so `allowsPiPWatch`
-        // flips true), and a .watching PiP session.
-        let profile = sampleProfile()
-        let session = RemoteSession(
-            profileID: profile.id,
-            state: .active,
-            lastFrameAt: fixedDate(offsetSeconds: 5)
-        )
-        let run = ConnectionDiagnosticRun(
-            profileID: profile.id,
-            startedAt: fixedDate(offsetSeconds: 0),
-            finishedAt: fixedDate(offsetSeconds: 4),
-            stages: [
-                DiagnosticStageResult(
-                    stage: .dns,
-                    status: .passed,
-                    safeTitle: "Host resolved",
-                    safeDetail: "MagicDNS returned a private address.",
-                    timestamp: fixedDate(offsetSeconds: 1)
-                ),
-                DiagnosticStageResult(
-                    stage: .firstFrame,
-                    status: .passed,
-                    safeTitle: "First frame received",
-                    safeDetail: "Remote framebuffer is available.",
-                    timestamp: fixedDate(offsetSeconds: 4)
-                )
-            ]
-        )
-        let pipSession = PiPWatchSession(
-            sessionID: session.id,
-            state: .watching
-        )
-        return NaruRemoteAppSnapshot(
-            profiles: [profile],
-            selectedProfileID: profile.id,
-            session: session,
-            diagnosticRun: run,
-            pipWatchSession: pipSession
         )
     }
 
