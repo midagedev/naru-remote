@@ -1044,7 +1044,18 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activeKeyEventClient = streamingClient
                 keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
                 lastEmittedDragCoord = nil
-                startIncomingClipboardReceive(receive: Self.makeReceive(streamingClient: streamingClient))
+                // Constitution §I: outgoing compose-and-send is the
+                // primary text path; incoming server clipboard is
+                // secondary.  Disabled until the RFB reader is
+                // refactored into a single multiplexer that dispatches
+                // by msg_type — running `receiveServerCutText` (issues
+                // its own `readExactly(8)`) concurrently with the
+                // frame pump's `requestFramebufferUpdate` made the two
+                // tasks race on the same NWConnection, splitting the
+                // FBUpdate header (`00 00 00 01 00 00 00 00`) into the
+                // clipboard reader's buffer and surfacing as
+                // `unexpectedMessageType(11)` from `parseFramebufferUpdateHeader`.
+                // See task #30.
 
                 while shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
                     if Task.isCancelled {

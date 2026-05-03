@@ -143,6 +143,20 @@ public struct ProfileEditorView: View {
                     if shouldShowPasswordField {
                         SecureField(passwordPlaceholder, text: $password)
                             .focused($focusedField, equals: .password)
+                            // `.oneTimeCode` is intentional — not because
+                            // this is an SMS code, but because it's the
+                            // standard way to opt this field out of iOS
+                            // iCloud Keychain's "Save Password?" prompt.
+                            // VNC credentials live exclusively in Naru
+                            // Remote's own Keychain (via `credentialRef`)
+                            // per the constitution; offering iCloud
+                            // Keychain a second copy would create two
+                            // sources of truth that drift.  `.password`
+                            // and `.newPassword` both surface that
+                            // prompt; `.oneTimeCode` is the documented
+                            // suppression pattern.
+                            .textContentType(.oneTimeCode)
+                            .accessibilityIdentifier("naru.profile.editor.password")
                     } else {
                         Text("Saved password kept")
                             .font(.caption)
