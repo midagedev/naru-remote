@@ -84,6 +84,74 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertEqual(RFBEncoding.tightCompressionLevel(-5), -256)
     }
 
+    func testAdaptivePreferenceLowersQualityAndRaisesCompressionOnPoorBucket() {
+        let good = RFBEncodingPreference.adaptive(
+            supported: .full,
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: .good
+        ).encodingList()
+        let poor = RFBEncodingPreference.adaptive(
+            supported: .full,
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: .poor
+        ).encodingList()
+
+        XCTAssertTrue(good.contains(RFBEncoding.tightQualityLevel(8)))
+        XCTAssertTrue(good.contains(RFBEncoding.tightCompressionLevel(1)))
+        XCTAssertTrue(poor.contains(RFBEncoding.tightQualityLevel(2)))
+        XCTAssertTrue(poor.contains(RFBEncoding.tightCompressionLevel(8)))
+        XCTAssertTrue(good.contains(RFBEncoding.cursor))
+        XCTAssertTrue(poor.contains(RFBEncoding.cursor))
+    }
+
+    func testAdaptivePreferenceDoesNotAdvertiseUnsupportedHintsOrCursor() {
+        let list = RFBEncodingPreference.adaptive(
+            supported: .increment1,
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: .poor
+        ).encodingList()
+
+        XCTAssertFalse(list.contains(RFBEncoding.zrle))
+        XCTAssertFalse(list.contains(RFBEncoding.tight))
+        XCTAssertFalse(list.contains(RFBEncoding.cursor))
+        XCTAssertFalse(list.contains(RFBEncoding.tightQualityLevel(2)))
+        XCTAssertFalse(list.contains(RFBEncoding.tightCompressionLevel(8)))
+        XCTAssertTrue(list.contains(RFBEncoding.hextile))
+        XCTAssertTrue(list.contains(RFBEncoding.raw))
+    }
+
+    func testAdaptivePreferenceUsesLatencyOrderingForGoodAndBandwidthOrderingForPoor() {
+        let good = RFBEncodingPreference.adaptive(
+            supported: .increment2,
+            connectionQuality: .good
+        ).encodingList()
+        let poor = RFBEncodingPreference.adaptive(
+            supported: .increment2,
+            connectionQuality: .poor
+        ).encodingList()
+
+        XCTAssertEqual(good.first, RFBEncoding.hextile)
+        XCTAssertEqual(poor.first, RFBEncoding.zrle)
+    }
+
+    func testAdaptivePreferenceOnlyAdvertisesPacingExtensionsWhenSupportedAndRequested() {
+        let requestedOnly = RFBEncodingPreference.adaptive(
+            supported: .increment2,
+            requestedPseudoEncodings: .withPacingExtensions,
+            connectionQuality: .fair
+        ).encodingList()
+        XCTAssertFalse(requestedOnly.contains(RFBEncoding.fence))
+        XCTAssertFalse(requestedOnly.contains(RFBEncoding.continuousUpdates))
+
+        let supportedAndRequested = RFBEncodingPreference.adaptive(
+            supported: RFBEncodingSupport(zrle: true, fence: true, continuousUpdates: true),
+            requestedPseudoEncodings: .withPacingExtensions,
+            connectionQuality: .fair
+        ).encodingList()
+        XCTAssertTrue(supportedAndRequested.contains(RFBEncoding.fence))
+        XCTAssertTrue(supportedAndRequested.contains(RFBEncoding.continuousUpdates))
+    }
+
     // MARK: - SetEncodings wire bytes
 
     func testSetEncodingsProducesExactWireBytes() {

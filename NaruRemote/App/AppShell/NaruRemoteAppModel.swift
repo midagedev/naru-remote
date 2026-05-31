@@ -2,6 +2,14 @@ import Combine
 import Foundation
 import NaruRemoteCore
 
+private struct PendingPointerMove {
+    let command: RFBPointerCommand
+    let pointerClient: RFBPointerEventClient
+    let streamID: UUID?
+    let sessionID: RemoteSession.ID?
+    let profileID: ConnectionProfile.ID?
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var profiles: [ConnectionProfile]
@@ -125,6 +133,14 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// profile change so a stale anchor from a previous session can
     /// never suppress the first real move of the next drag.
     private var lastEmittedDragCoord: (x: UInt16, y: UInt16)?
+    /// Latest drag-move event waiting for a short coalescing window.
+    /// High-refresh touch streams can outpace VNC writes; keeping only
+    /// the newest unsent move prevents stale pointer positions from
+    /// piling up behind Network.framework back-pressure while down/up
+    /// edges remain strictly ordered.
+    private var pendingPointerMove: PendingPointerMove?
+    private var pointerMoveFlushTask: Task<Void, Never>?
+    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(8)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
@@ -1585,6 +1601,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func cancelPointerEventQueue() {
+        pointerMoveFlushTask?.cancel()
+        pointerMoveFlushTask = nil
+        pendingPointerMove = nil
         pointerEventTail?.cancel()
         pointerEventTail = nil
     }
@@ -1781,6 +1800,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let streamID = activeFrameStreamID
         let sessionID = session.id
         let profileID = selectedProfileID
+        flushPendingPointerMove()
         enqueuePointerCommands(
             outcome.commands,
             pointerClient: pointerClient,
@@ -2162,6 +2182,56 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerEventTail = task
     }
 
+    private func enqueueCoalescedPointerMove(
+        _ command: RFBPointerCommand,
+        pointerClient: RFBPointerEventClient,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        pendingPointerMove = PendingPointerMove(
+            command: command,
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
+
+        guard pointerMoveFlushTask == nil else {
+            return
+        }
+
+        let delay = Self.pointerMoveCoalescingDelay
+        pointerMoveFlushTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            self?.flushPendingPointerMove(cancelScheduledTask: false)
+        }
+    }
+
+    private func flushPendingPointerMove(cancelScheduledTask: Bool = true) {
+        if cancelScheduledTask {
+            pointerMoveFlushTask?.cancel()
+        }
+        pointerMoveFlushTask = nil
+
+        guard let pendingMove = pendingPointerMove else {
+            return
+        }
+        pendingPointerMove = nil
+
+        enqueuePointerCommands(
+            [pendingMove.command],
+            pointerClient: pendingMove.pointerClient,
+            streamID: pendingMove.streamID,
+            sessionID: pendingMove.sessionID,
+            profileID: pendingMove.profileID
+        )
+    }
+
     /// Translate a tap in the framebuffer view's coordinate space into a
     /// remote-side button-1 click and dispatch it as a pair of
     /// `PointerEvent` messages (RFC 6143 §7.5.5): button-down (mask
@@ -2206,6 +2276,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
+        flushPendingPointerMove()
         enqueuePointerCommands(
             RFBPointerCommand.click(mask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y),
             pointerClient: pointerClient,
@@ -2245,6 +2316,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
+        flushPendingPointerMove()
         enqueuePointerCommands(
             RFBPointerCommand.click(mask: RFBPointerCommand.rightButton, x: mapped.x, y: mapped.y),
             pointerClient: pointerClient,
@@ -2325,6 +2397,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 commands.append(contentsOf: RFBPointerCommand.click(mask: tick.mask, x: mapped.x, y: mapped.y))
             }
         }
+        flushPendingPointerMove()
         enqueuePointerCommands(
             commands,
             pointerClient: pointerClient,
@@ -2375,6 +2448,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         // actually crosses the 1-pixel threshold gets emitted.
         lastEmittedDragCoord = (mapped.x, mapped.y)
 
+        flushPendingPointerMove()
         enqueuePointerCommands(
             [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y)],
             pointerClient: pointerClient,
@@ -2388,7 +2462,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// `PointerEvent` with mask `0x01` at the mapped framebuffer
     /// coords for `viewPoint`.  Throttle: a move whose framebuffer-
     /// coord delta from the last emitted coord is `< 1` pixel on both
-    /// axes is suppressed to avoid flooding the wire.
+    /// axes is suppressed to avoid flooding the wire. Move events that
+    /// do cross that threshold are coalesced over a tiny refresh-sized
+    /// window so the wire sees the newest drag position instead of a
+    /// backlog of stale intermediate points.
     ///
     /// Mirrors `sendPointerDownAt(...)` for the same no-op preconditions.
     public func sendPointerMoveTo(viewPoint: CGPoint, viewSize: CGSize) async {
@@ -2420,8 +2497,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         lastEmittedDragCoord = (mapped.x, mapped.y)
 
-        enqueuePointerCommands(
-            [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y)],
+        enqueueCoalescedPointerMove(
+            RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y),
             pointerClient: pointerClient,
             streamID: streamID,
             sessionID: sessionID,
@@ -2456,6 +2533,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let profileID = selectedProfileID
 
         lastEmittedDragCoord = nil
+        flushPendingPointerMove()
         enqueuePointerCommands(
             [RFBPointerCommand(buttonMask: RFBPointerCommand.released, x: mapped.x, y: mapped.y)],
             pointerClient: pointerClient,
