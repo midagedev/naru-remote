@@ -79,7 +79,13 @@ public struct RFBEncodingSupport: Equatable, Sendable {
 
     public static let increment1 = RFBEncodingSupport()
     public static let increment2 = RFBEncodingSupport(zrle: true)
-    public static let full = RFBEncodingSupport(zrle: true, tight: true, cursor: true)
+    public static let full = RFBEncodingSupport(
+        zrle: true,
+        tight: true,
+        cursor: true,
+        fence: true,
+        continuousUpdates: true
+    )
 }
 
 /// Pseudo-encodings the session would like to enable when supported.
@@ -111,6 +117,11 @@ public struct RFBPseudoEncodingRequest: Equatable, Sendable {
     public static let streamingBaseline = RFBPseudoEncodingRequest()
     public static let withServerCursor = RFBPseudoEncodingRequest(cursor: true)
     public static let withPacingExtensions = RFBPseudoEncodingRequest(fence: true, continuousUpdates: true)
+    public static let withServerCursorAndPacingExtensions = RFBPseudoEncodingRequest(
+        cursor: true,
+        fence: true,
+        continuousUpdates: true
+    )
 }
 
 /// Pure builder for the ordered `SetEncodings` list (spec 004 FR-001 /
