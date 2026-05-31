@@ -561,6 +561,8 @@ private func safeFailureLabel(for error: Error) -> String {
         return "malformed-zrle"
     case RFBRawFramebufferDecoderError.malformedCursor:
         return "malformed-cursor"
+    case RFBRawFramebufferDecoderError.malformedTight:
+        return "malformed-tight"
     case RFBClientMessageEncodingError.unsupportedFenceFlags:
         return "client-message-encoding"
     case RFBClientMessageEncodingError.fencePayloadTooLarge:
