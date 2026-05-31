@@ -103,10 +103,13 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
     }
 
     func testRejectsUnsupportedFramebufferEncoding() throws {
+        // Encoding 2 (RRE) is not implemented; encodings 5 (Hextile) and
+        // 1 (CopyRect) are now supported (spec 004), so this uses an
+        // encoding Naru genuinely cannot decode.
         let updateData = Data([
             0, 0, 0, 1,
             0, 0, 0, 0, 0, 1, 0, 1,
-            0, 0, 0, 5
+            0, 0, 0, 2
         ])
 
         XCTAssertThrowsError(
@@ -115,7 +118,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
                 serverInit: Self.serverInit(width: 1, height: 1)
             )
         ) { error in
-            XCTAssertEqual(error as? RFBRawFramebufferDecoderError, .unsupportedEncoding(5))
+            XCTAssertEqual(error as? RFBRawFramebufferDecoderError, .unsupportedEncoding(2))
         }
     }
 
@@ -137,6 +140,10 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
     }
 
     func testRejectsIncompleteRawPixelPayload() throws {
+        // A 2x2 raw rectangle needs 16 pixel bytes but only 4 are
+        // present. The incremental reader surfaces a typed
+        // RFBByteReaderError (spec 004 FR-002 / SP-006) — no trap, no
+        // out-of-bounds read.
         let updateData = Data([
             0, 0, 0, 1,
             0, 0, 0, 0, 0, 2, 0, 2,
@@ -151,8 +158,8 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(
-                error as? RFBRawFramebufferDecoderError,
-                .insufficientPixelData(expected: 32, actual: 20)
+                error as? RFBByteReaderError,
+                .insufficientData(requested: 16, available: 4)
             )
         }
     }

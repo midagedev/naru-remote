@@ -196,20 +196,34 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             timeout: timeout
         )
 
-        let updateData = try Self.readFramebufferUpdateData(
-            connection: connection,
-            serverInit: serverInit,
-            timeout: timeout
-        )
-        let updateResult = try RFBRawFramebufferDecoder.apply(
-            updateData: updateData,
+        // Decode the update incrementally off the live socket so
+        // variable-length encodings (Hextile / CopyRect / ZRLE) work over
+        // a TCP stream that may split a rectangle across reads (spec 004
+        // FR-002). The reader blocks for more bytes mid-rectangle.
+        let reader = ConnectionByteReader(connection: connection, timeout: timeout)
+        let updateResult = try RFBFramebufferDecoder.decodeUpdate(
+            reader: reader,
             serverInit: serverInit,
             previousFramebuffer: context.2
         )
 
+        // A DesktopSize / ExtendedDesktopSize pseudo-rectangle reallocated
+        // the framebuffer — refresh the cached server dimensions so the
+        // next FramebufferUpdateRequest and previous-frame match the new
+        // size (spec 004 FR-008).
+        let effectiveServerInit = updateResult.didResizeDesktop
+            ? RFBServerInit(
+                width: updateResult.framebuffer.width,
+                height: updateResult.framebuffer.height,
+                pixelFormat: serverInit.pixelFormat,
+                name: serverInit.name
+            )
+            : serverInit
+
         lock.withRFBClientLock {
+            clientServerInit = effectiveServerInit
             clientFramebuffer = updateResult.framebuffer
-            clientLastFrame = serverInit.frameMetadata(receivedAt: updateResult.capturedAt)
+            clientLastFrame = effectiveServerInit.frameMetadata(receivedAt: updateResult.capturedAt)
         }
 
         return updateResult
@@ -442,7 +456,20 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             byteCount: nameLength,
             timeout: timeout
         )
-        return try RFBProtocolDecoder.parseServerInit(serverInitData)
+        let serverInit = try RFBProtocolDecoder.parseServerInit(serverInitData)
+
+        // Advertise the encodings Naru can decode, in server-honored
+        // preference order, so the server stops falling back to Raw
+        // (spec 004 FR-001). Raw stays in the list as the universal
+        // floor — negotiation is an optimization, never a correctness
+        // dependency.
+        try connection.write(Self.setEncodingsMessage(), timeout: timeout)
+
+        return serverInit
+    }
+
+    private static func setEncodingsMessage() -> Data {
+        RFBClientMessageEncoder.setEncodings(RFBEncodingPreference.increment1.encodingList())
     }
 
     private static func selectSecurityType(
@@ -462,33 +489,6 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         }
 
         throw RFBNetworkClientError.unsupportedSecurityTypes(securityTypes.types)
-    }
-
-    private static func readFramebufferUpdateData(
-        connection: RFBNetworkConnection,
-        serverInit: RFBServerInit,
-        timeout: TimeInterval
-    ) throws -> Data {
-        let updatePrefix = try connection.readExactly(byteCount: 4, timeout: timeout)
-        let rectangleCount = Int(Self.uint16(Array(updatePrefix), at: 2))
-        let rectangleHeaderData = try connection.readExactly(
-            byteCount: rectangleCount * 12,
-            timeout: timeout
-        )
-        let updateHeader = try RFBProtocolDecoder.parseFramebufferUpdateHeader(updatePrefix + rectangleHeaderData)
-        let bytesPerPixel = Int(serverInit.pixelFormat.bitsPerPixel) / 8
-
-        var payload = Data()
-        for rectangle in updateHeader.rectangles {
-            guard rectangle.encodingType == 0 else {
-                throw RFBNetworkClientError.unsupportedFramebufferEncoding(rectangle.encodingType)
-            }
-
-            let pixelByteCount = rectangle.width * rectangle.height * bytesPerPixel
-            payload += try connection.readExactly(byteCount: pixelByteCount, timeout: timeout)
-        }
-
-        return updatePrefix + rectangleHeaderData + payload
     }
 
     private static func framebufferUpdateRequest(
@@ -554,6 +554,29 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
         case .notConnected:
             return "No active RFB connection is available."
         }
+    }
+}
+
+/// `RFBByteReader` over a live `RFBNetworkConnection` (spec 004
+/// FR-002). Each `readBytes(_:)` blocks (up to `timeout`) for exactly
+/// the requested bytes via `readExactly`, so a rectangle that spans
+/// multiple TCP segments simply waits for more — the decoder never
+/// assumes one `recv` yields a whole rectangle. Used only within the
+/// synchronous `requestFramebufferUpdate` call on the caller thread.
+private final class ConnectionByteReader: RFBByteReader {
+    private let connection: RFBNetworkConnection
+    private let timeout: TimeInterval
+
+    init(connection: RFBNetworkConnection, timeout: TimeInterval) {
+        self.connection = connection
+        self.timeout = timeout
+    }
+
+    func readBytes(_ count: Int) throws -> [UInt8] {
+        guard count > 0 else {
+            return []
+        }
+        return [UInt8](try connection.readExactly(byteCount: count, timeout: timeout))
     }
 }
 

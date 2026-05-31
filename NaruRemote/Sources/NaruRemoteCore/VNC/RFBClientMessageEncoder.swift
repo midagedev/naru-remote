@@ -12,6 +12,52 @@ public enum RFBClientMessageEncoder {
         return Data(bytes) + payload
     }
 
+    /// Encodes a `SetEncodings` message (RFC 6143 §7.5.2, message
+    /// type 2): advertises the encodings Naru supports in
+    /// server-honored preference order (spec 004 FR-001).
+    ///
+    /// Wire layout:
+    ///   - 1 byte:  message type (always 2)
+    ///   - 1 byte:  padding (0)
+    ///   - 2 bytes: number-of-encodings (big-endian)
+    ///   - 4 bytes × N: encoding types (signed s32, big-endian)
+    public static func setEncodings(_ encodings: [Int32]) -> Data {
+        let count = min(encodings.count, Int(UInt16.max))
+        var bytes: [UInt8] = [2, 0]
+        bytes.append(contentsOf: uint16Bytes(UInt16(count)))
+        for encoding in encodings.prefix(count) {
+            bytes.append(contentsOf: uint32Bytes(UInt32(bitPattern: encoding)))
+        }
+        return Data(bytes)
+    }
+
+    /// Encodes a `SetPixelFormat` message (RFC 6143 §7.5.1, message
+    /// type 0). Naru keeps 32-bit true-colour, so this only ever
+    /// re-asserts the format Naru already decodes (spec 004 D2 / FR-014).
+    ///
+    /// Wire layout (20 bytes):
+    ///   - 1 byte:  message type (always 0)
+    ///   - 3 bytes: padding (0)
+    ///   - 16 bytes: PIXEL_FORMAT
+    ///       bpp, depth, big-endian-flag, true-colour-flag,
+    ///       r-max u16, g-max u16, b-max u16,
+    ///       r-shift, g-shift, b-shift, 3 bytes padding
+    public static func setPixelFormat(_ format: RFBPixelFormat) -> Data {
+        var bytes: [UInt8] = [0, 0, 0, 0]
+        bytes.append(format.bitsPerPixel)
+        bytes.append(format.depth)
+        bytes.append(format.isBigEndian ? 1 : 0)
+        bytes.append(format.isTrueColor ? 1 : 0)
+        bytes.append(contentsOf: uint16Bytes(format.redMax))
+        bytes.append(contentsOf: uint16Bytes(format.greenMax))
+        bytes.append(contentsOf: uint16Bytes(format.blueMax))
+        bytes.append(format.redShift)
+        bytes.append(format.greenShift)
+        bytes.append(format.blueShift)
+        bytes.append(contentsOf: [0, 0, 0])
+        return Data(bytes)
+    }
+
     public static func pasteCommand(_ command: PasteCommand) -> Data {
         let modifier: UInt32 = switch command {
         case .commandV:
