@@ -56,6 +56,32 @@ final class PiPLayerHostAttachmentTests: XCTestCase {
         XCTAssertEqual(pipController.prepareWithHostCount, 1)
     }
 
+    func testStartPiPWatchPassesCurrentLayerHostViewportToController() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(width: 4, height: 4)
+        let viewport = PiPWatchViewport(centerX: 0.8, centerY: 0.25, zoomScale: 2)
+        let pipController = FakeLayerHostAttachingController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                latestFramebuffer: framebuffer
+            ),
+            pipWatchController: pipController
+        )
+        try model.pipLayerHost.updateViewport(viewport)
+
+        model.startPiPWatch(at: Date(timeIntervalSince1970: 101))
+
+        XCTAssertEqual(pipController.enqueuedViewports, [viewport])
+    }
+
     func testStartPiPWatchFallsBackToBarePrepareWhenControllerCannotAttach() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(
@@ -171,6 +197,7 @@ private final class FakeLayerHostAttachingController: PiPWatchControlling, PiPWa
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var enqueuedFramebuffers: [RFBRawFramebuffer] = []
+    private(set) var enqueuedViewports: [PiPWatchViewport] = []
     private(set) var attachedLayerHosts: [PiPLayerHost] = []
 
     init(isSupported: Bool = true) {
@@ -190,6 +217,12 @@ private final class FakeLayerHostAttachingController: PiPWatchControlling, PiPWa
 
     func enqueue(_ framebuffer: RFBRawFramebuffer) throws {
         enqueuedFramebuffers.append(framebuffer)
+        enqueuedViewports.append(.fullFrame)
+    }
+
+    func enqueue(_ framebuffer: RFBRawFramebuffer, viewport: PiPWatchViewport) throws {
+        enqueuedFramebuffers.append(framebuffer)
+        enqueuedViewports.append(viewport)
     }
 
     func start() -> Bool {
@@ -209,6 +242,7 @@ private final class LegacyFakePiPWatchController: PiPWatchControlling {
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var enqueuedFramebuffers: [RFBRawFramebuffer] = []
+    private(set) var enqueuedViewports: [PiPWatchViewport] = []
 
     init(isSupported: Bool = true) {
         self.isSupported = isSupported
@@ -221,6 +255,12 @@ private final class LegacyFakePiPWatchController: PiPWatchControlling {
 
     func enqueue(_ framebuffer: RFBRawFramebuffer) throws {
         enqueuedFramebuffers.append(framebuffer)
+        enqueuedViewports.append(.fullFrame)
+    }
+
+    func enqueue(_ framebuffer: RFBRawFramebuffer, viewport: PiPWatchViewport) throws {
+        enqueuedFramebuffers.append(framebuffer)
+        enqueuedViewports.append(viewport)
     }
 
     func start() -> Bool {

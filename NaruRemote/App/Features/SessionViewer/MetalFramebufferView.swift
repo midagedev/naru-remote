@@ -45,7 +45,7 @@ public typealias MetalFramebufferScrollHandler = @MainActor (_ point: CGPoint, _
 /// framebuffer.  `scale` is the new (clamped) local view scale —
 /// pinch is a LOCAL view transform per constitution §I and never
 /// produces an RFB message.
-public typealias MetalFramebufferPinchHandler = @MainActor (_ scale: CGFloat) -> Void
+public typealias MetalFramebufferPinchHandler = @MainActor (_ scale: CGFloat, _ viewSize: CGSize) -> Void
 
 /// Closures invoked across the lifecycle of a single-finger drag
 /// (button-1 hold) on the rendered framebuffer.  Same coordinate
@@ -62,7 +62,7 @@ public typealias MetalFramebufferPointerUpHandler = @MainActor (CGPoint, CGSize)
 /// points — a LOCAL view transform per constitution §I, never an RFB
 /// message.  Only fires when `zoomScale > 1`; at fit scale the
 /// one-finger drag remains the remote button-1 drag path.
-public typealias MetalFramebufferPanHandler = @MainActor (_ offset: CGSize) -> Void
+public typealias MetalFramebufferPanHandler = @MainActor (_ offset: CGSize, _ viewSize: CGSize) -> Void
 
 /// Closure invoked on a double-tap.  The model toggles between fit
 /// scale and a comfortable zoom centered on the tapped point — a LOCAL
@@ -509,13 +509,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
         // handler is wired only to the SwiftUI `.scaleEffect`.
-        pinchHandler?(clamped)
+        pinchHandler?(clamped, bounds.size)
         // Re-clamp the pan against the new scale so zooming out pulls
         // the content back into frame (and a return to ~1× re-centers).
         let reclamped = clampedPan(currentPanOffset)
         if reclamped != currentPanOffset {
             currentPanOffset = reclamped
-            panHandler?(reclamped)
+            panHandler?(reclamped, bounds.size)
         }
     }
 
@@ -602,7 +602,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 height: currentPanOffset.height + translation.y
             )
             currentPanOffset = clampedPan(proposed)
-            panHandler?(currentPanOffset)
+            panHandler?(currentPanOffset, bounds.size)
         default:
             break
         }

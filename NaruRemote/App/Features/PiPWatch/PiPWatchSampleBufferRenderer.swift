@@ -1,4 +1,90 @@
+import CoreGraphics
 import NaruRemoteCore
+
+public struct PiPWatchSourceRect: Equatable, Sendable {
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+
+    public init(x: Int, y: Int, width: Int, height: Int) {
+        self.x = max(x, 0)
+        self.y = max(y, 0)
+        self.width = max(width, 0)
+        self.height = max(height, 0)
+    }
+}
+
+/// Watch-only local focus for PiP video frames.
+///
+/// `centerX` / `centerY` are normalized framebuffer coordinates in
+/// `[0, 1]`, and `zoomScale` is the same local zoom multiplier the
+/// session viewport uses.  This type never represents remote input.
+public struct PiPWatchViewport: Equatable, Sendable {
+    public static let fullFrame = PiPWatchViewport()
+    public static let maximumZoomScale: Double = 4
+
+    public let centerX: Double
+    public let centerY: Double
+    public let zoomScale: Double
+
+    public init(
+        centerX: Double = 0.5,
+        centerY: Double = 0.5,
+        zoomScale: Double = 1
+    ) {
+        self.centerX = Self.clampedUnit(centerX)
+        self.centerY = Self.clampedUnit(centerY)
+        self.zoomScale = min(max(zoomScale, 1), Self.maximumZoomScale)
+    }
+
+    public init(transform: ViewportTransform) {
+        let center = CGPoint(
+            x: transform.viewSize.width / 2,
+            y: transform.viewSize.height / 2
+        )
+        let framebufferCenter = transform.framebufferPoint(fromViewPoint: center)
+            ?? CGPoint(
+                x: max(transform.framebufferSize.width - 1, 0) / 2,
+                y: max(transform.framebufferSize.height - 1, 0) / 2
+            )
+        let widthDenominator = max(Double(transform.framebufferSize.width - 1), 1)
+        let heightDenominator = max(Double(transform.framebufferSize.height - 1), 1)
+        self.init(
+            centerX: Double(framebufferCenter.x) / widthDenominator,
+            centerY: Double(framebufferCenter.y) / heightDenominator,
+            zoomScale: Double(transform.zoomScale)
+        )
+    }
+
+    public func sourceRect(framebufferWidth width: Int, height: Int) -> PiPWatchSourceRect {
+        guard width > 0, height > 0 else {
+            return PiPWatchSourceRect(x: 0, y: 0, width: 0, height: 0)
+        }
+
+        let cropWidth = max(1, min(width, Int((Double(width) / zoomScale).rounded())))
+        let cropHeight = max(1, min(height, Int((Double(height) / zoomScale).rounded())))
+        let centerPixelX = centerX * Double(max(width - 1, 0))
+        let centerPixelY = centerY * Double(max(height - 1, 0))
+        let rawOriginX = Int(
+            (centerPixelX - Double(cropWidth - 1) / 2).rounded(.toNearestOrAwayFromZero)
+        )
+        let rawOriginY = Int(
+            (centerPixelY - Double(cropHeight - 1) / 2).rounded(.toNearestOrAwayFromZero)
+        )
+        let originX = min(max(rawOriginX, 0), max(width - cropWidth, 0))
+        let originY = min(max(rawOriginY, 0), max(height - cropHeight, 0))
+
+        return PiPWatchSourceRect(x: originX, y: originY, width: cropWidth, height: cropHeight)
+    }
+
+    private static func clampedUnit(_ value: Double) -> Double {
+        guard value.isFinite else {
+            return 0.5
+        }
+        return min(max(value, 0), 1)
+    }
+}
 
 @MainActor
 public protocol PiPWatchControlling: AnyObject {
@@ -7,9 +93,16 @@ public protocol PiPWatchControlling: AnyObject {
     @discardableResult
     func prepare() -> Bool
     func enqueue(_ framebuffer: RFBRawFramebuffer) throws
+    func enqueue(_ framebuffer: RFBRawFramebuffer, viewport: PiPWatchViewport) throws
     @discardableResult
     func start() -> Bool
     func stop()
+}
+
+public extension PiPWatchControlling {
+    func enqueue(_ framebuffer: RFBRawFramebuffer, viewport: PiPWatchViewport) throws {
+        try enqueue(framebuffer)
+    }
 }
 
 #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
@@ -65,7 +158,10 @@ public enum PiPWatchSampleBufferRendererError: Error, Equatable, LocalizedError 
 public final class PiPWatchSampleBufferFactory {
     public init() {}
 
-    public func makePixelBuffer(from framebuffer: RFBRawFramebuffer) throws -> CVPixelBuffer {
+    public func makePixelBuffer(
+        from framebuffer: RFBRawFramebuffer,
+        viewport: PiPWatchViewport = .fullFrame
+    ) throws -> CVPixelBuffer {
         guard framebuffer.width > 0, framebuffer.height > 0 else {
             throw PiPWatchSampleBufferRendererError.unrenderableFramebuffer(
                 width: framebuffer.width,
@@ -92,16 +188,17 @@ public final class PiPWatchSampleBufferFactory {
             throw PiPWatchSampleBufferRendererError.pixelBufferCreationFailed
         }
 
-        try write(framebuffer: framebuffer, into: pixelBuffer)
+        try write(framebuffer: framebuffer, viewport: viewport, into: pixelBuffer)
         return pixelBuffer
     }
 
     public func makeSampleBuffer(
         from framebuffer: RFBRawFramebuffer,
+        viewport: PiPWatchViewport = .fullFrame,
         presentationTime: CMTime,
         duration: CMTime = CMTime(value: 1, timescale: 12)
     ) throws -> CMSampleBuffer {
-        let pixelBuffer = try makePixelBuffer(from: framebuffer)
+        let pixelBuffer = try makePixelBuffer(from: framebuffer, viewport: viewport)
         var formatDescription: CMVideoFormatDescription?
         let formatStatus = CMVideoFormatDescriptionCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
@@ -134,7 +231,11 @@ public final class PiPWatchSampleBufferFactory {
         return sampleBuffer
     }
 
-    private func write(framebuffer: RFBRawFramebuffer, into pixelBuffer: CVPixelBuffer) throws {
+    private func write(
+        framebuffer: RFBRawFramebuffer,
+        viewport: PiPWatchViewport,
+        into pixelBuffer: CVPixelBuffer
+    ) throws {
         let lockStatus = CVPixelBufferLockBaseAddress(pixelBuffer, [])
         guard lockStatus == kCVReturnSuccess else {
             throw PiPWatchSampleBufferRendererError.pixelBufferLockFailed(lockStatus)
@@ -150,12 +251,25 @@ public final class PiPWatchSampleBufferFactory {
 
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let pointer = baseAddress.assumingMemoryBound(to: UInt8.self)
+        let sourceRect = viewport.sourceRect(framebufferWidth: framebuffer.width, height: framebuffer.height)
+        let sourceColumns = (0..<framebuffer.width).map { x in
+            sourceRect.x + min(
+                sourceRect.width - 1,
+                Int(Double(x) * Double(sourceRect.width) / Double(framebuffer.width))
+            )
+        }
+        let sourceRows = (0..<framebuffer.height).map { y in
+            sourceRect.y + min(
+                sourceRect.height - 1,
+                Int(Double(y) * Double(sourceRect.height) / Double(framebuffer.height))
+            )
+        }
 
         for y in 0..<framebuffer.height {
+            let sourceY = sourceRows[y]
+            let sourceRowBase = sourceY * framebuffer.width
             for x in 0..<framebuffer.width {
-                guard let color = framebuffer[x, y] else {
-                    continue
-                }
+                let color = framebuffer.pixels[sourceRowBase + sourceColumns[x]]
 
                 let offset = y * bytesPerRow + x * 4
                 pointer[offset] = color.blue
@@ -185,13 +299,17 @@ public final class PiPWatchSampleBufferRenderer {
     }
 
     @discardableResult
-    public func enqueue(_ framebuffer: RFBRawFramebuffer) throws -> CMSampleBuffer {
+    public func enqueue(
+        _ framebuffer: RFBRawFramebuffer,
+        viewport: PiPWatchViewport = .fullFrame
+    ) throws -> CMSampleBuffer {
         if displayLayer.status == .failed {
             displayLayer.flushAndRemoveImage()
         }
 
         let sampleBuffer = try factory.makeSampleBuffer(
             from: framebuffer,
+            viewport: viewport,
             presentationTime: CMTime(value: frameIndex, timescale: timescale),
             duration: CMTime(value: 1, timescale: timescale)
         )
@@ -279,6 +397,10 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     }
 
     public func enqueue(_ framebuffer: RFBRawFramebuffer) throws {
+        try enqueue(framebuffer, viewport: .fullFrame)
+    }
+
+    public func enqueue(_ framebuffer: RFBRawFramebuffer, viewport: PiPWatchViewport) throws {
         // When an in-app `PiPLayerHost` is attached the model writes
         // streamed frames into the host directly so the SwiftUI viewport
         // and the AVPictureInPictureController content source share a
@@ -286,7 +408,7 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         // prevents double encoding.  Without an attached host, retain
         // the legacy behavior of rendering through the fallback renderer.
         if layerHost == nil {
-            _ = try fallbackRenderer.enqueue(framebuffer)
+            _ = try fallbackRenderer.enqueue(framebuffer, viewport: viewport)
         }
         pictureInPictureController?.invalidatePlaybackState()
     }

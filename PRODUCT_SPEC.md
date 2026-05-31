@@ -208,6 +208,8 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - PiP 시작은 사용자가 명시적으로 선택해야 한다.
 - PiP는 제어 가능한 세션이 실제 원격 프레임을 받은 뒤에만 시작할 수 있다.
 - PiP에는 원격 화면과 최소 상태 overlay만 표시한다.
+- 사용자가 메인 세션에서 확대/팬으로 잡은 읽기 영역은 PiP에서도 같은
+  watch-only 포커스로 반영될 수 있어야 한다.
 - 민감한 프로필에서는 PiP 사용을 끌 수 있어야 한다.
 - diagnostic export와 logs에는 PiP 프레임이나 screenshots를 저장하지 않는다.
 
@@ -218,6 +220,8 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - 메인 viewport와 PiP는 같은 locally composed framebuffer pipeline을 공유한다.
   별도 디코더를 두지 않고 dirty rectangle, changed pixel count, change
   activity를 기준으로 렌더링 비용을 조절한다.
+- PiP 확대/팬은 원격 입력이 아니라 로컬 video-frame crop으로 처리하며,
+  PiP layer churn을 줄이기 위해 출력 sample-buffer 크기는 안정적으로 유지한다.
 - 변화가 적은 화면은 낮은 FPS로 유지하고, 변화가 많은 화면만 일시적으로
   프레임 전송 빈도를 올린다.
 - 첫 구현은 one active controllable session + one PiP watch session을 목표로

@@ -34,6 +34,45 @@ final class PiPWatchSampleBufferRendererTests: XCTestCase {
         XCTAssertEqual(bytes[3], 200)
     }
 
+    func testViewportSourceRectCentersAndClampsCrop() {
+        XCTAssertEqual(
+            PiPWatchViewport(centerX: 0.5, centerY: 0.5, zoomScale: 2)
+                .sourceRect(framebufferWidth: 4, height: 4),
+            PiPWatchSourceRect(x: 1, y: 1, width: 2, height: 2)
+        )
+        XCTAssertEqual(
+            PiPWatchViewport(centerX: 1, centerY: 1, zoomScale: 2)
+                .sourceRect(framebufferWidth: 4, height: 4),
+            PiPWatchSourceRect(x: 2, y: 2, width: 2, height: 2)
+        )
+    }
+
+    func testFactoryRendersZoomedViewportIntoStableFullSizePixelBuffer() throws {
+        let framebuffer = try Self.gradientFramebuffer(width: 4, height: 4)
+
+        let pixelBuffer = try PiPWatchSampleBufferFactory().makePixelBuffer(
+            from: framebuffer,
+            viewport: PiPWatchViewport(centerX: 0.5, centerY: 0.5, zoomScale: 2)
+        )
+
+        XCTAssertEqual(CVPixelBufferGetWidth(pixelBuffer), 4)
+        XCTAssertEqual(CVPixelBufferGetHeight(pixelBuffer), 4)
+        XCTAssertEqual(try Self.color(in: pixelBuffer, x: 0, y: 0), Self.gradientColor(x: 1, y: 1))
+        XCTAssertEqual(try Self.color(in: pixelBuffer, x: 3, y: 3), Self.gradientColor(x: 2, y: 2))
+    }
+
+    func testFactoryRendersPannedViewportFromClampedLowerRightFocus() throws {
+        let framebuffer = try Self.gradientFramebuffer(width: 4, height: 4)
+
+        let pixelBuffer = try PiPWatchSampleBufferFactory().makePixelBuffer(
+            from: framebuffer,
+            viewport: PiPWatchViewport(centerX: 1, centerY: 1, zoomScale: 2)
+        )
+
+        XCTAssertEqual(try Self.color(in: pixelBuffer, x: 0, y: 0), Self.gradientColor(x: 2, y: 2))
+        XCTAssertEqual(try Self.color(in: pixelBuffer, x: 3, y: 3), Self.gradientColor(x: 3, y: 3))
+    }
+
     func testFactoryRejectsZeroSizedFramebuffer() {
         let framebuffer = RFBRawFramebuffer(width: 0, height: 1)
 
@@ -80,6 +119,46 @@ final class PiPWatchSampleBufferRendererTests: XCTestCase {
         XCTAssertEqual(renderer.displayLayer.videoGravity, .resizeAspect)
         XCTAssertEqual(CMSampleBufferGetPresentationTimeStamp(first), CMTime(value: 0, timescale: 12))
         XCTAssertEqual(CMSampleBufferGetPresentationTimeStamp(second), CMTime(value: 1, timescale: 12))
+    }
+
+    private struct FramebufferFixture: Encodable {
+        let width: Int
+        let height: Int
+        let pixels: [RFBColor]
+    }
+
+    private static func gradientFramebuffer(width: Int, height: Int) throws -> RFBRawFramebuffer {
+        let pixels = (0..<height).flatMap { y in
+            (0..<width).map { x in
+                gradientColor(x: x, y: y)
+            }
+        }
+        let data = try JSONEncoder().encode(
+            FramebufferFixture(width: width, height: height, pixels: pixels)
+        )
+        return try JSONDecoder().decode(RFBRawFramebuffer.self, from: data)
+    }
+
+    private static func gradientColor(x: Int, y: Int) -> RFBColor {
+        RFBColor(red: UInt8(x * 50), green: UInt8(y * 50), blue: UInt8((x + y) * 20))
+    }
+
+    private static func color(in pixelBuffer: CVPixelBuffer, x: Int, y: Int) throws -> RFBColor {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer {
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+        }
+
+        let baseAddress = try XCTUnwrap(CVPixelBufferGetBaseAddress(pixelBuffer))
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+        let offset = y * bytesPerRow + x * 4
+        return RFBColor(
+            red: bytes[offset + 2],
+            green: bytes[offset + 1],
+            blue: bytes[offset],
+            alpha: bytes[offset + 3]
+        )
     }
 }
 #endif
