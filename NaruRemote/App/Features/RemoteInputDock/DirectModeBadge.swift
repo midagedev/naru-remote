@@ -44,9 +44,11 @@ struct DirectModeBadge: View {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10, weight: .semibold))
-                Text("Direct — IME off")
+                Text("IME off")
                     .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
             }
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(Color.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

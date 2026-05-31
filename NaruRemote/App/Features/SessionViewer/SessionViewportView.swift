@@ -24,6 +24,36 @@ public struct SessionViewportView: View {
     private let onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)?
     private let onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)?
     private let onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)?
+    /// How a one-finger gesture is interpreted (spec 003 US3 / T015).
+    /// `.directTouch` keeps the tap-where-you-touch wire path; `.trackpad`
+    /// draws the soft cursor and routes gestures through
+    /// `onTrackpadGesture`.  Constitution §I: cursor moves are LOCAL —
+    /// only clicks/drags resolved by the model reach the wire.
+    private let pointerControlMode: PointerControlMode
+    /// Soft cursor (framebuffer pixels) drawn over the preview while in
+    /// trackpad mode.  Constitution §IV: the position is rendered but
+    /// never logged or persisted.
+    private let trackpadCursor: TrackpadCursor
+    /// Routes a trackpad-mode gesture (resolved view point + per-event
+    /// translation) to the model, with the framebuffer container's view
+    /// size so the model can build the `ViewportTransform`.
+    private let onTrackpadGesture: ((PointerGesture, CGSize) -> Void)?
+    /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
+    /// toggle.
+    private let onTogglePointerMode: (() -> Void)?
+    /// Latency-derived connection quality, shown as a compact chip while
+    /// the session is streaming (spec 003 US4).  Constitution §IV: this
+    /// is a coarse bucket only — no raw latency value is displayed or
+    /// exported.
+    private let connectionQuality: ConnectionQuality
+    /// When `true` the remote-screen container becomes the dominant
+    /// full-height "hero" (GRD parity, spec 003 FR-001) instead of a
+    /// width-driven aspect-fit box; the framebuffer still fits inside via
+    /// its own `.aspectRatio`, centering with dark bands.  The Shell sets
+    /// this only during a live session so the screen fills the space above
+    /// the dock and the soft keyboard merely shrinks it rather than
+    /// crushing it.  Pure local layout — constitution §I.
+    private let fillsAvailableHeight: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     private let pipLayerHost: PiPLayerHost?
     #endif
@@ -33,6 +63,11 @@ public struct SessionViewportView: View {
     /// message.  Clamped to `[minZoomScale, maxZoomScale]` on every
     /// update.
     @State private var zoomScale: CGFloat = 1.0
+
+    /// Previous cumulative `DragGesture` translation for the active
+    /// trackpad drag, used to derive the per-event delta `TrackpadCursor`
+    /// expects.  `nil` between drags.
+    @State private var trackpadDragPrevious: CGSize?
 
     /// Drives the title vs. action-row split.  iPhone (`.compact`)
     /// drops the action pills onto their own row below the title so
@@ -58,6 +93,8 @@ public struct SessionViewportView: View {
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
+        pointerControlMode: PointerControlMode = .directTouch,
+        trackpadCursor: TrackpadCursor = TrackpadCursor(),
         pipLayerHost: PiPLayerHost? = nil,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
@@ -68,7 +105,11 @@ public struct SessionViewportView: View {
         onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
         onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil
+        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
+        onTrackpadGesture: ((PointerGesture, CGSize) -> Void)? = nil,
+        onTogglePointerMode: (() -> Void)? = nil,
+        connectionQuality: ConnectionQuality = .unknown,
+        fillsAvailableHeight: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -78,6 +119,8 @@ public struct SessionViewportView: View {
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
+        self.pointerControlMode = pointerControlMode
+        self.trackpadCursor = trackpadCursor
         self.pipLayerHost = pipLayerHost
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
@@ -89,6 +132,10 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerDown = onFramebufferPointerDown
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
+        self.onTrackpadGesture = onTrackpadGesture
+        self.onTogglePointerMode = onTogglePointerMode
+        self.connectionQuality = connectionQuality
+        self.fillsAvailableHeight = fillsAvailableHeight
     }
     #else
     public init(
@@ -100,6 +147,8 @@ public struct SessionViewportView: View {
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
+        pointerControlMode: PointerControlMode = .directTouch,
+        trackpadCursor: TrackpadCursor = TrackpadCursor(),
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
@@ -109,7 +158,11 @@ public struct SessionViewportView: View {
         onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
         onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil
+        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
+        onTrackpadGesture: ((PointerGesture, CGSize) -> Void)? = nil,
+        onTogglePointerMode: (() -> Void)? = nil,
+        connectionQuality: ConnectionQuality = .unknown,
+        fillsAvailableHeight: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -119,6 +172,8 @@ public struct SessionViewportView: View {
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
+        self.pointerControlMode = pointerControlMode
+        self.trackpadCursor = trackpadCursor
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
@@ -129,6 +184,10 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerDown = onFramebufferPointerDown
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
+        self.onTrackpadGesture = onTrackpadGesture
+        self.onTogglePointerMode = onTogglePointerMode
+        self.connectionQuality = connectionQuality
+        self.fillsAvailableHeight = fillsAvailableHeight
     }
     #endif
 
@@ -173,7 +232,44 @@ public struct SessionViewportView: View {
                     }
                 }
             }
-            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            // Screen-first (spec 003 FR-001): the session container adopts
+            // the server's TRUE aspect ratio once a frame exists, so a
+            // 16:9 / 16:10 desktop fills the width instead of being
+            // double-letterboxed inside a hardcoded 4:3 box.  The
+            // empty-state placeholder keeps 4:3 until the first frame
+            // defines the real ratio (see `containerAspectRatio`).  In
+            // hero mode (`fillsAvailableHeight`) the container instead
+            // greedily fills the available height — the framebuffer still
+            // fits inside via its own `.aspectRatio`, centering with dark
+            // bands like a GRD viewport (spec 003 FR-001).
+            .modifier(
+                ViewportSizing(
+                    fill: fillsAvailableHeight,
+                    aspectRatio: containerAspectRatio
+                )
+            )
+            // Trackpad gesture surface — a transparent layer that
+            // intercepts one-finger drag + tap ONLY in trackpad mode and
+            // forwards them as `PointerGesture`s.  Gated so direct-touch
+            // mode keeps using the existing `MetalFramebufferView`
+            // recognizers untouched.  Constitution §I: this layer never
+            // emits an RFB message itself — the model resolves cursor
+            // moves (local) vs. clicks (wire).
+            .overlay {
+                if pointerControlMode.isTrackpad, framebuffer != nil {
+                    trackpadGestureSurface
+                }
+            }
+            // Soft cursor overlay (trackpad mode only).  Drawn on top of
+            // the preview and never hit-testing so it cannot eat the
+            // gesture surface below it.
+            .overlay {
+                if pointerControlMode.isTrackpad,
+                   trackpadCursor.isVisible,
+                   let framebuffer {
+                    cursorOverlay(framebuffer: framebuffer)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 // UX punch-list #103: the "PiP after first frame"
                 // affordance is only meaningful once a session has been
@@ -208,6 +304,16 @@ public struct SessionViewportView: View {
             }
         }
         .padding(16)
+        // In hero/fill mode the root stack must be greedy so the
+        // framebuffer container actually expands to the available height
+        // instead of hugging its ideal size and being centered in the
+        // Shell's fill-frame (which would leave a dead gap above the
+        // dock).  `.top` keeps the header pinned up top.
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: fillsAvailableHeight ? .infinity : nil,
+            alignment: .top
+        )
         .accessibilityIdentifier("naru.session.viewport")
     }
 
@@ -227,11 +333,15 @@ public struct SessionViewportView: View {
 
             HStack(spacing: 10) {
                 checksButton(iconOnly: false)
-                connectButton
+                if showsConnectButton {
+                    connectButton
+                }
                 if showsDisconnectButton {
                     disconnectButton
                 }
+                pointerModeButton
                 pipWatchButton(iconOnly: false)
+                qualityChip
                 statusBadge
             }
         }
@@ -250,12 +360,16 @@ public struct SessionViewportView: View {
 
             HStack(spacing: 8) {
                 checksButton(iconOnly: true)
-                connectButton
+                if showsConnectButton {
+                    connectButton
+                }
                 if showsDisconnectButton {
                     disconnectButton
                 }
+                pointerModeButton
                 pipWatchButton(iconOnly: true)
                 Spacer(minLength: 4)
+                qualityChip
                 statusBadge
             }
         }
@@ -295,6 +409,12 @@ public struct SessionViewportView: View {
             onConnect?()
         } label: {
             Label("Connect", systemImage: "bolt.horizontal.circle")
+                // Keep the label on one line so a tight action row never
+                // wraps it into a vertical glyph strip ("Co / nne / ct")
+                // once the trackpad / PiP controls share the row on the
+                // pre-connect screen (UX punch-list #005).
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .buttonStyle(.borderedProminent)
         .disabled(onConnect == nil)
@@ -339,6 +459,140 @@ public struct SessionViewportView: View {
         .help(pipWatchButtonHelp)
         .accessibilityLabel("PiP Watch")
         .accessibilityIdentifier("naru.session.pipWatch")
+    }
+
+    /// Control-bar toggle between direct-touch and trackpad pointer
+    /// modes (spec 003 US3 / T015).  Only meaningful while a session is
+    /// active — disabled otherwise so it never reads as a live control on
+    /// the empty-state home screen.  The SF Symbol mirrors the *current*
+    /// mode (a trackpad-cursor glyph in trackpad mode, a tapping hand in
+    /// direct mode) and the accessibility label states it outright.
+    @ViewBuilder
+    private var pointerModeButton: some View {
+        Button {
+            onTogglePointerMode?()
+        } label: {
+            Label(
+                pointerModeLabelText,
+                systemImage: pointerControlMode.isTrackpad ? "cursorarrow.rays" : "hand.tap"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.bordered)
+        .disabled(onTogglePointerMode == nil || session?.state != .active)
+        .help(pointerModeLabelText)
+        .accessibilityLabel(pointerModeLabelText)
+        .accessibilityIdentifier("naru.session.pointerMode")
+    }
+
+    private var pointerModeLabelText: String {
+        pointerControlMode.isTrackpad
+            ? "Trackpad mode — tap to switch to direct touch"
+            : "Direct touch — tap to switch to trackpad"
+    }
+
+    /// Compact latency-derived connection-quality indicator (spec 003
+    /// US4).  Shown only while the session is streaming (`.active`) and a
+    /// bucket has been established (`!= .unknown`) so it never reads as a
+    /// dead chip during connect or after disconnect.  Mirrors the GRD
+    /// signal-strength affordance the latency estimator was wired for.
+    @ViewBuilder
+    private var qualityChip: some View {
+        if session?.state == .active, connectionQuality != .unknown {
+            Label(qualityText, systemImage: "wifi")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(qualityColor)
+                .labelStyle(.titleAndIcon)
+                .fixedSize(horizontal: true, vertical: false)
+                .help("Connection quality")
+                .accessibilityLabel("Connection quality: \(qualityText)")
+                .accessibilityIdentifier("naru.session.quality")
+        }
+    }
+
+    private var qualityText: String {
+        switch connectionQuality {
+        case .good: return "Good"
+        case .fair: return "Fair"
+        case .poor: return "Poor"
+        case .unknown: return ""
+        }
+    }
+
+    private var qualityColor: Color {
+        switch connectionQuality {
+        case .good: return .green
+        case .fair: return .orange
+        case .poor: return .red
+        case .unknown: return .secondary
+        }
+    }
+
+    /// Transparent, full-bleed gesture layer used only in trackpad mode.
+    /// A one-finger drag emits `dragChanged`/`dragEnded` (relative cursor
+    /// motion) and a near-stationary press emits `tap` (click at the
+    /// cursor).  The `GeometryReader` captures the framebuffer
+    /// container's size so the model can build the `ViewportTransform`.
+    /// `translation` is the per-event delta in view points (`DragGesture`
+    /// reports cumulative translation, so we diff against the previous
+    /// value).
+    private var trackpadGestureSurface: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let previous = trackpadDragPrevious ?? .zero
+                            let delta = CGSize(
+                                width: value.translation.width - previous.width,
+                                height: value.translation.height - previous.height
+                            )
+                            trackpadDragPrevious = value.translation
+                            onTrackpadGesture?(
+                                .dragChanged(viewPoint: value.location, translation: delta),
+                                size
+                            )
+                        }
+                        .onEnded { value in
+                            let movedFar = abs(value.translation.width) > 6
+                                || abs(value.translation.height) > 6
+                            trackpadDragPrevious = nil
+                            if movedFar {
+                                onTrackpadGesture?(.dragEnded(viewPoint: value.location), size)
+                            } else {
+                                // A near-stationary press-release reads as
+                                // a tap → click at the cursor (003 FR-008).
+                                onTrackpadGesture?(.tap(viewPoint: value.location), size)
+                            }
+                        }
+                )
+        }
+        .accessibilityIdentifier("naru.session.trackpadSurface")
+    }
+
+    /// Maps the soft cursor's framebuffer position into the container's
+    /// view space with the same aspect-fit the preview uses, then draws
+    /// the cursor glyph.  `.allowsHitTesting(false)` keeps it from eating
+    /// the gesture surface.
+    @ViewBuilder
+    private func cursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
+        GeometryReader { proxy in
+            let point = Self.cursorViewPoint(
+                framebufferPosition: trackpadCursor.position,
+                framebufferWidth: framebuffer.width,
+                framebufferHeight: framebuffer.height,
+                containerSize: proxy.size
+            )
+            Image(systemName: "cursorarrow")
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.55), radius: 2, x: 0, y: 1)
+                .position(point)
+        }
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("naru.session.cursor")
     }
 
     private var statusBadge: some View {
@@ -413,13 +667,27 @@ public struct SessionViewportView: View {
         #endif
     }
 
+    /// Aspect ratio for the session container.  Uses the live
+    /// framebuffer's real ratio (screen-first, spec 003 FR-001), clamped
+    /// to `[0.5, 2.5]` so a degenerate server size can't make the
+    /// container a sliver or a wall.  Falls back to 4:3 — a neutral
+    /// monitor shape — for the pre-first-frame placeholder.
+    private var containerAspectRatio: CGFloat {
+        guard let framebuffer, framebuffer.width > 0, framebuffer.height > 0 else {
+            return 4.0 / 3.0
+        }
+        let ratio = CGFloat(framebuffer.width) / CGFloat(framebuffer.height)
+        return min(max(ratio, 0.5), 2.5)
+    }
+
     private var statusText: String {
-        // "None" instead of "No Session" — terse copy keeps the badge
-        // single-word so it never wraps mid-glyph on compact width
-        // (UX punch-list #005).  The icon next to it already carries
-        // the "this is the session-state slot" semantics.
+        // "Not connected" reads clearer than the terse "None" the badge
+        // used to show, while still staying short enough that it doesn't
+        // wrap mid-glyph on compact width (UX punch-list #005).  The icon
+        // next to it already carries the "this is the session-state slot"
+        // semantics.
         guard let state = session?.state else {
-            return "None"
+            return "Not connected"
         }
         if case let .reconnecting(attempt, total) = state {
             return "Reconnecting (\(attempt)/\(total))…"
@@ -473,6 +741,23 @@ public struct SessionViewportView: View {
         }
     }
 
+    /// Connect is hidden once the session is streaming or in the bounded
+    /// auto-reconnect window — you don't "Connect" while already
+    /// connected, and Disconnect is the relevant action there.  Hiding
+    /// it (vs. disabling) frees width so the action row doesn't overflow
+    /// and wrap the Connect label into a vertical glyph strip on compact
+    /// iPhone widths once the trackpad / PiP / quality controls are all
+    /// present (constitution §VI).  Inverse of `showsDisconnectButton`.
+    private var showsConnectButton: Bool {
+        guard let state = session?.state else { return true }
+        switch state {
+        case .active, .reconnecting:
+            return false
+        case .connecting, .authenticating, .degraded, .failed, .closed:
+            return true
+        }
+    }
+
     private var pipWatchButtonHelp: String {
         if isPiPWatchAvailable, onStartPiPWatch == nil {
             return "PiP renderer pending"
@@ -520,6 +805,66 @@ public struct SessionViewportView: View {
             return .blue
         case .closed, nil:
             return .secondary
+        }
+    }
+
+    /// Maps a framebuffer-pixel cursor position into the container's
+    /// view-space point using the aspect-fit the preview renders with
+    /// (`.aspectRatio(contentMode: .fit)` centered with letterbox
+    /// bands).  This is the inverse of `framebufferCoordinate(...)` in
+    /// the app model.  Zoom lives in the view's `@State` but the cursor
+    /// mapping here uses the fit transform — matching the model's
+    /// fit-transform cursor math (a zoom-aware follow-up is noted in the
+    /// model's `handleTrackpadGesture`).
+    static func cursorViewPoint(
+        framebufferPosition: CGPoint,
+        framebufferWidth: Int,
+        framebufferHeight: Int,
+        containerSize: CGSize
+    ) -> CGPoint {
+        guard framebufferWidth > 0,
+              framebufferHeight > 0,
+              containerSize.width > 0,
+              containerSize.height > 0
+        else {
+            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
+        }
+
+        let viewAspect = containerSize.width / containerSize.height
+        let textureAspect = CGFloat(framebufferWidth) / CGFloat(framebufferHeight)
+
+        let fitWidth: CGFloat
+        let fitHeight: CGFloat
+        if viewAspect > textureAspect {
+            fitHeight = containerSize.height
+            fitWidth = fitHeight * textureAspect
+        } else {
+            fitWidth = containerSize.width
+            fitHeight = fitWidth / textureAspect
+        }
+
+        let originX = (containerSize.width - fitWidth) / 2
+        let originY = (containerSize.height - fitHeight) / 2
+
+        let x = originX + framebufferPosition.x / CGFloat(framebufferWidth) * fitWidth
+        let y = originY + framebufferPosition.y / CGFloat(framebufferHeight) * fitHeight
+        return CGPoint(x: x, y: y)
+    }
+}
+
+/// Switches the session container between the historical width-driven
+/// aspect-fit box and the immersive full-height "hero" (spec 003
+/// FR-001).  Kept as a `ViewModifier` so the trailing `.clipShape` /
+/// `.overlay` chain in `body` is applied once regardless of mode.
+private struct ViewportSizing: ViewModifier {
+    let fill: Bool
+    let aspectRatio: CGFloat
+
+    func body(content: Content) -> some View {
+        if fill {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            content.aspectRatio(aspectRatio, contentMode: .fit)
         }
     }
 }

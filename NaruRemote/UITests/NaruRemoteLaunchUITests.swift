@@ -9,21 +9,18 @@ final class NaruRemoteLaunchUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Naru Remote"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Add a private VNC profile"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["First Run"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Private target"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Compose locally"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Diagnostics"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["No remote frame yet"].waitForExistence(timeout: 2))
-        let pipWatchButton = app.buttons["PiP Watch"]
-        XCTAssertTrue(pipWatchButton.waitForExistence(timeout: 2))
-        XCTAssertFalse(pipWatchButton.isEnabled)
+        XCTAssertTrue(app.staticTexts["Add a computer to begin."].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["naru.home.empty.addProfile"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Remote Input Dock"].exists)
+        XCTAssertFalse(app.staticTexts["Diagnostics"].exists)
     }
 
     func testRemoteInputDockMovesAboveKeyboardWhileComposing() {
         XCUIDevice.shared.orientation = .landscapeLeft
 
-        let app = launchAppWithEmptyProfileStore()
+        let app = launchAppWithProfileStore(seedProfiles: [
+            SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+        ])
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
@@ -49,16 +46,54 @@ final class NaruRemoteLaunchUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Add Profile"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.textFields["Profile name"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.textFields["MagicDNS or private host"].waitForExistence(timeout: 2))
+        let hostField = app.textFields["MagicDNS or private host"]
+        XCTAssertTrue(hostField.waitForExistence(timeout: 2))
+
+        app.typeText("studio.tailnet.ts.net")
+        XCTAssertEqual(hostField.value as? String, "studio.tailnet.ts.net")
     }
 
     private func launchAppWithEmptyProfileStore() -> XCUIApplication {
+        launchAppWithProfileStore()
+    }
+
+    private func launchAppWithProfileStore(seedProfiles: [SeedProfile] = []) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        if !seedProfiles.isEmpty {
+            try? writeSeedProfiles(seedProfiles, to: storeURL)
+        }
         app.launch()
         return app
+    }
+
+    private struct SeedProfile {
+        let id = UUID()
+        let displayName: String
+        let host: String
+        let port = 5900
+        let hostKind = "magicDNS"
+    }
+
+    private func writeSeedProfiles(_ profiles: [SeedProfile], to fileURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let payload = profiles.map { profile in
+            [
+                "id": profile.id.uuidString,
+                "displayName": profile.displayName,
+                "host": profile.host,
+                "port": profile.port,
+                "hostKind": profile.hostKind,
+                "allowsPiPWatch": true
+            ] as [String: Any]
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+        try data.write(to: fileURL, options: .atomic)
     }
 }

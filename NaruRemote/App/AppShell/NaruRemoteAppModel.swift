@@ -59,6 +59,35 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// off all clear the state (FR-012).
     @Published public private(set) var stickyModifierState: StickyModifierState = .init()
 
+    /// Coarse connection-quality bucket (Good / Fair / Poor) derived
+    /// from frame round-trip latency while a session is active
+    /// (spec 003 US4 / FR-012).  `.unknown` until the first frame's
+    /// latency is sampled; reset on disconnect / fresh connect.
+    /// Constitution §IV: only the bucket is published — the underlying
+    /// latency value is never persisted, logged, or exported.
+    @Published public private(set) var connectionQuality: ConnectionQuality = .unknown
+
+    /// How a one-finger gesture on the remote screen is interpreted
+    /// (spec 003 US3 / T014).  `.directTouch` preserves tap-where-you-
+    /// touch; `.trackpad` is Google-Remote-Desktop-style relative
+    /// cursor control.  Reset to `.productDefault` on every disconnect /
+    /// fresh connect / profile change so the mode never leaks across
+    /// sessions.  Constitution §I: switching modes is a LOCAL transform
+    /// only — no RFB PointerEvent is emitted by the toggle itself.
+    @Published public private(set) var pointerControlMode: PointerControlMode = .productDefault
+
+    /// Soft cursor for trackpad mode, positioned in remote framebuffer
+    /// pixels.  Hidden in direct-touch mode and reset on every
+    /// disconnect / fresh connect / profile change.  Constitution §IV:
+    /// the cursor position is published for the overlay but never
+    /// logged, persisted, or exported.
+    @Published public private(set) var trackpadCursor: TrackpadCursor = TrackpadCursor()
+
+    /// Rolling estimator smoothing per-frame round-trip latency into
+    /// `connectionQuality` so a single slow frame does not flip the
+    /// indicator.  Memory-only; reset alongside `connectionQuality`.
+    private var connectionQualityEstimator = ConnectionQualityEstimator()
+
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
@@ -327,10 +356,12 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
             reconnectAttempts = 0
+            resetConnectionQuality()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = nil
@@ -396,6 +427,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -527,6 +559,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -827,6 +860,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         activeStreamProfile = nil
         activeStreamCredential = nil
+        resetConnectionQuality()
+        resetPointerControl()
 
         runConnectionChecks()
         var nextSession = RemoteSession(
@@ -849,6 +884,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetPointerControl()
             lastEmittedDragCoord = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
@@ -1027,12 +1063,26 @@ public final class NaruRemoteAppModel: ObservableObject {
                     }
 
                     let requestTimeout = configuration.requestTimeout
+                    // Sample the request→frame round-trip so the
+                    // connection-quality chip reflects real latency
+                    // (spec 003 US4).  Wall-clock around the detached
+                    // pump call is a reasonable proxy; the value is fed
+                    // to the estimator and then discarded — never
+                    // logged (constitution §IV).
+                    let requestStart = Date()
                     let maybeFrame = try await Task.detached {
                         try pump.nextFrame(requestTimeout: requestTimeout)
                     }.value
+                    let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
                     guard let frame = maybeFrame else {
                         return
                     }
+                    recordFrameLatency(
+                        milliseconds: roundTripMilliseconds,
+                        streamID: streamID,
+                        sessionID: pendingSession.id,
+                        profileID: profile.id
+                    )
 
                     guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
                         pump.cancel()
@@ -1143,6 +1193,60 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Fold one frame round-trip latency sample into the
+    /// connection-quality estimator and republish the bucket.  Gated
+    /// on the stream still being current so a straggler sample from a
+    /// torn-down stream cannot perturb a fresh session's quality.
+    /// Constitution §IV: the millisecond value is consumed here and
+    /// never stored or logged — only the coarse bucket survives.
+    private func recordFrameLatency(
+        milliseconds: Double,
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) {
+        guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID) else {
+            return
+        }
+        connectionQualityEstimator.record(latencyMilliseconds: milliseconds)
+        let bucket = connectionQualityEstimator.quality
+        if connectionQuality != bucket {
+            connectionQuality = bucket
+        }
+    }
+
+    /// Clear the connection-quality estimator and republished bucket.
+    /// Called on disconnect / fresh connect / profile change so a new
+    /// session starts at `.unknown` rather than inheriting the prior
+    /// session's quality.
+    private func resetConnectionQuality() {
+        connectionQualityEstimator.reset()
+        connectionQuality = .unknown
+    }
+
+    /// Reset pointer-control mode + soft cursor to the product
+    /// default.  Called alongside `resetConnectionQuality()` /
+    /// `activePointerClient = nil` on every disconnect / fresh connect /
+    /// profile change so the trackpad mode and cursor position never
+    /// leak across sessions (spec 003 T014).  Constitution §IV: the
+    /// cursor position is dropped here, never logged or persisted.
+    private func resetPointerControl() {
+        pointerControlMode = .productDefault
+        trackpadCursor = TrackpadCursor()
+    }
+
+    /// Test/fixture seam: publish a connection-quality bucket directly,
+    /// without a live latency stream.  The production path
+    /// (`recordFrameLatency`) is private and only fires while a real
+    /// frame round-trip is timed, which the UX-audit fixtures and unit
+    /// tests cannot reach.  This mirrors `recordIncomingClipboard` as
+    /// the canonical post-init mutation hook for a synthetic state.
+    /// Constitution §IV: a quality *bucket* is a coarse, non-sensitive
+    /// signal — no raw latency value is stored or exported.
+    public func seedConnectionQualityForTesting(_ quality: ConnectionQuality) {
+        connectionQuality = quality
+    }
+
     private func handleStreamFailure(
         profile: ConnectionProfile,
         sessionID: RemoteSession.ID,
@@ -1159,6 +1263,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
         stickyModifierState = .init()
+        resetPointerControl()
         lastEmittedDragCoord = nil
         stopIncomingClipboardReceive()
 
@@ -1381,6 +1486,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
+        resetConnectionQuality()
+        resetPointerControl()
         if var current = session {
             current.state = .closed
             current.hudMessage = "Disconnected"
@@ -1531,6 +1638,98 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// pasteboard.  The full `text` is dropped on the floor.
     public func dismissIncomingClipboard() {
         pendingIncomingClipboard = nil
+    }
+
+    // MARK: - Pointer control mode
+
+    /// Current framebuffer size in pixels, or a sensible default when
+    /// no frame has arrived yet.  Used to center the soft cursor on a
+    /// mode switch and to clamp relative cursor moves.
+    private var currentFramebufferSize: CGSize {
+        guard let framebuffer = latestFramebuffer else {
+            return CGSize(width: 1280, height: 720)
+        }
+        return CGSize(width: framebuffer.width, height: framebuffer.height)
+    }
+
+    /// Flip between direct-touch and trackpad pointer control.
+    /// Constitution §I: switching modes is a LOCAL transform only — no
+    /// RFB PointerEvent is emitted here.  Entering trackpad mode centers
+    /// the soft cursor on the live framebuffer (or a default when no
+    /// frame has arrived); leaving it hides the cursor.
+    public func togglePointerControlMode() {
+        switch pointerControlMode {
+        case .directTouch:
+            pointerControlMode = .trackpad
+            trackpadCursor = .centered(in: currentFramebufferSize)
+        case .trackpad:
+            pointerControlMode = .directTouch
+            trackpadCursor.isVisible = false
+        }
+    }
+
+    /// Resolve a trackpad-mode gesture sampled from the viewport view
+    /// into a moved soft cursor and any RFB pointer commands, then
+    /// dispatch the commands on the wire.  No-op when there is no live
+    /// framebuffer or pointer client.  Cursor moves and pans are LOCAL
+    /// (constitution §I) — only the click commands returned by the
+    /// resolver reach the wire, through the same stream-gated dispatch
+    /// as `sendTapAt`.  Constitution §IV: the cursor position / deltas
+    /// are consumed here and never logged or persisted.
+    ///
+    /// - TODO: zoom-aware cursor mapping.  The view owns the live
+    ///   zoom/pan, which is not threaded into the model yet, so this
+    ///   builds an aspect-fit transform (zoom 1, pan 0).  The relative
+    ///   cursor math (`TrackpadCursor.moved`) is independent of zoom,
+    ///   so the cursor tracks correctly for the common unzoomed
+    ///   viewport; click mapping uses the cursor's framebuffer position
+    ///   directly, which is also zoom-independent.
+    public func handleTrackpadGesture(_ gesture: PointerGesture, viewSize: CGSize) {
+        guard let framebuffer = latestFramebuffer, let session else {
+            return
+        }
+        let framebufferSize = CGSize(width: framebuffer.width, height: framebuffer.height)
+        let transform = ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: viewSize
+        )
+        let resolver = PointerGestureResolver(mode: .trackpad)
+        let outcome = resolver.resolve(gesture, transform: transform, cursor: trackpadCursor)
+        trackpadCursor = outcome.cursor
+
+        guard !outcome.commands.isEmpty,
+              let pointerClient = activePointerClient
+        else {
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session.id
+        let profileID = selectedProfileID
+        let commands = outcome.commands
+
+        Task { [weak self, pointerClient, commands] in
+            do {
+                for command in commands {
+                    try await pointerClient.sendPointerEvent(
+                        buttonMask: command.buttonMask,
+                        x: command.x,
+                        y: command.y
+                    )
+                }
+            } catch {
+                guard let self else { return }
+                await MainActor.run {
+                    guard self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID
+                    else {
+                        return
+                    }
+                    self.activePointerClient = nil
+                }
+            }
+        }
     }
 
     // MARK: - Direct Keystroke Streaming Mode
@@ -1728,6 +1927,36 @@ public final class NaruRemoteAppModel: ObservableObject {
         // for wrapping without changing this caller surface.
         _ = modifiers
         try? await emitter.emitHardware(keysym: keysym, isDown: isDown)
+    }
+
+    /// Send a discrete terminal-control key (Esc / Tab / Ctrl-C /
+    /// arrows) from **Compose mode** without switching to Direct
+    /// Keystroke mode (spec 003 US5 / FR-013).
+    ///
+    /// This is the convenience bridge for a terminal / AI-CLI user
+    /// who is composing multilingual text but needs to fire one
+    /// control key — the founder's exact ICP.  It:
+    ///
+    /// - Emits through the same `KeystrokeEmitter` as Direct mode, so
+    ///   the wire envelope is identical (Ctrl-C → `Ctrl down → c down
+    ///   → c up → Ctrl up`).
+    /// - Does **not** touch `composeDraft` — the partial multilingual
+    ///   message the user is building survives untouched (the strip is
+    ///   orthogonal to the compose buffer).
+    /// - Does **not** read or consume `stickyModifierState` — sticky
+    ///   modifiers are a Direct-mode affordance; the quick key carries
+    ///   its own fixed modifier set.
+    /// - Drops silently when there is no active session
+    ///   (`keystrokeEmitter == nil`, matching `spec.md` IN-003).
+    ///
+    /// Constitution §IV: the keysym is NOT logged anywhere persistent;
+    /// the diagnostic safe-detail catalog is unaffected.
+    public func sendComposeQuickKey(_ key: ComposeQuickKey) async {
+        guard let emitter = keystrokeEmitter else {
+            return
+        }
+        let emission = key.emission
+        try? await emitter.emit(keysym: emission.keysym, modifiers: emission.modifiers)
     }
 
     nonisolated private static func connectAndReadFirstFrame(

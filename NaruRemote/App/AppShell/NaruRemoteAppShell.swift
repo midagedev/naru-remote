@@ -32,6 +32,86 @@ public struct NaruRemoteAppShell: View {
         self.buildVersion = buildVersion
     }
 
+    /// True once the session is streaming (or in the bounded
+    /// auto-reconnect window) or any frame has arrived — the cue that the
+    /// remote screen should become the dominant full-bleed hero (spec 003
+    /// FR-001) instead of a small aspect-fit box stacked above
+    /// diagnostics.  Pure local layout decision — constitution §I (no new
+    /// RFB message).
+    private var isLiveSession: Bool {
+        let snapshot = model.snapshot
+        if snapshot.latestFramebuffer != nil {
+            return true
+        }
+        guard let state = snapshot.session?.state else {
+            return false
+        }
+        switch state {
+        case .active, .reconnecting:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The session viewport with all model wiring.  Extracted so the
+    /// call site is not duplicated across the hero and scrollable layout
+    /// branches; `fillsAvailableHeight` switches the dark container
+    /// between the immersive full-height hero and the historical
+    /// width-driven aspect-fit box.
+    @ViewBuilder
+    private func sessionViewport(fillsAvailableHeight: Bool) -> some View {
+        let snapshot = model.snapshot
+        SessionViewportView(
+            title: snapshot.title,
+            subtitle: snapshot.subtitle,
+            session: snapshot.session,
+            framebuffer: snapshot.latestFramebuffer,
+            frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
+            isPiPWatchAvailable: model.canStartPiPWatch,
+            pipWatchStatusText: model.pipWatchStatusText,
+            isPiPWatching: snapshot.pipWatchSession?.state == .watching,
+            pointerControlMode: model.pointerControlMode,
+            trackpadCursor: model.trackpadCursor,
+            pipLayerHost: model.pipLayerHost,
+            onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
+            onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
+            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
+            onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
+            onFramebufferTap: { point, size in
+                model.sendTapAt(viewPoint: point, viewSize: size)
+            },
+            onFramebufferRightClick: { point, size in
+                model.sendRightClickAt(viewPoint: point, viewSize: size)
+            },
+            onFramebufferScroll: { point, size, delta in
+                model.sendScrollAt(
+                    viewPoint: point,
+                    viewSize: size,
+                    deltaX: delta.width,
+                    deltaY: delta.height
+                )
+            },
+            onFramebufferPointerDown: { point, size in
+                Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
+            },
+            onFramebufferPointerMove: { point, size in
+                Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
+            },
+            onFramebufferPointerUp: { point, size in
+                Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
+            },
+            onTrackpadGesture: { gesture, size in
+                model.handleTrackpadGesture(gesture, viewSize: size)
+            },
+            onTogglePointerMode: {
+                model.togglePointerControlMode()
+            },
+            connectionQuality: model.connectionQuality,
+            fillsAvailableHeight: fillsAvailableHeight
+        )
+    }
+
     public var body: some View {
         let snapshot = model.snapshot
         // First-launch surface (spec FR-015): zero saved profiles
@@ -68,57 +148,32 @@ public struct NaruRemoteAppShell: View {
                 .accessibilityIdentifier("naru.profile.add")
             }
         } detail: {
-            ScrollView {
-                VStack(spacing: 0) {
-                    if isEmptyHome {
-                        EmptyHomeView(onAddProfile: { showsProfileEditor = true })
-                    } else {
-                        SessionViewportView(
-                            title: snapshot.title,
-                            subtitle: snapshot.subtitle,
-                            session: snapshot.session,
-                            framebuffer: snapshot.latestFramebuffer,
-                            frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
-                            isPiPWatchAvailable: model.canStartPiPWatch,
-                            pipWatchStatusText: model.pipWatchStatusText,
-                            isPiPWatching: snapshot.pipWatchSession?.state == .watching,
-                            pipLayerHost: model.pipLayerHost,
-                            onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
-                            onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
-                            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
-                            onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
-                            onFramebufferTap: { point, size in
-                                model.sendTapAt(viewPoint: point, viewSize: size)
-                            },
-                            onFramebufferRightClick: { point, size in
-                                model.sendRightClickAt(viewPoint: point, viewSize: size)
-                            },
-                            onFramebufferScroll: { point, size, delta in
-                                model.sendScrollAt(
-                                    viewPoint: point,
-                                    viewSize: size,
-                                    deltaX: delta.width,
-                                    deltaY: delta.height
-                                )
-                            },
-                            onFramebufferPointerDown: { point, size in
-                                Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
-                            },
-                            onFramebufferPointerMove: { point, size in
-                                Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
-                            },
-                            onFramebufferPointerUp: { point, size in
-                                Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
-                            }
-                        )
+            // GRD-parity hero (spec 003 FR-001): during a live session the
+            // remote screen is the dominant full-bleed surface — no
+            // ScrollView wrapper, no diagnostics stacked beneath, so when
+            // the soft keyboard rises the bottom dock rises with it and the
+            // filling viewport merely shrinks instead of being crushed to a
+            // sliver.  Pre-connect / disconnected keeps the historical
+            // scrollable stack so the diagnostics summary stays reachable.
+            Group {
+                if isEmptyHome {
+                    EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                } else if isLiveSession {
+                    sessionViewport(fillsAvailableHeight: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            sessionViewport(fillsAvailableHeight: false)
 
-                        DiagnosticSummaryView(
-                            rows: snapshot.diagnosticRows,
-                            shareTextProvider: { [buildVersion] in
-                                model.makeDiagnosticExport()
-                                    .renderShareText(buildVersion: buildVersion)
-                            }
-                        )
+                            DiagnosticSummaryView(
+                                rows: snapshot.diagnosticRows,
+                                shareTextProvider: { [buildVersion] in
+                                    model.makeDiagnosticExport()
+                                        .renderShareText(buildVersion: buildVersion)
+                                }
+                            )
+                        }
                     }
                 }
             }

@@ -22,6 +22,11 @@ enum UXAuditFixtureToken: String {
     case diagnosticErrorDNS = "diagnostic-error-dns"
     case incomingClipboard = "incoming-clipboard"
     case sidebarWithVerdicts = "sidebar-with-verdicts"
+    /// Active session showing a real 16:9 remote framebuffer — drives
+    /// the screen-first viewport (spec 003 FR-001) so the audit can
+    /// confirm the remote screen renders at the server's true aspect
+    /// ratio instead of a hardcoded 4:3 box.
+    case sessionActiveWidescreen = "session-active-widescreen"
 
     static func current() -> UXAuditFixtureToken? {
         guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_FIXTURE_SNAPSHOT"],
@@ -49,6 +54,8 @@ enum UXAuditFixtures {
             return incomingClipboardSnapshot()
         case .sidebarWithVerdicts:
             return sidebarWithVerdictsSnapshot()
+        case .sessionActiveWidescreen:
+            return sessionActiveWidescreenSnapshot()
         }
     }
 
@@ -69,6 +76,11 @@ enum UXAuditFixtures {
             model.recordIncomingClipboard(
                 "Hello from the remote computer — this is a clipboard payload that arrived from the VNC server."
             )
+        case .sessionActiveWidescreen:
+            // Seed a connection-quality bucket so the header quality
+            // chip renders in the capture — the production estimator is
+            // fed by a live latency stream the fixture can't drive.
+            model.seedConnectionQualityForTesting(.good)
         case .diagnosticsPopulated,
              .diagnosticErrorDNS,
              .sidebarWithVerdicts:
@@ -210,6 +222,36 @@ enum UXAuditFixtures {
             profiles: [profile],
             selectedProfileID: profile.id,
             session: session
+        )
+    }
+
+    /// Active session carrying a 16:9 framebuffer so the session
+    /// viewport renders the remote screen at the server's true aspect
+    /// ratio (spec 003 FR-001 — screen-first).  A real desktop is
+    /// 16:9 / 16:10; before this change the container hardcoded 4:3
+    /// and double-letterboxed widescreen frames into a small box.  The
+    /// framebuffer is a solid fill (the public `RFBRawFramebuffer`
+    /// init only takes one color) — the point of the fixture is the
+    /// container *shape*, which a solid wide rectangle makes obvious.
+    private static func sessionActiveWidescreenSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        // 1600×900 = 16:9.  Mid-slate fill so it reads as a real
+        // screen against the dark container, not an empty black box.
+        let framebuffer = RFBRawFramebuffer(
+            width: 1600,
+            height: 900,
+            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: framebuffer
         )
     }
 

@@ -227,6 +227,11 @@ public struct ProfileEditorView: View {
                     touchedFields.insert(previous)
                 }
             }
+            .onAppear {
+                if !isEditing {
+                    focusedField = .host
+                }
+            }
         }
         .accessibilityIdentifier("naru.profile.editor")
     }
