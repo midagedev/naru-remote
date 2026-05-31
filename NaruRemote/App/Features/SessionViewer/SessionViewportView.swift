@@ -64,6 +64,10 @@ public struct SessionViewportView: View {
     /// update.
     @State private var zoomScale: CGFloat = 1.0
 
+    /// Local pan offset in view points while zoomed. Constitution I:
+    /// pan is a local viewport transform and never emits an RFB message.
+    @State private var panOffset: CGSize = .zero
+
     /// Previous cumulative `DragGesture` translation for the active
     /// trackpad drag, used to derive the per-event delta `TrackpadCursor`
     /// expects.  `nil` between drags.
@@ -637,31 +641,46 @@ public struct SessionViewportView: View {
             MetalFramebufferView(
                 framebuffer: framebuffer,
                 dirtyRectangles: frameDirtyRectangles,
+                zoomScale: zoomScale,
+                panOffset: panOffset,
                 onTap: onFramebufferTap,
                 onRightClick: onFramebufferRightClick,
                 onScroll: onFramebufferScroll,
                 onPinch: { newScale in
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.
-                    zoomScale = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
+                    let clamped = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
+                    zoomScale = clamped
+                    if clamped <= 1.0001 {
+                        panOffset = .zero
+                    }
                 },
                 onPointerDown: onFramebufferPointerDown,
                 onPointerMove: onFramebufferPointerMove,
-                onPointerUp: onFramebufferPointerUp
+                onPointerUp: onFramebufferPointerUp,
+                onPan: { newOffset in
+                    panOffset = newOffset
+                },
+                onZoomToggle: { point, viewSize in
+                    toggleZoom(at: point, in: viewSize)
+                }
             )
                 .scaleEffect(zoomScale)
+                .offset(panOffset)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .aspectRatio(aspectRatio, contentMode: .fit)
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         } else {
             RemoteFramebufferPreview(framebuffer: framebuffer)
                 .scaleEffect(zoomScale)
+                .offset(panOffset)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         }
         #else
         RemoteFramebufferPreview(framebuffer: framebuffer)
             .scaleEffect(zoomScale)
+            .offset(panOffset)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif
@@ -678,6 +697,35 @@ public struct SessionViewportView: View {
         }
         let ratio = CGFloat(framebuffer.width) / CGFloat(framebuffer.height)
         return min(max(ratio, 0.5), 2.5)
+    }
+
+    private func toggleZoom(at point: CGPoint, in viewSize: CGSize) {
+        if zoomScale > 1.0001 {
+            zoomScale = 1.0
+            panOffset = .zero
+            return
+        }
+
+        let targetScale = min(max(CGFloat(2.5), Self.minZoomScale), Self.maxZoomScale)
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let proposedPan = CGSize(
+            width: (center.x - point.x) * (targetScale - 1),
+            height: (center.y - point.y) * (targetScale - 1)
+        )
+        zoomScale = targetScale
+        panOffset = Self.clampedPan(proposedPan, zoomScale: targetScale, viewSize: viewSize)
+    }
+
+    private static func clampedPan(_ pan: CGSize, zoomScale: CGFloat, viewSize: CGSize) -> CGSize {
+        guard zoomScale > 1.0001 else {
+            return .zero
+        }
+        let maxX = max(0, (viewSize.width * zoomScale - viewSize.width) / 2)
+        let maxY = max(0, (viewSize.height * zoomScale - viewSize.height) / 2)
+        return CGSize(
+            width: min(max(pan.width, -maxX), maxX),
+            height: min(max(pan.height, -maxY), maxY)
+        )
     }
 
     private var statusText: String {

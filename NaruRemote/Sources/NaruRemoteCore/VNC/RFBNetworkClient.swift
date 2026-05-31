@@ -14,6 +14,7 @@ import Network
 public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
     private static let minimumNoAuthFirstFrameTranscriptByteCount = 62
 
+    private let encodingPreference: RFBEncodingPreference
     private let lock = NSLock()
     private var clientState: RFBClientState = .disconnected
     private var clientLastFrame: RFBFrameMetadata?
@@ -25,7 +26,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     private var clientZlibStream: RFBZlibInflateStream?
     private var activeConnection: RFBNetworkConnection?
 
-    public init() {}
+    public convenience init() {
+        self.init(encodingPreference: .localLowLatency)
+    }
+
+    public init(encodingPreference: RFBEncodingPreference) {
+        self.encodingPreference = encodingPreference
+    }
 
     deinit {
         disconnect()
@@ -477,13 +484,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         // (spec 004 FR-001). Raw stays in the list as the universal
         // floor — negotiation is an optimization, never a correctness
         // dependency.
-        try connection.write(Self.setEncodingsMessage(), timeout: timeout)
+        try connection.write(setEncodingsMessage(), timeout: timeout)
 
         return serverInit
     }
 
-    private static func setEncodingsMessage() -> Data {
-        RFBClientMessageEncoder.setEncodings(RFBEncodingPreference.increment2.encodingList())
+    private func setEncodingsMessage() -> Data {
+        RFBClientMessageEncoder.setEncodings(encodingPreference.encodingList())
     }
 
     private static func selectSecurityType(

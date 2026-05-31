@@ -280,7 +280,9 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
                         send(transcript.bytes[safe: 14..<18]) { [self] in
                             receive(byteCount: 1) { [self] in
                                 send(transcript.bytes[safe: 18..<46]) { [self] in
-                                    sendServerMessages(ArraySlice(serverMessages))
+                                    receiveSetEncodings { [self] in
+                                        sendServerMessages(ArraySlice(serverMessages))
+                                    }
                                 }
                             }
                         }
@@ -318,6 +320,34 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
         ) { [connection] _, _, _, error in
             if error == nil {
                 completion()
+            } else {
+                connection.cancel()
+            }
+        }
+    }
+
+    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
+        receiveData(byteCount: 4) { [self] header in
+            let bytes = [UInt8](header)
+            let count = Int(bytes[2]) << 8 | Int(bytes[3])
+            let bodyLength = count * 4
+            guard bodyLength > 0 else {
+                completion()
+                return
+            }
+            receiveData(byteCount: bodyLength) { _ in
+                completion()
+            }
+        }
+    }
+
+    private func receiveData(byteCount: Int, completion: @escaping @Sendable (Data) -> Void) {
+        connection.receive(
+            minimumIncompleteLength: byteCount,
+            maximumLength: byteCount
+        ) { [connection] data, _, _, error in
+            if let data, data.count == byteCount, error == nil {
+                completion(data)
             } else {
                 connection.cancel()
             }

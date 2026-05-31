@@ -48,6 +48,14 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertEqual(list[1], RFBEncoding.tight)
     }
 
+    func testLocalLowLatencyPrefersHextileAndOmitsZrleForMacResponsiveness() {
+        let list = RFBEncodingPreference.localLowLatency.encodingList()
+
+        XCTAssertEqual(list.first, RFBEncoding.hextile)
+        XCTAssertFalse(list.contains(RFBEncoding.zrle))
+        XCTAssertTrue(list.contains(RFBEncoding.raw))
+    }
+
     func testQualityAndCompressionHintsRideOnlyOnTheirEncodings() {
         // Tight quality hint only when Tight is advertised.
         let withoutTight = RFBEncodingPreference(tight: false, tightQualityLevel: 5).encodingList()

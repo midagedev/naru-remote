@@ -218,6 +218,33 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(exportAfter, exportBefore)
     }
 
+    func testRapidTapsStaySerializedAsClickPairsWhenWritesAreSlow() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector(
+            pointerEventDelay: .milliseconds(30)
+        )
+        let model = connection.model
+        let recorder = connection.connector
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100)
+        )
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 60, y: 50),
+            viewSize: CGSize(width: 100, height: 100)
+        )
+
+        try await waitForPointerEvents(recorder, count: 4, timeout: 3)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events.map(\.mask), [0x01, 0x00, 0x01, 0x00])
+        XCTAssertEqual(events[0].x, 512)
+        XCTAssertEqual(events[1].x, 512)
+        XCTAssertEqual(events[2].x, 614)
+        XCTAssertEqual(events[3].x, 614)
+    }
+
     // MARK: Right click
 
     func testRightClickSendsButtonThreeDownThenUp() async throws {
@@ -581,7 +608,9 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(exportAfter, exportBefore)
     }
 
-    private static func connectedModelAndConnector() async throws -> (model: NaruRemoteAppModel, connector: PointerCapturingStreamingConnector) {
+    private static func connectedModelAndConnector(
+        pointerEventDelay: Duration? = nil
+    ) async throws -> (model: NaruRemoteAppModel, connector: PointerCapturingStreamingConnector) {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
             width: 1024,
@@ -592,7 +621,8 @@ final class PointerEventTapTests: XCTestCase {
             width: 1024,
             height: 768,
             name: "Desk",
-            framebuffer: framebuffer
+            framebuffer: framebuffer,
+            pointerEventDelay: pointerEventDelay
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
@@ -635,11 +665,19 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient {
     private let width: Int
     private let height: Int
     private let name: String
+    private let pointerEventDelay: Duration?
 
-    init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        framebuffer: RFBRawFramebuffer,
+        pointerEventDelay: Duration? = nil
+    ) {
         self.width = width
         self.height = height
         self.name = name
+        self.pointerEventDelay = pointerEventDelay
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(framebuffers: [framebuffer, framebuffer, framebuffer])
         )
@@ -702,6 +740,9 @@ private final class PointerCapturingStreamingConnector: RFBStreamingClient {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
         recording.withLock { state in
             state.recordedPointerEventsList.append((buttonMask, x, y))
+        }
+        if let pointerEventDelay {
+            try await Task.sleep(for: pointerEventDelay)
         }
     }
 

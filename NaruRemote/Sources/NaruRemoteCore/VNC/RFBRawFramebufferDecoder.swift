@@ -285,6 +285,14 @@ extension RFBPixelFormat {
     /// Decodes one `bytesPerPixelValue`-wide pixel at `offset` in
     /// `bytes`, honoring endianness, shifts, and maxima.
     func decodeColor(_ bytes: [UInt8], at offset: Int) -> RFBColor {
+        if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixelValue) {
+            return RFBColor(
+                red: bytes[offset + offsets.red],
+                green: bytes[offset + offsets.green],
+                blue: bytes[offset + offsets.blue]
+            )
+        }
+
         let value: UInt32
         if isBigEndian {
             value = UInt32(bytes[offset]) << 24
@@ -339,6 +347,14 @@ extension RFBPixelFormat {
     /// 3-byte form carries the significant low 3 bytes in the format's
     /// byte order; the unused 4th (high) byte is implicitly zero.
     func decodeCPixel(_ bytes: [UInt8], at offset: Int, size: Int) -> RFBColor {
+        if let offsets = directEightBitChannelOffsets(pixelByteCount: size) {
+            return RFBColor(
+                red: bytes[offset + offsets.red],
+                green: bytes[offset + offsets.green],
+                blue: bytes[offset + offsets.blue]
+            )
+        }
+
         guard size == 3 else {
             return decodeColor(bytes, at: offset)
         }
@@ -349,6 +365,41 @@ extension RFBPixelFormat {
             ? (c0 << 16 | c1 << 8 | c2)
             : (c0 | c1 << 8 | c2 << 16)
         return colorFromValue(value)
+    }
+
+    /// Fast path for the overwhelmingly common VNC format used by macOS
+    /// Screen Sharing and TigerVNC: 8-bit RGB channels sitting on byte
+    /// boundaries inside a 32-bpp true-colour pixel. Avoids per-pixel
+    /// shift/mask/divide work in the Raw/Hextile/ZRLE hot path while
+    /// falling back to the general decoder for unusual max/shift layouts.
+    private func directEightBitChannelOffsets(pixelByteCount: Int) -> (red: Int, green: Int, blue: Int)? {
+        guard isTrueColor,
+              redMax == 255,
+              greenMax == 255,
+              blueMax == 255,
+              redShift.isMultiple(of: 8),
+              greenShift.isMultiple(of: 8),
+              blueShift.isMultiple(of: 8)
+        else {
+            return nil
+        }
+
+        func byteOffset(for shift: UInt8) -> Int? {
+            let shiftByte = Int(shift / 8)
+            let index = isBigEndian ? pixelByteCount - 1 - shiftByte : shiftByte
+            guard index >= 0, index < pixelByteCount else {
+                return nil
+            }
+            return index
+        }
+
+        guard let red = byteOffset(for: redShift),
+              let green = byteOffset(for: greenShift),
+              let blue = byteOffset(for: blueShift)
+        else {
+            return nil
+        }
+        return (red, green, blue)
     }
 
     private static func scale(_ component: UInt32, max: UInt16) -> UInt8 {
