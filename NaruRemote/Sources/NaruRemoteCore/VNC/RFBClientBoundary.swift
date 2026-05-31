@@ -78,6 +78,14 @@ public protocol RFBDamageTrackingFramebufferUpdating: RFBFramebufferUpdating {
     ) throws -> RFBFramebufferUpdateResult
 }
 
+/// Capability boundary for server-initiated framebuffer updates, used
+/// by continuous-update style transports after the client has already
+/// enabled the server extension. No `FramebufferUpdateRequest` is sent
+/// by this method.
+public protocol RFBFramebufferUpdateReceiving: Sendable {
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
+}
+
 /// Capability boundary for RFB clients that can deliver
 /// `PointerEvent` messages (RFC 6143 §7.5.5, message type 5) on the
 /// active connection. Pointer events are NOT a text-input path —
