@@ -307,15 +307,20 @@ private struct LiveTargetConfiguration {
 
 private enum BenchmarkProfile: CaseIterable {
     case localLowLatency
+    case tightFirst
     case zrleFirst
     case zrleCompressionZero
     case adaptiveGoodZRLE
     case adaptivePoorZRLE
+    case adaptiveGoodFull
+    case adaptivePoorFull
 
     var label: String {
         switch self {
         case .localLowLatency:
             "local-low-latency"
+        case .tightFirst:
+            "tight-first"
         case .zrleFirst:
             "zrle-first"
         case .zrleCompressionZero:
@@ -324,6 +329,10 @@ private enum BenchmarkProfile: CaseIterable {
             "adaptive-good-zrle"
         case .adaptivePoorZRLE:
             "adaptive-poor-zrle"
+        case .adaptiveGoodFull:
+            "adaptive-good-full"
+        case .adaptivePoorFull:
+            "adaptive-poor-full"
         }
     }
 
@@ -331,6 +340,12 @@ private enum BenchmarkProfile: CaseIterable {
         switch self {
         case .localLowLatency:
             return .localLowLatency
+        case .tightFirst:
+            return RFBEncodingPreference(
+                tight: true,
+                tightQualityLevel: 8,
+                compressionLevel: 1
+            )
         case .zrleFirst:
             return .increment2
         case .zrleCompressionZero:
@@ -339,6 +354,18 @@ private enum BenchmarkProfile: CaseIterable {
             return .adaptive(supported: .increment2, connectionQuality: .good)
         case .adaptivePoorZRLE:
             return .adaptive(supported: .increment2, connectionQuality: .poor)
+        case .adaptiveGoodFull:
+            return .adaptive(
+                supported: .full,
+                requestedPseudoEncodings: .withServerCursor,
+                connectionQuality: .good
+            )
+        case .adaptivePoorFull:
+            return .adaptive(
+                supported: .full,
+                requestedPseudoEncodings: .withServerCursor,
+                connectionQuality: .poor
+            )
         }
     }
 }
