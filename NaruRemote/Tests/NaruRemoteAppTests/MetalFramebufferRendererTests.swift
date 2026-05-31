@@ -241,6 +241,73 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(bytes[18], 0)
     }
 
+    func testLargeDirtyAreaFallsBackToFullUpload() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        let baseline = RFBRawFramebuffer(
+            width: 4,
+            height: 4,
+            fill: RFBColor(red: 200, green: 0, blue: 0, alpha: 255)
+        )
+        renderer.enqueue(baseline)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        // 12/16 pixels changed (75%). That is above the renderer's
+        // partial-upload area ceiling, so it should choose one full
+        // upload. The heterogeneous buffer lets us distinguish full
+        // upload from a single large partial upload: pixels outside the
+        // dirty rect become blue only if the full buffer was copied.
+        let dirtyRect = RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 3)
+        let next = try makeHeterogeneousFramebuffer(
+            width: 4,
+            height: 4,
+            dirtyColor: RFBColor(red: 0, green: 220, blue: 0, alpha: 255),
+            otherColor: RFBColor(red: 0, green: 0, blue: 222, alpha: 255),
+            dirtyRect: dirtyRect
+        )
+
+        renderer.enqueue(next, dirtyRectangles: [dirtyRect])
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(renderer.lastUploadRegionCount, 1)
+
+        let bytes = try XCTUnwrap(renderer.readbackTextureForTesting())
+        let outsideDirtyRectOffset = ((3 * 4) + 0) * 4
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 0], 0)
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 1], 0)
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 2], 222)
+    }
+
+    func testTooManyDirtyRectsFallsBackToFullUpload() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 16, height: 16, fill: RFBColor(red: 200, green: 0, blue: 0))
+        )
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let tinyRects = (0...MetalFramebufferRenderer.maximumPartialUploadRegionCount).map { index in
+            RFBFrameDamageRect(x: index % 16, y: index / 16, width: 1, height: 1)
+        }
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 16, height: 16, fill: RFBColor(red: 0, green: 0, blue: 222)),
+            dirtyRectangles: tinyRects
+        )
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(
+            renderer.lastUploadRegionCount,
+            1,
+            "Too many tiny dirty rects should prefer one full upload over many driver calls."
+        )
+
+        let bytes = try XCTUnwrap(renderer.readbackTextureForTesting())
+        let outsideTinyRectsOffset = ((15 * 16) + 15) * 4
+        XCTAssertEqual(bytes[outsideTinyRectsOffset + 0], 0)
+        XCTAssertEqual(bytes[outsideTinyRectsOffset + 1], 0)
+        XCTAssertEqual(bytes[outsideTinyRectsOffset + 2], 222)
+    }
+
     func testFirstFrameAfterDimensionChangeForcesFullUpload() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
