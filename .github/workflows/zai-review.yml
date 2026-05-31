@@ -1,4 +1,4 @@
-name: Z.ai Code Review
+name: Hermes PR Review
 
 on:
   pull_request:
@@ -13,53 +13,34 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write
 
 concurrency:
-  group: zai-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  group: hermes-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   review:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ZAI_API_KEY }}
-      API_TIMEOUT_MS: '3000000'
-      ANTHROPIC_DEFAULT_SONNET_MODEL: glm-4.7
-      ANTHROPIC_DEFAULT_OPUS_MODEL: glm-4.7
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: glm-4.5-air
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Read review prompt
-        id: prompt
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-        run: |
-          {
-            echo 'prompt<<NARU_PROMPT_EOF'
-            echo "## 리뷰 대상 PR"
-            echo ""
-            echo "이번 리뷰의 PR 번호는 **${PR_NUMBER}** 입니다."
-            echo "모든 \`gh pr view\`, \`gh pr diff\`, \`gh pr review\` 호출에"
-            echo "반드시 \`${PR_NUMBER}\`을 명시적으로 인자로 넘기세요"
-            echo "(예: \`gh pr view ${PR_NUMBER} --json ...\`,"
-            echo "\`gh pr review ${PR_NUMBER} --approve --body-file /tmp/claude-review.md\`)."
-            echo "현재 체크아웃은 detached HEAD라서 인자를 빼고 호출하면 실패합니다."
-            echo ""
-            cat .github/zai-review-prompt.md
-            echo 'NARU_PROMPT_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ZAI_API_KEY }}
-          prompt: ${{ steps.prompt.outputs.prompt }}
-          show_full_output: true
-          claude_args: >-
-            --allowed-tools
-            "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Read,Write,Grep,Glob"
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    uses: midagedev/review-actions/.github/workflows/hermes-pr-review.yml@v5
+    with:
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+      prompt_path: .github/zai-review-prompt.md
+      runner_labels: '["self-hosted","vps-hermes","naru-remote"]'
+      approve_when_clean: true
+      context_paths: |
+        CLAUDE.md
+        AGENTS.md
+        .specify/memory/constitution.md
+        .specify/feature.json
+        specs/001-naru-remote-mvp/spec.md
+        specs/001-naru-remote-mvp/plan.md
+        specs/001-naru-remote-mvp/tasks.md
+        specs/002-direct-keystroke-mode/spec.md
+        specs/003-session-experience/spec.md
+        specs/004-rfb-encodings/spec.md
