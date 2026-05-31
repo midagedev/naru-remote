@@ -9,17 +9,19 @@ import Network
 // fakes that implement the same protocols (deferred to a follow-up
 // PR per PR #17's out-of-scope list).  Mutable state
 // (`clientState`, `clientLastFrame`, `clientServerInit`,
-// `clientFramebuffer`, `activeConnection`) is guarded by `lock` —
+// `clientFramebuffer`, `clientEncodingPreference`, `activeConnection`) is
+// guarded by `lock` —
 // every read and every write goes through `lock.withRFBClientLock`.
 public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
     private static let minimumNoAuthFirstFrameTranscriptByteCount = 62
 
-    private let encodingPreference: RFBEncodingPreference
+    private let initialEncodingPreference: RFBEncodingPreference
     private let lock = NSLock()
     private var clientState: RFBClientState = .disconnected
     private var clientLastFrame: RFBFrameMetadata?
     private var clientServerInit: RFBServerInit?
     private var clientFramebuffer: RFBRawFramebuffer?
+    private var clientEncodingPreference: RFBEncodingPreference
     /// Per-session persistent zlib inflate for ZRLE (spec 004 FR-005).
     /// Created fresh on each connect, torn down with the connection — a
     /// new session must start a fresh zlib window.
@@ -34,7 +36,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 
     public init(encodingPreference: RFBEncodingPreference) {
-        self.encodingPreference = encodingPreference
+        self.initialEncodingPreference = encodingPreference
+        self.clientEncodingPreference = encodingPreference
     }
 
     deinit {
@@ -50,6 +53,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     public var lastFrame: RFBFrameMetadata? {
         lock.withRFBClientLock {
             clientLastFrame
+        }
+    }
+
+    public var canEnableContinuousUpdates: Bool {
+        lock.withRFBClientLock {
+            activeConnection != nil && clientEncodingPreference.continuousUpdates
         }
     }
 
@@ -129,6 +138,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientLastFrame = nil
@@ -457,10 +467,18 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         _ preference: RFBEncodingPreference,
         timeout: TimeInterval = 2
     ) throws {
-        try writeControlMessage(
-            RFBClientMessageEncoder.setEncodings(preference.encodingList()),
-            timeout: timeout
-        )
+        let message = RFBClientMessageEncoder.setEncodings(preference.encodingList())
+        guard let connection = currentActiveConnection() else {
+            throw RFBNetworkClientError.notConnected
+        }
+
+        try writeActiveConnection(message, to: connection, timeout: timeout)
+
+        lock.withRFBClientLock {
+            if activeConnection === connection {
+                clientEncodingPreference = preference
+            }
+        }
     }
 
     /// Sends TigerVNC's `EnableContinuousUpdates` control message for
@@ -603,6 +621,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientLastFrame = nil
@@ -629,6 +648,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientLastFrame = nil
@@ -731,7 +751,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 
     private func setEncodingsMessage() -> Data {
-        RFBClientMessageEncoder.setEncodings(encodingPreference.encodingList())
+        let preference = lock.withRFBClientLock {
+            clientEncodingPreference
+        }
+        return RFBClientMessageEncoder.setEncodings(preference.encodingList())
     }
 
     private static func selectSecurityType(
@@ -786,7 +809,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {}
+extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)

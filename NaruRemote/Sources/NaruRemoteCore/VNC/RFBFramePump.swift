@@ -31,8 +31,8 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
     /// Transport mode used after the initial full-frame request. The
     /// default remains request/response for universal RFB compatibility.
     /// `continuousUpdates` is opportunistic: it activates only when the
-    /// source also exposes the receive and transport-control capability
-    /// protocols.
+    /// source exposes receive/control boundaries *and* reports that the
+    /// current session advertised the ContinuousUpdates pseudo-encoding.
     public let updateMode: RFBFramePumpUpdateMode
 
     public init(
@@ -345,7 +345,12 @@ public final class RFBFramePump: @unchecked Sendable {
     }
 
     private var canUseContinuousUpdates: Bool {
-        lock.withRFBFramePumpLock {
+        guard let capability = source as? any RFBContinuousUpdateCapabilityReporting,
+              capability.canEnableContinuousUpdates else {
+            return false
+        }
+
+        return lock.withRFBFramePumpLock {
             !continuousUpdatesSuppressed
         }
     }

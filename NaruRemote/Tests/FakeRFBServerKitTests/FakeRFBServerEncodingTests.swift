@@ -76,6 +76,7 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         try client.connectNoAuthSession(host: "127.0.0.1", port: port)
         defer { client.disconnect() }
         _ = try recorder.waitForControlMessages(1)
+        XCTAssertFalse(client.canEnableContinuousUpdates)
 
         let preference = RFBEncodingPreference.adaptive(
             supported: RFBEncodingSupport(zrle: true, fence: true, continuousUpdates: true),
@@ -83,6 +84,7 @@ final class FakeRFBServerEncodingTests: XCTestCase {
             connectionQuality: .poor
         )
         try client.renegotiateEncodings(preference)
+        XCTAssertTrue(client.canEnableContinuousUpdates)
 
         let expected = RFBClientMessageEncoder.setEncodings(preference.encodingList())
         let recorded = try recorder.waitForByteCount(expected.count)

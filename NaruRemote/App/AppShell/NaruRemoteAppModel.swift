@@ -214,7 +214,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             // Sharing). Empty/idle polls back off to ~20 Hz so a static
             // screen never busy-loops the request path.
             frameInterval: 0,
-            idleFrameInterval: 0.05
+            idleFrameInterval: 0.05,
+            // Opportunistic only: the pump stays on request/response until
+            // adaptive SetEncodings advertises ContinuousUpdates and the
+            // transport reports that message 150 is safe for this session.
+            updateMode: .continuousUpdates
         ),
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
