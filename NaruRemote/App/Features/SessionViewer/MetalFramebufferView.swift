@@ -57,6 +57,18 @@ public typealias MetalFramebufferPointerDownHandler = @MainActor (CGPoint, CGSiz
 public typealias MetalFramebufferPointerMoveHandler = @MainActor (CGPoint, CGSize) -> Void
 public typealias MetalFramebufferPointerUpHandler = @MainActor (CGPoint, CGSize) -> Void
 
+/// Closure invoked while the user pans a *zoomed* framebuffer with one
+/// finger.  `offset` is the new (clamped) local pan translation in view
+/// points — a LOCAL view transform per constitution §I, never an RFB
+/// message.  Only fires when `zoomScale > 1`; at fit scale the
+/// one-finger drag remains the remote button-1 drag path.
+public typealias MetalFramebufferPanHandler = @MainActor (_ offset: CGSize) -> Void
+
+/// Closure invoked on a double-tap.  The model toggles between fit
+/// scale and a comfortable zoom centered on the tapped point — a LOCAL
+/// view transform per constitution §I, never an RFB message.
+public typealias MetalFramebufferZoomToggleHandler = @MainActor (_ point: CGPoint, _ viewSize: CGSize) -> Void
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
@@ -69,24 +81,40 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onPointerDown: MetalFramebufferPointerDownHandler?
     private let onPointerMove: MetalFramebufferPointerMoveHandler?
     private let onPointerUp: MetalFramebufferPointerUpHandler?
+    private let onPan: MetalFramebufferPanHandler?
+    private let onZoomToggle: MetalFramebufferZoomToggleHandler?
+    /// Current local zoom scale, owned by the SwiftUI parent and pushed
+    /// down so the host's gesture handlers know whether a one-finger
+    /// drag is a pan (zoomed) or a remote drag (fit), and so the pan
+    /// clamp uses the live scale.
+    private let zoomScale: CGFloat
+    /// Current local pan offset, pushed down so the host stays in sync
+    /// when the parent resets zoom/pan (e.g. the 1× button).
+    private let panOffset: CGSize
 
     public init(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
         device: MTLDevice? = MTLCreateSystemDefaultDevice(),
         accessibilityIdentifier: String = "naru.session.metalFramebuffer",
+        zoomScale: CGFloat = 1,
+        panOffset: CGSize = .zero,
         onTap: MetalFramebufferTapHandler? = nil,
         onRightClick: MetalFramebufferRightClickHandler? = nil,
         onScroll: MetalFramebufferScrollHandler? = nil,
         onPinch: MetalFramebufferPinchHandler? = nil,
         onPointerDown: MetalFramebufferPointerDownHandler? = nil,
         onPointerMove: MetalFramebufferPointerMoveHandler? = nil,
-        onPointerUp: MetalFramebufferPointerUpHandler? = nil
+        onPointerUp: MetalFramebufferPointerUpHandler? = nil,
+        onPan: MetalFramebufferPanHandler? = nil,
+        onZoomToggle: MetalFramebufferZoomToggleHandler? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
         self.device = device
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.zoomScale = zoomScale
+        self.panOffset = panOffset
         self.onTap = onTap
         self.onRightClick = onRightClick
         self.onScroll = onScroll
@@ -94,6 +122,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onPointerDown = onPointerDown
         self.onPointerMove = onPointerMove
         self.onPointerUp = onPointerUp
+        self.onPan = onPan
+        self.onZoomToggle = onZoomToggle
     }
 
     public static func isSupported() -> Bool {
@@ -117,6 +147,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.pointerDownHandler = onPointerDown
         host.pointerMoveHandler = onPointerMove
         host.pointerUpHandler = onPointerUp
+        host.panHandler = onPan
+        host.zoomToggleHandler = onZoomToggle
+        host.syncZoomPan(scale: zoomScale, offset: panOffset)
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
         // and there is nothing prior on the GPU to combine with the
@@ -135,6 +168,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.pointerDownHandler = onPointerDown
         uiView.pointerMoveHandler = onPointerMove
         uiView.pointerUpHandler = onPointerUp
+        uiView.panHandler = onPan
+        uiView.zoomToggleHandler = onZoomToggle
+        uiView.syncZoomPan(scale: zoomScale, offset: panOffset)
         uiView.requestRedraw()
     }
 
@@ -221,6 +257,20 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// gesture that never moved past the tap-slop is a no-op here.
     public var pointerUpHandler: MetalFramebufferPointerUpHandler?
 
+    /// Closure invoked while panning a zoomed framebuffer (one-finger
+    /// drag with `currentZoomScale > 1`).  Receives the new clamped pan
+    /// offset.  LOCAL transform — never an RFB message (constitution §I).
+    public var panHandler: MetalFramebufferPanHandler?
+
+    /// Closure invoked on a double-tap to toggle zoom.  LOCAL transform
+    /// — never an RFB message (constitution §I).
+    public var zoomToggleHandler: MetalFramebufferZoomToggleHandler?
+
+    /// Current local pan offset (view points), kept in sync with the
+    /// SwiftUI parent.  Accumulated during a zoomed one-finger drag and
+    /// re-clamped against the live content/zoom each callback.
+    private var currentPanOffset: CGSize = .zero
+
     /// Drag-recognizer state: the start view-coords (captured at
     /// `.began`) and a flag tracking whether `pointerDownHandler` has
     /// been emitted for this gesture so far.  The flag is the
@@ -285,6 +335,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         tapRecognizer.numberOfTapsRequired = 1
         tapRecognizer.cancelsTouchesInView = false
 
+        // Double-tap toggles zoom (fit ↔ comfortable zoom about the
+        // tapped point).  A single tap must lose to it so a quick
+        // double-tap zoom does not also fire a button-1 click.
+        let doubleTapRecognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleDoubleTapGesture(_:))
+        )
+        doubleTapRecognizer.numberOfTapsRequired = 2
+        doubleTapRecognizer.cancelsTouchesInView = false
+        tapRecognizer.require(toFail: doubleTapRecognizer)
+
         let longPressRecognizer = UILongPressGestureRecognizer(
             target: self,
             action: #selector(handleLongPressGesture(_:))
@@ -334,11 +395,35 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         dragRecognizer.require(toFail: longPressRecognizer)
 
         addGestureRecognizer(tapRecognizer)
+        addGestureRecognizer(doubleTapRecognizer)
         addGestureRecognizer(longPressRecognizer)
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(dragRecognizer)
         isUserInteractionEnabled = true
+    }
+
+    /// Push the parent's current zoom/pan into the host so gesture
+    /// handlers branch on the live scale and the pan accumulator does
+    /// not drift after a parent-driven reset (the 1× button).
+    public func syncZoomPan(scale: CGFloat, offset: CGSize) {
+        currentZoomScale = min(max(scale, Self.minZoomScale), Self.maxZoomScale)
+        currentPanOffset = offset
+    }
+
+    private var isZoomed: Bool { currentZoomScale > 1.0001 }
+
+    /// Clamp a pan offset so the scaled content can never reveal
+    /// background past its edges.  Mirrors
+    /// `ViewportTransform.clampPan` (NaruRemoteCore) — the content size
+    /// is the host bounds times the live zoom scale.
+    private func clampedPan(_ pan: CGSize) -> CGSize {
+        let maxX = max(0, (bounds.width * currentZoomScale - bounds.width) / 2)
+        let maxY = max(0, (bounds.height * currentZoomScale - bounds.height) / 2)
+        return CGSize(
+            width: min(max(pan.width, -maxX), maxX),
+            height: min(max(pan.height, -maxY), maxY)
+        )
     }
 
     @available(*, unavailable)
@@ -358,6 +443,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @objc private func handleTapGesture(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended,
               let handler = tapHandler
+        else {
+            return
+        }
+        let point = recognizer.location(in: self)
+        handler(point, bounds.size)
+    }
+
+    @MainActor
+    @objc private func handleDoubleTapGesture(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              let handler = zoomToggleHandler
         else {
             return
         }
@@ -414,10 +510,26 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // never translate this into a remote scroll/zoom event.  The
         // handler is wired only to the SwiftUI `.scaleEffect`.
         pinchHandler?(clamped)
+        // Re-clamp the pan against the new scale so zooming out pulls
+        // the content back into frame (and a return to ~1× re-centers).
+        let reclamped = clampedPan(currentPanOffset)
+        if reclamped != currentPanOffset {
+            currentPanOffset = reclamped
+            panHandler?(reclamped)
+        }
     }
 
     @MainActor
     @objc private func handleDragGesture(_ recognizer: UIPanGestureRecognizer) {
+        // When the framebuffer is zoomed, a one-finger drag PANS the
+        // local view (constitution §I — no RFB message) instead of
+        // driving a remote button-1 drag.  At fit scale there is
+        // nothing to pan, so the gesture remains the remote drag path.
+        if isZoomed {
+            handleZoomedPan(recognizer)
+            return
+        }
+
         switch recognizer.state {
         case .began:
             // Capture the start point but DO NOT emit the down event
@@ -458,6 +570,39 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             if endedWithDown, let upHandler = pointerUpHandler {
                 upHandler(endPoint, size)
             }
+        default:
+            break
+        }
+    }
+
+    /// One-finger drag while zoomed: accumulate the per-callback
+    /// translation into the pan offset, clamp it, and report the new
+    /// offset to the parent.  Resets the recognizer translation each
+    /// callback so the deltas accumulate against `currentPanOffset`.
+    @MainActor
+    private func handleZoomedPan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            // If a remote button-1 drag had started before a pinch
+            // zoomed the view mid-gesture, release it cleanly so no
+            // stray button stays held on the wire.
+            if dragDownEmitted {
+                let size = bounds.size
+                let endPoint = dragLastViewPoint ?? recognizer.location(in: self)
+                dragDownEmitted = false
+                dragStartViewPoint = nil
+                dragLastViewPoint = nil
+                pointerUpHandler?(endPoint, size)
+            }
+        case .changed:
+            let translation = recognizer.translation(in: self)
+            recognizer.setTranslation(.zero, in: self)
+            let proposed = CGSize(
+                width: currentPanOffset.width + translation.x,
+                height: currentPanOffset.height + translation.y
+            )
+            currentPanOffset = clampedPan(proposed)
+            panHandler?(currentPanOffset)
         default:
             break
         }

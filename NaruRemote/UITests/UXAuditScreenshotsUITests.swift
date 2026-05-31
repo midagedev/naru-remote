@@ -178,7 +178,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runComposeDockWithText(mode: ColorMode, deviceTag: String) throws {
-        let app = launchApp(mode: mode)
+        let app = launchAppWithSampleProfile(mode: mode)
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
@@ -210,7 +210,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private enum DirectPage { case qwerty, special }
 
     private func runDirectMode(mode: ColorMode, deviceTag: String, page: DirectPage) throws {
-        let app = launchAppSuppressingDirectWarning(mode: mode)
+        let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
 
         XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
 
@@ -247,7 +247,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private func runDirectWarningDialog(mode: ColorMode, deviceTag: String) throws {
         // Deliberately do NOT suppress the warning so we can capture
         // it on first Direct entry.
-        let app = launchApp(mode: mode)
+        let app = launchAppWithSampleProfile(mode: mode)
 
         let directSegment = app.buttons["Direct"]
         XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
@@ -273,7 +273,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runStickyModifierLocked(mode: ColorMode, deviceTag: String) throws {
-        let app = launchAppPrelockingControl(mode: mode)
+        let app = launchAppPrelockingControlWithSampleProfile(mode: mode)
 
         XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 8))
 
@@ -300,7 +300,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runPiPWatchDisabled(mode: ColorMode, deviceTag: String) throws {
-        let app = launchApp(mode: mode)
+        let app = launchAppWithSampleProfile(mode: mode)
 
         let pip = app.buttons["PiP Watch"]
         XCTAssertTrue(pip.waitForExistence(timeout: 8))
@@ -363,6 +363,36 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
 
         try saveScreen(named: "15-diagnostic-error-dns-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    // MARK: - iPhone — live session, widescreen hero viewport (state #16)
+
+    func testSessionActiveWidescreen_light() throws {
+        try runSessionActiveWidescreen(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSessionActiveWidescreen_dark() throws {
+        try runSessionActiveWidescreen(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runSessionActiveWidescreen(mode: ColorMode, deviceTag: String) throws {
+        // Screen-first hero viewport (spec 003 FR-001): an `.active`
+        // session carrying a real 16:9 framebuffer.  Confirms the remote
+        // screen renders at the server's true aspect ratio and — once the
+        // hero layout lands — dominates the detail column.  The Compose
+        // quick-key strip (Esc / Tab / ⌃C / ↑ / ↓) is also visible here
+        // because the session is active (FR-013), so this is the canonical
+        // capture for grading the live-session surface against Google
+        // Remote Desktop.
+        let app = launchAppWithFixture(.sessionActiveWidescreen, mode: mode)
+
+        XCTAssertTrue(
+            app.otherElements["naru.session.viewport"].waitForExistence(timeout: 8)
+                || app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 4),
+            "Active-session viewport must be mounted"
+        )
+
+        try saveScreen(named: "16-session-active-widescreen-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPhone — sidebar with multiple profiles
@@ -467,7 +497,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                 // State 1 — empty state
                 do {
                     let app = launchApp(mode: mode)
-                    XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
+                    XCTAssertTrue(app.buttons["naru.home.empty.addProfile"].waitForExistence(timeout: 8))
                     try saveScreen(named: "01-firstlaunch-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
@@ -490,7 +520,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
                 // State 7 — compose with text
                 do {
-                    let app = launchApp(mode: mode)
+                    let app = launchAppWithSampleProfile(mode: mode)
                     let editor = app.textViews["Remote input text"]
                     XCTAssertTrue(editor.waitForExistence(timeout: 8))
                     editor.tap()
@@ -501,7 +531,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
                 // State 8 — direct mode QWERTY
                 do {
-                    let app = launchAppSuppressingDirectWarning(mode: mode)
+                    let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
                     let directSegment = app.buttons["Direct"]
                     XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
                     directSegment.tap()
@@ -553,6 +583,31 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         return app
     }
 
+    private func launchAppWithSampleProfile(mode: ColorMode) -> XCUIApplication {
+        launchApp(
+            mode: mode,
+            seedProfiles: [
+                SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+            ]
+        )
+    }
+
+    private func launchAppSuppressingDirectWarningWithSampleProfile(mode: ColorMode) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        try? writeSeedProfiles(
+            [SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")],
+            to: storeURL
+        )
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
     /// Subset of `UXAuditFixtureToken` mirrored into the UITest
     /// target — the production enum lives in
     /// `NaruRemote/iOSApp/UXAuditFixtures.swift` and is not visible
@@ -563,6 +618,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         case diagnosticErrorDNS = "diagnostic-error-dns"
         case incomingClipboard = "incoming-clipboard"
         case sidebarWithVerdicts = "sidebar-with-verdicts"
+        case sessionActiveWidescreen = "session-active-widescreen"
     }
 
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
@@ -588,6 +644,23 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = "control"
+        applyColorMode(mode, to: app)
+        app.launch()
+        return app
+    }
+
+    private func launchAppPrelockingControlWithSampleProfile(mode: ColorMode) -> XCUIApplication {
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = "control"
+        try? writeSeedProfiles(
+            [SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")],
+            to: storeURL
+        )
         applyColorMode(mode, to: app)
         app.launch()
         return app

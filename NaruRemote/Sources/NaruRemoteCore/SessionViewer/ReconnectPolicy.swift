@@ -33,9 +33,14 @@ public struct ReconnectPolicy: Sendable, Equatable {
     public let maxBackoff: Duration
 
     public init(
-        maxAttempts: Int = 3,
+        // 6 attempts / 10 s cap ≈ 25 s total retry coverage, tuned for
+        // mobile networks (constitution §VI): a cellular↔Wi-Fi handoff
+        // or tunnel blip commonly takes 20–60 s to recover, and the
+        // earlier 3-attempt / ~13 s budget gave up while the network
+        // was still coming back (spec 003 liveness).
+        maxAttempts: Int = 6,
         initialBackoff: Duration = .milliseconds(500),
-        maxBackoff: Duration = .seconds(8)
+        maxBackoff: Duration = .seconds(10)
     ) {
         self.maxAttempts = maxAttempts
         self.initialBackoff = initialBackoff

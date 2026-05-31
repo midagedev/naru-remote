@@ -18,10 +18,16 @@ public struct RemoteInputDockView: View {
     private let onSend: (String) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
     private let stickyModifierState: StickyModifierState
+    /// When `true`, the Compose-mode inline quick-key strip
+    /// (Esc / Tab / ⌃C / arrows) is shown.  Gated on an active session
+    /// (spec 003 FR-013) — with no live wire there is nothing to send
+    /// a control key to, so the strip is hidden rather than dead.
+    private let showsComposeQuickKeys: Bool
     private let onToggleDirectMode: () -> Void
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
+    private let onComposeQuickKey: (ComposeQuickKey) -> Void
     private let onDismissDirectModeWarning: () -> Void
     private let onComposeFocusChange: (Bool) -> Void
 
@@ -31,10 +37,12 @@ public struct RemoteInputDockView: View {
         onSend: @escaping (String) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
+        showsComposeQuickKeys: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
+        onComposeQuickKey: @escaping (ComposeQuickKey) -> Void = { _ in },
         onDismissDirectModeWarning: @escaping () -> Void = {},
         onComposeFocusChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -44,10 +52,12 @@ public struct RemoteInputDockView: View {
         self.onSend = onSend
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
+        self.showsComposeQuickKeys = showsComposeQuickKeys
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
+        self.onComposeQuickKey = onComposeQuickKey
         self.onDismissDirectModeWarning = onDismissDirectModeWarning
         self.onComposeFocusChange = onComposeFocusChange
     }
@@ -55,8 +65,13 @@ public struct RemoteInputDockView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Label("Remote Input Dock", systemImage: "keyboard")
-                    .font(.headline)
+                ViewThatFits(in: .horizontal) {
+                    Label("Remote Input Dock", systemImage: "keyboard")
+                    Label("Input Dock", systemImage: "keyboard")
+                }
+                .font(.headline)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
                 // Dock-side Direct-mode badge.  Sits next to the
                 // dock title so the cue is always visible whenever
@@ -68,11 +83,13 @@ public struct RemoteInputDockView: View {
 
                 Spacer()
 
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
+                if !directKeystrokeMode.isActive {
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             modePicker
@@ -80,6 +97,9 @@ public struct RemoteInputDockView: View {
             if directKeystrokeMode.isActive {
                 directKeyboard
             } else {
+                if showsComposeQuickKeys {
+                    composeQuickKeyStrip
+                }
                 composeRow
             }
         }
@@ -146,6 +166,47 @@ public struct RemoteInputDockView: View {
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("naru.input.mode-picker")
+    }
+
+    /// Inline terminal-control strip shown above the Compose editor
+    /// while a session is active (spec 003 US5 / FR-013).  Lets a
+    /// multilingual-composing user fire Esc / Tab / ⌃C / arrows once
+    /// without switching to Direct mode.  Each button dispatches a
+    /// discrete `KeyEvent` through the model's `sendComposeQuickKey`
+    /// path; the compose draft is never modified.
+    private var composeQuickKeyStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ComposeQuickKey.allCases, id: \.self) { key in
+                    Button {
+                        onComposeQuickKey(key)
+                    } label: {
+                        // UX (GRD-parity #5): the tiles read as flat
+                        // low-contrast text on the mint dock surface.
+                        // Give each a `surfaceKey` fill (one tier above
+                        // the dock), a Hairline stroke, and a ≥40pt tap
+                        // target so they read as tappable terminal keys.
+                        Text(key.label)
+                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .frame(minWidth: 44, minHeight: 40)
+                            .padding(.horizontal, 12)
+                            .background(NaruColors.surfaceKey)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(NaruColors.hairline, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
+                    .accessibilityLabel(key.accessibilityLabel)
+                    .accessibilityIdentifier("naru.input.quickkey.\(key.rawValue)")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityIdentifier("naru.input.quickkeys")
     }
 
     private var composeRow: some View {

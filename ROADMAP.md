@@ -100,8 +100,10 @@ Status: complete for MVP foundation
 - Standalone simulator launch and local Korean/English/emoji compose
   screenshots are captured under `artifacts/screenshots/`
 - Bounded auto-reconnect on a streaming connection drop: a new
-  `ReconnectPolicy` value type (3 attempts, 500 ms initial backoff,
-  doubling, capped at 8 s) drives a `RemoteSessionState.reconnecting`
+  `ReconnectPolicy` value type (6 attempts, 500 ms initial backoff,
+  doubling, capped at 10 s — ~25 s total, tuned for cellular↔Wi-Fi
+  handoff recovery per constitution §VI; spec 003 liveness) drives a
+  `RemoteSessionState.reconnecting`
   window inside `NaruRemoteAppModel`.  The reconnect path replays
   the same profile + credentialRef, allocates a fresh `streamID` so
   stale frame tasks self-cancel, resets the attempt counter on a

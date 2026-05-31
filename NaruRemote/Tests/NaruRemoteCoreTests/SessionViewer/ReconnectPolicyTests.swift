@@ -3,10 +3,23 @@ import XCTest
 
 final class ReconnectPolicyTests: XCTestCase {
     func testDefaultPolicyMatchesDocumentedConstants() {
+        // Tuned for mobile reconnect coverage (spec 003 liveness):
+        // 6 attempts, 10 s cap ≈ 25 s total.
         let policy = ReconnectPolicy()
-        XCTAssertEqual(policy.maxAttempts, 3)
+        XCTAssertEqual(policy.maxAttempts, 6)
         XCTAssertEqual(policy.initialBackoff, .milliseconds(500))
-        XCTAssertEqual(policy.maxBackoff, .seconds(8))
+        XCTAssertEqual(policy.maxBackoff, .seconds(10))
+    }
+
+    func testDefaultPolicyBackoffScheduleCapsAtTenSeconds() {
+        let policy = ReconnectPolicy()
+        XCTAssertEqual(policy.backoffForAttempt(1), .milliseconds(500))
+        XCTAssertEqual(policy.backoffForAttempt(2), .seconds(1))
+        XCTAssertEqual(policy.backoffForAttempt(3), .seconds(2))
+        XCTAssertEqual(policy.backoffForAttempt(4), .seconds(4))
+        XCTAssertEqual(policy.backoffForAttempt(5), .seconds(8))
+        // 8 s doubles to 16 s at attempt 6 → clamped to the 10 s cap.
+        XCTAssertEqual(policy.backoffForAttempt(6), .seconds(10))
     }
 
     func testBackoffDoublesUntilMaxBackoff() {
