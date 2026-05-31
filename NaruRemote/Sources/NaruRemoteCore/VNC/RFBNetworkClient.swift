@@ -74,6 +74,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         credential: RFBConnectionCredential,
         timeout: TimeInterval = 2
     ) throws -> RFBServerInit {
+        var pendingConnection: RFBNetworkConnection?
         do {
             startConnecting()
             let connection = try RFBNetworkConnection.open(
@@ -81,6 +82,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 port: port,
                 timeout: timeout
             )
+            pendingConnection = connection
 
             let serverInit = try performHandshake(
                 connection: connection,
@@ -111,9 +113,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
             }
+            pendingConnection = nil
 
             return serverInit
         } catch {
+            pendingConnection?.cancel()
             failConnection()
             throw error
         }
@@ -155,6 +159,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         credential: RFBConnectionCredential,
         timeout: TimeInterval = 2
     ) throws -> RFBServerInit {
+        var pendingConnection: RFBNetworkConnection?
         do {
             startConnecting()
             let connection = try RFBNetworkConnection.open(
@@ -162,6 +167,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 port: port,
                 timeout: timeout
             )
+            pendingConnection = connection
 
             let serverInit = try performHandshake(
                 connection: connection,
@@ -180,9 +186,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientLastFrame = nil
                 clientState = .authenticated
             }
+            pendingConnection = nil
 
             return serverInit
         } catch {
+            pendingConnection?.cancel()
             failConnection()
             throw error
         }
@@ -211,12 +219,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         }
 
         setState(.receivingFrames)
-        try connection.write(
+        try writeActiveConnection(
             Self.framebufferUpdateRequest(
                 width: serverInit.width,
                 height: serverInit.height,
                 incremental: incremental
             ),
+            to: connection,
             timeout: timeout
         )
 
@@ -246,15 +255,21 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         // reads (spec 004 FR-002). The reader also consumes TigerVNC
         // transport-control messages that may arrive before a frame.
         let reader = ConnectionByteReader(connection: connection, timeout: timeout)
-        let updateResult = try receiveNextFramebufferUpdate(
-            connection: connection,
-            reader: reader,
-            serverInit: serverInit,
-            previousFramebuffer: context.2,
-            zlibStream: context.3,
-            tightZlibStreams: context.4,
-            timeout: timeout
-        )
+        let updateResult: RFBFramebufferUpdateResult
+        do {
+            updateResult = try receiveNextFramebufferUpdate(
+                connection: connection,
+                reader: reader,
+                serverInit: serverInit,
+                previousFramebuffer: context.2,
+                zlibStream: context.3,
+                tightZlibStreams: context.4,
+                timeout: timeout
+            )
+        } catch {
+            failConnection(connection)
+            throw error
+        }
 
         // A DesktopSize / ExtendedDesktopSize pseudo-rectangle reallocated
         // the framebuffer — refresh the cached server dimensions so the
@@ -361,7 +376,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 "No active RFB connection is available for text clipboard transfer."
             )
         }
-        try connection.write(RFBClientMessageEncoder.clientCutText(text), timeout: 2)
+        try writeActiveConnection(
+            RFBClientMessageEncoder.clientCutText(text),
+            to: connection,
+            timeout: 2
+        )
     }
 
     public func sendPasteCommand(_ command: PasteCommand) throws {
@@ -370,7 +389,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 "No active RFB connection is available for paste command delivery."
             )
         }
-        try connection.write(RFBClientMessageEncoder.pasteCommand(command), timeout: 2)
+        try writeActiveConnection(
+            RFBClientMessageEncoder.pasteCommand(command),
+            to: connection,
+            timeout: 2
+        )
     }
 
     /// Sends a single `PointerEvent` (RFC 6143 §7.5.5) on the active
@@ -385,8 +408,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         guard let connection = currentActiveConnection() else {
             throw RFBNetworkClientError.notConnected
         }
-        try connection.write(
+        try writeActiveConnection(
             RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y),
+            to: connection,
             timeout: 2
         )
     }
@@ -406,8 +430,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         guard let connection = currentActiveConnection() else {
             throw RFBNetworkClientError.notConnected
         }
-        try connection.write(
+        try writeActiveConnection(
             RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown),
+            to: connection,
             timeout: 2
         )
     }
@@ -451,7 +476,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             height: Self.clampedUInt16(context.1?.height ?? 0)
         )
 
-        try connection.write(
+        try writeActiveConnection(
             RFBClientMessageEncoder.enableContinuousUpdates(
                 enabled,
                 x: updateRegion.x,
@@ -459,6 +484,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 width: updateRegion.width,
                 height: updateRegion.height
             ),
+            to: connection,
             timeout: timeout
         )
     }
@@ -567,6 +593,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientServerInit = nil
             clientFramebuffer = nil
             clientZlibStream = nil
+            clientTightZlibStreams = nil
             clientLastFrame = nil
             clientState = .connecting
             return connection
@@ -580,13 +607,19 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         }
     }
 
-    private func failConnection() {
-        let connection = lock.withRFBClientLock {
+    private func failConnection(_ failedConnection: RFBNetworkConnection? = nil) {
+        let connection: RFBNetworkConnection? = lock.withRFBClientLock {
+            if let failedConnection {
+                guard let activeConnection, activeConnection === failedConnection else {
+                    return nil
+                }
+            }
             let connection = activeConnection
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
             clientZlibStream = nil
+            clientTightZlibStreams = nil
             clientLastFrame = nil
             clientState = .failed
             return connection
@@ -604,7 +637,20 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         guard let connection = currentActiveConnection() else {
             throw RFBNetworkClientError.notConnected
         }
-        try connection.write(data, timeout: timeout)
+        try writeActiveConnection(data, to: connection, timeout: timeout)
+    }
+
+    private func writeActiveConnection(
+        _ data: Data,
+        to connection: RFBNetworkConnection,
+        timeout: TimeInterval
+    ) throws {
+        do {
+            try connection.write(data, timeout: timeout)
+        } catch {
+            failConnection(connection)
+            throw error
+        }
     }
 
     private func validateNoAuthFirstFrameTranscript(_ transcript: Data) throws {
@@ -866,7 +912,12 @@ private final class RFBNetworkConnection: Sendable {
         }
 
         connection.start(queue: wrapper.queue)
-        try readyState.wait(timeout: timeout)
+        do {
+            try readyState.wait(timeout: timeout)
+        } catch {
+            wrapper.cancel()
+            throw error
+        }
         return wrapper
     }
 
@@ -877,7 +928,12 @@ private final class RFBNetworkConnection: Sendable {
 
         let state = RFBNetworkReadState(expectedByteCount: byteCount)
         receiveNext(into: state, remainingByteCount: byteCount)
-        return try state.wait(timeout: timeout)
+        do {
+            return try state.wait(timeout: timeout)
+        } catch {
+            cancel()
+            throw error
+        }
     }
 
     func write(_ data: Data, timeout: TimeInterval) throws {
@@ -893,7 +949,12 @@ private final class RFBNetworkConnection: Sendable {
                 state.fail()
             }
         })
-        try state.wait(timeout: timeout)
+        do {
+            try state.wait(timeout: timeout)
+        } catch {
+            cancel()
+            throw error
+        }
     }
 
     func cancel() {
