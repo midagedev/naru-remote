@@ -224,6 +224,44 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(renegotiated.encodingList().contains(RFBEncoding.continuousUpdates))
     }
 
+    func testModelStopsContinuousUpdatesWhenContinuousFrameStreamEnds() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                requestTimeout: 1,
+                frameInterval: 0,
+                updateMode: .continuousUpdates
+            ),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(180))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(connector.receivedFrameCount, 1)
+        XCTAssertEqual(connector.continuousUpdateFlags, [true, false])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
+    }
+
     func testModelPublishesAndPersistsServerCursorFromFramePump() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
@@ -825,7 +863,7 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBTransportControlClient {
+private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
@@ -835,6 +873,8 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         var recordedPasteCommands: [PasteCommand] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
         var renegotiatedPreferences: [RFBEncodingPreference] = []
+        var receivedFrameCount = 0
+        var continuousUpdateFlags: [Bool] = []
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -848,6 +888,14 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
 
     var renegotiatedPreferences: [RFBEncodingPreference] {
         recording.withLock { $0.renegotiatedPreferences }
+    }
+
+    var receivedFrameCount: Int {
+        recording.withLock { $0.receivedFrameCount }
+    }
+
+    var continuousUpdateFlags: [Bool] {
+        recording.withLock { $0.continuousUpdateFlags }
     }
 
     init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
@@ -978,6 +1026,19 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         return update
     }
 
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
+            state.receivedFrameCount += 1
+            return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
+        }
+
+        guard let update else {
+            throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
+        }
+
+        return update
+    }
+
     func setClipboardText(_ text: String) throws {
         recording.withLock { state in
             state.recordedClipboardPayloads.append(text)
@@ -1013,7 +1074,9 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         region: RFBFramebufferUpdateRegion?,
         timeout: TimeInterval
     ) throws {
-        // Continuous-update behavior is covered in RFBFramePump tests.
+        recording.withLock { state in
+            state.continuousUpdateFlags.append(enabled)
+        }
     }
 
     func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws {

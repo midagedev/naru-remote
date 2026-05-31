@@ -1078,6 +1078,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             guard let self else {
                 return
             }
+            defer {
+                Task.detached(priority: .utility) {
+                    pump.stopContinuousUpdatesIfNeeded(timeout: configuration.requestTimeout)
+                }
+            }
 
             do {
                 let serverInit = try await Task.detached {

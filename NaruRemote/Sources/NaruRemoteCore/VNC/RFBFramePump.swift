@@ -162,7 +162,7 @@ public final class RFBFramePump: @unchecked Sendable {
     ) throws -> RFBFramePumpSummary {
         reset()
         defer {
-            disableContinuousUpdatesIfNeeded(timeout: configuration.requestTimeout)
+            stopContinuousUpdatesIfNeeded(timeout: configuration.requestTimeout)
         }
 
         while shouldContinue(deliveredFrameCount: deliveredFrameCount, maxFrames: configuration.maxFrames) {
@@ -261,6 +261,13 @@ public final class RFBFramePump: @unchecked Sendable {
             cancelled = false
             continuousUpdatesEnabled = false
         }
+    }
+
+    /// Best-effort shutdown hook for callers that drive the pump with
+    /// manual `nextFrame` loops instead of `run`. `run` calls this
+    /// automatically on exit.
+    public func stopContinuousUpdatesIfNeeded(timeout: TimeInterval = 2) {
+        disableContinuousUpdatesIfNeeded(timeout: timeout)
     }
 
     private func enableContinuousUpdatesIfNeeded(
