@@ -13,8 +13,8 @@ import XCTest
 /// test passes; the simulator side is the suspect).
 ///
 /// Run from the repo root:
-///   NARU_LIVE_MAC_HOST=192.168.45.148 NARU_LIVE_MAC_PORT=5900 \
-    ///   NARU_LIVE_MAC_PASSWORD=<ask-the-user> \
+///   NARU_LIVE_MAC_HOST=<private-host-or-ip> NARU_LIVE_MAC_PORT=5900 \
+///     NARU_LIVE_MAC_PASSWORD=<redacted> \
 ///     swift test --filter FakeRFBServerKitTests.LiveMacRFBSmokeTests
 final class LiveMacRFBSmokeTests: XCTestCase {
 
@@ -44,14 +44,8 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 credential: .vncPassword(password),
                 timeout: 8
             )
-        } catch let error as RFBNetworkClientError {
-            XCTFail("RFBNetworkClient failed at network/auth layer: \(error)")
-            return
-        } catch let error as RFBProtocolDecoderError {
-            XCTFail("RFBNetworkClient failed at protocol-decoder layer: \(error)")
-            return
         } catch {
-            XCTFail("RFBNetworkClient failed with unexpected error: \(error)")
+            XCTFail("RFBNetworkClient failed: \(safeFailureLabel(for: error))")
             return
         }
 
@@ -63,9 +57,8 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         // verification artefact for the user.
         let frame = client.lastFrame
         let summary = """
-        ✓ Connected to \(host):\(port) — server name="\(serverInit.name)" \
-        size=\(serverInit.width)x\(serverInit.height) \
-        firstFrame=\(frame.map { "\($0.width)x\($0.height)" } ?? "nil") \
+        Connected to configured live target; \
+        firstFrameMetadata=\(frame == nil ? "missing" : "present") \
         state=\(client.state.rawValue)
         """
         print(summary)
@@ -96,23 +89,18 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         // pump.nextFrame calls.  This is the tight budget the iOS
         // Connect button actually runs under.
         let modelTimeout: TimeInterval = 3
-        let serverInit: RFBServerInit
         let connectStart = Date()
         do {
-            serverInit = try streamingClient.connectSession(
+            _ = try streamingClient.connectSession(
                 host: host,
                 port: port,
                 credential: .vncPassword(password),
                 timeout: modelTimeout
             )
-        } catch let error as RFBNetworkClientError {
-            XCTFail("connectSession failed at network/auth layer after \(Date().timeIntervalSince(connectStart))s: \(error)")
-            return
-        } catch let error as RFBProtocolDecoderError {
-            XCTFail("connectSession failed at protocol-decoder layer after \(Date().timeIntervalSince(connectStart))s: \(error)")
-            return
         } catch {
-            XCTFail("connectSession failed after \(Date().timeIntervalSince(connectStart))s: \(error)")
+            XCTFail(
+                "connectSession failed after \(milliseconds(since: connectStart)) ms: \(safeFailureLabel(for: error))"
+            )
             return
         }
         let connectElapsed = Date().timeIntervalSince(connectStart)
@@ -128,7 +116,9 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 return .stop
             }
         } catch {
-            XCTFail("RFBFramePump.run failed after \(Date().timeIntervalSince(frameStart))s: \(error)")
+            XCTFail(
+                "RFBFramePump.run failed after \(milliseconds(since: frameStart)) ms: \(safeFailureLabel(for: error))"
+            )
             return
         }
         let frameElapsed = Date().timeIntervalSince(frameStart)
@@ -140,9 +130,8 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         }
 
         let summary = """
-        ✓ Streaming path OK — \(host):\(port) "\(serverInit.name)" \
-        size=\(serverInit.width)x\(serverInit.height) \
-        firstFrame=\(firstFrame.framebuffer.width)x\(firstFrame.framebuffer.height) \
+        Streaming path OK against configured live target; \
+        firstFrameSequence=\(firstFrame.sequence) \
         capturedAt=\(firstFrame.capturedAt)
         """
         print(summary)
@@ -169,16 +158,15 @@ final class LiveMacRFBSmokeTests: XCTestCase {
             let streamingClient: any RFBStreamingClient = client
 
             let connectStart = Date()
-            let serverInit: RFBServerInit
             do {
-                serverInit = try streamingClient.connectSession(
+                _ = try streamingClient.connectSession(
                     host: host,
                     port: port,
                     credential: .vncPassword(password),
                     timeout: modelTimeout
                 )
             } catch {
-                failures.append("attempt \(attempt) connect: \(error)")
+                failures.append("attempt \(attempt) connect: \(safeFailureLabel(for: error))")
                 client.disconnect()
                 continue
             }
@@ -192,16 +180,22 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                     configuration: RFBFramePumpConfiguration(maxFrames: 1, requestTimeout: modelTimeout)
                 ) { _ in .stop }
             } catch {
-                failures.append("attempt \(attempt) firstFrame: \(error) (\(Date().timeIntervalSince(frameStart) * 1000) ms)")
+                failures.append(
+                    "attempt \(attempt) firstFrame: \(safeFailureLabel(for: error)) "
+                        + "(\(milliseconds(since: frameStart)) ms)"
+                )
                 client.disconnect()
                 continue
             }
             let frameElapsed = Date().timeIntervalSince(frameStart) * 1000
             frameMs.append(frameElapsed)
             client.disconnect()
-            print(String(format: "  attempt %d: connect=%.0f ms  firstFrame=%.0f ms  size=%dx%d",
-                         attempt, connectElapsed, frameElapsed,
-                         serverInit.width, serverInit.height))
+            print(String(
+                format: "  attempt %d: connect=%.0f ms  firstFrame=%.0f ms",
+                attempt,
+                connectElapsed,
+                frameElapsed
+            ))
         }
 
         let connectMax = connectMs.max() ?? 0
@@ -271,7 +265,7 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         let client = RFBNetworkClient()
         defer { client.disconnect() }
         let timeout: TimeInterval = 3
-        let serverInit = try client.connectSession(
+        _ = try client.connectSession(
             host: host,
             port: port,
             credential: .vncPassword(password),
@@ -290,22 +284,18 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 timeout: idleProbeTimeout
             )
             let idleMs = Date().timeIntervalSince(idleStart) * 1000
+            let status = update.changedPixelCount == 0 ? "empty-update" : "content-update"
             print(String(
-                format: "Idle incremental returned in %.0f ms on %dx%d; changedPixels=%d dirtyRects=%d",
+                format: "Idle incremental returned in %.0f ms; status=%@",
                 idleMs,
-                serverInit.width,
-                serverInit.height,
-                update.changedPixelCount,
-                update.dirtyRectangles.count
+                status
             ))
         } catch RFBNetworkClientError.timedOut {
             let heldMs = Date().timeIntervalSince(idleStart) * 1000
             print(String(
-                format: "Idle incremental held for %.0f ms after firstFrame=%.0f ms on %dx%d (no empty-update churn)",
+                format: "Idle incremental held for %.0f ms after firstFrame=%.0f ms (no empty-update churn)",
                 heldMs,
-                firstMs,
-                serverInit.width,
-                serverInit.height
+                firstMs
             ))
         }
     }
@@ -336,7 +326,7 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 frameMs.append(elapsed)
                 print(String(format: "  %@ attempt %d firstFrame=%.0f ms", label, attempt, elapsed))
             } catch {
-                failures.append("\(label) attempt \(attempt): \(error)")
+                failures.append("\(label) attempt \(attempt): \(safeFailureLabel(for: error))")
             }
             client.disconnect()
         }
@@ -348,5 +338,72 @@ final class LiveMacRFBSmokeTests: XCTestCase {
 
         let average = frameMs.isEmpty ? 0 : frameMs.reduce(0, +) / Double(frameMs.count)
         return (average, frameMs.max() ?? 0)
+    }
+
+    private func milliseconds(since start: Date) -> Int {
+        Int((Date().timeIntervalSince(start) * 1_000).rounded())
+    }
+
+    private func safeFailureLabel(for error: Error) -> String {
+        switch error {
+        case RFBNetworkClientError.invalidPort:
+            return "invalid-port"
+        case RFBNetworkClientError.timedOut:
+            return "timeout"
+        case RFBNetworkClientError.incompleteTranscript:
+            return "incomplete-transcript"
+        case RFBNetworkClientError.connectionFailed:
+            return "connection-failed"
+        case RFBNetworkClientError.writeFailed:
+            return "write-failed"
+        case RFBNetworkClientError.authenticationRequired:
+            return "authentication-required"
+        case RFBNetworkClientError.unsupportedSecurityTypes:
+            return "unsupported-security-types"
+        case RFBNetworkClientError.unsupportedFramebufferEncoding:
+            return "unsupported-framebuffer-encoding"
+        case RFBNetworkClientError.notConnected:
+            return "not-connected"
+        case RFBProtocolDecoderError.insufficientData:
+            return "protocol-insufficient-data"
+        case RFBProtocolDecoderError.invalidProtocolVersion:
+            return "invalid-protocol-version"
+        case RFBProtocolDecoderError.securityFailed:
+            return "security-failed"
+        case RFBProtocolDecoderError.unexpectedMessageType:
+            return "unexpected-message-type"
+        case RFBProtocolDecoderError.truncatedServerCutText:
+            return "truncated-server-cuttext"
+        case RFBProtocolDecoderError.invalidServerCutTextEncoding:
+            return "invalid-server-cuttext-encoding"
+        case RFBRawFramebufferDecoderError.unsupportedPixelFormat:
+            return "unsupported-pixel-format"
+        case RFBRawFramebufferDecoderError.unsupportedEncoding:
+            return "unsupported-encoding"
+        case RFBRawFramebufferDecoderError.rectangleOutOfBounds:
+            return "rectangle-out-of-bounds"
+        case RFBRawFramebufferDecoderError.insufficientPixelData:
+            return "insufficient-pixel-data"
+        case RFBRawFramebufferDecoderError.framebufferSizeMismatch:
+            return "framebuffer-size-mismatch"
+        case RFBRawFramebufferDecoderError.copyRectOutOfBounds:
+            return "copyrect-out-of-bounds"
+        case RFBRawFramebufferDecoderError.malformedHextile:
+            return "malformed-hextile"
+        case RFBRawFramebufferDecoderError.invalidDimensions:
+            return "invalid-dimensions"
+        case RFBRawFramebufferDecoderError.malformedZRLE:
+            return "malformed-zrle"
+        case RFBRawFramebufferDecoderError.malformedCursor:
+            return "malformed-cursor"
+        case RFBRawFramebufferDecoderError.malformedTight:
+            return "malformed-tight"
+        case RFBClientMessageEncodingError.unsupportedFenceFlags:
+            return "client-message-encoding"
+        case RFBClientMessageEncodingError.fencePayloadTooLarge:
+            return "client-message-encoding"
+        default:
+            return "unexpected-error"
+        }
     }
 }
