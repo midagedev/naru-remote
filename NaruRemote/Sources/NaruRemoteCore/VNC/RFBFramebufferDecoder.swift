@@ -744,7 +744,7 @@ public enum RFBFramebufferDecoder {
         framebuffer.setPixelTrackingChange(color, x: originX + raster % tileWidth, y: originY + raster / tileWidth)
     }
 
-    // MARK: - Tight (encoding 7, fill + basic copy)
+    // MARK: - Tight (encoding 7, fill + basic filters)
 
     private enum TightCompressionType {
         static let fill: UInt8 = 0x08
@@ -754,10 +754,13 @@ public enum RFBFramebufferDecoder {
     }
 
     private enum TightFilter {
+        static let explicit: UInt8 = 0x04
         static let copy: UInt8 = 0x00
+        static let palette: UInt8 = 0x01
     }
 
     private static let maxTightRectangleWidth = 2_048
+    private static let maxTightBasicPayloadLength = 64 * 1024 * 1024
 
     private static func decodeTight(
         reader: RFBByteReader,
@@ -774,7 +777,7 @@ public enum RFBFramebufferDecoder {
 
         let control = try reader.readUInt8()
         try tightZlibStreams.reset(mask: control & 0x0F)
-        let compressionType = control >> 4
+        var compressionType = control >> 4
 
         switch compressionType {
         case TightCompressionType.fill:
@@ -784,51 +787,31 @@ public enum RFBFramebufferDecoder {
             }
             return framebuffer.fillRegionTrackingChange(x: x, y: y, width: width, height: height, color: color)
 
-        case TightCompressionType.noZlibBasic:
-            guard width > 0, height > 0 else {
-                return 0
+        case 0...0x07, TightCompressionType.noZlibBasic, TightCompressionType.noZlibExplicitFilter:
+            let readsUncompressedPayload = compressionType == TightCompressionType.noZlibBasic
+                || compressionType == TightCompressionType.noZlibExplicitFilter
+            if compressionType == TightCompressionType.noZlibBasic {
+                compressionType = TightFilter.copy
+            } else if compressionType == TightCompressionType.noZlibExplicitFilter {
+                compressionType = TightFilter.explicit
             }
-            return try decodeTightBasicCopy(
-                reader: reader,
-                into: &framebuffer,
-                x: x,
-                y: y,
-                width: width,
-                height: height,
-                pixelFormat: pixelFormat
-            )
-
-        case TightCompressionType.noZlibExplicitFilter:
-            let filter = try reader.readUInt8()
-            guard width > 0, height > 0 else {
-                return 0
-            }
-            guard filter == TightFilter.copy else {
-                throw RFBRawFramebufferDecoderError.malformedTight
-            }
-            return try decodeTightBasicCopy(
-                reader: reader,
-                into: &framebuffer,
-                x: x,
-                y: y,
-                width: width,
-                height: height,
-                pixelFormat: pixelFormat
-            )
-
-        case 0...7:
-            let hasExplicitFilter = compressionType & 0x04 != 0
+            let hasExplicitFilter = compressionType & TightFilter.explicit != 0
             let filter = hasExplicitFilter ? try reader.readUInt8() : TightFilter.copy
-            guard filter == TightFilter.copy else {
-                throw RFBRawFramebufferDecoderError.malformedTight
-            }
             guard width > 0, height > 0 else {
                 return 0
             }
-            let uncompressedSize = width * height * tightPixelByteCount(pixelFormat)
-            if uncompressedSize < 12 {
-                return try decodeTightBasicCopy(
+            switch filter {
+            case TightFilter.copy:
+                let uncompressedSize = try tightCopyPayloadLength(width: width, height: height, pixelFormat: pixelFormat)
+                let pixels = try readTightBasicPayload(
                     reader: reader,
+                    byteCount: uncompressedSize,
+                    compressionType: compressionType,
+                    readsUncompressedPayload: readsUncompressedPayload,
+                    tightZlibStreams: tightZlibStreams
+                )
+                return decodeTightBasicCopy(
+                    pixels,
                     into: &framebuffer,
                     x: x,
                     y: y,
@@ -836,23 +819,30 @@ public enum RFBFramebufferDecoder {
                     height: height,
                     pixelFormat: pixelFormat
                 )
-            }
-            let compressedLength = try readTightCompactLength(reader)
-            let compressed = try reader.readBytes(compressedLength)
-            let streamIndex = Int(compressionType & 0x03)
-            let decompressed = try tightZlibStreams.inflate(compressed, streamIndex: streamIndex)
-            guard decompressed.count == uncompressedSize else {
+
+            case TightFilter.palette:
+                let palette = try readTightPalette(reader: reader, pixelFormat: pixelFormat)
+                let indexByteCount = try tightPaletteIndexByteCount(width: width, height: height, colorCount: palette.count)
+                let indices = try readTightBasicPayload(
+                    reader: reader,
+                    byteCount: indexByteCount,
+                    compressionType: compressionType,
+                    readsUncompressedPayload: readsUncompressedPayload,
+                    tightZlibStreams: tightZlibStreams
+                )
+                return try decodeTightPalette(
+                    indices,
+                    palette: palette,
+                    into: &framebuffer,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                )
+
+            default:
                 throw RFBRawFramebufferDecoderError.malformedTight
             }
-            return decodeTightBasicCopy(
-                decompressed,
-                into: &framebuffer,
-                x: x,
-                y: y,
-                width: width,
-                height: height,
-                pixelFormat: pixelFormat
-            )
 
         default:
             throw RFBRawFramebufferDecoderError.malformedTight
@@ -868,8 +858,7 @@ public enum RFBFramebufferDecoder {
         height: Int,
         pixelFormat: RFBPixelFormat
     ) throws -> Int {
-        let pixelByteCount = tightPixelByteCount(pixelFormat)
-        let pixels = try reader.readBytes(width * height * pixelByteCount)
+        let pixels = try reader.readBytes(tightCopyPayloadLength(width: width, height: height, pixelFormat: pixelFormat))
         return decodeTightBasicCopy(
             pixels,
             into: &framebuffer,
@@ -904,6 +893,103 @@ public enum RFBFramebufferDecoder {
         return changed
     }
 
+    private static func decodeTightPalette(
+        _ indices: [UInt8],
+        palette: [RFBColor],
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) throws -> Int {
+        var changed = 0
+        if palette.count == 2 {
+            let bytesPerRow = (width + 7) / 8
+            guard indices.count == bytesPerRow * height else {
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            for localY in 0..<height {
+                for localX in 0..<width {
+                    let byte = indices[localY * bytesPerRow + localX / 8]
+                    let paletteIndex = Int((byte >> UInt8(7 - (localX % 8))) & 0x01)
+                    if framebuffer.setPixelTrackingChange(palette[paletteIndex], x: x + localX, y: y + localY) {
+                        changed += 1
+                    }
+                }
+            }
+            return changed
+        }
+
+        guard indices.count == width * height else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        for localY in 0..<height {
+            for localX in 0..<width {
+                let paletteIndex = Int(indices[localY * width + localX])
+                guard paletteIndex < palette.count else {
+                    throw RFBRawFramebufferDecoderError.malformedTight
+                }
+                if framebuffer.setPixelTrackingChange(palette[paletteIndex], x: x + localX, y: y + localY) {
+                    changed += 1
+                }
+            }
+        }
+        return changed
+    }
+
+    private static func readTightBasicPayload(
+        reader: RFBByteReader,
+        byteCount: Int,
+        compressionType: UInt8,
+        readsUncompressedPayload: Bool,
+        tightZlibStreams: RFBTightZlibStreams
+    ) throws -> [UInt8] {
+        guard byteCount >= 0, byteCount <= maxTightBasicPayloadLength else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        if byteCount < 12 {
+            return try reader.readBytes(byteCount)
+        }
+
+        let payloadLength = try readTightCompactLength(reader)
+        let payload = try reader.readBytes(payloadLength)
+        if readsUncompressedPayload {
+            guard payload.count == byteCount else {
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            return payload
+        }
+
+        let streamIndex = Int(compressionType & 0x03)
+        let decompressed = try tightZlibStreams.inflate(payload, streamIndex: streamIndex)
+        guard decompressed.count == byteCount else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        return decompressed
+    }
+
+    private static func tightCopyPayloadLength(width: Int, height: Int, pixelFormat: RFBPixelFormat) throws -> Int {
+        let byteCount = width * height * tightPixelByteCount(pixelFormat)
+        guard byteCount <= maxTightBasicPayloadLength else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        return byteCount
+    }
+
+    private static func tightPaletteIndexByteCount(width: Int, height: Int, colorCount: Int) throws -> Int {
+        let bytesPerRow: Int
+        if colorCount == 2 {
+            bytesPerRow = (width + 7) / 8
+        } else {
+            bytesPerRow = width
+        }
+        let byteCount = bytesPerRow * height
+        guard byteCount <= maxTightBasicPayloadLength else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        return byteCount
+    }
+
     private static func readTightCompactLength(_ reader: RFBByteReader) throws -> Int {
         let first = try reader.readUInt8()
         var value = Int(first & 0x7F)
@@ -929,6 +1015,24 @@ public enum RFBFramebufferDecoder {
         let pixelByteCount = tightPixelByteCount(pixelFormat)
         let bytes = try reader.readBytes(pixelByteCount)
         return decodeTightPixel(bytes, at: 0, pixelFormat: pixelFormat, pixelByteCount: pixelByteCount)
+    }
+
+    private static func readTightPalette(
+        reader: RFBByteReader,
+        pixelFormat: RFBPixelFormat
+    ) throws -> [RFBColor] {
+        let colorCount = Int(try reader.readUInt8()) + 1
+        guard colorCount >= 2 else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        let pixelByteCount = tightPixelByteCount(pixelFormat)
+        let bytes = try reader.readBytes(colorCount * pixelByteCount)
+        var palette = [RFBColor]()
+        palette.reserveCapacity(colorCount)
+        for index in 0..<colorCount {
+            palette.append(decodeTightPixel(bytes, at: index * pixelByteCount, pixelFormat: pixelFormat, pixelByteCount: pixelByteCount))
+        }
+        return palette
     }
 
     private static func tightPixelByteCount(_ pixelFormat: RFBPixelFormat) -> Int {
