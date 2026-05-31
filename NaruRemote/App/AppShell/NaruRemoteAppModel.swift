@@ -1113,7 +1113,10 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // logged (constitution §IV).
                     let requestStart = Date()
                     let maybeFrame = try await Task.detached {
-                        try pump.nextFrame(requestTimeout: requestTimeout)
+                        try pump.nextFrame(
+                            requestTimeout: requestTimeout,
+                            updateMode: configuration.updateMode
+                        )
                     }.value
                     let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
                     guard let frame = maybeFrame else {
