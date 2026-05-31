@@ -161,6 +161,9 @@ public final class RFBFramePump: @unchecked Sendable {
         onFrame: (RFBFramePumpFrame) throws -> RFBFramePumpDecision
     ) throws -> RFBFramePumpSummary {
         reset()
+        defer {
+            disableContinuousUpdatesIfNeeded(timeout: configuration.requestTimeout)
+        }
 
         while shouldContinue(deliveredFrameCount: deliveredFrameCount, maxFrames: configuration.maxFrames) {
             guard let frame = try nextFrame(
@@ -279,6 +282,26 @@ public final class RFBFramePump: @unchecked Sendable {
 
         lock.withRFBFramePumpLock {
             continuousUpdatesEnabled = true
+        }
+    }
+
+    private func disableContinuousUpdatesIfNeeded(timeout: TimeInterval) {
+        let shouldDisable = lock.withRFBFramePumpLock {
+            continuousUpdatesEnabled
+        }
+        guard shouldDisable,
+              let transportControl = source as? any RFBTransportControlClient else {
+            return
+        }
+
+        try? transportControl.enableContinuousUpdates(
+            false,
+            region: nil,
+            timeout: timeout
+        )
+
+        lock.withRFBFramePumpLock {
+            continuousUpdatesEnabled = false
         }
     }
 

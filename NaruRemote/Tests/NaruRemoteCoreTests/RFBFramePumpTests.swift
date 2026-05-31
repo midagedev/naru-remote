@@ -179,6 +179,44 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
     }
 
+    func testPumpDisablesContinuousUpdatesWhenRunStopsAfterCallback() throws {
+        let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
+        let pushed = RFBFramebufferUpdateResult(
+            framebuffer: Self.framebuffer(red: 128),
+            dirtyRectangles: [
+                RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)
+            ],
+            changedPixelCount: 1
+        )
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [initial],
+            receivedResults: [pushed]
+        )
+        let pump = RFBFramePump(source: source)
+        var frames: [RFBFramePumpFrame] = []
+
+        let summary = try pump.run(
+            configuration: RFBFramePumpConfiguration(
+                maxFrames: 4,
+                requestTimeout: 1,
+                updateMode: .continuousUpdates
+            )
+        ) { frame in
+            frames.append(frame)
+            return frame.isIncremental ? .stop : .continue
+        }
+
+        XCTAssertEqual(frames.map(\.sequence), [1, 2])
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(source.receivedFrameCount, 1)
+        XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
+        XCTAssertEqual(source.disableContinuousUpdatesCallCount, 1)
+        XCTAssertEqual(source.continuousUpdatesEnabledFlags, [true, false])
+        XCTAssertEqual(summary.deliveredFrameCount, 2)
+        XCTAssertTrue(summary.stoppedByCallback)
+        XCTAssertFalse(summary.stoppedByCancellation)
+    }
+
     func testPumpFallsBackToRequestResponseWhenContinuousSourceIsUnavailable() throws {
         let source = FakeDamageTrackingFramebufferUpdateSource(
             results: [
@@ -293,6 +331,8 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
         var incrementalFlags: [Bool] = []
         var receivedFrameCount = 0
         var enableContinuousUpdatesCallCount = 0
+        var disableContinuousUpdatesCallCount = 0
+        var continuousUpdatesEnabledFlags: [Bool] = []
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -319,6 +359,14 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
 
     var enableContinuousUpdatesCallCount: Int {
         state.withLock { $0.enableContinuousUpdatesCallCount }
+    }
+
+    var disableContinuousUpdatesCallCount: Int {
+        state.withLock { $0.disableContinuousUpdatesCallCount }
+    }
+
+    var continuousUpdatesEnabledFlags: [Bool] {
+        state.withLock { $0.continuousUpdatesEnabledFlags }
     }
 
     func requestRawFramebufferUpdate(
@@ -365,8 +413,11 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
         timeout: TimeInterval
     ) throws {
         state.withLock { state in
+            state.continuousUpdatesEnabledFlags.append(enabled)
             if enabled {
                 state.enableContinuousUpdatesCallCount += 1
+            } else {
+                state.disableContinuousUpdatesCallCount += 1
             }
         }
     }
