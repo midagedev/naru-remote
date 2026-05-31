@@ -151,6 +151,56 @@ public struct RFBFrameDamageRect: Codable, Equatable, Sendable {
     }
 }
 
+public struct RFBServerCursor: Codable, Equatable, Sendable {
+    public let width: Int
+    public let height: Int
+    public let hotSpotX: Int
+    public let hotSpotY: Int
+    public let pixels: [RFBColor]
+
+    public init(
+        width: Int,
+        height: Int,
+        hotSpotX: Int,
+        hotSpotY: Int,
+        pixels: [RFBColor]
+    ) {
+        let safeWidth = max(width, 0)
+        let safeHeight = max(height, 0)
+        guard safeWidth == 0 || safeHeight <= Int.max / safeWidth else {
+            self.width = 0
+            self.height = 0
+            self.hotSpotX = max(hotSpotX, 0)
+            self.hotSpotY = max(hotSpotY, 0)
+            self.pixels = []
+            return
+        }
+
+        self.width = safeWidth
+        self.height = safeHeight
+        self.hotSpotX = max(hotSpotX, 0)
+        self.hotSpotY = max(hotSpotY, 0)
+        let expectedCount = self.width * self.height
+        if pixels.count == expectedCount {
+            self.pixels = pixels
+        } else if pixels.count > expectedCount {
+            self.pixels = Array(pixels.prefix(expectedCount))
+        } else {
+            self.pixels = pixels + Array(
+                repeating: RFBColor(red: 0, green: 0, blue: 0, alpha: 0),
+                count: expectedCount - pixels.count
+            )
+        }
+    }
+
+    public subscript(x: Int, y: Int) -> RFBColor? {
+        guard x >= 0, y >= 0, x < width, y < height else {
+            return nil
+        }
+        return pixels[y * width + x]
+    }
+}
+
 public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     public let framebuffer: RFBRawFramebuffer
     public let dirtyRectangles: [RFBFrameDamageRect]
@@ -161,19 +211,25 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// FR-008). The App layer re-fits the viewport on this signal; the
     /// network client refreshes its cached server dimensions.
     public let didResizeDesktop: Bool
+    /// Cursor pseudo-encoding decoded from this update, if present.
+    /// It is additive to the framebuffer: cursor pixels are surfaced to
+    /// the presentation layer and never written into `framebuffer`.
+    public let serverCursor: RFBServerCursor?
 
     public init(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect],
         changedPixelCount: Int,
         capturedAt: Date = Date(),
-        didResizeDesktop: Bool = false
+        didResizeDesktop: Bool = false,
+        serverCursor: RFBServerCursor? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
         self.changedPixelCount = max(changedPixelCount, 0)
         self.capturedAt = capturedAt
         self.didResizeDesktop = didResizeDesktop
+        self.serverCursor = serverCursor
     }
 
     public static func fullFrame(
@@ -243,6 +299,9 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
     /// that overran its tile (spec 004 FR-005), or a compressed length
     /// Naru refuses to buffer.
     case malformedZRLE
+    /// Cursor pseudo-encoding declared an absurd shape or malformed
+    /// payload (spec 004 FR-009 / SP-006).
+    case malformedCursor
 
     public var errorDescription: String? {
         switch self {
@@ -264,6 +323,8 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
             return "Refusing framebuffer dimensions \(width)x\(height)."
         case .malformedZRLE:
             return "ZRLE tile data is malformed."
+        case .malformedCursor:
+            return "Cursor pseudo-encoding payload is malformed."
         }
     }
 }

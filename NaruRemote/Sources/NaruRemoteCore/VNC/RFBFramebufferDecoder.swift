@@ -7,10 +7,10 @@ import Foundation
 /// in the same ``RFBFramebufferUpdateResult`` contract the Raw-only
 /// decoder always produced.
 ///
-/// Increment 1 decodes: Raw (0), CopyRect (1), Hextile (5), plus the
-/// LastRect (-224), DesktopSize (-223), and ExtendedDesktopSize (-308)
-/// pseudo-encodings. ZRLE / Tight / Cursor are added in later increments
-/// and slot into the same `switch`.
+/// Decodes: Raw (0), CopyRect (1), Hextile (5), ZRLE (16), plus the
+/// LastRect (-224), DesktopSize (-223), ExtendedDesktopSize (-308), and
+/// Cursor (-239) pseudo-encodings. Tight slots into the same `switch`
+/// in a later increment.
 ///
 /// Every read is bounds- and length-checked against untrusted server
 /// bytes (spec 004 SP-006): a malformed or hostile rectangle surfaces a
@@ -26,6 +26,8 @@ public enum RFBFramebufferDecoder {
     /// Backstop against a server that declares the 0xFFFF "unknown
     /// rectangle count" sentinel and then never sends a LastRect.
     private static let maxRectanglesSafetyCap = 200_000
+    private static let maxCursorDimension = 1_024
+    private static let maxCursorPixels = 1_048_576
 
     public static func decodeUpdate(
         reader: RFBByteReader,
@@ -62,6 +64,7 @@ public enum RFBFramebufferDecoder {
         var dirtyRectangles: [RFBFrameDamageRect] = []
         var changedPixelCount = 0
         var didResizeDesktop = false
+        var serverCursor: RFBServerCursor?
         var processed = 0
         // A ZRLE rectangle uses the session's single persistent zlib
         // stream. If the caller did not supply one (the offline `Data`
@@ -113,6 +116,17 @@ public enum RFBFramebufferDecoder {
                 didResizeDesktop = true
                 dirtyRectangles.append(RFBFrameDamageRect(x: 0, y: 0, width: width, height: height))
                 changedPixelCount += width * height
+
+            case RFBEncoding.cursor:
+                serverCursor = try decodeCursor(
+                    reader: reader,
+                    hotSpotX: x,
+                    hotSpotY: y,
+                    width: width,
+                    height: height,
+                    pixelFormat: pixelFormat,
+                    bytesPerPixel: bytesPerPixel
+                )
 
             case RFBEncoding.raw:
                 let changed = try decodeRaw(
@@ -182,7 +196,8 @@ public enum RFBFramebufferDecoder {
             dirtyRectangles: dirtyRectangles,
             changedPixelCount: changedPixelCount,
             capturedAt: capturedAt,
-            didResizeDesktop: didResizeDesktop
+            didResizeDesktop: didResizeDesktop,
+            serverCursor: serverCursor
         )
     }
 
@@ -233,6 +248,61 @@ public enum RFBFramebufferDecoder {
         if numberOfScreens > 0 {
             try reader.skip(numberOfScreens * 16)
         }
+    }
+
+    // MARK: - Cursor pseudo-encoding (-239)
+
+    private static func decodeCursor(
+        reader: RFBByteReader,
+        hotSpotX: Int,
+        hotSpotY: Int,
+        width: Int,
+        height: Int,
+        pixelFormat: RFBPixelFormat,
+        bytesPerPixel: Int
+    ) throws -> RFBServerCursor {
+        guard width >= 0,
+              height >= 0,
+              width <= maxCursorDimension,
+              height <= maxCursorDimension,
+              width * height <= maxCursorPixels
+        else {
+            throw RFBRawFramebufferDecoderError.malformedCursor
+        }
+
+        let pixelCount = width * height
+        let pixels = try reader.readBytes(pixelCount * bytesPerPixel)
+        let maskStride = (width + 7) / 8
+        let mask = try reader.readBytes(maskStride * height)
+        var decodedPixels: [RFBColor] = []
+        decodedPixels.reserveCapacity(pixelCount)
+
+        for row in 0..<height {
+            for column in 0..<width {
+                let pixelOffset = ((row * width) + column) * bytesPerPixel
+                let isOpaque: Bool
+                if width == 0 {
+                    isOpaque = false
+                } else {
+                    let maskByte = mask[(row * maskStride) + (column / 8)]
+                    let bit = UInt8(0x80 >> (column % 8))
+                    isOpaque = maskByte & bit != 0
+                }
+                if isOpaque {
+                    decodedPixels.append(pixelFormat.decodeColor(pixels, at: pixelOffset))
+                } else {
+                    decodedPixels.append(RFBColor(red: 0, green: 0, blue: 0, alpha: 0))
+                }
+            }
+        }
+
+        return RFBServerCursor(
+            width: width,
+            height: height,
+            hotSpotX: hotSpotX,
+            hotSpotY: hotSpotY,
+            pixels: decodedPixels
+        )
     }
 
     // MARK: - Raw (encoding 0)

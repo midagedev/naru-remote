@@ -46,6 +46,73 @@ public enum RFBEncoding {
     }
 }
 
+/// Capabilities Naru can actually decode for a connection. The
+/// preference builder keeps this separate from "what we would like"
+/// so a pseudo-encoding is never advertised before its decoder exists
+/// (spec 004 FR-012).
+public struct RFBEncodingSupport: Equatable, Sendable {
+    public var copyRect: Bool
+    public var hextile: Bool
+    public var zrle: Bool
+    public var tight: Bool
+    public var cursor: Bool
+    public var fence: Bool
+    public var continuousUpdates: Bool
+
+    public init(
+        copyRect: Bool = true,
+        hextile: Bool = true,
+        zrle: Bool = false,
+        tight: Bool = false,
+        cursor: Bool = false,
+        fence: Bool = false,
+        continuousUpdates: Bool = false
+    ) {
+        self.copyRect = copyRect
+        self.hextile = hextile
+        self.zrle = zrle
+        self.tight = tight
+        self.cursor = cursor
+        self.fence = fence
+        self.continuousUpdates = continuousUpdates
+    }
+
+    public static let increment1 = RFBEncodingSupport()
+    public static let increment2 = RFBEncodingSupport(zrle: true)
+    public static let full = RFBEncodingSupport(zrle: true, tight: true, cursor: true)
+}
+
+/// Pseudo-encodings the session would like to enable when supported.
+/// The adaptive builder intersects this request with `RFBEncodingSupport`.
+public struct RFBPseudoEncodingRequest: Equatable, Sendable {
+    public var desktopSize: Bool
+    public var extendedDesktopSize: Bool
+    public var lastRect: Bool
+    public var cursor: Bool
+    public var fence: Bool
+    public var continuousUpdates: Bool
+
+    public init(
+        desktopSize: Bool = true,
+        extendedDesktopSize: Bool = true,
+        lastRect: Bool = true,
+        cursor: Bool = false,
+        fence: Bool = false,
+        continuousUpdates: Bool = false
+    ) {
+        self.desktopSize = desktopSize
+        self.extendedDesktopSize = extendedDesktopSize
+        self.lastRect = lastRect
+        self.cursor = cursor
+        self.fence = fence
+        self.continuousUpdates = continuousUpdates
+    }
+
+    public static let streamingBaseline = RFBPseudoEncodingRequest()
+    public static let withServerCursor = RFBPseudoEncodingRequest(cursor: true)
+    public static let withPacingExtensions = RFBPseudoEncodingRequest(fence: true, continuousUpdates: true)
+}
+
 /// Pure builder for the ordered `SetEncodings` list (spec 004 FR-001 /
 /// FR-012). The order is the server-honored preference: the most
 /// efficient *real* encoding Naru can decode comes first, Raw is always
@@ -74,6 +141,8 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public var extendedDesktopSize: Bool
     public var lastRect: Bool
     public var cursor: Bool
+    public var fence: Bool
+    public var continuousUpdates: Bool
     /// Optional JPEG quality level `0...9` (Tight). Emitted only when
     /// `tight` is also true. `nil` advertises no quality hint.
     public var tightQualityLevel: Int?
@@ -91,6 +160,8 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         extendedDesktopSize: Bool = true,
         lastRect: Bool = true,
         cursor: Bool = false,
+        fence: Bool = false,
+        continuousUpdates: Bool = false,
         tightQualityLevel: Int? = nil,
         compressionLevel: Int? = nil
     ) {
@@ -103,6 +174,8 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         self.extendedDesktopSize = extendedDesktopSize
         self.lastRect = lastRect
         self.cursor = cursor
+        self.fence = fence
+        self.continuousUpdates = continuousUpdates
         self.tightQualityLevel = tightQualityLevel
         self.compressionLevel = compressionLevel
     }
@@ -121,6 +194,36 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// profile for first-frame/control latency. `increment2` remains the
     /// bandwidth-first ZRLE profile for future adaptive selection.
     public static let localLowLatency = RFBEncodingPreference.increment1
+
+    /// Adaptive profile for spec 004 FR-012/FR-013. This is deliberately
+    /// pure: supported decoders, requested pseudo-encodings, and the
+    /// coarse quality bucket fully determine the `SetEncodings` list.
+    ///
+    /// The default app path still uses `.localLowLatency`; callers opt
+    /// into this once the corresponding decoders are available and a
+    /// renegotiation policy is chosen.
+    public static func adaptive(
+        supported: RFBEncodingSupport,
+        requestedPseudoEncodings requested: RFBPseudoEncodingRequest = .streamingBaseline,
+        connectionQuality quality: ConnectionQuality
+    ) -> RFBEncodingPreference {
+        let qualityProfile = AdaptiveQualityProfile.profile(for: quality)
+        return RFBEncodingPreference(
+            zrle: supported.zrle,
+            tight: supported.tight,
+            hextile: supported.hextile,
+            copyRect: supported.copyRect,
+            preferHextileOverZRLE: qualityProfile.prefersLowLatencyOrdering,
+            desktopSize: requested.desktopSize,
+            extendedDesktopSize: requested.extendedDesktopSize,
+            lastRect: requested.lastRect,
+            cursor: supported.cursor && requested.cursor,
+            fence: supported.fence && requested.fence,
+            continuousUpdates: supported.continuousUpdates && requested.continuousUpdates,
+            tightQualityLevel: supported.tight ? qualityProfile.tightQualityLevel : nil,
+            compressionLevel: (supported.zrle || supported.tight) ? qualityProfile.compressionLevel : nil
+        )
+    }
 
     /// Builds the ordered encoding list for the `SetEncodings` message.
     public func encodingList() -> [Int32] {
@@ -145,6 +248,8 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         if extendedDesktopSize { list.append(RFBEncoding.extendedDesktopSize) }
         if lastRect { list.append(RFBEncoding.lastRect) }
         if cursor { list.append(RFBEncoding.cursor) }
+        if fence { list.append(RFBEncoding.fence) }
+        if continuousUpdates { list.append(RFBEncoding.continuousUpdates) }
 
         // Quality / compression hints ride only on the encodings that
         // use them (spec 004 FR-013).
@@ -156,5 +261,34 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         }
 
         return list
+    }
+}
+
+private struct AdaptiveQualityProfile {
+    let tightQualityLevel: Int
+    let compressionLevel: Int
+    let prefersLowLatencyOrdering: Bool
+
+    static func profile(for quality: ConnectionQuality) -> AdaptiveQualityProfile {
+        switch quality {
+        case .unknown, .good:
+            return AdaptiveQualityProfile(
+                tightQualityLevel: 8,
+                compressionLevel: 1,
+                prefersLowLatencyOrdering: true
+            )
+        case .fair:
+            return AdaptiveQualityProfile(
+                tightQualityLevel: 5,
+                compressionLevel: 4,
+                prefersLowLatencyOrdering: false
+            )
+        case .poor:
+            return AdaptiveQualityProfile(
+                tightQualityLevel: 2,
+                compressionLevel: 8,
+                prefersLowLatencyOrdering: false
+            )
+        }
     }
 }

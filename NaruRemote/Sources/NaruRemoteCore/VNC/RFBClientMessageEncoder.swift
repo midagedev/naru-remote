@@ -1,9 +1,35 @@
 import Foundation
 
+public struct RFBFenceFlags: OptionSet, Equatable, Sendable {
+    public let rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public static let blockBefore = RFBFenceFlags(rawValue: 1 << 0)
+    public static let blockAfter = RFBFenceFlags(rawValue: 1 << 1)
+    public static let syncNext = RFBFenceFlags(rawValue: 1 << 2)
+    public static let request = RFBFenceFlags(rawValue: 1 << 31)
+
+    public static let supported: RFBFenceFlags = [
+        .blockBefore,
+        .blockAfter,
+        .syncNext,
+        .request
+    ]
+}
+
+public enum RFBClientMessageEncodingError: Error, Equatable {
+    case unsupportedFenceFlags(UInt32)
+    case fencePayloadTooLarge(maximum: Int, actual: Int)
+}
+
 public enum RFBClientMessageEncoder {
     private static let keySymControlLeft: UInt32 = 0xffe3
     private static let keySymMetaLeft: UInt32 = 0xffe7
     private static let keySymLowercaseV: UInt32 = 0x0076
+    private static let maxFencePayloadLength = 64
 
     public static func clientCutText(_ text: String) -> Data {
         let payload = Data(text.utf8)
@@ -55,6 +81,47 @@ public enum RFBClientMessageEncoder {
         bytes.append(format.greenShift)
         bytes.append(format.blueShift)
         bytes.append(contentsOf: [0, 0, 0])
+        return Data(bytes)
+    }
+
+    /// Encodes TigerVNC's `EnableContinuousUpdates` client message
+    /// (message type 150): one enable byte plus the requested framebuffer
+    /// rectangle. Callers must only send this after the server has
+    /// confirmed support via the ContinuousUpdates pseudo-encoding path.
+    public static func enableContinuousUpdates(
+        _ enable: Bool,
+        x: UInt16,
+        y: UInt16,
+        width: UInt16,
+        height: UInt16
+    ) -> Data {
+        var bytes: [UInt8] = [150, enable ? 1 : 0]
+        bytes.append(contentsOf: uint16Bytes(x))
+        bytes.append(contentsOf: uint16Bytes(y))
+        bytes.append(contentsOf: uint16Bytes(width))
+        bytes.append(contentsOf: uint16Bytes(height))
+        return Data(bytes)
+    }
+
+    /// Encodes TigerVNC's `ClientFence` message (message type 248).
+    /// Payload length is capped at 64 bytes by the extension; only the
+    /// published flags are accepted so malformed pacing probes never hit
+    /// the wire.
+    public static func fence(flags: RFBFenceFlags, payload: Data = Data()) throws -> Data {
+        guard flags.rawValue & ~RFBFenceFlags.supported.rawValue == 0 else {
+            throw RFBClientMessageEncodingError.unsupportedFenceFlags(flags.rawValue)
+        }
+        guard payload.count <= maxFencePayloadLength else {
+            throw RFBClientMessageEncodingError.fencePayloadTooLarge(
+                maximum: maxFencePayloadLength,
+                actual: payload.count
+            )
+        }
+
+        var bytes: [UInt8] = [248, 0, 0, 0]
+        bytes.append(contentsOf: uint32Bytes(flags.rawValue))
+        bytes.append(UInt8(payload.count))
+        bytes.append(contentsOf: payload)
         return Data(bytes)
     }
 

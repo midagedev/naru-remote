@@ -79,6 +79,55 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         }
     }
 
+    // MARK: - Continuous updates / fence pacing extensions
+
+    func testEnableContinuousUpdatesProducesTigerVNCWireFrame() {
+        let message = RFBClientMessageEncoder.enableContinuousUpdates(
+            true,
+            x: 1,
+            y: 2,
+            width: 300,
+            height: 400
+        )
+
+        XCTAssertEqual(message, Data([
+            150, 1,
+            0, 1,
+            0, 2,
+            0x01, 0x2c,
+            0x01, 0x90
+        ]))
+    }
+
+    func testClientFenceProducesTigerVNCWireFrame() throws {
+        let payload = Data([0xaa, 0xbb, 0xcc])
+        let message = try RFBClientMessageEncoder.fence(flags: [.request, .syncNext], payload: payload)
+
+        XCTAssertEqual(message, Data([
+            248, 0, 0, 0,
+            0x80, 0x00, 0x00, 0x04,
+            3,
+            0xaa, 0xbb, 0xcc
+        ]))
+    }
+
+    func testClientFenceRejectsUnsupportedFlagsAndOversizedPayload() {
+        XCTAssertThrowsError(
+            try RFBClientMessageEncoder.fence(flags: RFBFenceFlags(rawValue: 1 << 8))
+        ) { error in
+            XCTAssertEqual(error as? RFBClientMessageEncodingError, .unsupportedFenceFlags(1 << 8))
+        }
+
+        XCTAssertThrowsError(
+            try RFBClientMessageEncoder.fence(flags: .request, payload: Data(repeating: 0, count: 65))
+        ) { error in
+            XCTAssertEqual(
+                error as? RFBClientMessageEncodingError,
+                .fencePayloadTooLarge(maximum: 64, actual: 65)
+            )
+        }
+    }
+
     // MARK: - KeyEvent (Direct Keystroke Mode coverage)
 
     func testKeyEventLowercaseCDownProducesEightByteFrame() {

@@ -455,7 +455,7 @@ final class PointerEventTapTests: XCTestCase {
 
     // MARK: Drag
 
-    func testDragSendsButtonOneDownThenMovesThenUp() async throws {
+    func testDragCoalescesBurstMovesToLatestBeforeUp() async throws {
         let connection = try await PointerEventTapTests.connectedModelAndConnector()
         let model = connection.model
         let recorder = connection.connector
@@ -471,23 +471,52 @@ final class PointerEventTapTests: XCTestCase {
         await model.sendPointerMoveTo(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
         await model.sendPointerUpAt(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
 
-        try await waitForPointerEvents(recorder, count: 4)
+        try await waitForPointerEvents(recorder, count: 3)
 
         let events = recorder.recordedPointerEvents
-        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events.count, 3)
         XCTAssertEqual(events[0].mask, 0x01)
         XCTAssertEqual(events[0].x, 512)
         XCTAssertEqual(events[0].y, 384)
         XCTAssertEqual(events[1].mask, 0x01)
-        XCTAssertEqual(events[2].mask, 0x01)
-        XCTAssertEqual(events[3].mask, 0x00)
+        XCTAssertEqual(events[1].x, 716)
+        XCTAssertEqual(events[1].y, 486)
+        XCTAssertEqual(events[2].mask, 0x00)
+        XCTAssertEqual(events[2].x, 716)
+        XCTAssertEqual(events[2].y, 486)
         // Down and up coords differ when the user dragged — sanity
         // check that the drag actually moved on the wire.
         let downX = events[0].x
         let downY = events[0].y
-        let upX = events[3].x
-        let upY = events[3].y
+        let upX = events[2].x
+        let upY = events[2].y
         XCTAssertFalse(downX == upX && downY == upY)
+    }
+
+    func testDragSendsSeparateMovesWhenGestureCadenceAllowsFlush() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connection.model
+        let recorder = connection.connector
+
+        let viewSize = CGSize(width: 100, height: 100)
+
+        await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
+        try await Task.sleep(for: .milliseconds(20))
+        await model.sendPointerMoveTo(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
+        await model.sendPointerUpAt(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
+
+        try await waitForPointerEvents(recorder, count: 4)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events.map(\.mask), [0x01, 0x01, 0x01, 0x00])
+        XCTAssertEqual(events[1].x, 614)
+        XCTAssertEqual(events[1].y, 384)
+        XCTAssertEqual(events[2].x, 716)
+        XCTAssertEqual(events[2].y, 486)
+        XCTAssertEqual(events[3].x, 716)
+        XCTAssertEqual(events[3].y, 486)
     }
 
     func testDragMoveBelowOnePixelDeltaDoesNotEmit() async throws {

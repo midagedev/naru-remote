@@ -336,6 +336,54 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[0, 0], red)
     }
 
+    // MARK: - Cursor pseudo-encoding (-239)
+
+    func testCursorPseudoEncodingSurfacesCursorWithoutChangingFramebuffer() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 1, y: 1, width: 2, height: 2, encoding: RFBEncoding.cursor)
+        bytes += pixelBytes(red) + pixelBytes(green) + pixelBytes(blue) + pixelBytes(white)
+        bytes += [
+            0b1000_0000, // row 0: opaque, transparent
+            0b0100_0000  // row 1: transparent, opaque
+        ]
+
+        let previous = RFBRawFramebuffer(width: 3, height: 3, fill: black)
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 3, height: 3),
+            previousFramebuffer: previous
+        )
+
+        XCTAssertEqual(result.framebuffer, previous)
+        XCTAssertTrue(result.dirtyRectangles.isEmpty)
+        XCTAssertEqual(result.changedPixelCount, 0)
+
+        let cursor = try XCTUnwrap(result.serverCursor)
+        XCTAssertEqual(cursor.width, 2)
+        XCTAssertEqual(cursor.height, 2)
+        XCTAssertEqual(cursor.hotSpotX, 1)
+        XCTAssertEqual(cursor.hotSpotY, 1)
+        XCTAssertEqual(cursor[0, 0], red)
+        XCTAssertEqual(cursor[1, 0], RFBColor(red: 0, green: 0, blue: 0, alpha: 0))
+        XCTAssertEqual(cursor[0, 1], RFBColor(red: 0, green: 0, blue: 0, alpha: 0))
+        XCTAssertEqual(cursor[1, 1], white)
+    }
+
+    func testCursorPseudoEncodingRejectsAbsurdShape() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 2000, height: 2, encoding: RFBEncoding.cursor)
+
+        XCTAssertThrowsError(
+            try RFBRawFramebufferDecoder.apply(
+                updateData: Data(bytes),
+                serverInit: serverInit(width: 3, height: 3),
+                previousFramebuffer: RFBRawFramebuffer(width: 3, height: 3)
+            )
+        ) { error in
+            XCTAssertEqual(error as? RFBRawFramebufferDecoderError, .malformedCursor)
+        }
+    }
+
     // MARK: - Helpers
 
     private func serverInit(width: Int, height: Int) -> RFBServerInit {
