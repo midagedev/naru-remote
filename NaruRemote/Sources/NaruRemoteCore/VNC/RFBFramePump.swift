@@ -5,6 +5,11 @@ public enum RFBFramePumpDecision: Equatable, Sendable {
     case stop
 }
 
+public enum RFBFramePumpUpdateMode: Equatable, Sendable {
+    case requestResponse
+    case continuousUpdates
+}
+
 public struct RFBFramePumpConfiguration: Equatable, Sendable {
     public let maxFrames: Int?
     public let requestTimeout: TimeInterval
@@ -23,17 +28,25 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
     /// that return empty updates immediately, without throttling the
     /// active path.  `0` polls as fast as the round-trip allows.
     public let idleFrameInterval: TimeInterval
+    /// Transport mode used after the initial full-frame request. The
+    /// default remains request/response for universal RFB compatibility.
+    /// `continuousUpdates` is opportunistic: it activates only when the
+    /// source also exposes the receive and transport-control capability
+    /// protocols.
+    public let updateMode: RFBFramePumpUpdateMode
 
     public init(
         maxFrames: Int? = nil,
         requestTimeout: TimeInterval = 2,
         frameInterval: TimeInterval = 0,
-        idleFrameInterval: TimeInterval = 0
+        idleFrameInterval: TimeInterval = 0,
+        updateMode: RFBFramePumpUpdateMode = .requestResponse
     ) {
         self.maxFrames = maxFrames
         self.requestTimeout = requestTimeout
         self.frameInterval = max(frameInterval, 0)
         self.idleFrameInterval = max(idleFrameInterval, 0)
+        self.updateMode = updateMode
     }
 }
 
@@ -125,6 +138,7 @@ public final class RFBFramePump: @unchecked Sendable {
     private let source: any RFBFramebufferUpdating
     private let lock = NSLock()
     private var cancelled = false
+    private var continuousUpdatesEnabled = false
 
     public init(source: any RFBFramebufferUpdating) {
         self.source = source
@@ -149,7 +163,10 @@ public final class RFBFramePump: @unchecked Sendable {
         reset()
 
         while shouldContinue(deliveredFrameCount: deliveredFrameCount, maxFrames: configuration.maxFrames) {
-            guard let frame = try nextFrame(requestTimeout: configuration.requestTimeout) else {
+            guard let frame = try nextFrame(
+                requestTimeout: configuration.requestTimeout,
+                updateMode: configuration.updateMode
+            ) else {
                 break
             }
 
@@ -184,7 +201,10 @@ public final class RFBFramePump: @unchecked Sendable {
         )
     }
 
-    public func nextFrame(requestTimeout: TimeInterval = 2) throws -> RFBFramePumpFrame? {
+    public func nextFrame(
+        requestTimeout: TimeInterval = 2,
+        updateMode: RFBFramePumpUpdateMode = .requestResponse
+    ) throws -> RFBFramePumpFrame? {
         let nextSequence: Int? = lock.withRFBFramePumpLock {
             guard !cancelled else {
                 return nil
@@ -198,7 +218,17 @@ public final class RFBFramePump: @unchecked Sendable {
 
         let isIncremental = nextSequence > 1
         let updateResult: RFBFramebufferUpdateResult
-        if let damageTrackingSource = source as? any RFBDamageTrackingFramebufferUpdating {
+        if updateMode == .continuousUpdates,
+           isIncremental,
+           let receiver = source as? any RFBFramebufferUpdateReceiving,
+           let transportControl = source as? any RFBTransportControlClient
+        {
+            try enableContinuousUpdatesIfNeeded(
+                transportControl,
+                timeout: requestTimeout
+            )
+            updateResult = try receiver.receiveFramebufferUpdate(timeout: requestTimeout)
+        } else if let damageTrackingSource = source as? any RFBDamageTrackingFramebufferUpdating {
             updateResult = try damageTrackingSource.requestFramebufferUpdate(
                 incremental: isIncremental,
                 timeout: requestTimeout
@@ -226,6 +256,29 @@ public final class RFBFramePump: @unchecked Sendable {
         lock.withRFBFramePumpLock {
             _deliveredFrameCount = 0
             cancelled = false
+            continuousUpdatesEnabled = false
+        }
+    }
+
+    private func enableContinuousUpdatesIfNeeded(
+        _ transportControl: any RFBTransportControlClient,
+        timeout: TimeInterval
+    ) throws {
+        let shouldEnable = lock.withRFBFramePumpLock {
+            !continuousUpdatesEnabled
+        }
+        guard shouldEnable else {
+            return
+        }
+
+        try transportControl.enableContinuousUpdates(
+            true,
+            region: nil,
+            timeout: timeout
+        )
+
+        lock.withRFBFramePumpLock {
+            continuousUpdatesEnabled = true
         }
     }
 

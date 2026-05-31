@@ -232,16 +232,19 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
         setState(.receivingFrames)
 
-        // Decode the update incrementally off the live socket so
-        // variable-length encodings (Hextile / CopyRect / ZRLE) work over
-        // a TCP stream that may split a rectangle across reads (spec 004
-        // FR-002). The reader blocks for more bytes mid-rectangle.
+        // Decode the next framebuffer update incrementally off the live
+        // socket so variable-length encodings (Hextile / CopyRect /
+        // ZRLE) work over a TCP stream that may split a rectangle across
+        // reads (spec 004 FR-002). The reader also consumes TigerVNC
+        // transport-control messages that may arrive before a frame.
         let reader = ConnectionByteReader(connection: connection, timeout: timeout)
-        let updateResult = try RFBFramebufferDecoder.decodeUpdate(
+        let updateResult = try receiveNextFramebufferUpdate(
+            connection: connection,
             reader: reader,
             serverInit: serverInit,
             previousFramebuffer: context.2,
-            zlibStream: context.3
+            zlibStream: context.3,
+            timeout: timeout
         )
 
         // A DesktopSize / ExtendedDesktopSize pseudo-rectangle reallocated
@@ -264,6 +267,81 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         }
 
         return updateResult
+    }
+
+    private func receiveNextFramebufferUpdate(
+        connection: RFBNetworkConnection,
+        reader: RFBByteReader,
+        serverInit: RFBServerInit,
+        previousFramebuffer: RFBRawFramebuffer?,
+        zlibStream: RFBZlibInflateStream?,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        while true {
+            let messageType = try reader.readUInt8()
+            switch messageType {
+            case 0:
+                return try RFBFramebufferDecoder.decodeUpdate(
+                    reader: PrefixedByteReader(prefix: [messageType], base: reader),
+                    serverInit: serverInit,
+                    previousFramebuffer: previousFramebuffer,
+                    zlibStream: zlibStream
+                )
+            case 2:
+                // Bell has no payload. It can legally arrive between
+                // framebuffer updates; keep waiting for the next frame.
+                continue
+            case 150:
+                // EndOfContinuousUpdates is a one-byte TigerVNC server
+                // control message. It is also the server's support
+                // confirmation for the ContinuousUpdates pseudo-encoding.
+                continue
+            case 248:
+                try handleServerFence(
+                    reader: reader,
+                    connection: connection,
+                    timeout: timeout
+                )
+                continue
+            default:
+                throw RFBProtocolDecoderError.unexpectedMessageType(messageType)
+            }
+        }
+    }
+
+    private func handleServerFence(
+        reader: RFBByteReader,
+        connection: RFBNetworkConnection,
+        timeout: TimeInterval
+    ) throws {
+        try reader.skip(3)
+        let rawFlags = try reader.readUInt32()
+        let payloadLength = Int(try reader.readUInt8())
+        let payloadBytes = try reader.readBytes(payloadLength)
+        let flags = RFBFenceFlags(rawValue: rawFlags)
+
+        guard payloadLength <= 64 else {
+            throw RFBClientMessageEncodingError.fencePayloadTooLarge(
+                maximum: 64,
+                actual: payloadLength
+            )
+        }
+        guard flags.contains(.request) else {
+            return
+        }
+
+        let responseFlags = RFBFenceFlags(
+            rawValue: rawFlags
+                & RFBFenceFlags.supported.rawValue
+                & ~RFBFenceFlags.request.rawValue
+        )
+        try connection.write(
+            try RFBClientMessageEncoder.fence(
+                flags: responseFlags,
+                payload: Data(payloadBytes)
+            ),
+            timeout: timeout
+        )
     }
 
     public func setClipboardText(_ text: String) throws {
@@ -695,6 +773,43 @@ private final class ConnectionByteReader: RFBByteReader {
             return []
         }
         return [UInt8](try connection.readExactly(byteCount: count, timeout: timeout))
+    }
+}
+
+/// `RFBByteReader` adapter that replays a small prefix before delegating
+/// to another reader. Used after peeking the server message type so the
+/// pure framebuffer decoder can continue consuming a complete
+/// FramebufferUpdate message without a second decode entry point.
+private final class PrefixedByteReader: RFBByteReader {
+    private var prefix: ArraySlice<UInt8>
+    private let base: RFBByteReader
+
+    init(prefix: [UInt8], base: RFBByteReader) {
+        self.prefix = ArraySlice(prefix)
+        self.base = base
+    }
+
+    func readBytes(_ count: Int) throws -> [UInt8] {
+        guard count >= 0 else {
+            throw RFBByteReaderError.negativeRequest(count)
+        }
+        guard count > 0 else {
+            return []
+        }
+
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(count)
+
+        while bytes.count < count, let next = prefix.first {
+            bytes.append(next)
+            prefix = prefix.dropFirst()
+        }
+
+        if bytes.count < count {
+            bytes.append(contentsOf: try base.readBytes(count - bytes.count))
+        }
+
+        return bytes
     }
 }
 

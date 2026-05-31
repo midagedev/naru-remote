@@ -252,6 +252,62 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(client.lastFrame?.height, 2)
     }
 
+    func testProductionRFBNetworkClientSkipsEndOfContinuousUpdatesBeforeFramebufferUpdate() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Data([150]),
+                Self.rawTwoByTwoUpdateData()
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(
+            encodingPreference: RFBEncodingPreference(continuousUpdates: true)
+        )
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let frame = try client.receiveFramebufferUpdate()
+
+        XCTAssertEqual(frame.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(frame.framebuffer[1, 1], RFBColor(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(client.lastFrame?.width, 2)
+        XCTAssertEqual(client.lastFrame?.height, 2)
+    }
+
+    func testProductionRFBNetworkClientRespondsToServerFenceAndContinuesToFramebufferUpdate() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let payload = Data([0x01, 0x02, 0x03])
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Self.serverFenceMessage(flags: [.request, .syncNext], payload: payload),
+                Self.rawTwoByTwoUpdateData()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(
+            encodingPreference: RFBEncodingPreference(fence: true)
+        )
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let frame = try client.receiveFramebufferUpdate()
+        let expectedResponse = try RFBClientMessageEncoder.fence(
+            flags: .syncNext,
+            payload: payload
+        )
+        let recorded = try recorder.waitForByteCount(expectedResponse.count)
+
+        XCTAssertEqual(frame.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(Data(recorded.prefix(expectedResponse.count)), expectedResponse)
+    }
+
     func testProductionRFBNetworkClientCompositesIncrementalRawFramebufferUpdate() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(
@@ -627,8 +683,26 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         ])
     }
 
+    private static func serverFenceMessage(flags: RFBFenceFlags, payload: Data = Data()) -> Data {
+        precondition(payload.count <= 64)
+        var bytes: [UInt8] = [248, 0, 0, 0]
+        bytes.append(contentsOf: uint32Bytes(flags.rawValue))
+        bytes.append(UInt8(payload.count))
+        bytes.append(contentsOf: payload)
+        return Data(bytes)
+    }
+
     private static func uint16Bytes(_ value: UInt16) -> [UInt8] {
         [UInt8(value >> 8), UInt8(value & 0x00ff)]
+    }
+
+    private static func uint32Bytes(_ value: UInt32) -> [UInt8] {
+        [
+            UInt8((value >> 24) & 0xff),
+            UInt8((value >> 16) & 0xff),
+            UInt8((value >> 8) & 0xff),
+            UInt8(value & 0xff)
+        ]
     }
 }
 

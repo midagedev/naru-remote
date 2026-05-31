@@ -147,6 +147,53 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(elapsed, 0.015)
     }
 
+    func testPumpUsesContinuousUpdatesAfterInitialFrameWhenSourceSupportsIt() throws {
+        let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
+        let pushed = RFBFramebufferUpdateResult(
+            framebuffer: Self.framebuffer(red: 128),
+            dirtyRectangles: [
+                RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)
+            ],
+            changedPixelCount: 1
+        )
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [initial],
+            receivedResults: [pushed]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let first = try pump.nextFrame(
+            requestTimeout: 1,
+            updateMode: .continuousUpdates
+        )
+        let second = try pump.nextFrame(
+            requestTimeout: 1,
+            updateMode: .continuousUpdates
+        )
+
+        XCTAssertEqual(first?.isIncremental, false)
+        XCTAssertEqual(second?.isIncremental, true)
+        XCTAssertEqual(second?.framebuffer[0, 0], RFBColor(red: 128, green: 0, blue: 0))
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(source.receivedFrameCount, 1)
+        XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
+    }
+
+    func testPumpFallsBackToRequestResponseWhenContinuousSourceIsUnavailable() throws {
+        let source = FakeDamageTrackingFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255)),
+                .fullFrame(framebuffer: Self.framebuffer(red: 128))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.nextFrame(updateMode: .continuousUpdates)
+        _ = try pump.nextFrame(updateMode: .continuousUpdates)
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+    }
+
     private static func framebuffer(red: UInt8) -> RFBRawFramebuffer {
         RFBRawFramebuffer(
             width: 1,
@@ -232,4 +279,101 @@ private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTracking
             return state.results.removeFirst()
         }
     }
+}
+
+private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {
+    enum Error: Swift.Error, Equatable {
+        case noRequestedFrame
+        case noReceivedFrame
+    }
+
+    private struct State {
+        var requestedResults: [RFBFramebufferUpdateResult]
+        var receivedResults: [RFBFramebufferUpdateResult]
+        var incrementalFlags: [Bool] = []
+        var receivedFrameCount = 0
+        var enableContinuousUpdatesCallCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(
+        requestedResults: [RFBFramebufferUpdateResult],
+        receivedResults: [RFBFramebufferUpdateResult]
+    ) {
+        self.state = OSAllocatedUnfairLock(
+            initialState: State(
+                requestedResults: requestedResults,
+                receivedResults: receivedResults
+            )
+        )
+    }
+
+    var requestedIncrementalFlags: [Bool] {
+        state.withLock { $0.incrementalFlags }
+    }
+
+    var receivedFrameCount: Int {
+        state.withLock { $0.receivedFrameCount }
+    }
+
+    var enableContinuousUpdatesCallCount: Int {
+        state.withLock { $0.enableContinuousUpdatesCallCount }
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout
+        ).framebuffer
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        try state.withLock { state in
+            state.incrementalFlags.append(incremental)
+            guard !state.requestedResults.isEmpty else {
+                throw Error.noRequestedFrame
+            }
+            return state.requestedResults.removeFirst()
+        }
+    }
+
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        try state.withLock { state in
+            state.receivedFrameCount += 1
+            guard !state.receivedResults.isEmpty else {
+                throw Error.noReceivedFrame
+            }
+            return state.receivedResults.removeFirst()
+        }
+    }
+
+    func renegotiateEncodings(
+        _ preference: RFBEncodingPreference,
+        timeout: TimeInterval
+    ) throws {}
+
+    func enableContinuousUpdates(
+        _ enabled: Bool,
+        region: RFBFramebufferUpdateRegion?,
+        timeout: TimeInterval
+    ) throws {
+        state.withLock { state in
+            if enabled {
+                state.enableContinuousUpdatesCallCount += 1
+            }
+        }
+    }
+
+    func sendFence(
+        flags: RFBFenceFlags,
+        payload: Data,
+        timeout: TimeInterval
+    ) throws {}
 }

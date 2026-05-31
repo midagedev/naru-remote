@@ -71,7 +71,8 @@ public final class FakeRFBServer: @unchecked Sendable {
                 FakeRFBNoAuthServerMessagesConnection(
                     connection: connection,
                     transcript: transcript,
-                    serverMessages: serverMessages
+                    serverMessages: serverMessages,
+                    clientMessageRecorder: clientMessageRecorder
                 ).start()
             case .vncAuthentication(let challenge, let expectedResponse, let securityResult, let frameUpdates):
                 FakeRFBVNCAuthenticationConnection(
@@ -261,15 +262,18 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
     private let connection: NWConnection
     private let transcript: FakeRFBTranscript
     private let serverMessages: [Data]
+    private let clientMessageRecorder: FakeRFBClientMessageRecorder?
 
     init(
         connection: NWConnection,
         transcript: FakeRFBTranscript,
-        serverMessages: [Data]
+        serverMessages: [Data],
+        clientMessageRecorder: FakeRFBClientMessageRecorder?
     ) {
         self.connection = connection
         self.transcript = transcript
         self.serverMessages = serverMessages
+        self.clientMessageRecorder = clientMessageRecorder
     }
 
     func start() {
@@ -294,6 +298,10 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
 
     private func sendServerMessages(_ remaining: ArraySlice<Data>) {
         guard let next = remaining.first else {
+            if let clientMessageRecorder {
+                receiveClientMessages(into: clientMessageRecorder)
+                return
+            }
             connection.cancel()
             return
         }
@@ -351,6 +359,24 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
             } else {
                 connection.cancel()
             }
+        }
+    }
+
+    private func receiveClientMessages(into recorder: FakeRFBClientMessageRecorder) {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 4096
+        ) { [connection] data, _, isComplete, error in
+            if let data, !data.isEmpty {
+                recorder.append(data)
+            }
+
+            if error != nil || isComplete {
+                connection.cancel()
+                return
+            }
+
+            self.receiveClientMessages(into: recorder)
         }
     }
 }
