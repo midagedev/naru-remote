@@ -101,4 +101,35 @@ public protocol RFBKeyEventClient: AnyObject, Sendable {
     func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws
 }
 
+/// Rectangle used by optional RFB transport-control extensions such as
+/// ContinuousUpdates. It is already in remote framebuffer coordinates;
+/// callers must not log these coordinates (constitution §IV).
+public struct RFBFramebufferUpdateRegion: Equatable, Sendable {
+    public let x: UInt16
+    public let y: UInt16
+    public let width: UInt16
+    public let height: UInt16
+
+    public init(x: UInt16, y: UInt16, width: UInt16, height: UInt16) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+/// Capability boundary for transport-control messages used by RFB
+/// encoding renegotiation and pacing extensions. These messages carry
+/// no user text or pixel payload, and implementations must avoid
+/// logging coordinates, payload bytes, or latency samples.
+public protocol RFBTransportControlClient: AnyObject, Sendable {
+    func renegotiateEncodings(_ preference: RFBEncodingPreference, timeout: TimeInterval) throws
+    func enableContinuousUpdates(
+        _ enabled: Bool,
+        region: RFBFramebufferUpdateRegion?,
+        timeout: TimeInterval
+    ) throws
+    func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws
+}
+
 public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient, RFBPointerEventClient, RFBKeyEventClient {}

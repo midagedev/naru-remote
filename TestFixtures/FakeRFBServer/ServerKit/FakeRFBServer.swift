@@ -697,6 +697,16 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
                     UInt32(recordedBytes[cursor + 6]) << 8 |
                     UInt32(recordedBytes[cursor + 7])
                 frameLength = 8 + Int(length)
+            case 150:
+                // EnableContinuousUpdates: 1 type + 1 enable + rect u16 fields.
+                frameLength = 10
+            case 248:
+                // ClientFence: 1 type + 3 padding + u32 flags + u8 length + payload.
+                guard cursor + 9 <= recordedBytes.count else {
+                    pointerScanCursor = cursor
+                    return
+                }
+                frameLength = 9 + Int(recordedBytes[cursor + 8])
             default:
                 // Unknown message type — stop scanning so callers see
                 // exactly the frames decoded up to this point.
