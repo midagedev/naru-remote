@@ -384,13 +384,13 @@ private enum BenchmarkProfile: CaseIterable {
         case .adaptiveGoodFull:
             return .adaptive(
                 supported: .full,
-                requestedPseudoEncodings: .withServerCursor,
+                requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
                 connectionQuality: .good
             )
         case .adaptivePoorFull:
             return .adaptive(
                 supported: .full,
-                requestedPseudoEncodings: .withServerCursor,
+                requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
                 connectionQuality: .poor
             )
         }
