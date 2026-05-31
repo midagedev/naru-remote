@@ -1144,14 +1144,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                     guard let frame = maybeFrame else {
                         return
                     }
-                    recordFrameLatency(
-                        milliseconds: roundTripMilliseconds,
-                        streamID: streamID,
-                        sessionID: pendingSession.id,
-                        profileID: profile.id,
-                        transportControl: streamingClient as? any RFBTransportControlClient,
-                        requestTimeout: requestTimeout
-                    )
+                    if !frame.transportIdleTimedOut {
+                        recordFrameLatency(
+                            milliseconds: roundTripMilliseconds,
+                            streamID: streamID,
+                            sessionID: pendingSession.id,
+                            profileID: profile.id,
+                            transportControl: streamingClient as? any RFBTransportControlClient,
+                            requestTimeout: requestTimeout
+                        )
+                    }
 
                     guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
                         pump.cancel()

@@ -47,6 +47,22 @@ final class PiPWatchSampleBufferRendererTests: XCTestCase {
         )
     }
 
+    func testViewportDerivedFromZoomedPannedTransformSelectsVisibleFocus() {
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 100, height: 100),
+            viewSize: CGSize(width: 100, height: 100),
+            zoomScale: 2,
+            panOffset: CGSize(width: -50, height: -50)
+        )
+
+        let viewport = PiPWatchViewport(transform: transform)
+
+        XCTAssertEqual(
+            viewport.sourceRect(framebufferWidth: 100, height: 100),
+            PiPWatchSourceRect(x: 50, y: 50, width: 50, height: 50)
+        )
+    }
+
     func testFactoryRendersZoomedViewportIntoStableFullSizePixelBuffer() throws {
         let framebuffer = try Self.gradientFramebuffer(width: 4, height: 4)
 

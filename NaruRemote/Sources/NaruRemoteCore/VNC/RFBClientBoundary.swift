@@ -86,6 +86,14 @@ public protocol RFBFramebufferUpdateReceiving: Sendable {
     func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
 }
 
+/// ContinuousUpdates-specific receive boundary. Unlike the generic
+/// receive path, implementations may treat an idle receive timeout as a
+/// non-fatal zero-change tick when the transport can preserve partial
+/// bytes for the next read.
+public protocol RFBContinuousFramebufferUpdateReceiving: RFBFramebufferUpdateReceiving {
+    func receiveContinuousFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
+}
+
 /// Reports whether the active RFB session has advertised the
 /// ContinuousUpdates pseudo-encoding and may safely send message 150
 /// `EnableContinuousUpdates`. Frame pumps use this as a guard so merely

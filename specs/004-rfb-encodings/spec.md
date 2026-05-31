@@ -118,6 +118,7 @@ On a poor connection-quality bucket (`specs/003`'s `ConnectionQuality`), Naru re
 - **Server sends an un-advertised encoding**: typed `unsupportedEncoding(code)` mapped to a diagnostic stage; the stream surfaces a clear error rather than silently corrupting or trapping.
 - **zlib stream desync (ZRLE/Tight)**: the per-session inflate context must persist; if a decode consumes the wrong number of bytes the whole session corrupts. Decoders MUST consume exactly the declared compressed length and surface a typed error on mismatch rather than reading ahead.
 - **Variable-length rectangle spanning multiple TCP reads**: the incremental byte reader MUST block for more bytes (up to timeout) mid-rectangle; it must never assume one `recv` yields a whole rectangle.
+- **ContinuousUpdates idle timeout**: after ContinuousUpdates is enabled, a receive timeout with **zero bytes consumed for the next server message** is treated as a zero-change transport-idle tick and MUST NOT close the socket. If any bytes from a server message were already consumed before timeout/close, the stream MUST fail rather than pretending the partial message was idle.
 - **CopyRect from a region the client hasn't painted yet**: applies whatever is currently in the framebuffer (server's responsibility to order); decoder copies from current state, in wire order within the update.
 - **DesktopSize shrink while zoomed/panned**: framebuffer reallocates; `specs/003` transform re-clamps pan so no out-of-bounds reveal (already handled there for the dimension-change case).
 - **LastRect (-224)**: an update may declare 0xFFFF rectangles and terminate with a LastRect pseudo-rectangle; the reader MUST stop at LastRect instead of trying to read 65535 rectangles.
@@ -196,6 +197,7 @@ Per constitution §VI/§III, every scenario lists an iPhone path before any iPad
 | Malformed/truncated/hostile payload → typed error, no trap/OOB | Unit | iPhone (simulator) | fuzz-style robustness asserts |
 | No pixel/coord/byte-count/latency in diagnostic export | Unit + static review | iPhone (simulator) | `DiagnosticExport` render test; grep of decode path |
 | Adaptive: quality bucket changes preference codes | Unit | iPhone (simulator) | builder test across buckets |
+| ContinuousUpdates idle timeout preserves connection; partial message timeout fails | Fake RFB | iPhone (simulator) | `RFBNetworkClient` integration tests for idle zero-byte timeout and partial-message failure |
 | Real Mac (Screen Sharing) + TigerVNC: live ZRLE/Tight throughput, scroll via CopyRect, resolution change | Manual device | iPhone (physical) | Manual log (residual risk — no VNC server/device in env) |
 | Encoded stream renders + viewport re-fit on iPad | Screenshot | iPad (simulator) | screenshot after iPhone path recorded |
 
