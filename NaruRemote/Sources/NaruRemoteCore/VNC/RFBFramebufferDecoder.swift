@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Decodes: Raw (0), CopyRect (1), Hextile (5), ZRLE (16), plus the
 /// LastRect (-224), DesktopSize (-223), ExtendedDesktopSize (-308), and
-/// Cursor (-239) pseudo-encodings. Tight slots into the same `switch`
+/// Cursor (-239) / XCursor (-240) pseudo-encodings. Tight slots into the same `switch`
 /// in a later increment.
 ///
 /// Every read is bounds- and length-checked against untrusted server
@@ -126,6 +126,15 @@ public enum RFBFramebufferDecoder {
                     height: height,
                     pixelFormat: pixelFormat,
                     bytesPerPixel: bytesPerPixel
+                )
+
+            case RFBEncoding.xCursor:
+                serverCursor = try decodeXCursor(
+                    reader: reader,
+                    hotSpotX: x,
+                    hotSpotY: y,
+                    width: width,
+                    height: height
                 )
 
             case RFBEncoding.raw:
@@ -250,7 +259,7 @@ public enum RFBFramebufferDecoder {
         }
     }
 
-    // MARK: - Cursor pseudo-encoding (-239)
+    // MARK: - Cursor pseudo-encodings (-239 / -240)
 
     private static func decodeCursor(
         reader: RFBByteReader,
@@ -293,6 +302,61 @@ public enum RFBFramebufferDecoder {
                 } else {
                     decodedPixels.append(RFBColor(red: 0, green: 0, blue: 0, alpha: 0))
                 }
+            }
+        }
+
+        return RFBServerCursor(
+            width: width,
+            height: height,
+            hotSpotX: hotSpotX,
+            hotSpotY: hotSpotY,
+            pixels: decodedPixels
+        )
+    }
+
+    private static func decodeXCursor(
+        reader: RFBByteReader,
+        hotSpotX: Int,
+        hotSpotY: Int,
+        width: Int,
+        height: Int
+    ) throws -> RFBServerCursor {
+        guard width >= 0,
+              height >= 0,
+              width <= maxCursorDimension,
+              height <= maxCursorDimension,
+              width * height <= maxCursorPixels
+        else {
+            throw RFBRawFramebufferDecoderError.malformedCursor
+        }
+
+        let primary = RFBColor(
+            red: try reader.readUInt8(),
+            green: try reader.readUInt8(),
+            blue: try reader.readUInt8()
+        )
+        let secondary = RFBColor(
+            red: try reader.readUInt8(),
+            green: try reader.readUInt8(),
+            blue: try reader.readUInt8()
+        )
+        let maskStride = (width + 7) / 8
+        let bitmap = try reader.readBytes(maskStride * height)
+        let bitmask = try reader.readBytes(maskStride * height)
+        var decodedPixels: [RFBColor] = []
+        decodedPixels.reserveCapacity(width * height)
+
+        for row in 0..<height {
+            for column in 0..<width {
+                let maskByte = bitmask[(row * maskStride) + (column / 8)]
+                let bit = UInt8(0x80 >> (column % 8))
+                if maskByte & bit == 0 {
+                    decodedPixels.append(RFBColor(red: 0, green: 0, blue: 0, alpha: 0))
+                    continue
+                }
+
+                let bitmapByte = bitmap[(row * maskStride) + (column / 8)]
+                decodedPixels.append(bitmapByte & bit != 0 ? primary : secondary)
             }
         }
 
