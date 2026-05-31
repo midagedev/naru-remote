@@ -502,7 +502,10 @@ final class PointerEventTapTests: XCTestCase {
 
         await model.sendPointerDownAt(viewPoint: CGPoint(x: 50, y: 50), viewSize: viewSize)
         await model.sendPointerMoveTo(viewPoint: CGPoint(x: 60, y: 50), viewSize: viewSize)
-        try await Task.sleep(for: .milliseconds(20))
+        // The app coalesces remote drag moves over roughly one 60 Hz
+        // display frame. Wait just beyond that window so this move is
+        // allowed to flush before the next one arrives.
+        try await Task.sleep(for: .milliseconds(25))
         await model.sendPointerMoveTo(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
         await model.sendPointerUpAt(viewPoint: CGPoint(x: 70, y: 60), viewSize: viewSize)
 
