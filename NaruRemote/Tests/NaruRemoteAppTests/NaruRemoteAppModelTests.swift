@@ -1,3 +1,4 @@
+import Foundation
 import os
 import XCTest
 import NaruRemoteCore
@@ -182,6 +183,42 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
         XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
         XCTAssertEqual(model.snapshot.session?.state, .active)
+    }
+
+    func testModelRenegotiatesAdaptiveEncodingsOnceQualityBucketIsKnown() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        let expected = RFBEncodingPreference.adaptive(
+            supported: .full,
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: .good
+        )
+        XCTAssertEqual(model.connectionQuality, .good)
+        XCTAssertEqual(connector.renegotiatedPreferences, [expected])
     }
 
     func testModelPublishesAndPersistsServerCursorFromFramePump() async throws {
@@ -785,7 +822,7 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating {
+private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBTransportControlClient {
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
@@ -794,6 +831,7 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         var recordedClipboardPayloads: [String] = []
         var recordedPasteCommands: [PasteCommand] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var renegotiatedPreferences: [RFBEncodingPreference] = []
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -803,6 +841,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
+    }
+
+    var renegotiatedPreferences: [RFBEncodingPreference] {
+        recording.withLock { $0.renegotiatedPreferences }
     }
 
     init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
@@ -955,5 +997,23 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         // Key events are out of scope for the existing app-model
         // pointer / clipboard tests; Direct Keystroke Mode tests live
         // in DirectKeystrokeModeTests.swift.
+    }
+
+    func renegotiateEncodings(_ preference: RFBEncodingPreference, timeout: TimeInterval) throws {
+        recording.withLock { state in
+            state.renegotiatedPreferences.append(preference)
+        }
+    }
+
+    func enableContinuousUpdates(
+        _ enabled: Bool,
+        region: RFBFramebufferUpdateRegion?,
+        timeout: TimeInterval
+    ) throws {
+        // Continuous-update behavior is covered in RFBFramePump tests.
+    }
+
+    func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws {
+        // Fence behavior is covered at the RFB transport boundary.
     }
 }

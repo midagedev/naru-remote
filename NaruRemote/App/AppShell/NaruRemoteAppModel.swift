@@ -100,6 +100,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// `connectionQuality` so a single slow frame does not flip the
     /// indicator.  Memory-only; reset alongside `connectionQuality`.
     private var connectionQualityEstimator = ConnectionQualityEstimator()
+    /// Last quality bucket used to re-advertise adaptive encodings on
+    /// the active stream. Memory-only and reset with the quality
+    /// estimator so a fresh session starts from the conservative
+    /// first-frame profile.
+    private var lastAdaptiveEncodingQuality: ConnectionQuality?
+    /// Non-blocking `SetEncodings` renegotiation task. The main actor
+    /// observes only the coarse quality bucket; the control write runs
+    /// off-main so a slow socket cannot freeze the viewer chrome.
+    private var adaptiveEncodingRenegotiationTask: Task<Void, Never>?
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
     private let frameStreamConfiguration: RFBFramePumpConfiguration
@@ -1126,7 +1135,9 @@ public final class NaruRemoteAppModel: ObservableObject {
                         milliseconds: roundTripMilliseconds,
                         streamID: streamID,
                         sessionID: pendingSession.id,
-                        profileID: profile.id
+                        profileID: profile.id,
+                        transportControl: streamingClient as? any RFBTransportControlClient,
+                        requestTimeout: requestTimeout
                     )
 
                     guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
@@ -1306,7 +1317,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         milliseconds: Double,
         streamID: UUID,
         sessionID: RemoteSession.ID,
-        profileID: ConnectionProfile.ID
+        profileID: ConnectionProfile.ID,
+        transportControl: (any RFBTransportControlClient)? = nil,
+        requestTimeout: TimeInterval = 2
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID) else {
             return
@@ -1315,6 +1328,44 @@ public final class NaruRemoteAppModel: ObservableObject {
         let bucket = connectionQualityEstimator.quality
         if connectionQuality != bucket {
             connectionQuality = bucket
+            renegotiateAdaptiveEncodingsIfNeeded(
+                for: bucket,
+                transportControl: transportControl,
+                requestTimeout: requestTimeout
+            )
+        }
+    }
+
+    /// Once the stream has a coarse quality bucket, re-advertise the
+    /// full decoder set through the pure spec-004 adaptive builder.
+    /// This keeps connection startup conservative (`localLowLatency`)
+    /// while letting good/fair/poor buckets tune Tight JPEG quality and
+    /// compression hints for subsequent frames. Failures are deliberately
+    /// non-fatal: the frame pump will surface a real connection failure
+    /// on the next read/write, and this optimization must not tear down
+    /// an otherwise usable session.
+    private func renegotiateAdaptiveEncodingsIfNeeded(
+        for bucket: ConnectionQuality,
+        transportControl: (any RFBTransportControlClient)?,
+        requestTimeout: TimeInterval
+    ) {
+        guard bucket != .unknown, lastAdaptiveEncodingQuality != bucket, let transportControl else {
+            return
+        }
+
+        lastAdaptiveEncodingQuality = bucket
+        let preference = RFBEncodingPreference.adaptive(
+            supported: .full,
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: bucket
+        )
+        let timeout = min(max(requestTimeout, 0.1), 2)
+        adaptiveEncodingRenegotiationTask?.cancel()
+        adaptiveEncodingRenegotiationTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else {
+                return
+            }
+            try? transportControl.renegotiateEncodings(preference, timeout: timeout)
         }
     }
 
@@ -1323,6 +1374,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// session starts at `.unknown` rather than inheriting the prior
     /// session's quality.
     private func resetConnectionQuality() {
+        adaptiveEncodingRenegotiationTask?.cancel()
+        adaptiveEncodingRenegotiationTask = nil
+        lastAdaptiveEncodingQuality = nil
         connectionQualityEstimator.reset()
         connectionQuality = .unknown
     }
