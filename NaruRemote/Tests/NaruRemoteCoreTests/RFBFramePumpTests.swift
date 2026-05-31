@@ -88,13 +88,21 @@ final class RFBFramePumpTests: XCTestCase {
 
     func testPumpPreservesDamageTrackingMetadataWhenSourceProvidesIt() throws {
         let capturedAt = Date(timeIntervalSince1970: 200)
+        let cursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 255, green: 255, blue: 255)]
+        )
         let result = RFBFramebufferUpdateResult(
             framebuffer: RFBRawFramebuffer(width: 100, height: 100),
             dirtyRectangles: [
                 RFBFrameDamageRect(x: 10, y: 10, width: 30, height: 30)
             ],
             changedPixelCount: 1_000,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            serverCursor: cursor
         )
         let source = FakeDamageTrackingFramebufferUpdateSource(results: [result])
         let pump = RFBFramePump(source: source)
@@ -106,6 +114,7 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(frame.changedPixelCount, 1_000)
         XCTAssertEqual(frame.changeActivity, .moderate)
         XCTAssertEqual(frame.capturedAt, capturedAt)
+        XCTAssertEqual(frame.serverCursor, cursor)
     }
 
     func testPumpUsesIdleIntervalAfterEmptyIncrementalFrame() throws {

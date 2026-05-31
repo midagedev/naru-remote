@@ -11,6 +11,7 @@ public struct SessionViewportView: View {
     private let session: RemoteSession?
     private let framebuffer: RFBRawFramebuffer?
     private let frameDirtyRectangles: [RFBFrameDamageRect]?
+    private let serverCursor: RFBServerCursor?
     private let isPiPWatchAvailable: Bool
     private let pipWatchStatusText: String
     private let isPiPWatching: Bool
@@ -94,6 +95,7 @@ public struct SessionViewportView: View {
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        serverCursor: RFBServerCursor? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
@@ -120,6 +122,7 @@ public struct SessionViewportView: View {
         self.session = session
         self.framebuffer = framebuffer
         self.frameDirtyRectangles = frameDirtyRectangles
+        self.serverCursor = serverCursor
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
@@ -148,6 +151,7 @@ public struct SessionViewportView: View {
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        serverCursor: RFBServerCursor? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
@@ -173,6 +177,7 @@ public struct SessionViewportView: View {
         self.session = session
         self.framebuffer = framebuffer
         self.frameDirtyRectangles = frameDirtyRectangles
+        self.serverCursor = serverCursor
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
@@ -582,6 +587,15 @@ public struct SessionViewportView: View {
     /// the gesture surface.
     @ViewBuilder
     private func cursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
+        if let serverCursor, serverCursor.width > 0, serverCursor.height > 0 {
+            serverCursorOverlay(cursor: serverCursor, framebuffer: framebuffer)
+        } else {
+            syntheticCursorOverlay(framebuffer: framebuffer)
+        }
+    }
+
+    @ViewBuilder
+    private func syntheticCursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
         GeometryReader { proxy in
             let point = Self.cursorViewPoint(
                 framebufferPosition: trackpadCursor.position,
@@ -597,6 +611,46 @@ public struct SessionViewportView: View {
         }
         .allowsHitTesting(false)
         .accessibilityIdentifier("naru.session.cursor")
+    }
+
+    @ViewBuilder
+    private func serverCursorOverlay(cursor: RFBServerCursor, framebuffer: RFBRawFramebuffer) -> some View {
+        GeometryReader { proxy in
+            let fit = Self.framebufferFitRect(
+                framebufferWidth: framebuffer.width,
+                framebufferHeight: framebuffer.height,
+                containerSize: proxy.size
+            )
+            let scaleX = fit.width / CGFloat(max(framebuffer.width, 1))
+            let scaleY = fit.height / CGFloat(max(framebuffer.height, 1))
+            let anchor = CGPoint(
+                x: fit.minX + trackpadCursor.position.x * scaleX,
+                y: fit.minY + trackpadCursor.position.y * scaleY
+            )
+            let origin = CGPoint(
+                x: anchor.x - CGFloat(cursor.hotSpotX) * scaleX,
+                y: anchor.y - CGFloat(cursor.hotSpotY) * scaleY
+            )
+
+            Canvas { context, _ in
+                for y in 0..<cursor.height {
+                    for x in 0..<cursor.width {
+                        guard let color = cursor[x, y], color.alpha > 0 else {
+                            continue
+                        }
+                        let rect = CGRect(
+                            x: origin.x + CGFloat(x) * scaleX,
+                            y: origin.y + CGFloat(y) * scaleY,
+                            width: max(1, scaleX.rounded(.up)),
+                            height: max(1, scaleY.rounded(.up))
+                        )
+                        context.fill(Path(rect), with: .color(color.previewColor))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("naru.session.serverCursor")
     }
 
     private var statusBadge: some View {
@@ -870,12 +924,30 @@ public struct SessionViewportView: View {
         framebufferHeight: Int,
         containerSize: CGSize
     ) -> CGPoint {
+        let fit = framebufferFitRect(
+            framebufferWidth: framebufferWidth,
+            framebufferHeight: framebufferHeight,
+            containerSize: containerSize
+        )
+        guard fit.width > 0, fit.height > 0 else {
+            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
+        }
+        let x = fit.minX + framebufferPosition.x / CGFloat(framebufferWidth) * fit.width
+        let y = fit.minY + framebufferPosition.y / CGFloat(framebufferHeight) * fit.height
+        return CGPoint(x: x, y: y)
+    }
+
+    static func framebufferFitRect(
+        framebufferWidth: Int,
+        framebufferHeight: Int,
+        containerSize: CGSize
+    ) -> CGRect {
         guard framebufferWidth > 0,
               framebufferHeight > 0,
               containerSize.width > 0,
               containerSize.height > 0
         else {
-            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
+            return .zero
         }
 
         let viewAspect = containerSize.width / containerSize.height
@@ -894,9 +966,7 @@ public struct SessionViewportView: View {
         let originX = (containerSize.width - fitWidth) / 2
         let originY = (containerSize.height - fitHeight) / 2
 
-        let x = originX + framebufferPosition.x / CGFloat(framebufferWidth) * fitWidth
-        let y = originY + framebufferPosition.y / CGFloat(framebufferHeight) * fitHeight
-        return CGPoint(x: x, y: y)
+        return CGRect(x: originX, y: originY, width: fitWidth, height: fitHeight)
     }
 }
 

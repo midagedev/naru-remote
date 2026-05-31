@@ -45,6 +45,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
     public let changeActivity: PiPFrameChangeActivity
     public let capturedAt: Date
     public let isIncremental: Bool
+    public let serverCursor: RFBServerCursor?
 
     public init(
         sequence: Int,
@@ -53,7 +54,8 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         changedPixelCount: Int? = nil,
         changeActivity: PiPFrameChangeActivity? = nil,
         capturedAt: Date = Date(),
-        isIncremental: Bool
+        isIncremental: Bool,
+        serverCursor: RFBServerCursor? = nil
     ) {
         self.sequence = sequence
         self.framebuffer = framebuffer
@@ -69,6 +71,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.changeActivity = changeActivity ?? .high
         self.capturedAt = capturedAt
         self.isIncremental = isIncremental
+        self.serverCursor = serverCursor
     }
 
     public init(
@@ -83,6 +86,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.changeActivity = updateResult.changeActivity
         self.capturedAt = updateResult.capturedAt
         self.isIncremental = isIncremental
+        self.serverCursor = updateResult.serverCursor
     }
 }
 

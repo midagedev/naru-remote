@@ -184,6 +184,52 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
     }
 
+    func testModelPublishesAndPersistsServerCursorFromFramePump() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let cursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 255, green: 255, blue: 255)]
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                RFBFramebufferUpdateResult(
+                    framebuffer: firstFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1,
+                    serverCursor: cursor
+                ),
+                .fullFrame(framebuffer: secondFramebuffer)
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
+        XCTAssertEqual(model.snapshot.latestServerCursor, cursor)
+    }
+
     func testModelSkipsPublishingEmptyIncrementalUpdates() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(

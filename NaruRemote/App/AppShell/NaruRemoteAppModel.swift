@@ -36,6 +36,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// the renderer falls back to a full-frame upload when the pairing
     /// no longer applies.
     @Published public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    /// Most recent server-provided cursor shape from the RFB Cursor
+    /// pseudo-encoding. Cleared with framebuffer/session state and never
+    /// persisted or exported; the view may use it to draw the local soft
+    /// cursor with server fidelity.
+    @Published public private(set) var latestServerCursor: RFBServerCursor?
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -231,6 +236,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchSession = snapshot.pipWatchSession
         self.latestFramebuffer = snapshot.latestFramebuffer
         self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
+        self.latestServerCursor = snapshot.latestServerCursor
         self.appSettings = AppSettings()
         self.settingsPersistenceError = nil
         self.profileStore = profileStore
@@ -341,6 +347,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             pipWatchSession: pipWatchSession,
             latestFramebuffer: latestFramebuffer,
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
+            latestServerCursor: latestServerCursor,
             directKeystrokeMode: directKeystrokeMode,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -391,6 +398,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             resetConnectionQuality()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
+            latestServerCursor = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
             clearPiPWatchSession()
@@ -448,6 +456,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             clearPiPWatchSession()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
+            latestServerCursor = nil
             activeTextClient = nil
             activePointerClient = nil
             activeKeyEventClient = nil
@@ -597,6 +606,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestInjectionAttempt = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
+            latestServerCursor = nil
             clearPiPWatchSession()
             selectedProfileID = nil
         }
@@ -917,6 +927,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             cancelPointerEventQueue()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
+            latestServerCursor = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             return
@@ -952,6 +963,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 latestFramebuffer = connectionResult.framebuffer
                 // Single-shot first-frame path has no damage history.
                 latestFrameDirtyRectangles = nil
+                latestServerCursor = nil
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
@@ -1001,6 +1013,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 stopIncomingClipboardReceive()
                 latestFramebuffer = nil
                 latestFrameDirtyRectangles = nil
+                latestServerCursor = nil
                 // Derive the actual failed stage from the error so the
                 // user sees an actionable message — not a hardcoded
                 // "VNC handshake failed" / "Connection failed" pair
@@ -1204,6 +1217,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         // allocated for these dimensions); pass nil so the dirty-rect
         // path is bypassed for that frame.
         latestFrameDirtyRectangles = frame.isIncremental ? frame.dirtyRectangles : nil
+        if let serverCursor = frame.serverCursor {
+            latestServerCursor = serverCursor
+        }
         session = updatedSession
         forwardFrameToLayerHost(frame.framebuffer)
         updatePiPWatchFrameIfNeeded(
@@ -1388,6 +1404,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             updatedSession.markFailed("Connection lost. Please reconnect.")
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
+            latestServerCursor = nil
             session = updatedSession
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -1426,6 +1443,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         updatedSession.markFailed(failure.safeTitle)
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
+        latestServerCursor = nil
         session = updatedSession
         activeStreamProfile = nil
         activeStreamCredential = nil
@@ -1571,6 +1589,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
+        latestServerCursor = nil
         resetConnectionQuality()
         resetPointerControl()
         if var current = session {
