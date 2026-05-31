@@ -179,6 +179,31 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
     }
 
+    func testManualNextFrameLoopCanStopContinuousUpdates() throws {
+        let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
+        let pushed = RFBFramebufferUpdateResult(
+            framebuffer: Self.framebuffer(red: 128),
+            dirtyRectangles: [
+                RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)
+            ],
+            changedPixelCount: 1
+        )
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [initial],
+            receivedResults: [pushed]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+        _ = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+        pump.stopContinuousUpdatesIfNeeded(timeout: 1)
+        pump.stopContinuousUpdatesIfNeeded(timeout: 1)
+
+        XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
+        XCTAssertEqual(source.disableContinuousUpdatesCallCount, 1)
+        XCTAssertEqual(source.continuousUpdatesEnabledFlags, [true, false])
+    }
+
     func testPumpDisablesContinuousUpdatesWhenRunStopsAfterCallback() throws {
         let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
         let pushed = RFBFramebufferUpdateResult(
