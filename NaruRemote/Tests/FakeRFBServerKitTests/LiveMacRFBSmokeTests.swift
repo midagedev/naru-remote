@@ -14,7 +14,7 @@ import XCTest
 ///
 /// Run from the repo root:
 ///   NARU_LIVE_MAC_HOST=192.168.45.148 NARU_LIVE_MAC_PORT=5900 \
-///   NARU_LIVE_MAC_PASSWORD=wkadhsek \
+    ///   NARU_LIVE_MAC_PASSWORD=<ask-the-user> \
 ///     swift test --filter FakeRFBServerKitTests.LiveMacRFBSmokeTests
 final class LiveMacRFBSmokeTests: XCTestCase {
 
@@ -166,10 +166,7 @@ final class LiveMacRFBSmokeTests: XCTestCase {
 
         for attempt in 1...attempts {
             let client = RFBNetworkClient()
-            guard let streamingClient = client as? any RFBStreamingClient else {
-                XCTFail("RFBNetworkClient should conform to RFBStreamingClient")
-                return
-            }
+            let streamingClient: any RFBStreamingClient = client
 
             let connectStart = Date()
             let serverInit: RFBServerInit
@@ -214,6 +211,58 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                      connectMax, frameAvg, frameMax, modelTimeout * 1000, failures.count, attempts))
         if !failures.isEmpty {
             print("✗ failures:\n" + failures.joined(separator: "\n"))
+        }
+    }
+
+    /// Benchmarks what happens after the first full frame on a quiet
+    /// macOS Screen Sharing desktop. A production-grade server normally
+    /// holds an incremental request until pixels change; if it instead
+    /// returns empty updates immediately, the app model's idle backoff is
+    /// what prevents a hot request / GPU publish loop.
+    func testIdleIncrementalUpdateBehaviorAgainstRealMac() throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let timeout: TimeInterval = 3
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: timeout
+        )
+
+        let firstStart = Date()
+        _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+        let firstMs = Date().timeIntervalSince(firstStart) * 1000
+
+        let idleProbeTimeout: TimeInterval = 0.75
+        let idleStart = Date()
+        do {
+            let update = try client.requestFramebufferUpdate(
+                incremental: true,
+                timeout: idleProbeTimeout
+            )
+            let idleMs = Date().timeIntervalSince(idleStart) * 1000
+            print(String(
+                format: "Idle incremental returned in %.0f ms on %dx%d; changedPixels=%d dirtyRects=%d",
+                idleMs,
+                serverInit.width,
+                serverInit.height,
+                update.changedPixelCount,
+                update.dirtyRectangles.count
+            ))
+        } catch RFBNetworkClientError.timedOut {
+            let heldMs = Date().timeIntervalSince(idleStart) * 1000
+            print(String(
+                format: "Idle incremental held for %.0f ms after firstFrame=%.0f ms on %dx%d (no empty-update churn)",
+                heldMs,
+                firstMs,
+                serverInit.width,
+                serverInit.height
+            ))
         }
     }
 }

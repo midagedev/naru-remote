@@ -26,6 +26,23 @@ final class RFBZrleDecoderTests: XCTestCase {
         }
     }
 
+    func testReportsZeroChangedPixelsWhenZRLEFrameIsIdentical() throws {
+        let init2x2 = serverInit(width: 2, height: 2)
+        let update = try fixture("zrle-solid")
+        let first = try RFBRawFramebufferDecoder.apply(
+            updateData: update,
+            serverInit: init2x2
+        )
+
+        let second = try RFBRawFramebufferDecoder.apply(
+            updateData: update,
+            serverInit: init2x2,
+            previousFramebuffer: first.framebuffer
+        )
+
+        XCTAssertEqual(second.changedPixelCount, 0)
+    }
+
     func testDecodesRawTile() throws {
         let result = try RFBRawFramebufferDecoder.apply(
             updateData: try fixture("zrle-raw"),

@@ -184,6 +184,48 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
     }
 
+    func testModelSkipsPublishingEmptyIncrementalUpdates() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                .fullFrame(framebuffer: framebuffer),
+                RFBFramebufferUpdateResult(
+                    framebuffer: framebuffer,
+                    dirtyRectangles: [],
+                    changedPixelCount: 0
+                )
+            ]
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 0.05,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            pipWatchController: pipController
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(30))
+        model.startPiPWatch(at: Date(timeIntervalSince1970: 100))
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(pipController.enqueuedFramebuffers, [framebuffer])
+    }
+
     func testModelCancelsFrameStreamAndClearsFramebufferWhenProfileChanges() async throws {
         let first = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let second = try ConnectionProfile(displayName: "Laptop", host: "laptop.tailnet.ts.net")
@@ -697,9 +739,9 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient {
+private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating {
     fileprivate struct Recording {
-        var framebuffers: [RFBRawFramebuffer]
+        var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
         var recordedFrameUpdateRequests: [Bool] = []
         var recordedCredentials: [RFBConnectionCredential] = []
@@ -722,7 +764,7 @@ private final class FakeStreamingConnector: RFBStreamingClient {
         self.height = height
         self.name = name
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(framebuffers: [framebuffer])
+            initialState: Recording(frameUpdates: [.fullFrame(framebuffer: framebuffer)])
         )
     }
 
@@ -731,7 +773,16 @@ private final class FakeStreamingConnector: RFBStreamingClient {
         self.height = height
         self.name = name
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(framebuffers: framebuffers)
+            initialState: Recording(frameUpdates: framebuffers.map { .fullFrame(framebuffer: $0) })
+        )
+    }
+
+    init(width: Int, height: Int, name: String, updateResults: [RFBFramebufferUpdateResult]) {
+        self.width = width
+        self.height = height
+        self.name = name
+        self.recording = OSAllocatedUnfairLock(
+            initialState: Recording(frameUpdates: updateResults)
         )
     }
 
@@ -814,16 +865,26 @@ private final class FakeStreamingConnector: RFBStreamingClient {
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBRawFramebuffer {
-        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout
+        ).framebuffer
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.recordedFrameUpdateRequests.append(incremental)
-            return state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+            return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
         }
 
-        guard let framebuffer else {
+        guard let update else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
         }
 
-        return framebuffer
+        return update
     }
 
     func setClipboardText(_ text: String) throws {

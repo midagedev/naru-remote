@@ -62,30 +62,53 @@ extension RFBRawFramebuffer {
     }
 
     /// Fills a clamped rectangle with a single colour (Hextile
-    /// background / solid tiles).
-    mutating func fillRegion(x: Int, y: Int, width regionWidth: Int, height regionHeight: Int, color: RFBColor) {
+    /// background / solid tiles), returning the number of pixels whose
+    /// value actually changed.
+    @discardableResult
+    mutating func fillRegionTrackingChange(
+        x: Int,
+        y: Int,
+        width regionWidth: Int,
+        height regionHeight: Int,
+        color: RFBColor
+    ) -> Int {
         let minX = max(x, 0)
         let minY = max(y, 0)
         let maxX = min(x + regionWidth, width)
         let maxY = min(y + regionHeight, height)
         guard minX < maxX, minY < maxY else {
-            return
+            return 0
         }
+        var changed = 0
         for row in minY..<maxY {
             let base = row * width
             for column in minX..<maxX {
-                pixels[base + column] = color
+                let index = base + column
+                if pixels[index] != color {
+                    pixels[index] = color
+                    changed += 1
+                }
             }
         }
+        return changed
     }
 
     /// Copies a `width × height` block from `(srcX, srcY)` to
     /// `(dstX, dstY)` of the *current* framebuffer (CopyRect, RFC 6143
     /// §7.7.2). Overlap-safe: the source region is snapshotted before any
     /// destination write. Caller must have bounds-validated both rects.
-    mutating func copyRegion(srcX: Int, srcY: Int, toX dstX: Int, toY dstY: Int, width copyWidth: Int, height copyHeight: Int) {
+    /// Returns the number of destination pixels whose value changed.
+    @discardableResult
+    mutating func copyRegionTrackingChange(
+        srcX: Int,
+        srcY: Int,
+        toX dstX: Int,
+        toY dstY: Int,
+        width copyWidth: Int,
+        height copyHeight: Int
+    ) -> Int {
         guard copyWidth > 0, copyHeight > 0 else {
-            return
+            return 0
         }
         var snapshot = [RFBColor]()
         snapshot.reserveCapacity(copyWidth * copyHeight)
@@ -93,13 +116,20 @@ extension RFBRawFramebuffer {
             let srcBase = (srcY + row) * width + srcX
             snapshot.append(contentsOf: pixels[srcBase..<(srcBase + copyWidth)])
         }
+        var changed = 0
         for row in 0..<copyHeight {
             let dstBase = (dstY + row) * width + dstX
             let snapBase = row * copyWidth
             for column in 0..<copyWidth {
-                pixels[dstBase + column] = snapshot[snapBase + column]
+                let index = dstBase + column
+                let color = snapshot[snapBase + column]
+                if pixels[index] != color {
+                    pixels[index] = color
+                    changed += 1
+                }
             }
         }
+        return changed
     }
 }
 

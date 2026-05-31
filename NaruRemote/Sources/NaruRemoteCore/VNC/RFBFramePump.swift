@@ -8,16 +8,32 @@ public enum RFBFramePumpDecision: Equatable, Sendable {
 public struct RFBFramePumpConfiguration: Equatable, Sendable {
     public let maxFrames: Int?
     public let requestTimeout: TimeInterval
+    /// Delay applied after a frame that carried *new* content, i.e. the
+    /// active-streaming cadence floor.  `0` means "request the next
+    /// frame as fast as the network round-trip + decode allow" - the
+    /// macOS Screen Sharing-like fluid path.  A non-zero value caps the
+    /// active frame rate (the old default of `0.25` pinned streaming to
+    /// ~4 fps, which is the single biggest felt-smoothness regression
+    /// versus a native viewer).
     public let frameInterval: TimeInterval
+    /// Delay applied after an *empty* incremental update (the server
+    /// replied with zero changed rectangles instead of holding the
+    /// request).  Decoupled from `frameInterval` so an idle screen
+    /// polls gently, protecting against a hot request loop on servers
+    /// that return empty updates immediately, without throttling the
+    /// active path.  `0` polls as fast as the round-trip allows.
+    public let idleFrameInterval: TimeInterval
 
     public init(
         maxFrames: Int? = nil,
         requestTimeout: TimeInterval = 2,
-        frameInterval: TimeInterval = 0
+        frameInterval: TimeInterval = 0,
+        idleFrameInterval: TimeInterval = 0
     ) {
         self.maxFrames = maxFrames
         self.requestTimeout = requestTimeout
         self.frameInterval = max(frameInterval, 0)
+        self.idleFrameInterval = max(idleFrameInterval, 0)
     }
 }
 
@@ -149,8 +165,11 @@ public final class RFBFramePump: @unchecked Sendable {
                 )
             }
 
-            if configuration.frameInterval > 0 {
-                Thread.sleep(forTimeInterval: configuration.frameInterval)
+            let pacingDelay = frame.isIncremental && frame.changedPixelCount == 0
+                ? configuration.idleFrameInterval
+                : configuration.frameInterval
+            if pacingDelay > 0 {
+                Thread.sleep(forTimeInterval: pacingDelay)
             }
         }
 
