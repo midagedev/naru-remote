@@ -54,13 +54,19 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout
         )
+        let continuousUpdatesProbe = measureContinuousUpdatesProbe(
+            configuration: configuration,
+            timeout: options.timeout,
+            idleTimeout: options.idleTimeout
+        )
 
         return BenchmarkReport(
             attemptsPerProfile: options.attempts,
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
             profiles: profiles,
-            idleProbe: idleProbe
+            idleProbe: idleProbe,
+            continuousUpdatesProbe: continuousUpdatesProbe
         )
     }
 
@@ -134,6 +140,59 @@ enum VNCLiveBenchmark {
         } catch {
             client.disconnect()
             return IdleProbeReport(
+                status: .failed,
+                durationMilliseconds: nil,
+                failureLabel: safeFailureLabel(for: error)
+            )
+        }
+    }
+
+    private static func measureContinuousUpdatesProbe(
+        configuration: LiveTargetConfiguration,
+        timeout: TimeInterval,
+        idleTimeout: TimeInterval
+    ) -> ContinuousUpdatesProbeReport {
+        let preference = RFBEncodingPreference(
+            hextile: true,
+            copyRect: true,
+            fence: true,
+            continuousUpdates: true
+        )
+        let client = RFBNetworkClient(encodingPreference: preference)
+
+        do {
+            _ = try client.connectSession(
+                host: configuration.host,
+                port: configuration.port,
+                credential: .vncPassword(configuration.password),
+                timeout: timeout
+            )
+            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+
+            try client.enableContinuousUpdates(true, region: nil, timeout: timeout)
+
+            let startedAt = Date()
+            let update = try client.receiveFramebufferUpdate(timeout: idleTimeout)
+            let duration = milliseconds(since: startedAt)
+            try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
+            client.disconnect()
+
+            return ContinuousUpdatesProbeReport(
+                status: update.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
+                durationMilliseconds: duration,
+                failureLabel: nil
+            )
+        } catch RFBNetworkClientError.timedOut {
+            try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
+            client.disconnect()
+            return ContinuousUpdatesProbeReport(
+                status: .noUpdateBeforeTimeout,
+                durationMilliseconds: milliseconds(from: idleTimeout),
+                failureLabel: nil
+            )
+        } catch {
+            client.disconnect()
+            return ContinuousUpdatesProbeReport(
                 status: .failed,
                 durationMilliseconds: nil,
                 failureLabel: safeFailureLabel(for: error)
@@ -293,15 +352,17 @@ private struct BenchmarkReport: Codable, Equatable {
     let safety: [String]
     let profiles: [ProfileReport]
     let idleProbe: IdleProbeReport
+    let continuousUpdatesProbe: ContinuousUpdatesProbeReport
 
     init(
         attemptsPerProfile: Int,
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
         profiles: [ProfileReport],
-        idleProbe: IdleProbeReport
+        idleProbe: IdleProbeReport,
+        continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 1
+        self.schemaVersion = 2
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.timeoutSeconds = timeoutSeconds
@@ -312,6 +373,7 @@ private struct BenchmarkReport: Codable, Equatable {
         ]
         self.profiles = profiles
         self.idleProbe = idleProbe
+        self.continuousUpdatesProbe = continuousUpdatesProbe
     }
 }
 
@@ -356,6 +418,19 @@ private enum IdleProbeStatus: String, Codable {
     case failed
 }
 
+private struct ContinuousUpdatesProbeReport: Codable, Equatable {
+    let status: ContinuousUpdatesProbeStatus
+    let durationMilliseconds: Int?
+    let failureLabel: String?
+}
+
+private enum ContinuousUpdatesProbeStatus: String, Codable {
+    case noUpdateBeforeTimeout = "no-update-before-timeout"
+    case emptyUpdate = "empty-update"
+    case contentUpdate = "content-update"
+    case failed
+}
+
 private func renderText(_ report: BenchmarkReport) {
     print("\(toolName)")
     print("target: \(report.target)")
@@ -388,6 +463,15 @@ private func renderText(_ report: BenchmarkReport) {
         print("- status: \(report.idleProbe.status.rawValue), failure: \(failure)")
     } else {
         print("- status: \(report.idleProbe.status.rawValue)")
+    }
+    print("")
+    print("continuous updates probe:")
+    if let duration = report.continuousUpdatesProbe.durationMilliseconds {
+        print("- status: \(report.continuousUpdatesProbe.status.rawValue), duration ms: \(duration)")
+    } else if let failure = report.continuousUpdatesProbe.failureLabel {
+        print("- status: \(report.continuousUpdatesProbe.status.rawValue), failure: \(failure)")
+    } else {
+        print("- status: \(report.continuousUpdatesProbe.status.rawValue)")
     }
 }
 
