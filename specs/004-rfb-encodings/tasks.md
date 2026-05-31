@@ -93,8 +93,11 @@ iPhone) and ships as its own PR.
 - **T304** ExtendedDesktopSize (-308) parsing → resize signal. Owns: decoder file.
 - **T305** Adaptive: `RFBEncodingPreference` emits Tight quality-level (−23…−32) /
   compression-level (0…−9) codes from the `ConnectionQuality` bucket (`specs/003`);
-  optional continuous-updates/fence pacing + response encoder. Owns: `RFBEncoding.swift`,
-  `RFBClientMessageEncoder.swift`, `RFBNetworkClient.swift`.
+  optional continuous-updates/fence pacing + response encoder. The live connection read
+  path must preserve buffered bytes across idle timeouts: a zero-byte ContinuousUpdates
+  timeout is a non-fatal idle tick, but a timeout/close after consuming part of a server
+  message fails the stream. Owns: `RFBEncoding.swift`, `RFBClientMessageEncoder.swift`,
+  `RFBNetworkClient.swift`.
 - **T306** Tests for adaptive preference + fence response; verify no latency/pixel in
   diagnostic export. Owns: test files.
 - **T307** Verify green; PR. Residual-risk: live Tight-JPEG throughput + real resolution

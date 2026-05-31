@@ -249,6 +249,24 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     /// result commits through the same framebuffer/zlib/resize path as
     /// request-response updates.
     public func receiveFramebufferUpdate(timeout: TimeInterval = 2) throws -> RFBFramebufferUpdateResult {
+        try receiveFramebufferUpdate(timeout: timeout, allowsIdleTimeout: false)
+    }
+
+    /// ContinuousUpdates receive path. A quiet server is allowed to send
+    /// no framebuffer update for a while, so a read timeout is treated as
+    /// a zero-change idle tick when a previous framebuffer exists. The
+    /// buffered socket reader preserves any partial bytes for the next
+    /// call, so this does not corrupt the stream.
+    public func receiveContinuousFramebufferUpdate(
+        timeout: TimeInterval = 2
+    ) throws -> RFBFramebufferUpdateResult {
+        try receiveFramebufferUpdate(timeout: timeout, allowsIdleTimeout: true)
+    }
+
+    private func receiveFramebufferUpdate(
+        timeout: TimeInterval,
+        allowsIdleTimeout: Bool
+    ) throws -> RFBFramebufferUpdateResult {
         let context = lock.withRFBClientLock {
             (activeConnection, clientServerInit, clientFramebuffer, clientZlibStream, clientTightZlibStreams)
         }
@@ -275,6 +293,18 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 zlibStream: context.3,
                 tightZlibStreams: context.4,
                 timeout: timeout
+            )
+        } catch RFBNetworkClientError.timedOut where allowsIdleTimeout {
+            guard reader.consumedByteCount == 0,
+                  let previousFramebuffer = context.2 else {
+                failConnection(connection)
+                throw RFBNetworkClientError.timedOut
+            }
+            updateResult = RFBFramebufferUpdateResult(
+                framebuffer: previousFramebuffer,
+                dirtyRectangles: [],
+                changedPixelCount: 0,
+                transportIdleTimedOut: true
             )
         } catch {
             failConnection(connection)
@@ -809,7 +839,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
+extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBContinuousFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)
@@ -855,6 +885,7 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
 private final class ConnectionByteReader: RFBByteReader {
     private let connection: RFBNetworkConnection
     private let timeout: TimeInterval
+    private(set) var consumedByteCount = 0
 
     init(connection: RFBNetworkConnection, timeout: TimeInterval) {
         self.connection = connection
@@ -865,7 +896,9 @@ private final class ConnectionByteReader: RFBByteReader {
         guard count > 0 else {
             return []
         }
-        return [UInt8](try connection.readExactly(byteCount: count, timeout: timeout))
+        let data = try connection.readExactly(byteCount: count, timeout: timeout)
+        consumedByteCount += data.count
+        return [UInt8](data)
     }
 }
 
@@ -910,12 +943,13 @@ private final class PrefixedByteReader: RFBByteReader {
 /// connection-scoped object.  Both stored properties are `let` and
 /// `Sendable` (`NWConnection` is `Sendable` on iOS 17+, `DispatchQueue`
 /// is `Sendable`), so this class is `Sendable` by structure and does
-/// not need `@unchecked`.  Mutable connection state (read buffer,
-/// write completion, ready/failed signal) lives in the
-/// `RFBNetwork{Read,Write,Ready}State` helpers, not here.
+/// not need `@unchecked`.  Mutable connection state (persistent read
+/// buffer, write completion, ready/failed signal) lives in the
+/// `RFBNetwork{Receive,Write,Ready}State` helpers, not here.
 private final class RFBNetworkConnection: Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "naru.rfb-network-connection")
+    private let receiveState = RFBNetworkReceiveState()
 
     private init(connection: NWConnection) {
         self.connection = connection
@@ -960,14 +994,13 @@ private final class RFBNetworkConnection: Sendable {
             return Data()
         }
 
-        let state = RFBNetworkReadState(expectedByteCount: byteCount)
-        receiveNext(into: state, remainingByteCount: byteCount)
-        do {
-            return try state.wait(timeout: timeout)
-        } catch {
-            cancel()
-            throw error
+        if receiveState.beginRead() {
+            receiveNext()
         }
+        defer {
+            receiveState.endRead()
+        }
+        return try receiveState.readExactly(byteCount: byteCount, timeout: timeout)
     }
 
     func write(_ data: Data, timeout: TimeInterval) throws {
@@ -992,36 +1025,117 @@ private final class RFBNetworkConnection: Sendable {
     }
 
     func cancel() {
+        receiveState.fail(.connectionFailed)
         connection.cancel()
     }
 
-    private func receiveNext(into state: RFBNetworkReadState, remainingByteCount: Int) {
+    private func receiveNext() {
         connection.receive(
             minimumIncompleteLength: 1,
-            maximumLength: max(1, remainingByteCount)
+            maximumLength: 64 * 1024
         ) { [self] data, _, isComplete, error in
-            if let data, !data.isEmpty {
-                state.append(data)
+            let shouldContinue = receiveState.completeReceive(
+                data: data,
+                isComplete: isComplete,
+                error: error
+            )
+            if shouldContinue {
+                receiveNext()
             }
-
-            if error != nil {
-                state.fail(.connectionFailed)
-                return
-            }
-
-            let remaining = remainingByteCount - (data?.count ?? 0)
-            if state.byteCount >= state.expectedByteCountForConnection || remaining <= 0 {
-                state.finish()
-                return
-            }
-
-            if isComplete {
-                state.finish()
-                return
-            }
-
-            receiveNext(into: state, remainingByteCount: remaining)
         }
+    }
+}
+
+// @unchecked Sendable justified: coordinates a persistent byte buffer
+// between `NWConnection.receive` callbacks on the connection queue and
+// synchronous `readExactly` callers. `NSCondition` guards every mutable
+// field and wakes readers when bytes arrive, when the connection fails,
+// or when cancel marks the buffer failed.
+private final class RFBNetworkReceiveState: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var bytes = Data()
+    private var receiveInFlight = false
+    private var waitingReads = 0
+    private var failure: RFBNetworkClientError?
+
+    func beginRead() -> Bool {
+        condition.lock()
+        waitingReads += 1
+        let shouldStart = markReceiveScheduledIfNeededLocked()
+        condition.unlock()
+        return shouldStart
+    }
+
+    func endRead() {
+        condition.lock()
+        waitingReads = max(waitingReads - 1, 0)
+        condition.unlock()
+    }
+
+    func readExactly(byteCount: Int, timeout: TimeInterval) throws -> Data {
+        let deadline = Date().addingTimeInterval(timeout)
+        condition.lock()
+        defer {
+            condition.unlock()
+        }
+
+        while bytes.count < byteCount {
+            if let failure {
+                throw failure
+            }
+
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw RFBNetworkClientError.timedOut
+            }
+
+            if !condition.wait(until: Date().addingTimeInterval(remaining)) {
+                throw RFBNetworkClientError.timedOut
+            }
+        }
+
+        let output = bytes.prefix(byteCount)
+        bytes.removeFirst(byteCount)
+        return Data(output)
+    }
+
+    func completeReceive(
+        data: Data?,
+        isComplete: Bool,
+        error: NWError?
+    ) -> Bool {
+        condition.lock()
+        receiveInFlight = false
+        if let data, !data.isEmpty {
+            bytes.append(data)
+        }
+        if error != nil || isComplete {
+            failure = .connectionFailed
+        }
+        condition.broadcast()
+        let shouldContinue = markReceiveScheduledIfNeededLocked()
+        condition.unlock()
+        return shouldContinue
+    }
+
+    func fail(_ error: RFBNetworkClientError) {
+        condition.lock()
+        if failure == nil {
+            failure = error
+        }
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private func markReceiveScheduledIfNeededLocked() -> Bool {
+        guard failure == nil,
+              waitingReads > 0,
+              !receiveInFlight else {
+            return false
+        }
+
+        receiveInFlight = true
+        return true
     }
 }
 

@@ -210,6 +210,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         case didResizeDesktop
         case serverCursor
         case endedContinuousUpdates
+        case transportIdleTimedOut
     }
 
     public let framebuffer: RFBRawFramebuffer
@@ -229,6 +230,10 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// control byte. The framebuffer is unchanged; callers can treat
     /// the update as liveness and fall back to request/response pacing.
     public let endedContinuousUpdates: Bool
+    /// True when a ContinuousUpdates receive timed out without bytes
+    /// while keeping the socket and buffered read state intact. This is
+    /// not a frame round-trip latency sample.
+    public let transportIdleTimedOut: Bool
 
     public init(
         framebuffer: RFBRawFramebuffer,
@@ -237,7 +242,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         capturedAt: Date = Date(),
         didResizeDesktop: Bool = false,
         serverCursor: RFBServerCursor? = nil,
-        endedContinuousUpdates: Bool = false
+        endedContinuousUpdates: Bool = false,
+        transportIdleTimedOut: Bool = false
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -246,6 +252,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         self.didResizeDesktop = didResizeDesktop
         self.serverCursor = serverCursor
         self.endedContinuousUpdates = endedContinuousUpdates
+        self.transportIdleTimedOut = transportIdleTimedOut
     }
 
     public init(from decoder: Decoder) throws {
@@ -257,7 +264,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             capturedAt: try container.decode(Date.self, forKey: .capturedAt),
             didResizeDesktop: try container.decodeIfPresent(Bool.self, forKey: .didResizeDesktop) ?? false,
             serverCursor: try container.decodeIfPresent(RFBServerCursor.self, forKey: .serverCursor),
-            endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false
+            endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false,
+            transportIdleTimedOut: try container.decodeIfPresent(Bool.self, forKey: .transportIdleTimedOut) ?? false
         )
     }
 
@@ -270,6 +278,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         try container.encode(didResizeDesktop, forKey: .didResizeDesktop)
         try container.encodeIfPresent(serverCursor, forKey: .serverCursor)
         try container.encode(endedContinuousUpdates, forKey: .endedContinuousUpdates)
+        try container.encode(transportIdleTimedOut, forKey: .transportIdleTimedOut)
     }
 
     public static func fullFrame(

@@ -59,6 +59,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
     public let capturedAt: Date
     public let isIncremental: Bool
     public let serverCursor: RFBServerCursor?
+    public let transportIdleTimedOut: Bool
 
     public init(
         sequence: Int,
@@ -68,7 +69,8 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         changeActivity: PiPFrameChangeActivity? = nil,
         capturedAt: Date = Date(),
         isIncremental: Bool,
-        serverCursor: RFBServerCursor? = nil
+        serverCursor: RFBServerCursor? = nil,
+        transportIdleTimedOut: Bool = false
     ) {
         self.sequence = sequence
         self.framebuffer = framebuffer
@@ -85,6 +87,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.capturedAt = capturedAt
         self.isIncremental = isIncremental
         self.serverCursor = serverCursor
+        self.transportIdleTimedOut = transportIdleTimedOut
     }
 
     public init(
@@ -100,6 +103,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.capturedAt = updateResult.capturedAt
         self.isIncremental = isIncremental
         self.serverCursor = updateResult.serverCursor
+        self.transportIdleTimedOut = updateResult.transportIdleTimedOut
     }
 }
 
@@ -232,7 +236,11 @@ public final class RFBFramePump: @unchecked Sendable {
                 transportControl,
                 timeout: requestTimeout
             )
-            updateResult = try receiver.receiveFramebufferUpdate(timeout: requestTimeout)
+            if let continuousReceiver = source as? any RFBContinuousFramebufferUpdateReceiving {
+                updateResult = try continuousReceiver.receiveContinuousFramebufferUpdate(timeout: requestTimeout)
+            } else {
+                updateResult = try receiver.receiveFramebufferUpdate(timeout: requestTimeout)
+            }
         } else if let damageTrackingSource = source as? any RFBDamageTrackingFramebufferUpdating {
             updateResult = try damageTrackingSource.requestFramebufferUpdate(
                 incremental: isIncremental,

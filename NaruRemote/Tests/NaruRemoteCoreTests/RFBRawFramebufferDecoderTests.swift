@@ -153,11 +153,13 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         let encoded = try JSONEncoder().encode(original)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object.removeValue(forKey: "endedContinuousUpdates")
+        object.removeValue(forKey: "transportIdleTimedOut")
         let legacyPayload = try JSONSerialization.data(withJSONObject: object)
 
         let decoded = try JSONDecoder().decode(RFBFramebufferUpdateResult.self, from: legacyPayload)
 
         XCTAssertFalse(decoded.endedContinuousUpdates)
+        XCTAssertFalse(decoded.transportIdleTimedOut)
         XCTAssertEqual(decoded.framebuffer, original.framebuffer)
         XCTAssertEqual(decoded.dirtyRectangles, original.dirtyRectangles)
         XCTAssertEqual(decoded.changedPixelCount, original.changedPixelCount)
@@ -177,6 +179,22 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         )
 
         XCTAssertTrue(decoded.endedContinuousUpdates)
+    }
+
+    func testFramebufferUpdateResultRoundTripsTransportIdleTimeoutFlag() throws {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            transportIdleTimedOut: true
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RFBFramebufferUpdateResult.self,
+            from: try JSONEncoder().encode(original)
+        )
+
+        XCTAssertTrue(decoded.transportIdleTimedOut)
     }
 
     func testRejectsUnsupportedFramebufferEncoding() throws {
