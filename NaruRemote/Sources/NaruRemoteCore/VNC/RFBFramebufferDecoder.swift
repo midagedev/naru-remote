@@ -757,6 +757,7 @@ public enum RFBFramebufferDecoder {
         static let explicit: UInt8 = 0x04
         static let copy: UInt8 = 0x00
         static let palette: UInt8 = 0x01
+        static let gradient: UInt8 = 0x02
     }
 
     private static let maxTightRectangleWidth = 2_048
@@ -840,6 +841,25 @@ public enum RFBFramebufferDecoder {
                     height: height
                 )
 
+            case TightFilter.gradient:
+                let uncompressedSize = try tightCopyPayloadLength(width: width, height: height, pixelFormat: pixelFormat)
+                let deltas = try readTightBasicPayload(
+                    reader: reader,
+                    byteCount: uncompressedSize,
+                    compressionType: compressionType,
+                    readsUncompressedPayload: readsUncompressedPayload,
+                    tightZlibStreams: tightZlibStreams
+                )
+                return try decodeTightGradient(
+                    deltas,
+                    into: &framebuffer,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    pixelFormat: pixelFormat
+                )
+
             default:
                 throw RFBRawFramebufferDecoderError.malformedTight
             }
@@ -891,6 +911,65 @@ public enum RFBFramebufferDecoder {
             }
         }
         return changed
+    }
+
+    private static func decodeTightGradient(
+        _ deltas: [UInt8],
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        pixelFormat: RFBPixelFormat
+    ) throws -> Int {
+        let pixelByteCount = tightPixelByteCount(pixelFormat)
+        guard pixelByteCount == 3,
+              pixelFormat.redMax == 255,
+              pixelFormat.greenMax == 255,
+              pixelFormat.blueMax == 255
+        else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+        guard deltas.count == width * height * pixelByteCount else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+
+        var changed = 0
+        var previousRow = Array(repeating: RFBColor(red: 0, green: 0, blue: 0), count: width)
+        for localY in 0..<height {
+            var currentRow = Array(repeating: RFBColor(red: 0, green: 0, blue: 0), count: width)
+            var left = RFBColor(red: 0, green: 0, blue: 0)
+            for localX in 0..<width {
+                let above = previousRow[localX]
+                let upperLeft = localX == 0 ? RFBColor(red: 0, green: 0, blue: 0) : previousRow[localX - 1]
+                let predicted = tightGradientPredict(left: left, above: above, upperLeft: upperLeft)
+                let offset = ((localY * width) + localX) * pixelByteCount
+                let color = RFBColor(
+                    red: UInt8((Int(deltas[offset]) + Int(predicted.red)) & 0xFF),
+                    green: UInt8((Int(deltas[offset + 1]) + Int(predicted.green)) & 0xFF),
+                    blue: UInt8((Int(deltas[offset + 2]) + Int(predicted.blue)) & 0xFF)
+                )
+                currentRow[localX] = color
+                left = color
+                if framebuffer.setPixelTrackingChange(color, x: x + localX, y: y + localY) {
+                    changed += 1
+                }
+            }
+            previousRow = currentRow
+        }
+        return changed
+    }
+
+    private static func tightGradientPredict(left: RFBColor, above: RFBColor, upperLeft: RFBColor) -> RFBColor {
+        func predict(_ left: UInt8, _ above: UInt8, _ upperLeft: UInt8) -> UInt8 {
+            UInt8(max(0, min(255, Int(left) + Int(above) - Int(upperLeft))))
+        }
+
+        return RFBColor(
+            red: predict(left.red, above.red, upperLeft.red),
+            green: predict(left.green, above.green, upperLeft.green),
+            blue: predict(left.blue, above.blue, upperLeft.blue)
+        )
     }
 
     private static func decodeTightPalette(
