@@ -303,6 +303,72 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    /// Re-sends `SetEncodings` on the active session so a caller can
+    /// switch between low-latency and bandwidth-first profiles after
+    /// observing connection quality. The preference list is a fixed
+    /// catalog of encoding codes; this method logs no latency values,
+    /// framebuffer geometry, or payload details.
+    public func renegotiateEncodings(
+        _ preference: RFBEncodingPreference,
+        timeout: TimeInterval = 2
+    ) throws {
+        try writeControlMessage(
+            RFBClientMessageEncoder.setEncodings(preference.encodingList()),
+            timeout: timeout
+        )
+    }
+
+    /// Sends TigerVNC's `EnableContinuousUpdates` control message for
+    /// the supplied framebuffer region. When `region` is nil, the
+    /// current session framebuffer size is used and clamped to the RFB
+    /// u16 wire fields. This is transport pacing control only; no user
+    /// input or pixel payload crosses this boundary.
+    public func enableContinuousUpdates(
+        _ enabled: Bool,
+        region: RFBFramebufferUpdateRegion? = nil,
+        timeout: TimeInterval = 2
+    ) throws {
+        let context = lock.withRFBClientLock {
+            (activeConnection, clientServerInit)
+        }
+        guard let connection = context.0 else {
+            throw RFBNetworkClientError.notConnected
+        }
+
+        let updateRegion = region ?? RFBFramebufferUpdateRegion(
+            x: 0,
+            y: 0,
+            width: Self.clampedUInt16(context.1?.width ?? 0),
+            height: Self.clampedUInt16(context.1?.height ?? 0)
+        )
+
+        try connection.write(
+            RFBClientMessageEncoder.enableContinuousUpdates(
+                enabled,
+                x: updateRegion.x,
+                y: updateRegion.y,
+                width: updateRegion.width,
+                height: updateRegion.height
+            ),
+            timeout: timeout
+        )
+    }
+
+    /// Sends TigerVNC's `ClientFence` control message on the active
+    /// session. Payload validation is handled by
+    /// `RFBClientMessageEncoder`; callers should keep payloads opaque
+    /// and non-user-content per spec 004's logging boundary.
+    public func sendFence(
+        flags: RFBFenceFlags,
+        payload: Data = Data(),
+        timeout: TimeInterval = 2
+    ) throws {
+        try writeControlMessage(
+            try RFBClientMessageEncoder.fence(flags: flags, payload: payload),
+            timeout: timeout
+        )
+    }
+
     /// Reads a single server-to-client `ServerCutText` message off the active
     /// connection and returns its UTF-8 payload. The fixed 8-byte header
     /// (1 byte message type + 3 bytes padding + 4 bytes big-endian length) is
@@ -423,6 +489,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         }
     }
 
+    private func writeControlMessage(_ data: Data, timeout: TimeInterval) throws {
+        guard let connection = currentActiveConnection() else {
+            throw RFBNetworkClientError.notConnected
+        }
+        try connection.write(data, timeout: timeout)
+    }
+
     private func validateNoAuthFirstFrameTranscript(_ transcript: Data) throws {
         guard transcript.count >= Self.minimumNoAuthFirstFrameTranscriptByteCount else {
             throw RFBNetworkClientError.incompleteTranscript(
@@ -525,6 +598,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         return Data(bytes)
     }
 
+    private static func clampedUInt16(_ value: Int) -> UInt16 {
+        UInt16(max(0, min(value, Int(UInt16.max))))
+    }
+
     private static func uint16Bytes(_ value: UInt16) -> [UInt8] {
         [UInt8(value >> 8), UInt8(value & 0x00ff)]
     }
@@ -541,7 +618,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating {}
+extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBTransportControlClient {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)
