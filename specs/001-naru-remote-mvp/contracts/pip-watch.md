@@ -77,6 +77,12 @@ The current renderer boundary converts remote framebuffers into 32-bit BGRA
 `AVSampleBufferDisplayLayer`. The exact system PiP behavior must be verified
 with AVKit on iPhone/iPad before full PiP support is claimed.
 
+When the main session viewport has a local zoom/pan focus, the app-layer PiP
+renderer may crop and scale that focused region into the PiP video frame. This
+focus remains watch-only: it must not emit pointer, keyboard, clipboard, Compose
+& Send, file, image, or agent actions. The sample-buffer dimensions should stay
+stable across focus changes so the PiP layer does not churn when the user pans.
+
 Frame snapshots with zero width or zero height are not renderable and must move
 the watch state to a recoverable failure.
 

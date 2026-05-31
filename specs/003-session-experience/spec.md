@@ -104,7 +104,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **Mode switch mid-gesture**: switching pointer mode cancels any in-flight gesture cleanly; no stray button-up is emitted for a gesture that never sent a button-down.
 - **Pinch + drag simultaneously**: pinch (zoom) and one-finger pan are distinct gestures; a 2-finger gesture is zoom/scroll, a 1-finger gesture is pan (direct) or cursor-move (trackpad). The view never emits a remote scroll while pinching.
 - **Aspect ratio change (DesktopSize) mid-session**: when the server framebuffer dimensions change, the viewport recomputes fit scale and re-clamps the pan offset so the new size is fully framed (the protocol-level DesktopSize negotiation itself is `specs/004`).
-- **PiP watch path**: unchanged — PiP is watch-only and installs none of these recognizers (constitution + ROADMAP Phase 6).
+- **PiP watch path**: PiP remains watch-only and does not install remote-input recognizers. When the main session viewport is zoomed/panned, the PiP renderer may mirror that local focus by cropping the video frames so the same area is readable in the floating window.
 - **Zoomed-in tap mapping (direct mode)**: a tap while zoomed/panned maps through the combined fit-scale × zoom × pan transform to the correct framebuffer pixel; letterbox bands remain a no-op (not a clamped edge click), preserving the existing behavior.
 - **VoiceOver**: the remote screen exposes an accessibility element; pointer-mode toggle, zoom reset, and quick keys have labels. The framebuffer pixels are not described (privacy + meaningless).
 
@@ -126,6 +126,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **FR-012**: A compact connection-status chip MUST reflect `RemoteSessionState` (connecting / active / reconnecting(n,N) / degraded / failed / closed) with distinct symbol + color, and MUST show a coarse connection-quality bucket (Good / Fair / Poor) derived from frame round-trip timing while active.
 - **FR-013**: An inline quick-key strip in **Compose** mode MUST offer at least Esc, Tab, and Ctrl-C, emitting the correct `KeyEvent`(s) through the existing `KeystrokeEmitter`, without modifying the compose draft, and only while a session is active.
 - **FR-014**: All view→framebuffer coordinate mapping (fit scale × zoom × pan, plus trackpad cursor position) MUST be a single shared, pure, unit-tested transform used by both pointer modes so the two paths cannot diverge.
+- **FR-015**: While PiP Watch is active, local zoom/pan changes MUST update the PiP video focus without emitting RFB input. The output video dimensions SHOULD remain stable across focus changes to avoid PiP layer churn.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 

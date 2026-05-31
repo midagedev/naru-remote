@@ -2767,7 +2767,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         do {
             forwardFrameToLayerHost(latestFramebuffer)
-            try pipWatchController.enqueue(latestFramebuffer)
+            try pipWatchController.enqueue(
+                latestFramebuffer,
+                viewport: currentPiPWatchViewport
+            )
         } catch {
             watchSession.fail("PiP frame could not be rendered.")
             pipWatchSession = watchSession
@@ -2830,7 +2833,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
-            try pipWatchController.enqueue(framebuffer)
+            try pipWatchController.enqueue(framebuffer, viewport: currentPiPWatchViewport)
         } catch {
             pipWatchSession.fail("PiP frame could not be rendered.")
             self.pipWatchSession = pipWatchSession
@@ -2872,6 +2875,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             // active.  Outside an active session, dropping the frame
             // is acceptable.
         }
+        #endif
+    }
+
+    private var currentPiPWatchViewport: PiPWatchViewport {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        return pipLayerHost.currentViewport
+        #else
+        return .fullFrame
         #endif
     }
 

@@ -69,6 +69,12 @@ public struct SessionViewportView: View {
     /// pan is a local viewport transform and never emits an RFB message.
     @State private var panOffset: CGSize = .zero
 
+    /// Gesture baselines used only by the PiP display-layer path. The
+    /// regular Metal path owns UIKit recognizers and reports absolute
+    /// values back through callbacks.
+    @State private var pipPinchStartZoomScale: CGFloat?
+    @State private var pipPanStartOffset: CGSize?
+
     /// Previous cumulative `DragGesture` translation for the active
     /// trackpad drag, used to derive the per-event delta `TrackpadCursor`
     /// expects.  `nil` between drags.
@@ -671,10 +677,11 @@ public struct SessionViewportView: View {
             // Active system PiP — render through the shared
             // AVSampleBufferDisplayLayer so the in-app preview and the
             // PiP content source share one renderer (PR #5).
-            PiPSampleBufferDisplayLayerView(layerHost: pipLayerHost)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .aspectRatio(aspectRatio, contentMode: .fit)
-                .accessibilityIdentifier("naru.session.framebufferPreview")
+            pipLayerPreview(
+                framebuffer: framebuffer,
+                aspectRatio: aspectRatio,
+                layerHost: pipLayerHost
+            )
         } else {
             metalOrSampledPreview(framebuffer: framebuffer, aspectRatio: aspectRatio)
         }
@@ -684,6 +691,37 @@ public struct SessionViewportView: View {
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif
     }
+
+    #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    private func pipLayerPreview(
+        framebuffer: RFBRawFramebuffer,
+        aspectRatio: CGFloat,
+        layerHost: PiPLayerHost
+    ) -> some View {
+        GeometryReader { proxy in
+            PiPSampleBufferDisplayLayerView(layerHost: layerHost)
+                .contentShape(Rectangle())
+                .simultaneousGesture(pipMagnificationGesture(framebuffer: framebuffer, viewSize: proxy.size))
+                .simultaneousGesture(pipPanGesture(framebuffer: framebuffer, viewSize: proxy.size))
+                .simultaneousGesture(pipDoubleTapGesture(framebuffer: framebuffer, viewSize: proxy.size))
+                .onAppear {
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
+                }
+                .onChange(of: proxy.size) { _, newSize in
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: newSize)
+                }
+                .onChange(of: zoomScale) { _, _ in
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
+                }
+                .onChange(of: panOffset) { _, _ in
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
+                }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .accessibilityIdentifier("naru.session.framebufferPreview")
+    }
+    #endif
 
     @ViewBuilder
     private func metalOrSampledPreview(
@@ -700,7 +738,7 @@ public struct SessionViewportView: View {
                 onTap: onFramebufferTap,
                 onRightClick: onFramebufferRightClick,
                 onScroll: onFramebufferScroll,
-                onPinch: { newScale in
+                onPinch: { newScale, viewSize in
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.
                     let clamped = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
@@ -708,15 +746,18 @@ public struct SessionViewportView: View {
                     if clamped <= 1.0001 {
                         panOffset = .zero
                     }
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
                 },
                 onPointerDown: onFramebufferPointerDown,
                 onPointerMove: onFramebufferPointerMove,
                 onPointerUp: onFramebufferPointerUp,
-                onPan: { newOffset in
+                onPan: { newOffset, viewSize in
                     panOffset = newOffset
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
                 },
                 onZoomToggle: { point, viewSize in
                     toggleZoom(at: point, in: viewSize)
+                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
                 }
             )
                 .scaleEffect(zoomScale)
@@ -768,6 +809,87 @@ public struct SessionViewportView: View {
         )
         zoomScale = targetScale
         panOffset = Self.clampedPan(proposedPan, zoomScale: targetScale, viewSize: viewSize)
+    }
+
+    #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    private func pipMagnificationGesture(
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let startScale = pipPinchStartZoomScale ?? zoomScale
+                pipPinchStartZoomScale = startScale
+                let clamped = min(max(startScale * value, Self.minZoomScale), Self.maxZoomScale)
+                zoomScale = clamped
+                if clamped <= 1.0001 {
+                    panOffset = .zero
+                } else {
+                    panOffset = Self.clampedPan(panOffset, zoomScale: clamped, viewSize: viewSize)
+                }
+                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+            }
+            .onEnded { _ in
+                pipPinchStartZoomScale = nil
+                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+            }
+    }
+
+    private func pipPanGesture(
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard zoomScale > 1.0001 else {
+                    return
+                }
+                let startOffset = pipPanStartOffset ?? panOffset
+                pipPanStartOffset = startOffset
+                let proposed = CGSize(
+                    width: startOffset.width + value.translation.width,
+                    height: startOffset.height + value.translation.height
+                )
+                panOffset = Self.clampedPan(proposed, zoomScale: zoomScale, viewSize: viewSize)
+                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+            }
+            .onEnded { _ in
+                pipPanStartOffset = nil
+                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+            }
+    }
+
+    private func pipDoubleTapGesture(
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) -> some Gesture {
+        SpatialTapGesture(count: 2)
+            .onEnded { value in
+                toggleZoom(at: value.location, in: viewSize)
+                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+            }
+    }
+    #endif
+
+    private func syncPiPViewport(framebuffer: RFBRawFramebuffer, viewSize: CGSize) {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        guard viewSize.width > 0,
+              viewSize.height > 0,
+              let pipLayerHost
+        else {
+            return
+        }
+
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            viewSize: viewSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: Self.maxZoomScale
+        )
+        let replayFrame = isPiPWatching ? framebuffer : nil
+        _ = try? pipLayerHost.updateViewport(PiPWatchViewport(transform: transform), replaying: replayFrame)
+        #endif
     }
 
     private static func clampedPan(_ pan: CGSize, zoomScale: CGFloat, viewSize: CGSize) -> CGSize {
