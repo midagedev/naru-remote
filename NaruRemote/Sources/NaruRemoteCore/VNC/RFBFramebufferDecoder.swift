@@ -1,4 +1,8 @@
+import CoreGraphics
 import Foundation
+#if canImport(ImageIO)
+import ImageIO
+#endif
 
 /// Multi-encoding framebuffer-update decoder (spec 004). Reads a whole
 /// `FramebufferUpdate` message incrementally from an ``RFBByteReader``
@@ -8,7 +12,7 @@ import Foundation
 /// decoder always produced.
 ///
 /// Decodes: Raw (0), CopyRect (1), Hextile (5), ZRLE (16), Tight
-/// fill / basic-copy (7), plus the LastRect (-224), DesktopSize
+/// fill / basic-copy / JPEG (7), plus the LastRect (-224), DesktopSize
 /// (-223), ExtendedDesktopSize (-308), and Cursor (-239) / XCursor
 /// (-240) pseudo-encodings.
 ///
@@ -744,7 +748,7 @@ public enum RFBFramebufferDecoder {
         framebuffer.setPixelTrackingChange(color, x: originX + raster % tileWidth, y: originY + raster / tileWidth)
     }
 
-    // MARK: - Tight (encoding 7, fill + basic filters)
+    // MARK: - Tight (encoding 7, fill + basic filters + JPEG)
 
     private enum TightCompressionType {
         static let fill: UInt8 = 0x08
@@ -762,6 +766,7 @@ public enum RFBFramebufferDecoder {
 
     private static let maxTightRectangleWidth = 2_048
     private static let maxTightBasicPayloadLength = 64 * 1024 * 1024
+    private static let maxTightJPEGPayloadLength = 16 * 1024 * 1024
 
     private static func decodeTight(
         reader: RFBByteReader,
@@ -787,6 +792,24 @@ public enum RFBFramebufferDecoder {
                 return 0
             }
             return framebuffer.fillRegionTrackingChange(x: x, y: y, width: width, height: height, color: color)
+
+        case TightCompressionType.jpeg:
+            guard width > 0, height > 0 else {
+                return 0
+            }
+            let payloadLength = try readTightCompactLength(reader)
+            guard payloadLength > 0, payloadLength <= maxTightJPEGPayloadLength else {
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            let payload = try reader.readBytes(payloadLength)
+            return try decodeTightJPEG(
+                payload,
+                into: &framebuffer,
+                x: x,
+                y: y,
+                width: width,
+                height: height
+            )
 
         case 0...0x07, TightCompressionType.noZlibBasic, TightCompressionType.noZlibExplicitFilter:
             let readsUncompressedPayload = compressionType == TightCompressionType.noZlibBasic
@@ -867,6 +890,72 @@ public enum RFBFramebufferDecoder {
         default:
             throw RFBRawFramebufferDecoderError.malformedTight
         }
+    }
+
+    private static func decodeTightJPEG(
+        _ payload: [UInt8],
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) throws -> Int {
+        #if canImport(ImageIO)
+        guard !payload.isEmpty else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+
+        let imageData = Data(payload) as CFData
+        guard let source = CGImageSourceCreateWithData(imageData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == width,
+              image.height == height
+        else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var rgba = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+            | CGBitmapInfo.byteOrder32Big.rawValue
+        let rendered = rgba.withUnsafeMutableBytes { buffer -> Bool in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: bitmapInfo
+                  )
+            else {
+                return false
+            }
+            context.interpolationQuality = .none
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.flush()
+            return true
+        }
+        guard rendered else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+
+        var changed = 0
+        for localY in 0..<height {
+            for localX in 0..<width {
+                let offset = (localY * bytesPerRow) + (localX * bytesPerPixel)
+                let color = RFBColor(red: rgba[offset], green: rgba[offset + 1], blue: rgba[offset + 2])
+                if framebuffer.setPixelTrackingChange(color, x: x + localX, y: y + localY) {
+                    changed += 1
+                }
+            }
+        }
+        return changed
+        #else
+        throw RFBRawFramebufferDecoderError.malformedTight
+        #endif
     }
 
     private static func decodeTightBasicCopy(
