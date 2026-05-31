@@ -108,6 +108,36 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(frame.capturedAt, capturedAt)
     }
 
+    func testPumpUsesIdleIntervalAfterEmptyIncrementalFrame() throws {
+        let framebuffer = Self.framebuffer(red: 255)
+        let source = FakeDamageTrackingFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: framebuffer),
+                RFBFramebufferUpdateResult(
+                    framebuffer: framebuffer,
+                    dirtyRectangles: [],
+                    changedPixelCount: 0
+                )
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let start = Date()
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 0,
+                idleFrameInterval: 0.02
+            )
+        ) { _ in
+            .continue
+        }
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertGreaterThanOrEqual(elapsed, 0.015)
+    }
+
     private static func framebuffer(red: UInt8) -> RFBRawFramebuffer {
         RFBRawFramebuffer(
             width: 1,

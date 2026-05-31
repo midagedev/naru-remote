@@ -62,6 +62,21 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[3, 0], blue)
     }
 
+    func testCopyRectReportsZeroChangedPixelsWhenDestinationAlreadyMatches() throws {
+        let previous = try RFBRawFramebufferDecoder.decode(
+            updateData: rawUpdate(x: 0, y: 0, width: 2, height: 1, colors: [red, green]),
+            serverInit: serverInit(width: 2, height: 1)
+        )
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: copyRectUpdate(dstX: 0, dstY: 0, width: 2, height: 1, srcX: 0, srcY: 0),
+            serverInit: serverInit(width: 2, height: 1),
+            previousFramebuffer: previous
+        )
+
+        XCTAssertEqual(result.changedPixelCount, 0)
+    }
+
     func testCopyRectRejectsOutOfBoundsSource() throws {
         let previous = RFBRawFramebuffer(width: 4, height: 1, fill: red)
         XCTAssertThrowsError(
@@ -137,6 +152,27 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[1, 0], green)
         XCTAssertEqual(result.framebuffer[0, 1], blue)
         XCTAssertEqual(result.framebuffer[1, 1], white)
+    }
+
+    func testHextileReportsZeroChangedPixelsWhenFrameIsIdentical() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 2, height: 2, encoding: RFBEncoding.hextile)
+        bytes += [0x01] // Raw tile
+        bytes += pixelBytes(red) + pixelBytes(green) + pixelBytes(blue) + pixelBytes(white)
+        let update = Data(bytes)
+        let init2x2 = serverInit(width: 2, height: 2)
+        let first = try RFBRawFramebufferDecoder.apply(
+            updateData: update,
+            serverInit: init2x2
+        )
+
+        let second = try RFBRawFramebufferDecoder.apply(
+            updateData: update,
+            serverInit: init2x2,
+            previousFramebuffer: first.framebuffer
+        )
+
+        XCTAssertEqual(second.changedPixelCount, 0)
     }
 
     func testHextileColouredSubrect() throws {

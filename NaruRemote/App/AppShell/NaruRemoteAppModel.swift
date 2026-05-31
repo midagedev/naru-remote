@@ -169,7 +169,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         settingsPersistence: AppSettingsPersisting? = nil,
         frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
             requestTimeout: 3,
-            frameInterval: 0.25
+            // Uncapped active cadence: drive incremental updates as fast
+            // as the round-trip + decode allow (was 0.25, a ~4 fps
+            // ceiling, the biggest felt-smoothness gap vs macOS Screen
+            // Sharing). Empty/idle polls back off to ~20 Hz so a static
+            // screen never busy-loops the request path.
+            frameInterval: 0,
+            idleFrameInterval: 0.05
         ),
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
@@ -1089,16 +1095,42 @@ public final class NaruRemoteAppModel: ObservableObject {
                         return
                     }
 
-                    applyStreamFrame(
-                        frame,
-                        serverInit: serverInit,
-                        profile: profile,
-                        sessionID: pendingSession.id,
-                        streamID: streamID
-                    )
+                    // An empty incremental update (zero changed pixels)
+                    // means the connection is alive but nothing on screen
+                    // changed; the server polled empty instead of holding
+                    // the request.  Skip the framebuffer publish + GPU
+                    // upload + PiP forward entirely (republishing an
+                    // unchanged frame would churn the main actor and force
+                    // a full-frame GPU re-upload), and only note liveness.
+                    // Content frames take the full apply path.
+                    let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
+                    if isEmptyUpdate {
+                        noteStreamLiveness(
+                            sessionID: pendingSession.id,
+                            profile: profile,
+                            streamID: streamID,
+                            capturedAt: frame.capturedAt
+                        )
+                    } else {
+                        applyStreamFrame(
+                            frame,
+                            serverInit: serverInit,
+                            profile: profile,
+                            sessionID: pendingSession.id,
+                            streamID: streamID
+                        )
+                    }
 
-                    if configuration.frameInterval > 0 {
-                        try await Task.sleep(for: .seconds(configuration.frameInterval))
+                    // Adaptive pacing: request the next content frame as
+                    // fast as the round-trip allows (frameInterval, default
+                    // 0 means fluid); back off only on empty/idle polls
+                    // (idleFrameInterval) so a static screen never
+                    // busy-loops the request path.
+                    let pacingDelay = isEmptyUpdate
+                        ? configuration.idleFrameInterval
+                        : configuration.frameInterval
+                    if pacingDelay > 0 {
+                        try await Task.sleep(for: .seconds(pacingDelay))
                     }
                 }
             } catch is CancellationError {
@@ -1190,6 +1222,35 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ]
             )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
+        }
+    }
+
+    /// Liveness-only bookkeeping for an empty incremental update.  The
+    /// connection delivered a (zero-change) frame, so any prior
+    /// reconnect succeeded and the attempt budget can reset, but there
+    /// is nothing new to draw, so the expensive `latestFramebuffer` /
+    /// PiP / GPU-upload path is intentionally left untouched and an idle
+    /// screen costs almost nothing.  Gated on the stream still being
+    /// current so a straggler frame from a torn-down stream is ignored.
+    private func noteStreamLiveness(
+        sessionID: RemoteSession.ID,
+        profile: ConnectionProfile,
+        streamID: UUID,
+        capturedAt: Date
+    ) {
+        guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
+            return
+        }
+        if reconnectAttempts != 0 {
+            reconnectAttempts = 0
+        }
+        // Defensive: post-reconnect the first delivered frame is always
+        // non-incremental (a fresh pump starts at sequence 1), so an
+        // empty update should never be the frame that clears a
+        // "reconnecting" banner; but if it ever is, honor liveness.
+        if var updatedSession = session, !updatedSession.hasReceivedFrame {
+            updatedSession.markFirstFrameReceived(at: capturedAt)
+            session = updatedSession
         }
     }
 
