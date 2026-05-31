@@ -39,6 +39,7 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertFalse(list.contains(RFBEncoding.zrle))
         XCTAssertFalse(list.contains(RFBEncoding.tight))
         XCTAssertFalse(list.contains(RFBEncoding.cursor))
+        XCTAssertFalse(list.contains(RFBEncoding.xCursor))
     }
 
     func testFullPreferenceOrdersZrleAndTightFirst() {
@@ -101,7 +102,9 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(poor.contains(RFBEncoding.tightQualityLevel(2)))
         XCTAssertTrue(poor.contains(RFBEncoding.tightCompressionLevel(8)))
         XCTAssertTrue(good.contains(RFBEncoding.cursor))
+        XCTAssertTrue(good.contains(RFBEncoding.xCursor))
         XCTAssertTrue(poor.contains(RFBEncoding.cursor))
+        XCTAssertTrue(poor.contains(RFBEncoding.xCursor))
     }
 
     func testAdaptivePreferenceDoesNotAdvertiseUnsupportedHintsOrCursor() {
@@ -114,6 +117,7 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertFalse(list.contains(RFBEncoding.zrle))
         XCTAssertFalse(list.contains(RFBEncoding.tight))
         XCTAssertFalse(list.contains(RFBEncoding.cursor))
+        XCTAssertFalse(list.contains(RFBEncoding.xCursor))
         XCTAssertFalse(list.contains(RFBEncoding.tightQualityLevel(2)))
         XCTAssertFalse(list.contains(RFBEncoding.tightCompressionLevel(8)))
         XCTAssertTrue(list.contains(RFBEncoding.hextile))

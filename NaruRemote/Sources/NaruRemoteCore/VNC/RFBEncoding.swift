@@ -247,7 +247,10 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         if desktopSize { list.append(RFBEncoding.desktopSize) }
         if extendedDesktopSize { list.append(RFBEncoding.extendedDesktopSize) }
         if lastRect { list.append(RFBEncoding.lastRect) }
-        if cursor { list.append(RFBEncoding.cursor) }
+        if cursor {
+            list.append(RFBEncoding.cursor)
+            list.append(RFBEncoding.xCursor)
+        }
         if fence { list.append(RFBEncoding.fence) }
         if continuousUpdates { list.append(RFBEncoding.continuousUpdates) }
 
