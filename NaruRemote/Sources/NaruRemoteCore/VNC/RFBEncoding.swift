@@ -63,6 +63,13 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public var tight: Bool
     public var hextile: Bool
     public var copyRect: Bool
+    /// Prefer Hextile ahead of ZRLE for benchmark experiments or future
+    /// adaptive profiles. Live macOS Screen Sharing testing showed that
+    /// merely keeping ZRLE in the list can make that server choose the
+    /// slower path, so the app's current local-low-latency default omits
+    /// ZRLE entirely and uses `increment2` only when bandwidth is the
+    /// explicit priority.
+    public var preferHextileOverZRLE: Bool
     public var desktopSize: Bool
     public var extendedDesktopSize: Bool
     public var lastRect: Bool
@@ -79,6 +86,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         tight: Bool = false,
         hextile: Bool = true,
         copyRect: Bool = true,
+        preferHextileOverZRLE: Bool = false,
         desktopSize: Bool = true,
         extendedDesktopSize: Bool = true,
         lastRect: Bool = true,
@@ -90,6 +98,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         self.tight = tight
         self.hextile = hextile
         self.copyRect = copyRect
+        self.preferHextileOverZRLE = preferHextileOverZRLE
         self.desktopSize = desktopSize
         self.extendedDesktopSize = extendedDesktopSize
         self.lastRect = lastRect
@@ -106,15 +115,28 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// ahead of Hextile in the preference order.
     public static let increment2 = RFBEncodingPreference(zrle: true)
 
+    /// Default for interactive private-network control: Hextile first
+    /// and no ZRLE advertisement. On the founder's macOS Screen Sharing
+    /// endpoint this is consistently faster than any ZRLE-advertising
+    /// profile for first-frame/control latency. `increment2` remains the
+    /// bandwidth-first ZRLE profile for future adaptive selection.
+    public static let localLowLatency = RFBEncodingPreference.increment1
+
     /// Builds the ordered encoding list for the `SetEncodings` message.
     public func encodingList() -> [Int32] {
         var list: [Int32] = []
 
         // Real encodings, most-preferred first. Raw is appended after
         // these as the guaranteed floor.
-        if zrle { list.append(RFBEncoding.zrle) }
-        if tight { list.append(RFBEncoding.tight) }
-        if hextile { list.append(RFBEncoding.hextile) }
+        if preferHextileOverZRLE {
+            if hextile { list.append(RFBEncoding.hextile) }
+            if zrle { list.append(RFBEncoding.zrle) }
+            if tight { list.append(RFBEncoding.tight) }
+        } else {
+            if zrle { list.append(RFBEncoding.zrle) }
+            if tight { list.append(RFBEncoding.tight) }
+            if hextile { list.append(RFBEncoding.hextile) }
+        }
         if copyRect { list.append(RFBEncoding.copyRect) }
         list.append(RFBEncoding.raw)
 

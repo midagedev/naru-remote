@@ -27,21 +27,7 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         let message = [UInt8](control[0])
 
         // message type 2, padding 0, u16 count, then count × s32.
-        XCTAssertEqual(message[0], 2)
-        XCTAssertEqual(message[1], 0)
-        let count = Int(message[2]) << 8 | Int(message[3])
-        XCTAssertGreaterThan(count, 0)
-        XCTAssertEqual(message.count, 4 + count * 4)
-
-        var encodings: [Int32] = []
-        for index in 0..<count {
-            let offset = 4 + index * 4
-            let value = UInt32(message[offset]) << 24
-                | UInt32(message[offset + 1]) << 16
-                | UInt32(message[offset + 2]) << 8
-                | UInt32(message[offset + 3])
-            encodings.append(Int32(bitPattern: value))
-        }
+        let encodings = try Self.decodeSetEncodings(message)
 
         let hextileIndex = encodings.firstIndex(of: RFBEncoding.hextile)
         let copyRectIndex = encodings.firstIndex(of: RFBEncoding.copyRect)
@@ -49,8 +35,30 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         XCTAssertNotNil(rawIndex, "Raw must always be advertised as the floor")
         XCTAssertNotNil(hextileIndex)
         XCTAssertNotNil(copyRectIndex)
+        XCTAssertFalse(encodings.contains(RFBEncoding.zrle))
+        XCTAssertEqual(hextileIndex, 0, "Default app negotiation should favor local-low-latency Hextile first")
         XCTAssertLessThan(hextileIndex!, rawIndex!)
         XCTAssertLessThan(copyRectIndex!, rawIndex!)
+    }
+
+    func testClientUsesInjectedEncodingPreferenceForNegotiation() throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(encodingPreference: .increment1)
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        let encodings = try Self.decodeSetEncodings([UInt8](recorder.waitForControlMessages(1)[0]))
+        XCTAssertFalse(encodings.contains(RFBEncoding.zrle))
+        XCTAssertEqual(encodings.first, RFBEncoding.hextile)
+        XCTAssertTrue(encodings.contains(RFBEncoding.raw))
     }
 
     // MARK: - CopyRect decode end-to-end (SC-001)
@@ -224,5 +232,23 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         return root
             .appendingPathComponent("TestFixtures/FakeRFBServer/Fixtures")
             .appendingPathComponent("\(name).hex")
+    }
+
+    private static func decodeSetEncodings(_ message: [UInt8]) throws -> [Int32] {
+        XCTAssertGreaterThanOrEqual(message.count, 4)
+        XCTAssertEqual(message[0], 2)
+        XCTAssertEqual(message[1], 0)
+        let count = Int(message[2]) << 8 | Int(message[3])
+        XCTAssertGreaterThan(count, 0)
+        XCTAssertEqual(message.count, 4 + count * 4)
+
+        return (0..<count).map { index in
+            let offset = 4 + index * 4
+            let value = UInt32(message[offset]) << 24
+                | UInt32(message[offset + 1]) << 16
+                | UInt32(message[offset + 2]) << 8
+                | UInt32(message[offset + 3])
+            return Int32(bitPattern: value)
+        }
     }
 }

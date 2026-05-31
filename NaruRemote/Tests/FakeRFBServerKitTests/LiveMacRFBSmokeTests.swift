@@ -214,6 +214,50 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         }
     }
 
+    /// Compares the two currently shippable preference profiles against
+    /// the real macOS server. ZRLE should win on bandwidth-constrained
+    /// links; Hextile can win on very local links when compression CPU
+    /// dominates first-frame latency. The output guides which profile
+    /// should become the app default or adaptive starting point.
+    func testEncodingPreferenceTimingAgainstRealMac() throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let zrle = try measureFirstFrameTiming(
+            label: "ZRLE-first",
+            preference: .increment2,
+            host: host,
+            password: password
+        )
+        let zrleLowCompression = try measureFirstFrameTiming(
+            label: "ZRLE-first-compress0",
+            preference: RFBEncodingPreference(zrle: true, compressionLevel: 0),
+            host: host,
+            password: password
+        )
+        let localLowLatency = try measureFirstFrameTiming(
+            label: "Hextile-first-with-ZRLE",
+            preference: RFBEncodingPreference(zrle: true, preferHextileOverZRLE: true),
+            host: host,
+            password: password
+        )
+        let hextile = try measureFirstFrameTiming(
+            label: "Hextile-only",
+            preference: .increment1,
+            host: host,
+            password: password
+        )
+
+        print(String(
+            format: "Encoding preference comparison: ZRLE-first avg=%.0f ms; ZRLE-compress0 avg=%.0f ms; Hextile+ZRLE avg=%.0f ms; Hextile-only avg=%.0f ms",
+            zrle.averageMs,
+            zrleLowCompression.averageMs,
+            localLowLatency.averageMs,
+            hextile.averageMs
+        ))
+    }
+
     /// Benchmarks what happens after the first full frame on a quiet
     /// macOS Screen Sharing desktop. A production-grade server normally
     /// holds an incremental request until pixels change; if it instead
@@ -264,5 +308,45 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 serverInit.height
             ))
         }
+    }
+
+    private func measureFirstFrameTiming(
+        label: String,
+        preference: RFBEncodingPreference,
+        host: String,
+        password: String,
+        attempts: Int = 3
+    ) throws -> (averageMs: Double, maxMs: Double) {
+        let timeout: TimeInterval = 5
+        var frameMs: [Double] = []
+        var failures: [String] = []
+
+        for attempt in 1...attempts {
+            let client = RFBNetworkClient(encodingPreference: preference)
+            do {
+                _ = try client.connectSession(
+                    host: host,
+                    port: port,
+                    credential: .vncPassword(password),
+                    timeout: timeout
+                )
+                let start = Date()
+                _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+                let elapsed = Date().timeIntervalSince(start) * 1000
+                frameMs.append(elapsed)
+                print(String(format: "  %@ attempt %d firstFrame=%.0f ms", label, attempt, elapsed))
+            } catch {
+                failures.append("\(label) attempt \(attempt): \(error)")
+            }
+            client.disconnect()
+        }
+
+        if !failures.isEmpty {
+            print("encoding preference timing failures:\n" + failures.joined(separator: "\n"))
+        }
+        XCTAssertFalse(frameMs.isEmpty, "\(label) produced no successful first-frame samples")
+
+        let average = frameMs.isEmpty ? 0 : frameMs.reduce(0, +) / Double(frameMs.count)
+        return (average, frameMs.max() ?? 0)
     }
 }

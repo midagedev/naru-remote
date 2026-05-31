@@ -17,6 +17,47 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(framebuffer[1, 1], RFBColor(red: 255, green: 255, blue: 255))
     }
 
+    func testFastPixelDecodeHandlesCommonLittleEndianRGB888Layout() {
+        let format = Self.rgb888Format(isBigEndian: false, redShift: 16, greenShift: 8, blueShift: 0)
+        let bytes: [UInt8] = [0x33, 0x22, 0x11, 0x00]
+
+        XCTAssertEqual(format.decodeColor(bytes, at: 0), RFBColor(red: 0x11, green: 0x22, blue: 0x33))
+        XCTAssertEqual(format.decodeCPixel(bytes, at: 0, size: 3), RFBColor(red: 0x11, green: 0x22, blue: 0x33))
+    }
+
+    func testFastPixelDecodeHandlesCommonBigEndianRGB888Layout() {
+        let format = Self.rgb888Format(isBigEndian: true, redShift: 16, greenShift: 8, blueShift: 0)
+        let bytes: [UInt8] = [0x00, 0x11, 0x22, 0x33]
+        let cpixelBytes: [UInt8] = [0x11, 0x22, 0x33]
+
+        XCTAssertEqual(format.decodeColor(bytes, at: 0), RFBColor(red: 0x11, green: 0x22, blue: 0x33))
+        XCTAssertEqual(format.decodeCPixel(cpixelBytes, at: 0, size: 3), RFBColor(red: 0x11, green: 0x22, blue: 0x33))
+    }
+
+    func testPixelDecodeFallsBackForNonByteAlignedChannels() {
+        let format = RFBPixelFormat(
+            bitsPerPixel: 32,
+            depth: 16,
+            isBigEndian: false,
+            isTrueColor: true,
+            redMax: 31,
+            greenMax: 63,
+            blueMax: 31,
+            redShift: 11,
+            greenShift: 5,
+            blueShift: 0
+        )
+        let value: UInt32 = (31 << 11) | (63 << 5) | 31
+        let bytes: [UInt8] = [
+            UInt8(value & 0x000000ff),
+            UInt8((value >> 8) & 0x000000ff),
+            UInt8((value >> 16) & 0x000000ff),
+            UInt8((value >> 24) & 0x000000ff)
+        ]
+
+        XCTAssertEqual(format.decodeColor(bytes, at: 0), RFBColor(red: 255, green: 255, blue: 255))
+    }
+
     func testAppliesIncrementalRawRectangleOntoPreviousFramebuffer() throws {
         let previousFramebuffer = RFBRawFramebuffer(
             width: 2,
@@ -192,19 +233,28 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         RFBServerInit(
             width: width,
             height: height,
-            pixelFormat: RFBPixelFormat(
-                bitsPerPixel: 32,
-                depth: 24,
-                isBigEndian: false,
-                isTrueColor: true,
-                redMax: 255,
-                greenMax: 255,
-                blueMax: 255,
-                redShift: 16,
-                greenShift: 8,
-                blueShift: 0
-            ),
+            pixelFormat: rgb888Format(isBigEndian: false, redShift: 16, greenShift: 8, blueShift: 0),
             name: "Test"
+        )
+    }
+
+    private static func rgb888Format(
+        isBigEndian: Bool,
+        redShift: UInt8,
+        greenShift: UInt8,
+        blueShift: UInt8
+    ) -> RFBPixelFormat {
+        RFBPixelFormat(
+            bitsPerPixel: 32,
+            depth: 24,
+            isBigEndian: isBigEndian,
+            isTrueColor: true,
+            redMax: 255,
+            greenMax: 255,
+            blueMax: 255,
+            redShift: redShift,
+            greenShift: greenShift,
+            blueShift: blueShift
         )
     }
 }

@@ -125,6 +125,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// profile change so a stale anchor from a previous session can
     /// never suppress the first real move of the next drag.
     private var lastEmittedDragCoord: (x: UInt16, y: UInt16)?
+    /// Serial tail for outbound pointer events. RFB pointer writes must
+    /// preserve gesture order even when Network.framework back-pressures
+    /// an individual write; otherwise two quick taps can interleave as
+    /// down/down/up/up instead of two complete click pairs.
+    private var pointerEventTail: Task<Void, Never>?
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -868,6 +873,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamCredential = nil
         resetConnectionQuality()
         resetPointerControl()
+        cancelPointerEventQueue()
 
         runConnectionChecks()
         var nextSession = RemoteSession(
@@ -892,6 +898,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stickyModifierState = .init()
             resetPointerControl()
             lastEmittedDragCoord = nil
+            cancelPointerEventQueue()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
@@ -1326,6 +1333,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         stickyModifierState = .init()
         resetPointerControl()
         lastEmittedDragCoord = nil
+        cancelPointerEventQueue()
         stopIncomingClipboardReceive()
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
@@ -1573,6 +1581,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameStreamTask = nil
         activeFramePump = nil
         activeFrameStreamID = nil
+        cancelPointerEventQueue()
+    }
+
+    private func cancelPointerEventQueue() {
+        pointerEventTail?.cancel()
+        pointerEventTail = nil
     }
 
     /// Begin a long-lived receive loop that pulls `ServerCutText`
@@ -1767,30 +1781,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         let streamID = activeFrameStreamID
         let sessionID = session.id
         let profileID = selectedProfileID
-        let commands = outcome.commands
-
-        Task { [weak self, pointerClient, commands] in
-            do {
-                for command in commands {
-                    try await pointerClient.sendPointerEvent(
-                        buttonMask: command.buttonMask,
-                        x: command.x,
-                        y: command.y
-                    )
-                }
-            } catch {
-                guard let self else { return }
-                await MainActor.run {
-                    guard self.activeFrameStreamID == streamID,
-                          self.session?.id == sessionID,
-                          self.selectedProfileID == profileID
-                    else {
-                        return
-                    }
-                    self.activePointerClient = nil
-                }
-            }
-        }
+        enqueuePointerCommands(
+            outcome.commands,
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     // MARK: - Direct Keystroke Streaming Mode
@@ -2116,6 +2113,55 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestInjectionAttempt = attempt
     }
 
+    private func enqueuePointerCommands(
+        _ commands: [RFBPointerCommand],
+        pointerClient: RFBPointerEventClient,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard !commands.isEmpty else {
+            return
+        }
+
+        let previous = pointerEventTail
+        let task = Task { [weak self, previous, pointerClient, commands, streamID, sessionID, profileID] in
+            await previous?.value
+            guard !Task.isCancelled else {
+                return
+            }
+
+            do {
+                for command in commands {
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    try await pointerClient.sendPointerEvent(
+                        buttonMask: command.buttonMask,
+                        x: command.x,
+                        y: command.y
+                    )
+                }
+            } catch {
+                guard let self else {
+                    return
+                }
+                await MainActor.run {
+                    guard self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID
+                    else {
+                        return
+                    }
+                    self.cancelPointerEventQueue()
+                    self.activePointerClient = nil
+                    self.lastEmittedDragCoord = nil
+                }
+            }
+        }
+        pointerEventTail = task
+    }
+
     /// Translate a tap in the framebuffer view's coordinate space into a
     /// remote-side button-1 click and dispatch it as a pair of
     /// `PointerEvent` messages (RFC 6143 §7.5.5): button-down (mask
@@ -2160,28 +2206,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
-        Task { [weak self, pointerClient, mapped] in
-            do {
-                try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
-                try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
-            } catch {
-                guard let self else { return }
-                // If the stream we dispatched against is no longer the
-                // active one, drop the failure silently — a profile
-                // switch or disconnect already cleared the pointer
-                // client.  Otherwise mirror the connection-lost state
-                // so subsequent taps don't keep retrying a dead client.
-                await MainActor.run {
-                    guard self.activeFrameStreamID == streamID,
-                          self.session?.id == sessionID,
-                          self.selectedProfileID == profileID
-                    else {
-                        return
-                    }
-                    self.activePointerClient = nil
-                }
-            }
-        }
+        enqueuePointerCommands(
+            RFBPointerCommand.click(mask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y),
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Translate a long-press in the framebuffer view's coordinate
@@ -2214,23 +2245,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
-        Task { [weak self, pointerClient, mapped] in
-            do {
-                try await pointerClient.sendPointerEvent(buttonMask: 0x04, x: mapped.x, y: mapped.y)
-                try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
-            } catch {
-                guard let self else { return }
-                await MainActor.run {
-                    guard self.activeFrameStreamID == streamID,
-                          self.session?.id == sessionID,
-                          self.selectedProfileID == profileID
-                    else {
-                        return
-                    }
-                    self.activePointerClient = nil
-                }
-            }
-        }
+        enqueuePointerCommands(
+            RFBPointerCommand.click(mask: RFBPointerCommand.rightButton, x: mapped.x, y: mapped.y),
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Default scroll-tick threshold (in points) used when callers
@@ -2298,27 +2319,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
-        Task { [weak self, pointerClient, mapped, ticks] in
-            do {
-                for tick in ticks {
-                    for _ in 0..<tick.count {
-                        try await pointerClient.sendPointerEvent(buttonMask: tick.mask, x: mapped.x, y: mapped.y)
-                        try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
-                    }
-                }
-            } catch {
-                guard let self else { return }
-                await MainActor.run {
-                    guard self.activeFrameStreamID == streamID,
-                          self.session?.id == sessionID,
-                          self.selectedProfileID == profileID
-                    else {
-                        return
-                    }
-                    self.activePointerClient = nil
-                }
+        var commands: [RFBPointerCommand] = []
+        for tick in ticks {
+            for _ in 0..<tick.count {
+                commands.append(contentsOf: RFBPointerCommand.click(mask: tick.mask, x: mapped.x, y: mapped.y))
             }
         }
+        enqueuePointerCommands(
+            commands,
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Translate the start of a single-finger drag (button-1 hold) in
@@ -2362,18 +2375,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         // actually crosses the 1-pixel threshold gets emitted.
         lastEmittedDragCoord = (mapped.x, mapped.y)
 
-        do {
-            try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
-        } catch {
-            guard self.activeFrameStreamID == streamID,
-                  self.session?.id == sessionID,
-                  self.selectedProfileID == profileID
-            else {
-                return
-            }
-            self.activePointerClient = nil
-            self.lastEmittedDragCoord = nil
-        }
+        enqueuePointerCommands(
+            [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y)],
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Continue a single-finger drag (button-1 hold) by emitting a
@@ -2412,18 +2420,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         lastEmittedDragCoord = (mapped.x, mapped.y)
 
-        do {
-            try await pointerClient.sendPointerEvent(buttonMask: 0x01, x: mapped.x, y: mapped.y)
-        } catch {
-            guard self.activeFrameStreamID == streamID,
-                  self.session?.id == sessionID,
-                  self.selectedProfileID == profileID
-            else {
-                return
-            }
-            self.activePointerClient = nil
-            self.lastEmittedDragCoord = nil
-        }
+        enqueuePointerCommands(
+            [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: mapped.x, y: mapped.y)],
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Conclude a single-finger drag by emitting a button-up
@@ -2452,19 +2455,14 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session?.id
         let profileID = selectedProfileID
 
-        do {
-            try await pointerClient.sendPointerEvent(buttonMask: 0x00, x: mapped.x, y: mapped.y)
-            self.lastEmittedDragCoord = nil
-        } catch {
-            guard self.activeFrameStreamID == streamID,
-                  self.session?.id == sessionID,
-                  self.selectedProfileID == profileID
-            else {
-                return
-            }
-            self.activePointerClient = nil
-            self.lastEmittedDragCoord = nil
-        }
+        lastEmittedDragCoord = nil
+        enqueuePointerCommands(
+            [RFBPointerCommand(buttonMask: RFBPointerCommand.released, x: mapped.x, y: mapped.y)],
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
     }
 
     /// Pure helper that converts a 2D pan delta into a sequence of
