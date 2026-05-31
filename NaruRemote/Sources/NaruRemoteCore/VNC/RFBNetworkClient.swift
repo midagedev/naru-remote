@@ -19,6 +19,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     private var clientLastFrame: RFBFrameMetadata?
     private var clientServerInit: RFBServerInit?
     private var clientFramebuffer: RFBRawFramebuffer?
+    /// Per-session persistent zlib inflate for ZRLE (spec 004 FR-005).
+    /// Created fresh on each connect, torn down with the connection — a
+    /// new session must start a fresh zlib window.
+    private var clientZlibStream: RFBZlibInflateStream?
     private var activeConnection: RFBNetworkConnection?
 
     public init() {}
@@ -86,10 +90,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             )
             _ = try RFBProtocolDecoder.parseFramebufferUpdateHeader(updateData)
 
+            let zlibStream = try RFBZlibInflateStream()
             lock.withRFBClientLock {
                 activeConnection = connection
                 clientServerInit = serverInit
                 clientFramebuffer = nil
+                clientZlibStream = zlibStream
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
             }
@@ -107,6 +113,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientZlibStream = nil
             clientLastFrame = nil
             clientState = .disconnected
             return connection
@@ -149,10 +156,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 timeout: timeout
             )
 
+            let zlibStream = try RFBZlibInflateStream()
             lock.withRFBClientLock {
                 activeConnection = connection
                 clientServerInit = serverInit
                 clientFramebuffer = nil
+                clientZlibStream = zlibStream
                 clientLastFrame = nil
                 clientState = .authenticated
             }
@@ -179,7 +188,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         timeout: TimeInterval = 2
     ) throws -> RFBFramebufferUpdateResult {
         let context = lock.withRFBClientLock {
-            (activeConnection, clientServerInit, clientFramebuffer)
+            (activeConnection, clientServerInit, clientFramebuffer, clientZlibStream)
         }
 
         guard let connection = context.0, let serverInit = context.1 else {
@@ -204,7 +213,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         let updateResult = try RFBFramebufferDecoder.decodeUpdate(
             reader: reader,
             serverInit: serverInit,
-            previousFramebuffer: context.2
+            previousFramebuffer: context.2,
+            zlibStream: context.3
         )
 
         // A DesktopSize / ExtendedDesktopSize pseudo-rectangle reallocated
@@ -350,9 +360,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             let serverInit = try RFBProtocolDecoder.parseServerInit(transcript[safe: 18..<46])
             _ = try RFBProtocolDecoder.parseFramebufferUpdateHeader(transcript[safe: 46..<62])
 
+            let zlibStream = try RFBZlibInflateStream()
             lock.withRFBClientLock {
                 clientServerInit = serverInit
                 clientFramebuffer = nil
+                clientZlibStream = zlibStream
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
             }
@@ -370,6 +382,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientZlibStream = nil
             clientLastFrame = nil
             clientState = .connecting
             return connection
@@ -389,6 +402,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection = nil
             clientServerInit = nil
             clientFramebuffer = nil
+            clientZlibStream = nil
             clientLastFrame = nil
             clientState = .failed
             return connection
@@ -469,7 +483,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 
     private static func setEncodingsMessage() -> Data {
-        RFBClientMessageEncoder.setEncodings(RFBEncodingPreference.increment1.encodingList())
+        RFBClientMessageEncoder.setEncodings(RFBEncodingPreference.increment2.encodingList())
     }
 
     private static func selectSecurityType(

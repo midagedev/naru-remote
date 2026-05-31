@@ -98,8 +98,13 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         self.compressionLevel = compressionLevel
     }
 
-    /// What Naru decodes end-to-end as of spec 004 Increment 1.
+    /// What Naru decodes end-to-end as of spec 004 Increment 1
+    /// (CopyRect + Hextile + Raw + streaming pseudo-encodings).
     public static let increment1 = RFBEncodingPreference()
+
+    /// Increment 2 adds **ZRLE** — the cellular bandwidth centerpiece —
+    /// ahead of Hextile in the preference order.
+    public static let increment2 = RFBEncodingPreference(zrle: true)
 
     /// Builds the ordered encoding list for the `SetEncodings` message.
     public func encodingList() -> [Int32] {

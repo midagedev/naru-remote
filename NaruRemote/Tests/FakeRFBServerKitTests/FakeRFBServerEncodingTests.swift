@@ -103,6 +103,42 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         XCTAssertEqual(frame[1, 1], RFBColor(red: 255, green: 255, blue: 255))
     }
 
+    // MARK: - ZRLE decode end-to-end (Increment 2)
+
+    func testClientDecodesZRLEUpdateFromServer() throws {
+        // The production client decodes a real zlib-compressed ZRLE
+        // rectangle off the socket using its per-session inflate stream.
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([
+                try Self.binFixture("zrle-integration")
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let frame = try client.requestRawFramebufferUpdate()
+        for x in 0..<2 {
+            for y in 0..<2 {
+                XCTAssertEqual(frame[x, y], RFBColor(red: 255, green: 0, blue: 0))
+            }
+        }
+    }
+
+    private static func binFixture(_ name: String) throws -> Data {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 {
+            root.deleteLastPathComponent()
+        }
+        return try Data(contentsOf: root
+            .appendingPathComponent("TestFixtures/FakeRFBServer/Fixtures")
+            .appendingPathComponent("\(name).bin"))
+    }
+
     // MARK: - Fixtures
 
     private static func rawFourByTwoFirstFrame() -> Data {

@@ -31,7 +31,8 @@ public enum RFBFramebufferDecoder {
         reader: RFBByteReader,
         serverInit: RFBServerInit,
         previousFramebuffer: RFBRawFramebuffer?,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        zlibStream: RFBZlibInflateStream? = nil
     ) throws -> RFBFramebufferUpdateResult {
         let pixelFormat = serverInit.pixelFormat
         guard pixelFormat.isSupported32BitTrueColor else {
@@ -62,6 +63,11 @@ public enum RFBFramebufferDecoder {
         var changedPixelCount = 0
         var didResizeDesktop = false
         var processed = 0
+        // A ZRLE rectangle uses the session's single persistent zlib
+        // stream. If the caller did not supply one (the offline `Data`
+        // shim / single-update tests), lazily create one shared across
+        // every ZRLE rectangle in THIS update.
+        var activeZlibStream = zlibStream
 
         rectangleLoop: while true {
             if !hasUnknownCount, processed >= declaredRectangleCount {
@@ -140,6 +146,26 @@ public enum RFBFramebufferDecoder {
                     x: x, y: y, width: width, height: height,
                     currentWidth: currentWidth, currentHeight: currentHeight,
                     pixelFormat: pixelFormat, bytesPerPixel: bytesPerPixel
+                )
+                if width > 0, height > 0 {
+                    dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
+                    changedPixelCount += width * height
+                }
+
+            case RFBEncoding.zrle:
+                let stream: RFBZlibInflateStream
+                if let activeZlibStream {
+                    stream = activeZlibStream
+                } else {
+                    stream = try RFBZlibInflateStream()
+                    activeZlibStream = stream
+                }
+                try decodeZRLE(
+                    reader: reader,
+                    into: &framebuffer,
+                    x: x, y: y, width: width, height: height,
+                    currentWidth: currentWidth, currentHeight: currentHeight,
+                    pixelFormat: pixelFormat, zlib: stream
                 )
                 if width > 0, height > 0 {
                     dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
@@ -374,5 +400,176 @@ public enum RFBFramebufferDecoder {
         else {
             throw RFBRawFramebufferDecoderError.rectangleOutOfBounds
         }
+    }
+
+    // MARK: - ZRLE (encoding 16, RFC 6143 §7.7.6)
+
+    /// Hostile-length guard for the per-rectangle compressed payload.
+    private static let maxZRLECompressedLength = 64 * 1024 * 1024
+
+    private static func decodeZRLE(
+        reader: RFBByteReader,
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int, y: Int, width: Int, height: Int,
+        currentWidth: Int, currentHeight: Int,
+        pixelFormat: RFBPixelFormat, zlib: RFBZlibInflateStream
+    ) throws {
+        try validateRectangle(x: x, y: y, width: width, height: height, currentWidth: currentWidth, currentHeight: currentHeight)
+
+        // The compressed length is read (and the bytes consumed off the
+        // session zlib stream) even for a zero-area rectangle so the
+        // stream stays aligned.
+        let length = Int(try reader.readUInt32())
+        guard length >= 0, length <= maxZRLECompressedLength else {
+            throw RFBRawFramebufferDecoderError.malformedZRLE
+        }
+        let compressed = try reader.readBytes(length)
+        guard width > 0, height > 0 else {
+            _ = try zlib.inflate(compressed)
+            return
+        }
+
+        let tiles = RFBDataReader(try zlib.inflate(compressed))
+        let cpixelSize = pixelFormat.cpixelByteCount
+
+        var tileY = 0
+        while tileY < height {
+            let tileHeight = min(64, height - tileY)
+            var tileX = 0
+            while tileX < width {
+                let tileWidth = min(64, width - tileX)
+                let originX = x + tileX
+                let originY = y + tileY
+                let pixelCount = tileWidth * tileHeight
+
+                let subencoding = try tiles.readUInt8()
+                switch subencoding {
+                case 0:
+                    // Raw CPIXELs, raster order.
+                    let bytes = try tiles.readBytes(pixelCount * cpixelSize)
+                    for raster in 0..<pixelCount {
+                        let color = pixelFormat.decodeCPixel(bytes, at: raster * cpixelSize, size: cpixelSize)
+                        zrleWrite(&framebuffer, raster: raster, tileWidth: tileWidth, originX: originX, originY: originY, color: color)
+                    }
+
+                case 1:
+                    // Solid tile — one CPIXEL fills it.
+                    let bytes = try tiles.readBytes(cpixelSize)
+                    let color = pixelFormat.decodeCPixel(bytes, at: 0, size: cpixelSize)
+                    framebuffer.fillRegion(x: originX, y: originY, width: tileWidth, height: tileHeight, color: color)
+
+                case 2...16:
+                    // Packed palette: palette of `subencoding` CPIXELs, then
+                    // packed indices (1/2/4 bits), rows byte-padded.
+                    let paletteSize = Int(subencoding)
+                    let palette = try readPalette(tiles, count: paletteSize, pixelFormat: pixelFormat, cpixelSize: cpixelSize)
+                    let bitsPerIndex = paletteSize <= 2 ? 1 : (paletteSize <= 4 ? 2 : 4)
+                    let bytesPerRow = (tileWidth * bitsPerIndex + 7) / 8
+                    let mask = UInt8((1 << bitsPerIndex) - 1)
+                    for row in 0..<tileHeight {
+                        let rowBytes = try tiles.readBytes(bytesPerRow)
+                        for col in 0..<tileWidth {
+                            let bitPos = col * bitsPerIndex
+                            let shift = 8 - bitsPerIndex - (bitPos % 8)
+                            let index = Int((rowBytes[bitPos / 8] >> UInt8(shift)) & mask)
+                            guard index < palette.count else {
+                                throw RFBRawFramebufferDecoderError.malformedZRLE
+                            }
+                            zrleWrite(&framebuffer, raster: row * tileWidth + col, tileWidth: tileWidth, originX: originX, originY: originY, color: palette[index])
+                        }
+                    }
+
+                case 128:
+                    // Plain RLE: runs of <CPIXEL, length>.
+                    var painted = 0
+                    while painted < pixelCount {
+                        let bytes = try tiles.readBytes(cpixelSize)
+                        let color = pixelFormat.decodeCPixel(bytes, at: 0, size: cpixelSize)
+                        let runLength = try readRunLength(tiles)
+                        guard painted + runLength <= pixelCount else {
+                            throw RFBRawFramebufferDecoderError.malformedZRLE
+                        }
+                        for _ in 0..<runLength {
+                            zrleWrite(&framebuffer, raster: painted, tileWidth: tileWidth, originX: originX, originY: originY, color: color)
+                            painted += 1
+                        }
+                    }
+
+                case 130...255:
+                    // Palette RLE: palette of `subencoding-128` CPIXELs, then
+                    // runs of <index[, length]>; index high bit signals a run.
+                    let paletteSize = Int(subencoding) - 128
+                    let palette = try readPalette(tiles, count: paletteSize, pixelFormat: pixelFormat, cpixelSize: cpixelSize)
+                    var painted = 0
+                    while painted < pixelCount {
+                        let indexByte = try tiles.readUInt8()
+                        let paletteIndex: Int
+                        let runLength: Int
+                        if indexByte & 0x80 != 0 {
+                            paletteIndex = Int(indexByte & 0x7F)
+                            runLength = try readRunLength(tiles)
+                        } else {
+                            paletteIndex = Int(indexByte)
+                            runLength = 1
+                        }
+                        guard paletteIndex < palette.count, painted + runLength <= pixelCount else {
+                            throw RFBRawFramebufferDecoderError.malformedZRLE
+                        }
+                        let color = palette[paletteIndex]
+                        for _ in 0..<runLength {
+                            zrleWrite(&framebuffer, raster: painted, tileWidth: tileWidth, originX: originX, originY: originY, color: color)
+                            painted += 1
+                        }
+                    }
+
+                default:
+                    // 17...127 and 129 are unused / invalid.
+                    throw RFBRawFramebufferDecoderError.malformedZRLE
+                }
+
+                tileX += 64
+            }
+            tileY += 64
+        }
+    }
+
+    private static func readPalette(
+        _ reader: RFBByteReader,
+        count: Int,
+        pixelFormat: RFBPixelFormat,
+        cpixelSize: Int
+    ) throws -> [RFBColor] {
+        let bytes = try reader.readBytes(count * cpixelSize)
+        var palette = [RFBColor]()
+        palette.reserveCapacity(count)
+        for index in 0..<count {
+            palette.append(pixelFormat.decodeCPixel(bytes, at: index * cpixelSize, size: cpixelSize))
+        }
+        return palette
+    }
+
+    /// ZRLE run length: 1 plus the sum of bytes, every 255 byte
+    /// continuing the run (RFC 6143 §7.7.6).
+    private static func readRunLength(_ reader: RFBByteReader) throws -> Int {
+        var length = 1
+        while true {
+            let byte = try reader.readUInt8()
+            length += Int(byte)
+            if byte != 255 {
+                break
+            }
+        }
+        return length
+    }
+
+    private static func zrleWrite(
+        _ framebuffer: inout RFBRawFramebuffer,
+        raster: Int,
+        tileWidth: Int,
+        originX: Int,
+        originY: Int,
+        color: RFBColor
+    ) {
+        framebuffer.setPixelTrackingChange(color, x: originX + raster % tileWidth, y: originY + raster / tileWidth)
     }
 }

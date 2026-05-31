@@ -209,6 +209,10 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
     /// A pseudo-encoding or rectangle declared dimensions Naru refuses
     /// to allocate (hostile/absurd size — spec 004 SP-006).
     case invalidDimensions(width: Int, height: Int)
+    /// A ZRLE tile declared an invalid subencoding, palette size, or run
+    /// that overran its tile (spec 004 FR-005), or a compressed length
+    /// Naru refuses to buffer.
+    case malformedZRLE
 
     public var errorDescription: String? {
         switch self {
@@ -228,6 +232,8 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
             return "Hextile tile structure is malformed."
         case let .invalidDimensions(width, height):
             return "Refusing framebuffer dimensions \(width)x\(height)."
+        case .malformedZRLE:
+            return "ZRLE tile data is malformed."
         }
     }
 }
@@ -261,12 +267,58 @@ extension RFBPixelFormat {
                 | UInt32(bytes[offset + 2]) << 16
                 | UInt32(bytes[offset + 3]) << 24
         }
+        return colorFromValue(value)
+    }
 
-        return RFBColor(
+    /// Maps a raw 32-bit pixel value to an `RFBColor` via the format's
+    /// per-channel shift + max. Shared by full-PIXEL and CPIXEL decode.
+    func colorFromValue(_ value: UInt32) -> RFBColor {
+        RFBColor(
             red: Self.scale((value >> UInt32(redShift)) & UInt32(redMax), max: redMax),
             green: Self.scale((value >> UInt32(greenShift)) & UInt32(greenMax), max: greenMax),
             blue: Self.scale((value >> UInt32(blueShift)) & UInt32(blueMax), max: blueMax)
         )
+    }
+
+    /// Compressed-pixel byte count for ZRLE/Tile encodings (RFC 6143
+    /// §7.7.6 CPIXEL): 3 bytes when the format is 32-bpp true-colour
+    /// with depth ≤ 24 and every significant R/G/B bit fits in the low
+    /// 3 bytes (the universal RGB888-in-32-bit case, incl. macOS Screen
+    /// Sharing); otherwise the full pixel size.
+    var cpixelByteCount: Int {
+        if bitsPerPixel == 32, depth <= 24, significantBitsFitInLowThreeBytes {
+            return 3
+        }
+        return bytesPerPixelValue
+    }
+
+    private var significantBitsFitInLowThreeBytes: Bool {
+        func highestBit(_ max: UInt16, _ shift: UInt8) -> Int {
+            guard max > 0 else { return 0 }
+            return Int(shift) + (16 - max.leadingZeroBitCount)
+        }
+        let highest = Swift.max(
+            highestBit(redMax, redShift),
+            highestBit(greenMax, greenShift),
+            highestBit(blueMax, blueShift)
+        )
+        return highest <= 24
+    }
+
+    /// Decodes one CPIXEL of `size` bytes (3 or 4) at `offset`. The
+    /// 3-byte form carries the significant low 3 bytes in the format's
+    /// byte order; the unused 4th (high) byte is implicitly zero.
+    func decodeCPixel(_ bytes: [UInt8], at offset: Int, size: Int) -> RFBColor {
+        guard size == 3 else {
+            return decodeColor(bytes, at: offset)
+        }
+        let c0 = UInt32(bytes[offset])
+        let c1 = UInt32(bytes[offset + 1])
+        let c2 = UInt32(bytes[offset + 2])
+        let value = isBigEndian
+            ? (c0 << 16 | c1 << 8 | c2)
+            : (c0 | c1 << 8 | c2 << 16)
+        return colorFromValue(value)
     }
 
     private static func scale(_ component: UInt32, max: UInt16) -> UInt8 {
