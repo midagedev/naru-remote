@@ -285,6 +285,33 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertTrue(recorder.pointerEvents.isEmpty)
     }
 
+    func testProductionRFBNetworkClientSurfacesEndOfContinuousUpdatesAsIdleFrame() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Self.rawTwoByTwoUpdateData(),
+                Data([150])
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(
+            encodingPreference: RFBEncodingPreference(continuousUpdates: true)
+        )
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let first = try client.receiveFramebufferUpdate()
+        let ended = try client.receiveFramebufferUpdate()
+
+        XCTAssertEqual(ended.framebuffer, first.framebuffer)
+        XCTAssertTrue(ended.dirtyRectangles.isEmpty)
+        XCTAssertEqual(ended.changedPixelCount, 0)
+        XCTAssertTrue(ended.endedContinuousUpdates)
+        XCTAssertEqual(client.state, .receivingFrames)
+    }
+
     func testProductionRFBNetworkClientSkipsEndOfContinuousUpdatesBeforeFramebufferUpdate() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(

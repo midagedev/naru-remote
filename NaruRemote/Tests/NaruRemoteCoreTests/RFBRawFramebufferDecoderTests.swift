@@ -143,6 +143,42 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         )
     }
 
+    func testFramebufferUpdateResultDecodesLegacyPayloadWithoutContinuousEndFlag() throws {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            capturedAt: Date(timeIntervalSince1970: 10)
+        )
+        let encoded = try JSONEncoder().encode(original)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "endedContinuousUpdates")
+        let legacyPayload = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(RFBFramebufferUpdateResult.self, from: legacyPayload)
+
+        XCTAssertFalse(decoded.endedContinuousUpdates)
+        XCTAssertEqual(decoded.framebuffer, original.framebuffer)
+        XCTAssertEqual(decoded.dirtyRectangles, original.dirtyRectangles)
+        XCTAssertEqual(decoded.changedPixelCount, original.changedPixelCount)
+    }
+
+    func testFramebufferUpdateResultRoundTripsContinuousEndFlag() throws {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            endedContinuousUpdates: true
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RFBFramebufferUpdateResult.self,
+            from: try JSONEncoder().encode(original)
+        )
+
+        XCTAssertTrue(decoded.endedContinuousUpdates)
+    }
+
     func testRejectsUnsupportedFramebufferEncoding() throws {
         // Encoding 2 (RRE) is not implemented; encodings 5 (Hextile) and
         // 1 (CopyRect) are now supported (spec 004), so this uses an

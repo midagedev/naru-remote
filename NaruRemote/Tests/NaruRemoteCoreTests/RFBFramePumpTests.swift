@@ -257,6 +257,37 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
     }
 
+    func testPumpFallsBackToRequestResponseAfterContinuousUpdatesEnd() throws {
+        let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
+        let ended = RFBFramebufferUpdateResult(
+            framebuffer: Self.framebuffer(red: 255),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            endedContinuousUpdates: true
+        )
+        let fallback = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 64))
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [initial, fallback],
+            receivedResults: [ended]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let first = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+        let second = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+        let third = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+
+        XCTAssertEqual(first?.isIncremental, false)
+        XCTAssertEqual(second?.isIncremental, true)
+        XCTAssertEqual(second?.changedPixelCount, 0)
+        XCTAssertEqual(third?.isIncremental, true)
+        XCTAssertEqual(third?.framebuffer[0, 0], RFBColor(red: 64, green: 0, blue: 0))
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertEqual(source.receivedFrameCount, 1)
+        XCTAssertEqual(source.enableContinuousUpdatesCallCount, 1)
+        XCTAssertEqual(source.disableContinuousUpdatesCallCount, 0)
+        XCTAssertEqual(source.continuousUpdatesEnabledFlags, [true])
+    }
+
     private static func framebuffer(red: UInt8) -> RFBRawFramebuffer {
         RFBRawFramebuffer(
             width: 1,
