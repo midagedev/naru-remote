@@ -7,10 +7,10 @@ import Foundation
 /// in the same ``RFBFramebufferUpdateResult`` contract the Raw-only
 /// decoder always produced.
 ///
-/// Decodes: Raw (0), CopyRect (1), Hextile (5), ZRLE (16), plus the
-/// LastRect (-224), DesktopSize (-223), ExtendedDesktopSize (-308), and
-/// Cursor (-239) / XCursor (-240) pseudo-encodings. Tight slots into the same `switch`
-/// in a later increment.
+/// Decodes: Raw (0), CopyRect (1), Hextile (5), ZRLE (16), Tight
+/// fill / basic-copy (7), plus the LastRect (-224), DesktopSize
+/// (-223), ExtendedDesktopSize (-308), and Cursor (-239) / XCursor
+/// (-240) pseudo-encodings.
 ///
 /// Every read is bounds- and length-checked against untrusted server
 /// bytes (spec 004 SP-006): a malformed or hostile rectangle surfaces a
@@ -189,6 +189,19 @@ public enum RFBFramebufferDecoder {
                     x: x, y: y, width: width, height: height,
                     currentWidth: currentWidth, currentHeight: currentHeight,
                     pixelFormat: pixelFormat, zlib: stream
+                )
+                if width > 0, height > 0 {
+                    dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
+                    changedPixelCount += changed
+                }
+
+            case RFBEncoding.tight:
+                let changed = try decodeTight(
+                    reader: reader,
+                    into: &framebuffer,
+                    x: x, y: y, width: width, height: height,
+                    currentWidth: currentWidth, currentHeight: currentHeight,
+                    pixelFormat: pixelFormat
                 )
                 if width > 0, height > 0 {
                     dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
@@ -719,5 +732,161 @@ public enum RFBFramebufferDecoder {
         color: RFBColor
     ) -> Bool {
         framebuffer.setPixelTrackingChange(color, x: originX + raster % tileWidth, y: originY + raster / tileWidth)
+    }
+
+    // MARK: - Tight (encoding 7, fill + basic copy)
+
+    private enum TightCompressionType {
+        static let fill: UInt8 = 0x08
+        static let jpeg: UInt8 = 0x09
+        static let noZlibBasic: UInt8 = 0x0A
+        static let noZlibExplicitFilter: UInt8 = 0x0E
+    }
+
+    private enum TightFilter {
+        static let copy: UInt8 = 0x00
+    }
+
+    private static let maxTightRectangleWidth = 2_048
+
+    private static func decodeTight(
+        reader: RFBByteReader,
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int, y: Int, width: Int, height: Int,
+        currentWidth: Int, currentHeight: Int,
+        pixelFormat: RFBPixelFormat
+    ) throws -> Int {
+        try validateRectangle(x: x, y: y, width: width, height: height, currentWidth: currentWidth, currentHeight: currentHeight)
+        guard width <= maxTightRectangleWidth else {
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+
+        let control = try reader.readUInt8()
+        let compressionType = control >> 4
+
+        switch compressionType {
+        case TightCompressionType.fill:
+            let color = try readTightPixel(reader: reader, pixelFormat: pixelFormat)
+            guard width > 0, height > 0 else {
+                return 0
+            }
+            return framebuffer.fillRegionTrackingChange(x: x, y: y, width: width, height: height, color: color)
+
+        case TightCompressionType.noZlibBasic:
+            guard width > 0, height > 0 else {
+                return 0
+            }
+            return try decodeTightBasicCopy(
+                reader: reader,
+                into: &framebuffer,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelFormat: pixelFormat
+            )
+
+        case TightCompressionType.noZlibExplicitFilter:
+            let filter = try reader.readUInt8()
+            guard width > 0, height > 0 else {
+                return 0
+            }
+            guard filter == TightFilter.copy else {
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            return try decodeTightBasicCopy(
+                reader: reader,
+                into: &framebuffer,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelFormat: pixelFormat
+            )
+
+        case 0...7:
+            let hasExplicitFilter = control & 0x40 != 0
+            let filter = hasExplicitFilter ? try reader.readUInt8() : TightFilter.copy
+            guard filter == TightFilter.copy else {
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            guard width > 0, height > 0 else {
+                return 0
+            }
+            let uncompressedSize = width * height * tightPixelByteCount(pixelFormat)
+            guard uncompressedSize < 12 else {
+                // Zlib-compressed Tight streams and non-copy filters are
+                // the next decoder slice. Do not advertise Tight by
+                // default until they are implemented.
+                throw RFBRawFramebufferDecoderError.malformedTight
+            }
+            return try decodeTightBasicCopy(
+                reader: reader,
+                into: &framebuffer,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelFormat: pixelFormat
+            )
+
+        default:
+            throw RFBRawFramebufferDecoderError.malformedTight
+        }
+    }
+
+    private static func decodeTightBasicCopy(
+        reader: RFBByteReader,
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        pixelFormat: RFBPixelFormat
+    ) throws -> Int {
+        let pixelByteCount = tightPixelByteCount(pixelFormat)
+        let pixels = try reader.readBytes(width * height * pixelByteCount)
+        var changed = 0
+        for localY in 0..<height {
+            for localX in 0..<width {
+                let offset = ((localY * width) + localX) * pixelByteCount
+                let color = decodeTightPixel(pixels, at: offset, pixelFormat: pixelFormat, pixelByteCount: pixelByteCount)
+                if framebuffer.setPixelTrackingChange(color, x: x + localX, y: y + localY) {
+                    changed += 1
+                }
+            }
+        }
+        return changed
+    }
+
+    private static func readTightPixel(
+        reader: RFBByteReader,
+        pixelFormat: RFBPixelFormat
+    ) throws -> RFBColor {
+        let pixelByteCount = tightPixelByteCount(pixelFormat)
+        let bytes = try reader.readBytes(pixelByteCount)
+        return decodeTightPixel(bytes, at: 0, pixelFormat: pixelFormat, pixelByteCount: pixelByteCount)
+    }
+
+    private static func tightPixelByteCount(_ pixelFormat: RFBPixelFormat) -> Int {
+        if pixelFormat.depth == 24,
+           pixelFormat.redMax == 255,
+           pixelFormat.greenMax == 255,
+           pixelFormat.blueMax == 255 {
+            return 3
+        }
+        return pixelFormat.bytesPerPixelValue
+    }
+
+    private static func decodeTightPixel(
+        _ bytes: [UInt8],
+        at offset: Int,
+        pixelFormat: RFBPixelFormat,
+        pixelByteCount: Int
+    ) -> RFBColor {
+        if pixelByteCount == 3 {
+            return RFBColor(red: bytes[offset], green: bytes[offset + 1], blue: bytes[offset + 2])
+        }
+        return pixelFormat.decodeColor(bytes, at: offset)
     }
 }

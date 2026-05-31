@@ -302,6 +302,10 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
     /// Cursor pseudo-encoding declared an absurd shape or malformed
     /// payload (spec 004 FR-009 / SP-006).
     case malformedCursor
+    /// Tight rectangle declared an unsupported or malformed
+    /// subencoding/filter in the current decoder slice (spec 004
+    /// FR-006 / SP-006).
+    case malformedTight
 
     public var errorDescription: String? {
         switch self {
@@ -325,6 +329,8 @@ public enum RFBRawFramebufferDecoderError: Error, Equatable, LocalizedError {
             return "ZRLE tile data is malformed."
         case .malformedCursor:
             return "Cursor pseudo-encoding payload is malformed."
+        case .malformedTight:
+            return "Tight rectangle payload is malformed or unsupported."
         }
     }
 }
