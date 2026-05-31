@@ -202,6 +202,16 @@ public struct RFBServerCursor: Codable, Equatable, Sendable {
 }
 
 public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case framebuffer
+        case dirtyRectangles
+        case changedPixelCount
+        case capturedAt
+        case didResizeDesktop
+        case serverCursor
+        case endedContinuousUpdates
+    }
+
     public let framebuffer: RFBRawFramebuffer
     public let dirtyRectangles: [RFBFrameDamageRect]
     public let changedPixelCount: Int
@@ -215,6 +225,10 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// It is additive to the framebuffer: cursor pixels are surfaced to
     /// the presentation layer and never written into `framebuffer`.
     public let serverCursor: RFBServerCursor?
+    /// True when the server sent TigerVNC's EndOfContinuousUpdates
+    /// control byte. The framebuffer is unchanged; callers can treat
+    /// the update as liveness and fall back to request/response pacing.
+    public let endedContinuousUpdates: Bool
 
     public init(
         framebuffer: RFBRawFramebuffer,
@@ -222,7 +236,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         changedPixelCount: Int,
         capturedAt: Date = Date(),
         didResizeDesktop: Bool = false,
-        serverCursor: RFBServerCursor? = nil
+        serverCursor: RFBServerCursor? = nil,
+        endedContinuousUpdates: Bool = false
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -230,6 +245,31 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         self.capturedAt = capturedAt
         self.didResizeDesktop = didResizeDesktop
         self.serverCursor = serverCursor
+        self.endedContinuousUpdates = endedContinuousUpdates
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            framebuffer: try container.decode(RFBRawFramebuffer.self, forKey: .framebuffer),
+            dirtyRectangles: try container.decode([RFBFrameDamageRect].self, forKey: .dirtyRectangles),
+            changedPixelCount: try container.decode(Int.self, forKey: .changedPixelCount),
+            capturedAt: try container.decode(Date.self, forKey: .capturedAt),
+            didResizeDesktop: try container.decodeIfPresent(Bool.self, forKey: .didResizeDesktop) ?? false,
+            serverCursor: try container.decodeIfPresent(RFBServerCursor.self, forKey: .serverCursor),
+            endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(framebuffer, forKey: .framebuffer)
+        try container.encode(dirtyRectangles, forKey: .dirtyRectangles)
+        try container.encode(changedPixelCount, forKey: .changedPixelCount)
+        try container.encode(capturedAt, forKey: .capturedAt)
+        try container.encode(didResizeDesktop, forKey: .didResizeDesktop)
+        try container.encodeIfPresent(serverCursor, forKey: .serverCursor)
+        try container.encode(endedContinuousUpdates, forKey: .endedContinuousUpdates)
     }
 
     public static func fullFrame(

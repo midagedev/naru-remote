@@ -321,6 +321,17 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 // EndOfContinuousUpdates is a one-byte TigerVNC server
                 // control message. It is also the server's support
                 // confirmation for the ContinuousUpdates pseudo-encoding.
+                // Once a framebuffer exists, surface it as a zero-change
+                // liveness frame so the frame pump can stop waiting for
+                // pushed updates and fall back to request/response.
+                if let previousFramebuffer {
+                    return RFBFramebufferUpdateResult(
+                        framebuffer: previousFramebuffer,
+                        dirtyRectangles: [],
+                        changedPixelCount: 0,
+                        endedContinuousUpdates: true
+                    )
+                }
                 continue
             case 248:
                 try handleServerFence(

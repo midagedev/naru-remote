@@ -139,6 +139,7 @@ public final class RFBFramePump: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private var continuousUpdatesEnabled = false
+    private var continuousUpdatesSuppressed = false
 
     public init(source: any RFBFramebufferUpdating) {
         self.source = source
@@ -223,6 +224,7 @@ public final class RFBFramePump: @unchecked Sendable {
         let updateResult: RFBFramebufferUpdateResult
         if updateMode == .continuousUpdates,
            isIncremental,
+           canUseContinuousUpdates,
            let receiver = source as? any RFBFramebufferUpdateReceiving,
            let transportControl = source as? any RFBTransportControlClient
         {
@@ -244,6 +246,10 @@ public final class RFBFramePump: @unchecked Sendable {
             updateResult = .fullFrame(framebuffer: framebuffer)
         }
 
+        if updateResult.endedContinuousUpdates {
+            markContinuousUpdatesEnded()
+        }
+
         lock.withRFBFramePumpLock {
             _deliveredFrameCount = nextSequence
         }
@@ -260,6 +266,7 @@ public final class RFBFramePump: @unchecked Sendable {
             _deliveredFrameCount = 0
             cancelled = false
             continuousUpdatesEnabled = false
+            continuousUpdatesSuppressed = false
         }
     }
 
@@ -312,6 +319,13 @@ public final class RFBFramePump: @unchecked Sendable {
         }
     }
 
+    private func markContinuousUpdatesEnded() {
+        lock.withRFBFramePumpLock {
+            continuousUpdatesEnabled = false
+            continuousUpdatesSuppressed = true
+        }
+    }
+
     private func shouldContinue(deliveredFrameCount: Int, maxFrames: Int?) -> Bool {
         guard !isCancelled else {
             return false
@@ -327,6 +341,12 @@ public final class RFBFramePump: @unchecked Sendable {
     private var isCancelled: Bool {
         lock.withRFBFramePumpLock {
             cancelled
+        }
+    }
+
+    private var canUseContinuousUpdates: Bool {
+        lock.withRFBFramePumpLock {
+            !continuousUpdatesSuppressed
         }
     }
 
