@@ -215,6 +215,40 @@ final class RFBTightDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[15, 7], blue)
     }
 
+    func testDecodesTightNoZlibGradientFilterWithCompactLength() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 3, height: 2, encoding: RFBEncoding.tight)
+        bytes += [0xE0] // no-zlib basic with explicit filter id
+        bytes += [0x02] // gradient filter
+        bytes += compactLength(tightGradientDeltas.count)
+        bytes += tightGradientDeltas
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 3, height: 2),
+            previousFramebuffer: RFBRawFramebuffer(width: 3, height: 2, fill: black)
+        )
+
+        assertGradientFrame(result.framebuffer)
+    }
+
+    func testDecodesTightZlibGradientFilter() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 3, height: 2, encoding: RFBEncoding.tight)
+        bytes += [0x40] // zlib stream 0, explicit filter id
+        bytes += [0x02] // gradient filter
+        bytes += compactLength(tightZlibGradientDeltas.count)
+        bytes += tightZlibGradientDeltas
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 3, height: 2),
+            previousFramebuffer: RFBRawFramebuffer(width: 3, height: 2, fill: black)
+        )
+
+        assertGradientFrame(result.framebuffer)
+    }
+
     private func serverInit(width: Int, height: Int) -> RFBServerInit {
         RFBServerInit(
             width: width,
@@ -239,6 +273,11 @@ final class RFBTightDecoderTests: XCTestCase {
         [color.red, color.green, color.blue]
     }
 
+    private func assertGradientFrame(_ framebuffer: RFBRawFramebuffer) {
+        XCTAssertEqual([framebuffer[0, 0], framebuffer[1, 0], framebuffer[2, 0]], [red, red, green])
+        XCTAssertEqual([framebuffer[0, 1], framebuffer[1, 1], framebuffer[2, 1]], [blue, white, black])
+    }
+
     private var tightZlibCopyFrame1: [UInt8] {
         [120, 156, 250, 207, 192, 192, 240, 31, 132, 129, 0, 0, 0, 0, 255, 255]
     }
@@ -253,6 +292,21 @@ final class RFBTightDecoderTests: XCTestCase {
 
     private var tightZlibPaletteOneBitIndices: [UInt8] {
         [120, 156, 90, 21, 186, 10, 5, 2, 0, 0, 0, 255, 255]
+    }
+
+    private var tightGradientDeltas: [UInt8] {
+        [
+            255, 0, 0,
+            0, 0, 0,
+            1, 255, 0,
+            1, 0, 255,
+            255, 255, 0,
+            0, 1, 1
+        ]
+    }
+
+    private var tightZlibGradientDeltas: [UInt8] {
+        [120, 156, 250, 207, 0, 2, 140, 255, 25, 24, 25, 254, 255, 255, 15, 100, 49, 2, 0, 0, 0, 255, 255]
     }
 
     private func tightZlibUpdate(control: UInt8 = 0x00, compressed: [UInt8]) -> Data {
