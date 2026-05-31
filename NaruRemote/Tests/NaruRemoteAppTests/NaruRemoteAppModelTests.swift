@@ -240,7 +240,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
             width: 1,
             height: 1,
             name: "Desk",
-            framebuffers: [firstFramebuffer, secondFramebuffer]
+            framebuffers: [firstFramebuffer, secondFramebuffer],
+            canEnableContinuousUpdates: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
@@ -863,7 +864,7 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {
+private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
@@ -875,6 +876,7 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         var renegotiatedPreferences: [RFBEncodingPreference] = []
         var receivedFrameCount = 0
         var continuousUpdateFlags: [Bool] = []
+        var initialCanEnableContinuousUpdates: Bool
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -898,30 +900,64 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         recording.withLock { $0.continuousUpdateFlags }
     }
 
-    init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
+    var canEnableContinuousUpdates: Bool {
+        recording.withLock {
+            $0.initialCanEnableContinuousUpdates ||
+                $0.renegotiatedPreferences.last?.continuousUpdates == true
+        }
+    }
+
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        framebuffer: RFBRawFramebuffer,
+        canEnableContinuousUpdates: Bool = false
+    ) {
         self.width = width
         self.height = height
         self.name = name
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(frameUpdates: [.fullFrame(framebuffer: framebuffer)])
+            initialState: Recording(
+                frameUpdates: [.fullFrame(framebuffer: framebuffer)],
+                initialCanEnableContinuousUpdates: canEnableContinuousUpdates
+            )
         )
     }
 
-    init(width: Int, height: Int, name: String, framebuffers: [RFBRawFramebuffer]) {
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        framebuffers: [RFBRawFramebuffer],
+        canEnableContinuousUpdates: Bool = false
+    ) {
         self.width = width
         self.height = height
         self.name = name
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(frameUpdates: framebuffers.map { .fullFrame(framebuffer: $0) })
+            initialState: Recording(
+                frameUpdates: framebuffers.map { .fullFrame(framebuffer: $0) },
+                initialCanEnableContinuousUpdates: canEnableContinuousUpdates
+            )
         )
     }
 
-    init(width: Int, height: Int, name: String, updateResults: [RFBFramebufferUpdateResult]) {
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        updateResults: [RFBFramebufferUpdateResult],
+        canEnableContinuousUpdates: Bool = false
+    ) {
         self.width = width
         self.height = height
         self.name = name
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(frameUpdates: updateResults)
+            initialState: Recording(
+                frameUpdates: updateResults,
+                initialCanEnableContinuousUpdates: canEnableContinuousUpdates
+            )
         )
     }
 

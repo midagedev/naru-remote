@@ -257,6 +257,28 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
     }
 
+    func testPumpFallsBackToRequestResponseUntilContinuousUpdatesAreAdvertised() throws {
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255)),
+                .fullFrame(framebuffer: Self.framebuffer(red: 128))
+            ],
+            receivedResults: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 64))
+            ],
+            canEnableContinuousUpdates: false
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+        _ = try pump.nextFrame(requestTimeout: 1, updateMode: .continuousUpdates)
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertEqual(source.receivedFrameCount, 0)
+        XCTAssertEqual(source.enableContinuousUpdatesCallCount, 0)
+        XCTAssertTrue(source.continuousUpdatesEnabledFlags.isEmpty)
+    }
+
     func testPumpFallsBackToRequestResponseAfterContinuousUpdatesEnd() throws {
         let initial = RFBFramebufferUpdateResult.fullFrame(framebuffer: Self.framebuffer(red: 255))
         let ended = RFBFramebufferUpdateResult(
@@ -375,7 +397,7 @@ private final class FakeDamageTrackingFramebufferUpdateSource: RFBDamageTracking
     }
 }
 
-private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {
+private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
     enum Error: Swift.Error, Equatable {
         case noRequestedFrame
         case noReceivedFrame
@@ -389,20 +411,27 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
         var enableContinuousUpdatesCallCount = 0
         var disableContinuousUpdatesCallCount = 0
         var continuousUpdatesEnabledFlags: [Bool] = []
+        var canEnableContinuousUpdates: Bool
     }
 
     private let state: OSAllocatedUnfairLock<State>
 
     init(
         requestedResults: [RFBFramebufferUpdateResult],
-        receivedResults: [RFBFramebufferUpdateResult]
+        receivedResults: [RFBFramebufferUpdateResult],
+        canEnableContinuousUpdates: Bool = true
     ) {
         self.state = OSAllocatedUnfairLock(
             initialState: State(
                 requestedResults: requestedResults,
-                receivedResults: receivedResults
+                receivedResults: receivedResults,
+                canEnableContinuousUpdates: canEnableContinuousUpdates
             )
         )
+    }
+
+    var canEnableContinuousUpdates: Bool {
+        state.withLock { $0.canEnableContinuousUpdates }
     }
 
     var requestedIncrementalFlags: [Bool] {

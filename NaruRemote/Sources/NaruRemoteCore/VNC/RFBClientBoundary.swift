@@ -86,6 +86,15 @@ public protocol RFBFramebufferUpdateReceiving: Sendable {
     func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
 }
 
+/// Reports whether the active RFB session has advertised the
+/// ContinuousUpdates pseudo-encoding and may safely send message 150
+/// `EnableContinuousUpdates`. Frame pumps use this as a guard so merely
+/// implementing the transport-control method never opts a connection into
+/// a server extension that was not negotiated.
+public protocol RFBContinuousUpdateCapabilityReporting: Sendable {
+    var canEnableContinuousUpdates: Bool { get }
+}
+
 /// Capability boundary for RFB clients that can deliver
 /// `PointerEvent` messages (RFC 6143 §7.5.5, message type 5) on the
 /// active connection. Pointer events are NOT a text-input path —
