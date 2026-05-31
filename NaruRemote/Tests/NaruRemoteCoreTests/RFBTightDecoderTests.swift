@@ -7,6 +7,7 @@ final class RFBTightDecoderTests: XCTestCase {
     private let green = RFBColor(red: 0, green: 255, blue: 0)
     private let blue = RFBColor(red: 0, green: 0, blue: 255)
     private let black = RFBColor(red: 0, green: 0, blue: 0)
+    private let white = RFBColor(red: 255, green: 255, blue: 255)
 
     func testDecodesTightFillRectangleUsingRGBTriplet() throws {
         var bytes = messageHeader(rectangleCount: 1)
@@ -84,7 +85,27 @@ final class RFBTightDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[0, 0], red)
         XCTAssertEqual(result.framebuffer[1, 0], green)
         XCTAssertEqual(result.framebuffer[2, 0], blue)
-        XCTAssertEqual(result.framebuffer[3, 0], RFBColor(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(result.framebuffer[3, 0], white)
+    }
+
+    func testDecodesTightNoZlibBasicCopyWithCompactLength() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 4, height: 1, encoding: RFBEncoding.tight)
+        bytes += [0xA0] // no-zlib copy, payload is >= 12 bytes so a compact length is present
+        let pixels = tightPixelBytes(red) + tightPixelBytes(green) + tightPixelBytes(blue) + tightPixelBytes(white)
+        bytes += compactLength(pixels.count)
+        bytes += pixels
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 4, height: 1),
+            previousFramebuffer: RFBRawFramebuffer(width: 4, height: 1, fill: black)
+        )
+
+        XCTAssertEqual(result.framebuffer[0, 0], red)
+        XCTAssertEqual(result.framebuffer[1, 0], green)
+        XCTAssertEqual(result.framebuffer[2, 0], blue)
+        XCTAssertEqual(result.framebuffer[3, 0], white)
     }
 
     func testTightZlibStreamPersistsAcrossUpdates() throws {
@@ -129,21 +150,69 @@ final class RFBTightDecoderTests: XCTestCase {
         XCTAssertEqual([second.framebuffer[2, 0], second.framebuffer[3, 0]], [green, green])
     }
 
-    func testTightPaletteFilterRemainsUnsupportedUntilImplemented() throws {
+    func testDecodesTightNoZlibPaletteFilterWithOneBitIndices() throws {
         var bytes = messageHeader(rectangleCount: 1)
-        bytes += rectangleHeader(x: 0, y: 0, width: 2, height: 1, encoding: RFBEncoding.tight)
+        bytes += rectangleHeader(x: 0, y: 0, width: 4, height: 1, encoding: RFBEncoding.tight)
         bytes += [0xE0] // no-zlib basic with explicit filter id
         bytes += [0x01] // palette filter
+        bytes += [0x01] // palette size minus one: 2 colors
+        bytes += tightPixelBytes(red)
+        bytes += tightPixelBytes(blue)
+        bytes += [0b1010_0000] // most-significant bits are leftmost pixels
 
-        XCTAssertThrowsError(
-            try RFBRawFramebufferDecoder.apply(
-                updateData: Data(bytes),
-                serverInit: serverInit(width: 2, height: 1),
-                previousFramebuffer: RFBRawFramebuffer(width: 2, height: 1, fill: black)
-            )
-        ) { error in
-            XCTAssertEqual(error as? RFBRawFramebufferDecoderError, .malformedTight)
-        }
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 4, height: 1),
+            previousFramebuffer: RFBRawFramebuffer(width: 4, height: 1, fill: black)
+        )
+
+        XCTAssertEqual([result.framebuffer[0, 0], result.framebuffer[1, 0]], [blue, red])
+        XCTAssertEqual([result.framebuffer[2, 0], result.framebuffer[3, 0]], [blue, red])
+    }
+
+    func testDecodesTightNoZlibPaletteFilterWithEightBitIndices() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 4, height: 1, encoding: RFBEncoding.tight)
+        bytes += [0xE0] // no-zlib basic with explicit filter id
+        bytes += [0x01] // palette filter
+        bytes += [0x02] // palette size minus one: 3 colors
+        bytes += tightPixelBytes(red)
+        bytes += tightPixelBytes(green)
+        bytes += tightPixelBytes(blue)
+        bytes += [0, 1, 2, 1]
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 4, height: 1),
+            previousFramebuffer: RFBRawFramebuffer(width: 4, height: 1, fill: black)
+        )
+
+        XCTAssertEqual([result.framebuffer[0, 0], result.framebuffer[1, 0]], [red, green])
+        XCTAssertEqual([result.framebuffer[2, 0], result.framebuffer[3, 0]], [blue, green])
+    }
+
+    func testDecodesTightZlibPaletteFilter() throws {
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 16, height: 8, encoding: RFBEncoding.tight)
+        bytes += [0x40] // zlib stream 0, explicit filter id
+        bytes += [0x01] // palette filter
+        bytes += [0x01] // palette size minus one: 2 colors
+        bytes += tightPixelBytes(red)
+        bytes += tightPixelBytes(blue)
+        bytes += compactLength(tightZlibPaletteOneBitIndices.count)
+        bytes += tightZlibPaletteOneBitIndices
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 16, height: 8),
+            previousFramebuffer: RFBRawFramebuffer(width: 16, height: 8, fill: black)
+        )
+
+        XCTAssertEqual(result.framebuffer[0, 0], blue)
+        XCTAssertEqual(result.framebuffer[1, 0], red)
+        XCTAssertEqual(result.framebuffer[8, 0], red)
+        XCTAssertEqual(result.framebuffer[9, 0], blue)
+        XCTAssertEqual(result.framebuffer[15, 7], blue)
     }
 
     private func serverInit(width: Int, height: Int) -> RFBServerInit {
@@ -180,6 +249,10 @@ final class RFBTightDecoderTests: XCTestCase {
 
     private var tightZlibCopyFreshStream: [UInt8] {
         [120, 156, 98, 248, 207, 192, 0, 67, 0, 0, 0, 0, 255, 255]
+    }
+
+    private var tightZlibPaletteOneBitIndices: [UInt8] {
+        [120, 156, 90, 21, 186, 10, 5, 2, 0, 0, 0, 255, 255]
     }
 
     private func tightZlibUpdate(control: UInt8 = 0x00, compressed: [UInt8]) -> Data {
