@@ -34,7 +34,8 @@ public enum RFBFramebufferDecoder {
         serverInit: RFBServerInit,
         previousFramebuffer: RFBRawFramebuffer?,
         capturedAt: Date = Date(),
-        zlibStream: RFBZlibInflateStream? = nil
+        zlibStream: RFBZlibInflateStream? = nil,
+        tightZlibStreams: RFBTightZlibStreams? = nil
     ) throws -> RFBFramebufferUpdateResult {
         let pixelFormat = serverInit.pixelFormat
         guard pixelFormat.isSupported32BitTrueColor else {
@@ -71,6 +72,7 @@ public enum RFBFramebufferDecoder {
         // shim / single-update tests), lazily create one shared across
         // every ZRLE rectangle in THIS update.
         var activeZlibStream = zlibStream
+        var activeTightZlibStreams = tightZlibStreams
 
         rectangleLoop: while true {
             if !hasUnknownCount, processed >= declaredRectangleCount {
@@ -196,12 +198,20 @@ public enum RFBFramebufferDecoder {
                 }
 
             case RFBEncoding.tight:
+                let tightStreams: RFBTightZlibStreams
+                if let activeTightZlibStreams {
+                    tightStreams = activeTightZlibStreams
+                } else {
+                    tightStreams = RFBTightZlibStreams()
+                    activeTightZlibStreams = tightStreams
+                }
                 let changed = try decodeTight(
                     reader: reader,
                     into: &framebuffer,
                     x: x, y: y, width: width, height: height,
                     currentWidth: currentWidth, currentHeight: currentHeight,
-                    pixelFormat: pixelFormat
+                    pixelFormat: pixelFormat,
+                    tightZlibStreams: tightStreams
                 )
                 if width > 0, height > 0 {
                     dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
@@ -754,7 +764,8 @@ public enum RFBFramebufferDecoder {
         into framebuffer: inout RFBRawFramebuffer,
         x: Int, y: Int, width: Int, height: Int,
         currentWidth: Int, currentHeight: Int,
-        pixelFormat: RFBPixelFormat
+        pixelFormat: RFBPixelFormat,
+        tightZlibStreams: RFBTightZlibStreams
     ) throws -> Int {
         try validateRectangle(x: x, y: y, width: width, height: height, currentWidth: currentWidth, currentHeight: currentHeight)
         guard width <= maxTightRectangleWidth else {
@@ -762,6 +773,7 @@ public enum RFBFramebufferDecoder {
         }
 
         let control = try reader.readUInt8()
+        try tightZlibStreams.reset(mask: control & 0x0F)
         let compressionType = control >> 4
 
         switch compressionType {
@@ -805,7 +817,7 @@ public enum RFBFramebufferDecoder {
             )
 
         case 0...7:
-            let hasExplicitFilter = control & 0x40 != 0
+            let hasExplicitFilter = compressionType & 0x04 != 0
             let filter = hasExplicitFilter ? try reader.readUInt8() : TightFilter.copy
             guard filter == TightFilter.copy else {
                 throw RFBRawFramebufferDecoderError.malformedTight
@@ -814,14 +826,26 @@ public enum RFBFramebufferDecoder {
                 return 0
             }
             let uncompressedSize = width * height * tightPixelByteCount(pixelFormat)
-            guard uncompressedSize < 12 else {
-                // Zlib-compressed Tight streams and non-copy filters are
-                // the next decoder slice. Do not advertise Tight by
-                // default until they are implemented.
+            if uncompressedSize < 12 {
+                return try decodeTightBasicCopy(
+                    reader: reader,
+                    into: &framebuffer,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    pixelFormat: pixelFormat
+                )
+            }
+            let compressedLength = try readTightCompactLength(reader)
+            let compressed = try reader.readBytes(compressedLength)
+            let streamIndex = Int(compressionType & 0x03)
+            let decompressed = try tightZlibStreams.inflate(compressed, streamIndex: streamIndex)
+            guard decompressed.count == uncompressedSize else {
                 throw RFBRawFramebufferDecoderError.malformedTight
             }
-            return try decodeTightBasicCopy(
-                reader: reader,
+            return decodeTightBasicCopy(
+                decompressed,
                 into: &framebuffer,
                 x: x,
                 y: y,
@@ -846,6 +870,27 @@ public enum RFBFramebufferDecoder {
     ) throws -> Int {
         let pixelByteCount = tightPixelByteCount(pixelFormat)
         let pixels = try reader.readBytes(width * height * pixelByteCount)
+        return decodeTightBasicCopy(
+            pixels,
+            into: &framebuffer,
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            pixelFormat: pixelFormat
+        )
+    }
+
+    private static func decodeTightBasicCopy(
+        _ pixels: [UInt8],
+        into framebuffer: inout RFBRawFramebuffer,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        pixelFormat: RFBPixelFormat
+    ) -> Int {
+        let pixelByteCount = tightPixelByteCount(pixelFormat)
         var changed = 0
         for localY in 0..<height {
             for localX in 0..<width {
@@ -857,6 +902,24 @@ public enum RFBFramebufferDecoder {
             }
         }
         return changed
+    }
+
+    private static func readTightCompactLength(_ reader: RFBByteReader) throws -> Int {
+        let first = try reader.readUInt8()
+        var value = Int(first & 0x7F)
+        guard first & 0x80 != 0 else {
+            return value
+        }
+
+        let second = try reader.readUInt8()
+        value |= Int(second & 0x7F) << 7
+        guard second & 0x80 != 0 else {
+            return value
+        }
+
+        let third = try reader.readUInt8()
+        value |= Int(third) << 14
+        return value
     }
 
     private static func readTightPixel(

@@ -119,3 +119,35 @@ public final class RFBZlibInflateStream {
         return output
     }
 }
+
+/// Four persistent zlib streams used by Tight basic encoding. Tight can
+/// switch between streams 0...3 per rectangle and can request one or
+/// more streams be reset before decoding a rectangle.
+public final class RFBTightZlibStreams {
+    public enum StoreError: Error, Equatable {
+        case invalidStreamIndex
+    }
+
+    private var streams: [RFBZlibInflateStream?] = Array(repeating: nil, count: 4)
+
+    public init() {}
+
+    public func reset(mask: UInt8) throws {
+        for index in 0..<streams.count where mask & UInt8(1 << index) != 0 {
+            streams[index] = try RFBZlibInflateStream()
+        }
+    }
+
+    public func inflate(_ input: [UInt8], streamIndex: Int) throws -> [UInt8] {
+        guard streams.indices.contains(streamIndex) else {
+            throw StoreError.invalidStreamIndex
+        }
+        if streams[streamIndex] == nil {
+            streams[streamIndex] = try RFBZlibInflateStream()
+        }
+        guard let stream = streams[streamIndex] else {
+            throw StoreError.invalidStreamIndex
+        }
+        return try stream.inflate(input)
+    }
+}
