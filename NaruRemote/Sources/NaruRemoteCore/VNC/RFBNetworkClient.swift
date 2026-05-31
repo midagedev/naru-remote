@@ -195,7 +195,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         timeout: TimeInterval = 2
     ) throws -> RFBFramebufferUpdateResult {
         let context = lock.withRFBClientLock {
-            (activeConnection, clientServerInit, clientFramebuffer, clientZlibStream)
+            (activeConnection, clientServerInit)
         }
 
         guard let connection = context.0, let serverInit = context.1 else {
@@ -211,6 +211,26 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             ),
             timeout: timeout
         )
+
+        return try receiveFramebufferUpdate(timeout: timeout)
+    }
+
+    /// Reads one server-sent `FramebufferUpdate` without first sending
+    /// a `FramebufferUpdateRequest`. This is the decode seam needed by
+    /// ContinuousUpdates-style transports, where the server is allowed
+    /// to push updates after the client has enabled the extension. The
+    /// result commits through the same framebuffer/zlib/resize path as
+    /// request-response updates.
+    public func receiveFramebufferUpdate(timeout: TimeInterval = 2) throws -> RFBFramebufferUpdateResult {
+        let context = lock.withRFBClientLock {
+            (activeConnection, clientServerInit, clientFramebuffer, clientZlibStream)
+        }
+
+        guard let connection = context.0, let serverInit = context.1 else {
+            throw RFBNetworkClientError.notConnected
+        }
+
+        setState(.receivingFrames)
 
         // Decode the update incrementally off the live socket so
         // variable-length encodings (Hextile / CopyRect / ZRLE) work over
@@ -618,7 +638,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBTransportControlClient {}
+extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)

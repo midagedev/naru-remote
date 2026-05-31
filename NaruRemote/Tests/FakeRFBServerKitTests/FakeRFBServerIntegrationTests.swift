@@ -218,6 +218,40 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(secondFrame[1, 1], RFBColor(red: 255, green: 0, blue: 0))
     }
 
+    func testProductionRFBNetworkClientReceivesServerInitiatedFramebufferUpdates() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Self.rawTwoByTwoUpdateData(),
+                Self.singleBluePixelUpdateData(x: 1, y: 0)
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        let serverInit = try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        XCTAssertEqual(serverInit.width, 2)
+        XCTAssertEqual(serverInit.height, 2)
+        XCTAssertEqual(client.state, .authenticated)
+
+        let first = try client.receiveFramebufferUpdate()
+        XCTAssertEqual(first.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(first.framebuffer[1, 0], RFBColor(red: 0, green: 255, blue: 0))
+        XCTAssertEqual(first.framebuffer[0, 1], RFBColor(red: 0, green: 0, blue: 255))
+        XCTAssertEqual(first.framebuffer[1, 1], RFBColor(red: 255, green: 255, blue: 255))
+
+        let second = try client.receiveFramebufferUpdate()
+        XCTAssertEqual(second.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(second.framebuffer[1, 0], RFBColor(red: 0, green: 0, blue: 255))
+        XCTAssertEqual(second.framebuffer[0, 1], RFBColor(red: 0, green: 0, blue: 255))
+        XCTAssertEqual(second.framebuffer[1, 1], RFBColor(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(client.lastFrame?.width, 2)
+        XCTAssertEqual(client.lastFrame?.height, 2)
+    }
+
     func testProductionRFBNetworkClientCompositesIncrementalRawFramebufferUpdate() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(
