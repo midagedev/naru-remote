@@ -141,7 +141,14 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
                         send(transcript.bytes[safe: 14..<18]) { [self] in
                             receive(byteCount: 1) { [self] in
                                 send(transcript.bytes[safe: 18..<46]) { [self] in
-                                    receiveFramebufferRequestsAndSendUpdates()
+                                    // The production client sends SetEncodings
+                                    // immediately after ClientInit (spec 004
+                                    // FR-001).  Drain it before the fixed-size
+                                    // FramebufferUpdateRequest reads so the
+                                    // framing stays aligned.
+                                    receiveSetEncodings { [self] in
+                                        receiveFramebufferRequestsAndSendUpdates()
+                                    }
                                 }
                             }
                         }
@@ -190,6 +197,41 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
         ) { [connection] _, _, _, error in
             if error == nil {
                 completion()
+            } else {
+                connection.cancel()
+            }
+        }
+    }
+
+    /// Drains exactly one `SetEncodings` message (RFC 6143 §7.5.2,
+    /// type 2) — 4-byte header (type, pad, u16 count) then `count`×4
+    /// bytes — recording it as a control message so the negotiation
+    /// assertion test can inspect it without polluting the main client
+    /// byte stream.
+    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
+        receiveData(byteCount: 4) { [self] header in
+            let bytes = [UInt8](header)
+            let count = Int(bytes[2]) << 8 | Int(bytes[3])
+            let bodyLength = count * 4
+            guard bodyLength > 0 else {
+                clientMessageRecorder?.appendControlMessage(header)
+                completion()
+                return
+            }
+            receiveData(byteCount: bodyLength) { [self] body in
+                clientMessageRecorder?.appendControlMessage(header + body)
+                completion()
+            }
+        }
+    }
+
+    private func receiveData(byteCount: Int, completion: @escaping @Sendable (Data) -> Void) {
+        connection.receive(
+            minimumIncompleteLength: byteCount,
+            maximumLength: byteCount
+        ) { [connection] data, _, _, error in
+            if let data, data.count == byteCount, error == nil {
+                completion(data)
             } else {
                 connection.cancel()
             }
@@ -328,7 +370,13 @@ private final class FakeRFBVNCAuthenticationConnection: @unchecked Sendable {
 
                                     receive(byteCount: 1) { [self] _ in
                                         send(transcript.bytes[safe: 18..<46]) { [self] in
-                                            receiveFramebufferRequestsAndSendUpdates()
+                                            // Drain the post-ClientInit
+                                            // SetEncodings (spec 004 FR-001)
+                                            // before the fixed-size update
+                                            // request reads.
+                                            receiveSetEncodings { [self] in
+                                                receiveFramebufferRequestsAndSendUpdates()
+                                            }
                                         }
                                     }
                                 }
@@ -366,6 +414,21 @@ private final class FakeRFBVNCAuthenticationConnection: @unchecked Sendable {
         }
     }
 
+    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
+        receive(byteCount: 4) { [self] header in
+            let bytes = [UInt8](header)
+            let count = Int(bytes[2]) << 8 | Int(bytes[3])
+            let bodyLength = count * 4
+            guard bodyLength > 0 else {
+                completion()
+                return
+            }
+            receive(byteCount: bodyLength) { _ in
+                completion()
+            }
+        }
+    }
+
     private func receiveFramebufferRequestsAndSendUpdates() {
         let updates = frameUpdates ?? [transcript.bytes[safe: 46..<62]]
         receiveFramebufferRequestsAndSendUpdates(ArraySlice(updates))
@@ -398,6 +461,7 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var recordedBytes = Data()
+    private var recordedControlMessages: [Data] = []
     private var recordedPointerEvents: [FakeRFBPointerEvent] = []
     private var recordedKeyEvents: [FakeRFBKeyEvent] = []
     private var pointerScanCursor: Int = 0
@@ -408,6 +472,50 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedBytes
+    }
+
+    /// Control messages (e.g. `SetEncodings`) the fake server drained
+    /// during the handshake, BEFORE the framebuffer-update loop, kept
+    /// out of the main `bytes`/`pointerEvents`/`keyEvents` stream so
+    /// existing recorder tests stay byte-for-byte unchanged. Each entry
+    /// is one complete client message as it appeared on the wire.
+    public var controlMessages: [Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedControlMessages
+    }
+
+    /// Records one fully-framed control message drained during the
+    /// handshake. Called by the fake server's `SetEncodings` drain.
+    public func appendControlMessage(_ data: Data) {
+        lock.lock()
+        recordedControlMessages.append(data)
+        lock.unlock()
+        semaphore.signal()
+    }
+
+    /// Blocks until at least `expected` handshake control messages have
+    /// been drained, or the timeout elapses (spec 004 SetEncodings
+    /// negotiation assertion).
+    public func waitForControlMessages(
+        _ expected: Int,
+        timeout: TimeInterval = 2
+    ) throws -> [Data] {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            let snapshot = controlMessages
+            if snapshot.count >= expected {
+                return snapshot
+            }
+
+            _ = semaphore.wait(timeout: .now() + 0.05)
+        }
+
+        throw FakeRFBServerError.clientMessageTimedOut(
+            expected: expected,
+            actual: controlMessages.count
+        )
     }
 
     /// Snapshot of `(buttonMask, x, y)` `PointerEvent` triples decoded
