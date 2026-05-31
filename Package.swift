@@ -20,6 +20,10 @@ let package = Package(
         .executable(
             name: "FakeRFBServer",
             targets: ["FakeRFBServer"]
+        ),
+        .executable(
+            name: "VNCLiveBenchmark",
+            targets: ["VNCLiveBenchmark"]
         )
     ],
     targets: [
@@ -40,6 +44,11 @@ let package = Package(
             name: "FakeRFBServer",
             dependencies: ["FakeRFBServerKit"],
             path: "TestFixtures/FakeRFBServer/Executable"
+        ),
+        .executableTarget(
+            name: "VNCLiveBenchmark",
+            dependencies: ["NaruRemoteCore"],
+            path: "NaruRemote/Tools/VNCLiveBenchmark"
         ),
         .testTarget(
             name: "NaruRemoteCoreTests",
