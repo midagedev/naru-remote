@@ -252,6 +252,39 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(client.lastFrame?.height, 2)
     }
 
+    func testReceiveFramebufferUpdateTimeoutTearsDownActiveConnection() async throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        do {
+            _ = try client.receiveFramebufferUpdate(timeout: 0.05)
+            XCTFail("receiveFramebufferUpdate should time out when the server sends no frame")
+        } catch let error as RFBNetworkClientError {
+            XCTAssertEqual(error, .timedOut)
+        }
+
+        XCTAssertEqual(client.state, .failed)
+        XCTAssertNil(client.lastFrame)
+
+        do {
+            try await client.sendPointerEvent(buttonMask: 0, x: 1, y: 1)
+            XCTFail("Pointer writes should not reuse a connection after a timed-out receive")
+        } catch let error as RFBNetworkClientError {
+            XCTAssertEqual(error, .notConnected)
+        }
+        XCTAssertTrue(recorder.pointerEvents.isEmpty)
+    }
+
     func testProductionRFBNetworkClientSkipsEndOfContinuousUpdatesBeforeFramebufferUpdate() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(
