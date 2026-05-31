@@ -156,6 +156,19 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(supportedAndRequested.contains(RFBEncoding.continuousUpdates))
     }
 
+    func testAdaptivePreferenceCanRequestCursorAndPacingTogetherForFullSupport() {
+        let list = RFBEncodingPreference.adaptive(
+            supported: .full,
+            requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
+            connectionQuality: .good
+        ).encodingList()
+
+        XCTAssertTrue(list.contains(RFBEncoding.cursor))
+        XCTAssertTrue(list.contains(RFBEncoding.xCursor))
+        XCTAssertTrue(list.contains(RFBEncoding.fence))
+        XCTAssertTrue(list.contains(RFBEncoding.continuousUpdates))
+    }
+
     // MARK: - SetEncodings wire bytes
 
     func testSetEncodingsProducesExactWireBytes() {

@@ -214,11 +214,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let expected = RFBEncodingPreference.adaptive(
             supported: .full,
-            requestedPseudoEncodings: .withServerCursor,
+            requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
             connectionQuality: .good
         )
         XCTAssertEqual(model.connectionQuality, .good)
         XCTAssertEqual(connector.renegotiatedPreferences, [expected])
+        let renegotiated = try XCTUnwrap(connector.renegotiatedPreferences.first)
+        XCTAssertTrue(renegotiated.encodingList().contains(RFBEncoding.fence))
+        XCTAssertTrue(renegotiated.encodingList().contains(RFBEncoding.continuousUpdates))
     }
 
     func testModelPublishesAndPersistsServerCursorFromFramePump() async throws {

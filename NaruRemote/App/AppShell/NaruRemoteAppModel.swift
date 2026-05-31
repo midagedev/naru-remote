@@ -1341,10 +1341,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     /// Once the stream has a coarse quality bucket, re-advertise the
-    /// full decoder set through the pure spec-004 adaptive builder.
-    /// This keeps connection startup conservative (`localLowLatency`)
-    /// while letting good/fair/poor buckets tune Tight JPEG quality and
-    /// compression hints for subsequent frames. Failures are deliberately
+    /// full decoder/control set through the pure spec-004 adaptive
+    /// builder. This keeps connection startup conservative
+    /// (`localLowLatency`) while letting good/fair/poor buckets tune
+    /// Tight JPEG quality, compression hints, server cursor, and pacing
+    /// pseudo-encodings for subsequent frames. Failures are deliberately
     /// non-fatal: the frame pump will surface a real connection failure
     /// on the next read/write, and this optimization must not tear down
     /// an otherwise usable session.
@@ -1360,7 +1361,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         lastAdaptiveEncodingQuality = bucket
         let preference = RFBEncodingPreference.adaptive(
             supported: .full,
-            requestedPseudoEncodings: .withServerCursor,
+            requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
             connectionQuality: bucket
         )
         let timeout = min(max(requestTimeout, 0.1), 2)
