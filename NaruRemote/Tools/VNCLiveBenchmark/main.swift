@@ -58,12 +58,14 @@ enum VNCLiveBenchmark {
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
             configuration: configuration,
             timeout: options.timeout,
-            idleTimeout: options.idleTimeout
+            idleTimeout: options.idleTimeout,
+            maxSamples: options.continuousUpdateSamples
         )
 
         return BenchmarkReport(
             attemptsPerProfile: options.attempts,
             fullRefreshSamplesPerAttempt: options.fullRefreshSamples,
+            continuousUpdateSamples: options.continuousUpdateSamples,
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
             profiles: profiles,
@@ -169,7 +171,8 @@ enum VNCLiveBenchmark {
     private static func measureContinuousUpdatesProbe(
         configuration: LiveTargetConfiguration,
         timeout: TimeInterval,
-        idleTimeout: TimeInterval
+        idleTimeout: TimeInterval,
+        maxSamples: Int
     ) -> ContinuousUpdatesProbeReport {
         let preference = RFBEncodingPreference(
             hextile: true,
@@ -178,6 +181,9 @@ enum VNCLiveBenchmark {
             continuousUpdates: true
         )
         let client = RFBNetworkClient(encodingPreference: preference)
+        var samples: [ContinuousUpdateSample] = []
+        var timeoutMilliseconds: Int?
+        var continuousUpdatesEnabled = false
 
         do {
             _ = try client.connectSession(
@@ -189,31 +195,56 @@ enum VNCLiveBenchmark {
             _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
 
             try client.enableContinuousUpdates(true, region: nil, timeout: timeout)
+            continuousUpdatesEnabled = true
 
-            let startedAt = Date()
-            let update = try client.receiveFramebufferUpdate(timeout: idleTimeout)
-            let duration = milliseconds(since: startedAt)
+            for _ in 0..<maxSamples {
+                let startedAt = Date()
+                do {
+                    let update = try client.receiveFramebufferUpdate(timeout: idleTimeout)
+                    samples.append(ContinuousUpdateSample(
+                        kind: update.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
+                        durationMilliseconds: milliseconds(since: startedAt)
+                    ))
+                } catch RFBNetworkClientError.timedOut {
+                    timeoutMilliseconds = milliseconds(from: idleTimeout)
+                    break
+                }
+            }
+
             try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
             client.disconnect()
 
             return ContinuousUpdatesProbeReport(
-                status: update.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
-                durationMilliseconds: duration,
+                requestedSamples: maxSamples,
+                samples: samples,
+                timeoutMilliseconds: timeoutMilliseconds,
                 failureLabel: nil
             )
         } catch RFBNetworkClientError.timedOut {
-            try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
+            if continuousUpdatesEnabled {
+                try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
+            }
             client.disconnect()
+            guard continuousUpdatesEnabled else {
+                return ContinuousUpdatesProbeReport(
+                    requestedSamples: maxSamples,
+                    samples: samples,
+                    timeoutMilliseconds: nil,
+                    failureLabel: "timeout"
+                )
+            }
             return ContinuousUpdatesProbeReport(
-                status: .noUpdateBeforeTimeout,
-                durationMilliseconds: milliseconds(from: idleTimeout),
+                requestedSamples: maxSamples,
+                samples: samples,
+                timeoutMilliseconds: milliseconds(from: idleTimeout),
                 failureLabel: nil
             )
         } catch {
             client.disconnect()
             return ContinuousUpdatesProbeReport(
-                status: .failed,
-                durationMilliseconds: nil,
+                requestedSamples: maxSamples,
+                samples: samples,
+                timeoutMilliseconds: nil,
                 failureLabel: safeFailureLabel(for: error)
             )
         }
@@ -231,6 +262,7 @@ enum VNCLiveBenchmark {
 private struct BenchmarkOptions: Equatable {
     var attempts = 3
     var fullRefreshSamples = 1
+    var continuousUpdateSamples = 1
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var json = false
@@ -262,6 +294,13 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("full-refresh-samples must be a non-negative integer.")
                 }
                 options.fullRefreshSamples = samples
+                index = arguments.index(index, offsetBy: 2)
+            case "--continuous-update-samples":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let samples = Int(value), samples > 0 else {
+                    throw UsageError("continuous-update-samples must be a positive integer.")
+                }
+                options.continuousUpdateSamples = samples
                 index = arguments.index(index, offsetBy: 2)
             case "--timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -402,6 +441,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let target: String
     let attemptsPerProfile: Int
     let fullRefreshSamplesPerAttempt: Int
+    let continuousUpdateSamples: Int
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
     let safety: [String]
@@ -412,16 +452,18 @@ private struct BenchmarkReport: Codable, Equatable {
     init(
         attemptsPerProfile: Int,
         fullRefreshSamplesPerAttempt: Int,
+        continuousUpdateSamples: Int,
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 3
+        self.schemaVersion = 4
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
+        self.continuousUpdateSamples = continuousUpdateSamples
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.safety = [
@@ -500,15 +542,86 @@ private enum IdleProbeStatus: String, Codable {
 
 private struct ContinuousUpdatesProbeReport: Codable, Equatable {
     let status: ContinuousUpdatesProbeStatus
-    let durationMilliseconds: Int?
+    let requestedSamples: Int
+    let receivedSamples: Int
+    let emptyUpdateSamples: Int
+    let contentUpdateSamples: Int
+    let timedOutSamples: Int
+    let averageDurationMilliseconds: Int?
+    let minDurationMilliseconds: Int?
+    let maxDurationMilliseconds: Int?
+    let firstTimeoutMilliseconds: Int?
     let failureLabel: String?
+
+    init(
+        requestedSamples: Int,
+        samples: [ContinuousUpdateSample],
+        timeoutMilliseconds: Int?,
+        failureLabel: String?
+    ) {
+        let emptyUpdateSamples = samples.filter { $0.kind == .emptyUpdate }.count
+        let contentUpdateSamples = samples.filter { $0.kind == .contentUpdate }.count
+        let durations = samples.map(\.durationMilliseconds)
+
+        self.status = Self.status(
+            emptyUpdateSamples: emptyUpdateSamples,
+            contentUpdateSamples: contentUpdateSamples,
+            timeoutMilliseconds: timeoutMilliseconds,
+            failureLabel: failureLabel
+        )
+        self.requestedSamples = requestedSamples
+        self.receivedSamples = samples.count
+        self.emptyUpdateSamples = emptyUpdateSamples
+        self.contentUpdateSamples = contentUpdateSamples
+        self.timedOutSamples = timeoutMilliseconds == nil ? 0 : 1
+        self.averageDurationMilliseconds = durations.isEmpty ? nil : durations.reduce(0, +) / durations.count
+        self.minDurationMilliseconds = durations.min()
+        self.maxDurationMilliseconds = durations.max()
+        self.firstTimeoutMilliseconds = timeoutMilliseconds
+        self.failureLabel = failureLabel
+    }
+
+    private static func status(
+        emptyUpdateSamples: Int,
+        contentUpdateSamples: Int,
+        timeoutMilliseconds: Int?,
+        failureLabel: String?
+    ) -> ContinuousUpdatesProbeStatus {
+        if failureLabel != nil {
+            return .failed
+        }
+        if emptyUpdateSamples > 0, contentUpdateSamples > 0 {
+            return .mixedUpdates
+        }
+        if contentUpdateSamples > 0 {
+            return .contentUpdate
+        }
+        if emptyUpdateSamples > 0 {
+            return .emptyUpdate
+        }
+        if timeoutMilliseconds != nil {
+            return .noUpdateBeforeTimeout
+        }
+        return .noUpdateBeforeTimeout
+    }
 }
 
 private enum ContinuousUpdatesProbeStatus: String, Codable {
     case noUpdateBeforeTimeout = "no-update-before-timeout"
     case emptyUpdate = "empty-update"
     case contentUpdate = "content-update"
+    case mixedUpdates = "mixed-updates"
     case failed
+}
+
+private struct ContinuousUpdateSample: Equatable {
+    let kind: ContinuousUpdateSampleKind
+    let durationMilliseconds: Int
+}
+
+private enum ContinuousUpdateSampleKind: Equatable {
+    case emptyUpdate
+    case contentUpdate
 }
 
 private func renderText(_ report: BenchmarkReport) {
@@ -517,6 +630,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("safety: host/password/server name/framebuffer dimensions/pixels/byte counts/cursor pixels/raw errors are not emitted")
     print("attempts per profile: \(report.attemptsPerProfile)")
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
+    print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
     print("")
@@ -557,12 +671,22 @@ private func renderText(_ report: BenchmarkReport) {
     }
     print("")
     print("continuous updates probe:")
-    if let duration = report.continuousUpdatesProbe.durationMilliseconds {
-        print("- status: \(report.continuousUpdatesProbe.status.rawValue), duration ms: \(duration)")
-    } else if let failure = report.continuousUpdatesProbe.failureLabel {
-        print("- status: \(report.continuousUpdatesProbe.status.rawValue), failure: \(failure)")
+    let probe = report.continuousUpdatesProbe
+    if let failure = probe.failureLabel {
+        print("- status: \(probe.status.rawValue), failure: \(failure)")
+    } else if let average = probe.averageDurationMilliseconds,
+              let minimum = probe.minDurationMilliseconds,
+              let maximum = probe.maxDurationMilliseconds {
+        print("- status: \(probe.status.rawValue), received: \(probe.receivedSamples)/\(probe.requestedSamples)")
+        print("  update ms avg/min/max: \(average)/\(minimum)/\(maximum)")
+        print("  empty/content/timeouts: \(probe.emptyUpdateSamples)/\(probe.contentUpdateSamples)/\(probe.timedOutSamples)")
+        if let timeout = probe.firstTimeoutMilliseconds {
+            print("  first timeout ms: \(timeout)")
+        }
+    } else if let timeout = probe.firstTimeoutMilliseconds {
+        print("- status: \(probe.status.rawValue), timeout ms: \(timeout)")
     } else {
-        print("- status: \(report.continuousUpdatesProbe.status.rawValue)")
+        print("- status: \(probe.status.rawValue)")
     }
 }
 
@@ -588,10 +712,12 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--continuous-update-samples N] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
+      --continuous-update-samples N
+                                Maximum pushed updates to sample after enabling continuous updates. Defaults to 1.
 
     Required environment:
       NARU_LIVE_MAC_HOST       redacted from output
