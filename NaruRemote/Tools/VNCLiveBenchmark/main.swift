@@ -45,6 +45,7 @@ enum VNCLiveBenchmark {
                 profile,
                 configuration: configuration,
                 attempts: options.attempts,
+                fullRefreshSamples: options.fullRefreshSamples,
                 timeout: options.timeout
             )
         }
@@ -62,6 +63,7 @@ enum VNCLiveBenchmark {
 
         return BenchmarkReport(
             attemptsPerProfile: options.attempts,
+            fullRefreshSamplesPerAttempt: options.fullRefreshSamples,
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
             profiles: profiles,
@@ -74,9 +76,11 @@ enum VNCLiveBenchmark {
         _ profile: BenchmarkProfile,
         configuration: LiveTargetConfiguration,
         attempts: Int,
+        fullRefreshSamples: Int,
         timeout: TimeInterval
     ) -> ProfileReport {
-        var durations: [Int] = []
+        var firstFrameDurations: [Int] = []
+        var fullRefreshDurations: [Int] = []
         var failures: [String: Int] = [:]
 
         for _ in 0..<attempts {
@@ -90,9 +94,22 @@ enum VNCLiveBenchmark {
                     timeout: timeout
                 )
                 _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
-                durations.append(milliseconds(since: startedAt))
+                firstFrameDurations.append(milliseconds(since: startedAt))
             } catch {
-                failures[safeFailureLabel(for: error), default: 0] += 1
+                failures["first-frame-\(safeFailureLabel(for: error))", default: 0] += 1
+                client.disconnect()
+                continue
+            }
+
+            for _ in 0..<fullRefreshSamples {
+                let refreshStartedAt = Date()
+                do {
+                    _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+                    fullRefreshDurations.append(milliseconds(since: refreshStartedAt))
+                } catch {
+                    failures["full-refresh-\(safeFailureLabel(for: error))", default: 0] += 1
+                    break
+                }
             }
             client.disconnect()
         }
@@ -100,7 +117,9 @@ enum VNCLiveBenchmark {
         return ProfileReport(
             label: profile.label,
             attempted: attempts,
-            firstFrameMilliseconds: durations,
+            fullRefreshSamplesPerAttempt: fullRefreshSamples,
+            firstFrameMilliseconds: firstFrameDurations,
+            fullRefreshMilliseconds: fullRefreshDurations,
             failureLabels: failures
         )
     }
@@ -211,6 +230,7 @@ enum VNCLiveBenchmark {
 
 private struct BenchmarkOptions: Equatable {
     var attempts = 3
+    var fullRefreshSamples = 1
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var json = false
@@ -235,6 +255,13 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("attempts must be a positive integer.")
                 }
                 options.attempts = attempts
+                index = arguments.index(index, offsetBy: 2)
+            case "--full-refresh-samples":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let samples = Int(value), samples >= 0 else {
+                    throw UsageError("full-refresh-samples must be a non-negative integer.")
+                }
+                options.fullRefreshSamples = samples
                 index = arguments.index(index, offsetBy: 2)
             case "--timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -374,6 +401,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let schemaVersion: Int
     let target: String
     let attemptsPerProfile: Int
+    let fullRefreshSamplesPerAttempt: Int
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
     let safety: [String]
@@ -383,15 +411,17 @@ private struct BenchmarkReport: Codable, Equatable {
 
     init(
         attemptsPerProfile: Int,
+        fullRefreshSamplesPerAttempt: Int,
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 2
+        self.schemaVersion = 3
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
+        self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.safety = [
@@ -409,16 +439,30 @@ private struct ProfileReport: Codable, Equatable {
     let attempted: Int
     let succeeded: Int
     let failed: Int
+    let fullRefreshSamplesPerAttempt: Int
+    let fullRefreshSamplesSucceeded: Int
     let averageFirstFrameMilliseconds: Int?
     let minFirstFrameMilliseconds: Int?
     let maxFirstFrameMilliseconds: Int?
+    let averageFullRefreshMilliseconds: Int?
+    let minFullRefreshMilliseconds: Int?
+    let maxFullRefreshMilliseconds: Int?
     let failureLabels: [String: Int]
 
-    init(label: String, attempted: Int, firstFrameMilliseconds: [Int], failureLabels: [String: Int]) {
+    init(
+        label: String,
+        attempted: Int,
+        fullRefreshSamplesPerAttempt: Int,
+        firstFrameMilliseconds: [Int],
+        fullRefreshMilliseconds: [Int],
+        failureLabels: [String: Int]
+    ) {
         self.label = label
         self.attempted = attempted
         self.succeeded = firstFrameMilliseconds.count
         self.failed = attempted - firstFrameMilliseconds.count
+        self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
+        self.fullRefreshSamplesSucceeded = fullRefreshMilliseconds.count
         if firstFrameMilliseconds.isEmpty {
             self.averageFirstFrameMilliseconds = nil
             self.minFirstFrameMilliseconds = nil
@@ -427,6 +471,15 @@ private struct ProfileReport: Codable, Equatable {
             self.averageFirstFrameMilliseconds = firstFrameMilliseconds.reduce(0, +) / firstFrameMilliseconds.count
             self.minFirstFrameMilliseconds = firstFrameMilliseconds.min()
             self.maxFirstFrameMilliseconds = firstFrameMilliseconds.max()
+        }
+        if fullRefreshMilliseconds.isEmpty {
+            self.averageFullRefreshMilliseconds = nil
+            self.minFullRefreshMilliseconds = nil
+            self.maxFullRefreshMilliseconds = nil
+        } else {
+            self.averageFullRefreshMilliseconds = fullRefreshMilliseconds.reduce(0, +) / fullRefreshMilliseconds.count
+            self.minFullRefreshMilliseconds = fullRefreshMilliseconds.min()
+            self.maxFullRefreshMilliseconds = fullRefreshMilliseconds.max()
         }
         self.failureLabels = failureLabels
     }
@@ -463,6 +516,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("target: \(report.target)")
     print("safety: host/password/server name/framebuffer dimensions/pixels/byte counts/cursor pixels/raw errors are not emitted")
     print("attempts per profile: \(report.attemptsPerProfile)")
+    print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
     print("")
@@ -475,6 +529,16 @@ private func renderText(_ report: BenchmarkReport) {
             print("  first-frame ms avg/min/max: \(average)/\(minimum)/\(maximum)")
         } else {
             print("  first-frame ms avg/min/max: n/a")
+        }
+        if let average = profile.averageFullRefreshMilliseconds,
+           let minimum = profile.minFullRefreshMilliseconds,
+           let maximum = profile.maxFullRefreshMilliseconds {
+            print(
+                "  full-refresh ms avg/min/max: \(average)/\(minimum)/\(maximum) "
+                    + "(\(profile.fullRefreshSamplesSucceeded) samples)"
+            )
+        } else {
+            print("  full-refresh ms avg/min/max: n/a (\(profile.fullRefreshSamplesSucceeded) samples)")
         }
         if profile.failureLabels.isEmpty {
             print("  failures: none")
@@ -524,7 +588,10 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+
+    Options:
+      --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
 
     Required environment:
       NARU_LIVE_MAC_HOST       redacted from output
