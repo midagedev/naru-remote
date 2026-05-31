@@ -1,8 +1,18 @@
+import CoreGraphics
 import Foundation
+#if canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+import ImageIO
+import UniformTypeIdentifiers
+#endif
 import XCTest
 @testable import NaruRemoteCore
 
 final class RFBTightDecoderTests: XCTestCase {
+    private enum JPEGFixtureError: Error {
+        case renderFailed
+        case encodeFailed
+    }
+
     private let red = RFBColor(red: 255, green: 0, blue: 0)
     private let green = RFBColor(red: 0, green: 255, blue: 0)
     private let blue = RFBColor(red: 0, green: 0, blue: 255)
@@ -249,6 +259,82 @@ final class RFBTightDecoderTests: XCTestCase {
         assertGradientFrame(result.framebuffer)
     }
 
+    func testDecodesTightJPEGRectangle() throws {
+        #if canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+        let jpeg = try makeJPEG(width: 2, height: 2, pixels: [red, red, red, red])
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 1, y: 1, width: 2, height: 2, encoding: RFBEncoding.tight)
+        bytes += [0x90] // JPEG compression type
+        bytes += compactLength(jpeg.count)
+        bytes += jpeg
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 4, height: 4),
+            previousFramebuffer: RFBRawFramebuffer(width: 4, height: 4, fill: black)
+        )
+
+        assertJPEGApproxRed(result.framebuffer[1, 1])
+        assertJPEGApproxRed(result.framebuffer[2, 1])
+        assertJPEGApproxRed(result.framebuffer[1, 2])
+        assertJPEGApproxRed(result.framebuffer[2, 2])
+        XCTAssertEqual(result.framebuffer[0, 0], black)
+        XCTAssertEqual(result.dirtyRectangles, [RFBFrameDamageRect(x: 1, y: 1, width: 2, height: 2)])
+        XCTAssertEqual(result.changedPixelCount, 4)
+        #else
+        throw XCTSkip("ImageIO is unavailable on this platform")
+        #endif
+    }
+
+    func testDecodesTightJPEGScanlinesTopToBottom() throws {
+        #if canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+        let width = 8
+        let height = 8
+        let pixels = Array(repeating: red, count: width * 4)
+            + Array(repeating: blue, count: width * 4)
+        let jpeg = try makeJPEG(width: width, height: height, pixels: pixels)
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: width, height: height, encoding: RFBEncoding.tight)
+        bytes += [0x90] // JPEG compression type
+        bytes += compactLength(jpeg.count)
+        bytes += jpeg
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: width, height: height),
+            previousFramebuffer: RFBRawFramebuffer(width: width, height: height, fill: black)
+        )
+
+        assertJPEGApproxRed(result.framebuffer[0, 0])
+        assertJPEGApproxRed(result.framebuffer[7, 3])
+        assertJPEGApproxBlue(result.framebuffer[0, 4])
+        assertJPEGApproxBlue(result.framebuffer[7, 7])
+        #else
+        throw XCTSkip("ImageIO is unavailable on this platform")
+        #endif
+    }
+
+    func testRejectsTightJPEGDimensionMismatch() throws {
+        #if canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+        let jpeg = try makeJPEG(width: 1, height: 1, pixels: [red])
+        var bytes = messageHeader(rectangleCount: 1)
+        bytes += rectangleHeader(x: 0, y: 0, width: 2, height: 2, encoding: RFBEncoding.tight)
+        bytes += [0x90] // JPEG compression type
+        bytes += compactLength(jpeg.count)
+        bytes += jpeg
+
+        XCTAssertThrowsError(try RFBRawFramebufferDecoder.apply(
+            updateData: Data(bytes),
+            serverInit: serverInit(width: 2, height: 2),
+            previousFramebuffer: RFBRawFramebuffer(width: 2, height: 2, fill: black)
+        )) { error in
+            XCTAssertEqual(error as? RFBRawFramebufferDecoderError, .malformedTight)
+        }
+        #else
+        throw XCTSkip("ImageIO is unavailable on this platform")
+        #endif
+    }
+
     private func serverInit(width: Int, height: Int) -> RFBServerInit {
         RFBServerInit(
             width: width,
@@ -276,6 +362,82 @@ final class RFBTightDecoderTests: XCTestCase {
     private func assertGradientFrame(_ framebuffer: RFBRawFramebuffer) {
         XCTAssertEqual([framebuffer[0, 0], framebuffer[1, 0], framebuffer[2, 0]], [red, red, green])
         XCTAssertEqual([framebuffer[0, 1], framebuffer[1, 1], framebuffer[2, 1]], [blue, white, black])
+    }
+
+    private func assertJPEGApproxRed(_ color: RFBColor?, file: StaticString = #filePath, line: UInt = #line) {
+        guard let color else {
+            XCTFail("Expected a decoded JPEG pixel", file: file, line: line)
+            return
+        }
+        XCTAssertGreaterThan(color.red, 180, file: file, line: line)
+        XCTAssertLessThan(color.green, 80, file: file, line: line)
+        XCTAssertLessThan(color.blue, 80, file: file, line: line)
+    }
+
+    private func assertJPEGApproxBlue(_ color: RFBColor?, file: StaticString = #filePath, line: UInt = #line) {
+        guard let color else {
+            XCTFail("Expected a decoded JPEG pixel", file: file, line: line)
+            return
+        }
+        XCTAssertLessThan(color.red, 80, file: file, line: line)
+        XCTAssertLessThan(color.green, 80, file: file, line: line)
+        XCTAssertGreaterThan(color.blue, 180, file: file, line: line)
+    }
+
+    private func makeJPEG(width: Int, height: Int, pixels: [RFBColor]) throws -> [UInt8] {
+        #if canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+        precondition(width > 0 && height > 0)
+        precondition(pixels.count == width * height)
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var rgba = [UInt8]()
+        rgba.reserveCapacity(bytesPerRow * height)
+        for pixel in pixels {
+            rgba += [pixel.red, pixel.green, pixel.blue, pixel.alpha]
+        }
+
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+            | CGBitmapInfo.byteOrder32Big.rawValue
+        let image = rgba.withUnsafeMutableBytes { buffer -> CGImage? in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: bitmapInfo
+                  )
+            else {
+                return nil
+            }
+            return context.makeImage()
+        }
+        guard let image else {
+            throw JPEGFixtureError.renderFailed
+        }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        )
+        else {
+            throw JPEGFixtureError.encodeFailed
+        }
+        let options = [kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary
+        CGImageDestinationAddImage(destination, image, options)
+        guard CGImageDestinationFinalize(destination) else {
+            throw JPEGFixtureError.encodeFailed
+        }
+        return Array(Data(referencing: data))
+        #else
+        throw XCTSkip("ImageIO is unavailable on this platform")
+        #endif
     }
 
     private var tightZlibCopyFrame1: [UInt8] {
