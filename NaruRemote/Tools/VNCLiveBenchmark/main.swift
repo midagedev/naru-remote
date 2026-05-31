@@ -14,9 +14,12 @@ enum VNCLiveBenchmark {
                 return
             }
 
-            guard let configuration = LiveTargetConfiguration.fromEnvironment() else {
+            let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
+            guard let configuration = LiveTargetConfiguration.fromEnvironment(
+                passwordOverride: passwordOverride
+            ) else {
                 printUsage()
-                print("\nerror: set NARU_LIVE_MAC_HOST and NARU_LIVE_MAC_PASSWORD before running.")
+                print("\nerror: set NARU_LIVE_MAC_HOST and either NARU_LIVE_MAC_PASSWORD or --ask-password before running.")
                 exit(2)
             }
 
@@ -265,6 +268,7 @@ private struct BenchmarkOptions: Equatable {
     var continuousUpdateSamples = 1
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
+    var askPassword = false
     var json = false
     var showHelp = false
 
@@ -280,6 +284,9 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(after: index)
             case "--json":
                 options.json = true
+                index = arguments.index(after: index)
+            case "--ask-password":
+                options.askPassword = true
                 index = arguments.index(after: index)
             case "--attempts":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -351,12 +358,12 @@ private struct LiveTargetConfiguration {
     let port: UInt16
     let password: String
 
-    static func fromEnvironment() -> LiveTargetConfiguration? {
+    static func fromEnvironment(passwordOverride: String? = nil) -> LiveTargetConfiguration? {
         let environment = ProcessInfo.processInfo.environment
         guard
             let host = environment["NARU_LIVE_MAC_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines),
             !host.isEmpty,
-            let password = environment["NARU_LIVE_MAC_PASSWORD"],
+            let password = passwordOverride ?? environment["NARU_LIVE_MAC_PASSWORD"],
             !password.isEmpty
         else {
             return nil
@@ -369,6 +376,30 @@ private struct LiveTargetConfiguration {
 
         return LiveTargetConfiguration(host: host, port: port, password: password)
     }
+}
+
+private func readPasswordFromTerminal() throws -> String {
+    fputs("VNC password: ", stderr)
+    fflush(stderr)
+
+    var original = termios()
+    let canDisableEcho = isatty(STDIN_FILENO) == 1 && tcgetattr(STDIN_FILENO, &original) == 0
+    if canDisableEcho {
+        var hidden = original
+        hidden.c_lflag &= ~tcflag_t(ECHO)
+        tcsetattr(STDIN_FILENO, TCSANOW, &hidden)
+    }
+    defer {
+        if canDisableEcho {
+            tcsetattr(STDIN_FILENO, TCSANOW, &original)
+        }
+        fputs("\n", stderr)
+    }
+
+    guard let password = readLine(), !password.isEmpty else {
+        throw UsageError("password prompt could not read a non-empty password.")
+    }
+    return password
 }
 
 private enum BenchmarkProfile: CaseIterable {
@@ -712,16 +743,17 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--continuous-update-samples N] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --continuous-update-samples N
                                 Maximum pushed updates to sample after enabling continuous updates. Defaults to 1.
+      --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.
 
     Required environment:
       NARU_LIVE_MAC_HOST       redacted from output
-      NARU_LIVE_MAC_PASSWORD   redacted from output
+      NARU_LIVE_MAC_PASSWORD   redacted from output; optional when --ask-password is used
       NARU_LIVE_MAC_PORT       optional, defaults to 5900
 
     The report intentionally omits target identity, framebuffer dimensions,
