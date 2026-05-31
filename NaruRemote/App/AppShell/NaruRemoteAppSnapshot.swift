@@ -16,6 +16,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// this is the right default for first frames, the fallback path,
     /// and snapshot-driven previews that have no damage history.
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    /// Most recent server-provided cursor shape, decoded from the RFB
+    /// Cursor pseudo-encoding. This is additive to the synthetic
+    /// trackpad cursor and is memory-only.
+    public var latestServerCursor: RFBServerCursor?
     public var directKeystrokeMode: DirectKeystrokeMode
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
@@ -43,6 +47,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        latestServerCursor: RFBServerCursor? = nil,
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -56,6 +61,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
+        self.latestServerCursor = latestServerCursor
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
