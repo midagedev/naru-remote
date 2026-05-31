@@ -154,7 +154,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// edges remain strictly ordered.
     private var pendingPointerMove: PendingPointerMove?
     private var pointerMoveFlushTask: Task<Void, Never>?
-    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(8)
+    /// One 60 Hz display frame. Remote dragging does not benefit from
+    /// queuing pointer moves faster than the screen can plausibly
+    /// repaint, and a frame-sized window keeps high-refresh touch
+    /// streams from building stale VNC write backlog.
+    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(16)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
