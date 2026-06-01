@@ -27,25 +27,25 @@ import MetalKit
 /// moment of the tap.  The model uses both to perform the
 /// view→framebuffer aspect-fit mapping that mirrors
 /// `MetalFramebufferRenderer.aspectFitViewport`.
-public typealias MetalFramebufferTapHandler = @MainActor (CGPoint, CGSize) -> Void
+public typealias MetalFramebufferTapHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 
 /// Closure invoked when the user performs a long-press on the
 /// rendered framebuffer.  Same coordinate contract as
 /// `MetalFramebufferTapHandler` — the model maps to a button-3
 /// (right-click) PointerEvent pair.
-public typealias MetalFramebufferRightClickHandler = @MainActor (CGPoint, CGSize) -> Void
+public typealias MetalFramebufferRightClickHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 
 /// Closure invoked while the user is two-finger panning.  `delta`
 /// is the per-callback translation in points (NOT cumulative — the
 /// recognizer resets translation to zero between callbacks).  The
 /// model accumulates these into discrete RFB scroll-wheel ticks.
-public typealias MetalFramebufferScrollHandler = @MainActor (_ point: CGPoint, _ viewSize: CGSize, _ delta: CGSize) -> Void
+public typealias MetalFramebufferScrollHandler = @MainActor @Sendable (_ point: CGPoint, _ viewSize: CGSize, _ delta: CGSize) -> Void
 
 /// Closure invoked while the user is pinching the rendered
 /// framebuffer.  `scale` is the new (clamped) local view scale —
 /// pinch is a LOCAL view transform per constitution §I and never
 /// produces an RFB message.
-public typealias MetalFramebufferPinchHandler = @MainActor (_ scale: CGFloat, _ viewSize: CGSize) -> Void
+public typealias MetalFramebufferPinchHandler = @MainActor @Sendable (_ scale: CGFloat, _ viewSize: CGSize) -> Void
 
 /// Closures invoked across the lifecycle of a single-finger drag
 /// (button-1 hold) on the rendered framebuffer.  Same coordinate
@@ -53,21 +53,21 @@ public typealias MetalFramebufferPinchHandler = @MainActor (_ scale: CGFloat, _ 
 /// event to a `PointerEvent` with mask `0x01` (down/move) or `0x00`
 /// (up).  The recognizer defers `down` until the gesture actually
 /// moves so a fast tap is unaffected by drag wiring.
-public typealias MetalFramebufferPointerDownHandler = @MainActor (CGPoint, CGSize) -> Void
-public typealias MetalFramebufferPointerMoveHandler = @MainActor (CGPoint, CGSize) -> Void
-public typealias MetalFramebufferPointerUpHandler = @MainActor (CGPoint, CGSize) -> Void
+public typealias MetalFramebufferPointerDownHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias MetalFramebufferPointerMoveHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias MetalFramebufferPointerUpHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 
 /// Closure invoked while the user pans a *zoomed* framebuffer with one
 /// finger.  `offset` is the new (clamped) local pan translation in view
 /// points — a LOCAL view transform per constitution §I, never an RFB
 /// message.  Only fires when `zoomScale > 1`; at fit scale the
 /// one-finger drag remains the remote button-1 drag path.
-public typealias MetalFramebufferPanHandler = @MainActor (_ offset: CGSize, _ viewSize: CGSize) -> Void
+public typealias MetalFramebufferPanHandler = @MainActor @Sendable (_ offset: CGSize, _ viewSize: CGSize) -> Void
 
 /// Closure invoked on a double-tap.  The model toggles between fit
 /// scale and a comfortable zoom centered on the tapped point — a LOCAL
 /// view transform per constitution §I, never an RFB message.
-public typealias MetalFramebufferZoomToggleHandler = @MainActor (_ point: CGPoint, _ viewSize: CGSize) -> Void
+public typealias MetalFramebufferZoomToggleHandler = @MainActor @Sendable (_ point: CGPoint, _ viewSize: CGSize) -> Void
 
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
