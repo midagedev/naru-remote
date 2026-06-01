@@ -45,9 +45,13 @@ let package = Package(
             dependencies: ["FakeRFBServerKit"],
             path: "TestFixtures/FakeRFBServer/Executable"
         ),
+        .target(
+            name: "VNCLiveBenchmarkKit",
+            path: "NaruRemote/Tools/VNCLiveBenchmarkKit"
+        ),
         .executableTarget(
             name: "VNCLiveBenchmark",
-            dependencies: ["NaruRemoteCore"],
+            dependencies: ["NaruRemoteCore", "VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tools/VNCLiveBenchmark"
         ),
         .testTarget(
@@ -64,6 +68,11 @@ let package = Package(
             name: "FakeRFBServerKitTests",
             dependencies: ["FakeRFBServerKit", "NaruRemoteCore"],
             path: "NaruRemote/Tests/FakeRFBServerKitTests"
+        ),
+        .testTarget(
+            name: "VNCLiveBenchmarkKitTests",
+            dependencies: ["VNCLiveBenchmarkKit"],
+            path: "NaruRemote/Tests/VNCLiveBenchmarkKitTests"
         )
     ]
 )
