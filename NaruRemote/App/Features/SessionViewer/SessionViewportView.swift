@@ -92,7 +92,7 @@ public struct SessionViewportView: View {
     /// branch in `body` handles that fallback at draw time.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private static let minZoomScale: CGFloat = 0.5
+    private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
@@ -272,7 +272,10 @@ public struct SessionViewportView: View {
             // emits an RFB message itself — the model resolves cursor
             // moves (local) vs. clicks (wire).
             .overlay {
-                if pointerControlMode.isTrackpad, let framebuffer {
+                if Self.allowsTrackpadInputOverlay(
+                    isPiPWatching: isPiPWatching,
+                    pointerControlMode: pointerControlMode
+                ), let framebuffer {
                     trackpadGestureSurface(framebuffer: framebuffer)
                 }
             }
@@ -280,8 +283,11 @@ public struct SessionViewportView: View {
             // the preview and never hit-testing so it cannot eat the
             // gesture surface below it.
             .overlay {
-                if pointerControlMode.isTrackpad,
-                   trackpadCursor.isVisible,
+                if Self.showsTrackpadCursor(
+                    isPiPWatching: isPiPWatching,
+                    pointerControlMode: pointerControlMode,
+                    cursor: trackpadCursor
+                ),
                    let framebuffer {
                     cursorOverlay(framebuffer: framebuffer)
                 }
@@ -767,23 +773,21 @@ public struct SessionViewportView: View {
                 onPinch: { newScale, viewSize in
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.
-                    let clamped = min(max(newScale, Self.minZoomScale), Self.maxZoomScale)
-                    zoomScale = clamped
-                    if clamped <= 1.0001 {
-                        panOffset = .zero
-                    }
-                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                    applyZoomScale(
+                        newScale,
+                        anchor: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2),
+                        framebuffer: framebuffer,
+                        viewSize: viewSize
+                    )
                 },
                 onPointerDown: onFramebufferPointerDown,
                 onPointerMove: onFramebufferPointerMove,
                 onPointerUp: onFramebufferPointerUp,
                 onPan: { newOffset, viewSize in
-                    panOffset = newOffset
-                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                    applyPanOffset(newOffset, framebuffer: framebuffer, viewSize: viewSize)
                 },
                 onZoomToggle: { point, viewSize in
-                    toggleZoom(at: point, in: viewSize)
-                    syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                    toggleZoom(at: point, in: viewSize, framebuffer: framebuffer)
                 }
             )
                 .scaleEffect(zoomScale)
@@ -820,21 +824,19 @@ public struct SessionViewportView: View {
         return min(max(ratio, 0.5), 2.5)
     }
 
-    private func toggleZoom(at point: CGPoint, in viewSize: CGSize) {
-        if zoomScale > 1.0001 {
-            zoomScale = 1.0
-            panOffset = .zero
-            return
-        }
-
-        let targetScale = min(max(CGFloat(2.5), Self.minZoomScale), Self.maxZoomScale)
-        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let proposedPan = CGSize(
-            width: (center.x - point.x) * (targetScale - 1),
-            height: (center.y - point.y) * (targetScale - 1)
+    private func toggleZoom(
+        at point: CGPoint,
+        in viewSize: CGSize,
+        framebuffer: RFBRawFramebuffer
+    ) {
+        let updated = Self.zoomToggleTransform(
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            viewSize: viewSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            anchor: point
         )
-        zoomScale = targetScale
-        panOffset = Self.clampedPan(proposedPan, zoomScale: targetScale, viewSize: viewSize)
+        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
 
     #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
@@ -846,14 +848,12 @@ public struct SessionViewportView: View {
             .onChanged { value in
                 let startScale = pipPinchStartZoomScale ?? zoomScale
                 pipPinchStartZoomScale = startScale
-                let clamped = min(max(startScale * value, Self.minZoomScale), Self.maxZoomScale)
-                zoomScale = clamped
-                if clamped <= 1.0001 {
-                    panOffset = .zero
-                } else {
-                    panOffset = Self.clampedPan(panOffset, zoomScale: clamped, viewSize: viewSize)
-                }
-                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                applyZoomScale(
+                    startScale * value,
+                    anchor: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2),
+                    framebuffer: framebuffer,
+                    viewSize: viewSize
+                )
             }
             .onEnded { _ in
                 pipPinchStartZoomScale = nil
@@ -876,8 +876,7 @@ public struct SessionViewportView: View {
                     width: startOffset.width + value.translation.width,
                     height: startOffset.height + value.translation.height
                 )
-                panOffset = Self.clampedPan(proposed, zoomScale: zoomScale, viewSize: viewSize)
-                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                applyPanOffset(proposed, framebuffer: framebuffer, viewSize: viewSize)
             }
             .onEnded { _ in
                 pipPanStartOffset = nil
@@ -891,8 +890,7 @@ public struct SessionViewportView: View {
     ) -> some Gesture {
         SpatialTapGesture(count: 2)
             .onEnded { value in
-                toggleZoom(at: value.location, in: viewSize)
-                syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+                toggleZoom(at: value.location, in: viewSize, framebuffer: framebuffer)
             }
     }
     #endif
@@ -925,16 +923,33 @@ public struct SessionViewportView: View {
         )
     }
 
-    private static func clampedPan(_ pan: CGSize, zoomScale: CGFloat, viewSize: CGSize) -> CGSize {
-        guard zoomScale > 1.0001 else {
-            return .zero
-        }
-        let maxX = max(0, (viewSize.width * zoomScale - viewSize.width) / 2)
-        let maxY = max(0, (viewSize.height * zoomScale - viewSize.height) / 2)
-        return CGSize(
-            width: min(max(pan.width, -maxX), maxX),
-            height: min(max(pan.height, -maxY), maxY)
+    private func applyZoomScale(
+        _ scale: CGFloat,
+        anchor: CGPoint,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) {
+        let clamped = min(max(scale, Self.minZoomScale), Self.maxZoomScale)
+        let current = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        let updated = clamped <= 1.0001
+            ? current.reset()
+            : current.zoomed(to: clamped, about: anchor)
+        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
+    }
+
+    private func applyPanOffset(
+        _ proposed: CGSize,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) {
+        let updated = ViewportTransform(
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            viewSize: viewSize,
+            zoomScale: zoomScale,
+            panOffset: proposed,
+            maxZoomScale: Self.maxZoomScale
         )
+        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
 
     private var statusText: String {
@@ -1063,6 +1078,53 @@ public struct SessionViewportView: View {
         case .closed, nil:
             return .secondary
         }
+    }
+
+    /// Trackpad-mode input is a remote-control surface, so it stays out
+    /// of the active PiP watch path.  While PiP is fronting the preview,
+    /// one-finger drag / pinch / double-tap are reserved for local
+    /// focus changes that crop the floating watch frame.
+    static func allowsTrackpadInputOverlay(
+        isPiPWatching: Bool,
+        pointerControlMode: PointerControlMode
+    ) -> Bool {
+        !isPiPWatching && pointerControlMode.isTrackpad
+    }
+
+    static func showsTrackpadCursor(
+        isPiPWatching: Bool,
+        pointerControlMode: PointerControlMode,
+        cursor: TrackpadCursor
+    ) -> Bool {
+        allowsTrackpadInputOverlay(
+            isPiPWatching: isPiPWatching,
+            pointerControlMode: pointerControlMode
+        ) && cursor.isVisible
+    }
+
+    /// Double-tap zoom uses the same transform math as pointer mapping
+    /// so a tapped terminal line remains under the user's finger even
+    /// when the server aspect ratio leaves letterbox bands in the
+    /// session container.
+    static func zoomToggleTransform(
+        framebufferSize: CGSize,
+        viewSize: CGSize,
+        zoomScale: CGFloat,
+        panOffset: CGSize,
+        anchor: CGPoint,
+        maxZoomScale: CGFloat = Self.maxZoomScale
+    ) -> ViewportTransform {
+        let current = ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: viewSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: maxZoomScale
+        )
+        guard !current.isZoomed else {
+            return current.reset()
+        }
+        return current.zoomed(to: min(CGFloat(2.5), maxZoomScale), about: anchor)
     }
 
     /// Maps a framebuffer-pixel cursor position into the container's
