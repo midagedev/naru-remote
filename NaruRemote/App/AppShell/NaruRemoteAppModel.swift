@@ -1863,13 +1863,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// as `sendTapAt`.  Constitution §IV: the cursor position / deltas
     /// are consumed here and never logged or persisted.
     ///
-    /// - TODO: zoom-aware cursor mapping.  The view owns the live
-    ///   zoom/pan, which is not threaded into the model yet, so this
-    ///   builds an aspect-fit transform (zoom 1, pan 0).  The relative
-    ///   cursor math (`TrackpadCursor.moved`) is independent of zoom,
-    ///   so the cursor tracks correctly for the common unzoomed
-    ///   viewport; click mapping uses the cursor's framebuffer position
-    ///   directly, which is also zoom-independent.
     public func handleTrackpadGesture(_ gesture: PointerGesture, viewSize: CGSize) {
         guard let framebuffer = latestFramebuffer, let session else {
             return
@@ -1879,6 +1872,31 @@ public final class NaruRemoteAppModel: ObservableObject {
             framebufferSize: framebufferSize,
             viewSize: viewSize
         )
+        _ = handleTrackpadGesture(gesture, transform: transform, session: session)
+    }
+
+    /// Zoom-aware variant used by the SwiftUI viewport.  The view owns
+    /// the current local zoom/pan state, so it passes the exact
+    /// `ViewportTransform` sampled with the gesture.  The returned
+    /// transform carries local-only auto-pan updates back to the view
+    /// when the cursor nears an edge while zoomed (spec 003 FR-011).
+    @discardableResult
+    public func handleTrackpadGesture(
+        _ gesture: PointerGesture,
+        transform: ViewportTransform
+    ) -> ViewportTransform? {
+        guard let session else {
+            return nil
+        }
+        return handleTrackpadGesture(gesture, transform: transform, session: session)
+    }
+
+    @discardableResult
+    private func handleTrackpadGesture(
+        _ gesture: PointerGesture,
+        transform: ViewportTransform,
+        session: RemoteSession
+    ) -> ViewportTransform {
         let resolver = PointerGestureResolver(mode: .trackpad)
         let outcome = resolver.resolve(gesture, transform: transform, cursor: trackpadCursor)
         trackpadCursor = outcome.cursor
@@ -1886,7 +1904,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard !outcome.commands.isEmpty,
               let pointerClient = activePointerClient
         else {
-            return
+            return outcome.transform
         }
 
         let streamID = activeFrameStreamID
@@ -1900,6 +1918,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: sessionID,
             profileID: profileID
         )
+        return outcome.transform
     }
 
     // MARK: - Direct Keystroke Streaming Mode

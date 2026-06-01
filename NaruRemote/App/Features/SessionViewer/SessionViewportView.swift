@@ -36,9 +36,10 @@ public struct SessionViewportView: View {
     /// never logged or persisted.
     private let trackpadCursor: TrackpadCursor
     /// Routes a trackpad-mode gesture (resolved view point + per-event
-    /// translation) to the model, with the framebuffer container's view
-    /// size so the model can build the `ViewportTransform`.
-    private let onTrackpadGesture: ((PointerGesture, CGSize) -> Void)?
+    /// translation) to the model with the live zoom/pan transform.  The
+    /// returned transform is local-only auto-pan state that keeps the
+    /// soft cursor visible while zoomed (spec 003 FR-011).
+    private let onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)?
     /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
     /// toggle.
     private let onTogglePointerMode: (() -> Void)?
@@ -118,7 +119,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
-        onTrackpadGesture: ((PointerGesture, CGSize) -> Void)? = nil,
+        onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
@@ -173,7 +174,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
         onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
-        onTrackpadGesture: ((PointerGesture, CGSize) -> Void)? = nil,
+        onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
@@ -271,8 +272,8 @@ public struct SessionViewportView: View {
             // emits an RFB message itself — the model resolves cursor
             // moves (local) vs. clicks (wire).
             .overlay {
-                if pointerControlMode.isTrackpad, framebuffer != nil {
-                    trackpadGestureSurface
+                if pointerControlMode.isTrackpad, let framebuffer {
+                    trackpadGestureSurface(framebuffer: framebuffer)
                 }
             }
             // Soft cursor overlay (trackpad mode only).  Drawn on top of
@@ -547,11 +548,12 @@ public struct SessionViewportView: View {
     /// A one-finger drag emits `dragChanged`/`dragEnded` (relative cursor
     /// motion) and a near-stationary press emits `tap` (click at the
     /// cursor).  The `GeometryReader` captures the framebuffer
-    /// container's size so the model can build the `ViewportTransform`.
+    /// container's size so this view can pass the live fit × zoom × pan
+    /// `ViewportTransform` to the model.
     /// `translation` is the per-event delta in view points (`DragGesture`
     /// reports cumulative translation, so we diff against the previous
     /// value).
-    private var trackpadGestureSurface: some View {
+    private func trackpadGestureSurface(framebuffer: RFBRawFramebuffer) -> some View {
         GeometryReader { proxy in
             let size = proxy.size
             Color.clear
@@ -565,9 +567,10 @@ public struct SessionViewportView: View {
                                 height: value.translation.height - previous.height
                             )
                             trackpadDragPrevious = value.translation
-                            onTrackpadGesture?(
+                            dispatchTrackpadGesture(
                                 .dragChanged(viewPoint: value.location, translation: delta),
-                                size
+                                framebuffer: framebuffer,
+                                viewSize: size
                             )
                         }
                         .onEnded { value in
@@ -575,16 +578,44 @@ public struct SessionViewportView: View {
                                 || abs(value.translation.height) > 6
                             trackpadDragPrevious = nil
                             if movedFar {
-                                onTrackpadGesture?(.dragEnded(viewPoint: value.location), size)
+                                dispatchTrackpadGesture(
+                                    .dragEnded(viewPoint: value.location),
+                                    framebuffer: framebuffer,
+                                    viewSize: size
+                                )
                             } else {
                                 // A near-stationary press-release reads as
                                 // a tap → click at the cursor (003 FR-008).
-                                onTrackpadGesture?(.tap(viewPoint: value.location), size)
+                                dispatchTrackpadGesture(
+                                    .tap(viewPoint: value.location),
+                                    framebuffer: framebuffer,
+                                    viewSize: size
+                                )
                             }
                         }
                 )
         }
         .accessibilityIdentifier("naru.session.trackpadSurface")
+    }
+
+    private func dispatchTrackpadGesture(
+        _ gesture: PointerGesture,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) {
+        let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        let updatedTransform = onTrackpadGesture?(gesture, transform) ?? transform
+        applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
+    }
+
+    private func applyViewportTransform(
+        _ transform: ViewportTransform,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) {
+        zoomScale = transform.zoomScale
+        panOffset = transform.panOffset
+        syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
     }
 
     /// Maps the soft cursor's framebuffer position into the container's
@@ -607,7 +638,10 @@ public struct SessionViewportView: View {
                 framebufferPosition: trackpadCursor.position,
                 framebufferWidth: framebuffer.width,
                 framebufferHeight: framebuffer.height,
-                containerSize: proxy.size
+                containerSize: proxy.size,
+                zoomScale: zoomScale,
+                panOffset: panOffset,
+                maxZoomScale: Self.maxZoomScale
             )
             Image(systemName: "cursorarrow")
                 .font(.system(size: 22, weight: .regular))
@@ -622,20 +656,12 @@ public struct SessionViewportView: View {
     @ViewBuilder
     private func serverCursorOverlay(cursor: RFBServerCursor, framebuffer: RFBRawFramebuffer) -> some View {
         GeometryReader { proxy in
-            let fit = Self.framebufferFitRect(
-                framebufferWidth: framebuffer.width,
-                framebufferHeight: framebuffer.height,
-                containerSize: proxy.size
-            )
-            let scaleX = fit.width / CGFloat(max(framebuffer.width, 1))
-            let scaleY = fit.height / CGFloat(max(framebuffer.height, 1))
-            let anchor = CGPoint(
-                x: fit.minX + trackpadCursor.position.x * scaleX,
-                y: fit.minY + trackpadCursor.position.y * scaleY
-            )
+            let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: proxy.size)
+            let scale = transform.displayScale
+            let anchor = transform.viewPoint(fromFramebufferPoint: trackpadCursor.position)
             let origin = CGPoint(
-                x: anchor.x - CGFloat(cursor.hotSpotX) * scaleX,
-                y: anchor.y - CGFloat(cursor.hotSpotY) * scaleY
+                x: anchor.x - CGFloat(cursor.hotSpotX) * scale,
+                y: anchor.y - CGFloat(cursor.hotSpotY) * scale
             )
 
             Canvas { context, _ in
@@ -645,10 +671,10 @@ public struct SessionViewportView: View {
                             continue
                         }
                         let rect = CGRect(
-                            x: origin.x + CGFloat(x) * scaleX,
-                            y: origin.y + CGFloat(y) * scaleY,
-                            width: max(1, scaleX.rounded(.up)),
-                            height: max(1, scaleY.rounded(.up))
+                            x: origin.x + CGFloat(x) * scale,
+                            y: origin.y + CGFloat(y) * scale,
+                            width: max(1, scale.rounded(.up)),
+                            height: max(1, scale.rounded(.up))
                         )
                         context.fill(Path(rect), with: .color(color.previewColor))
                     }
@@ -880,16 +906,23 @@ public struct SessionViewportView: View {
             return
         }
 
-        let transform = ViewportTransform(
+        let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        let replayFrame = isPiPWatching ? framebuffer : nil
+        _ = try? pipLayerHost.updateViewport(PiPWatchViewport(transform: transform), replaying: replayFrame)
+        #endif
+    }
+
+    private func currentViewportTransform(
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) -> ViewportTransform {
+        ViewportTransform(
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
             viewSize: viewSize,
             zoomScale: zoomScale,
             panOffset: panOffset,
             maxZoomScale: Self.maxZoomScale
         )
-        let replayFrame = isPiPWatching ? framebuffer : nil
-        _ = try? pipLayerHost.updateViewport(PiPWatchViewport(transform: transform), replaying: replayFrame)
-        #endif
     }
 
     private static func clampedPan(_ pan: CGSize, zoomScale: CGFloat, viewSize: CGSize) -> CGSize {
@@ -1033,62 +1066,34 @@ public struct SessionViewportView: View {
     }
 
     /// Maps a framebuffer-pixel cursor position into the container's
-    /// view-space point using the aspect-fit the preview renders with
-    /// (`.aspectRatio(contentMode: .fit)` centered with letterbox
-    /// bands).  This is the inverse of `framebufferCoordinate(...)` in
-    /// the app model.  Zoom lives in the view's `@State` but the cursor
-    /// mapping here uses the fit transform — matching the model's
-    /// fit-transform cursor math (a zoom-aware follow-up is noted in the
-    /// model's `handleTrackpadGesture`).
+    /// view-space point using the same fit × zoom × pan transform as the
+    /// framebuffer preview.  This keeps the soft/server cursor aligned
+    /// while the user zooms and pans locally (spec 003 FR-014/FR-015).
     static func cursorViewPoint(
         framebufferPosition: CGPoint,
         framebufferWidth: Int,
         framebufferHeight: Int,
-        containerSize: CGSize
+        containerSize: CGSize,
+        zoomScale: CGFloat = 1,
+        panOffset: CGSize = .zero,
+        maxZoomScale: CGFloat = Self.maxZoomScale
     ) -> CGPoint {
-        let fit = framebufferFitRect(
-            framebufferWidth: framebufferWidth,
-            framebufferHeight: framebufferHeight,
-            containerSize: containerSize
-        )
-        guard fit.width > 0, fit.height > 0 else {
-            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
-        }
-        let x = fit.minX + framebufferPosition.x / CGFloat(framebufferWidth) * fit.width
-        let y = fit.minY + framebufferPosition.y / CGFloat(framebufferHeight) * fit.height
-        return CGPoint(x: x, y: y)
-    }
-
-    static func framebufferFitRect(
-        framebufferWidth: Int,
-        framebufferHeight: Int,
-        containerSize: CGSize
-    ) -> CGRect {
         guard framebufferWidth > 0,
               framebufferHeight > 0,
               containerSize.width > 0,
               containerSize.height > 0
         else {
-            return .zero
+            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
         }
 
-        let viewAspect = containerSize.width / containerSize.height
-        let textureAspect = CGFloat(framebufferWidth) / CGFloat(framebufferHeight)
-
-        let fitWidth: CGFloat
-        let fitHeight: CGFloat
-        if viewAspect > textureAspect {
-            fitHeight = containerSize.height
-            fitWidth = fitHeight * textureAspect
-        } else {
-            fitWidth = containerSize.width
-            fitHeight = fitWidth / textureAspect
-        }
-
-        let originX = (containerSize.width - fitWidth) / 2
-        let originY = (containerSize.height - fitHeight) / 2
-
-        return CGRect(x: originX, y: originY, width: fitWidth, height: fitHeight)
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: framebufferWidth, height: framebufferHeight),
+            viewSize: containerSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: maxZoomScale
+        )
+        return transform.viewPoint(fromFramebufferPoint: framebufferPosition)
     }
 }
 

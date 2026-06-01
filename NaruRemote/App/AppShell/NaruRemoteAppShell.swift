@@ -102,8 +102,8 @@ public struct NaruRemoteAppShell: View {
             onFramebufferPointerUp: { point, size in
                 Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
             },
-            onTrackpadGesture: { gesture, size in
-                model.handleTrackpadGesture(gesture, viewSize: size)
+            onTrackpadGesture: { gesture, transform in
+                model.handleTrackpadGesture(gesture, transform: transform) ?? transform
             },
             onTogglePointerMode: {
                 model.togglePointerControlMode()
