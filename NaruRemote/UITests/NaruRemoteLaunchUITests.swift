@@ -22,6 +22,8 @@ final class NaruRemoteLaunchUITests: XCTestCase {
             SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
         ])
 
+        openFirstConnectionCardIfPresent(app: app)
+
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
 
@@ -68,6 +70,17 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         }
         app.launch()
         return app
+    }
+
+    private func openFirstConnectionCardIfPresent(app: XCUIApplication) {
+        let gridHeading = app.staticTexts["Connections"]
+        guard gridHeading.waitForExistence(timeout: 3) else {
+            return
+        }
+
+        let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 4))
+        firstCard.tap()
     }
 
     private struct SeedProfile {

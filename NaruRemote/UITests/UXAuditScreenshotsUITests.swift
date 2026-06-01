@@ -95,7 +95,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "03-profile-editor-filled-\(deviceTag)-\(mode.suffix).png")
     }
 
-    // MARK: - iPhone — selected profile + diagnostics
+    // MARK: - iPhone — connection grid + diagnostics
 
     func testProfileSelectedAndDiagnostics_light() throws {
         try runProfileSelectedAndDiagnostics(mode: .light, deviceTag: "iphone")
@@ -119,14 +119,24 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             ]
         )
 
-        let checksButton = findChecksButton(in: app)
         XCTAssertTrue(
-            checksButton.waitForExistence(timeout: 8),
-            "Run Checks button must be visible with a profile selected"
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Connection grid must be the default entry point with saved profiles"
+        )
+        XCTAssertTrue(
+            app.buttons["naru.connection.grid.card"].firstMatch.waitForExistence(timeout: 4),
+            "Connection grid must render at least one profile card"
         )
 
-        // State 4: profile selected
-        try saveScreen(named: "04-profile-selected-\(deviceTag)-\(mode.suffix).png")
+        // State 4: default connection grid with a saved profile.
+        try saveScreen(named: "04-connection-grid-\(deviceTag)-\(mode.suffix).png")
+
+        openFirstConnectionCardIfPresent(app: app)
+        let checksButton = findChecksButton(in: app)
+        XCTAssertTrue(
+            checksButton.waitForExistence(timeout: 4),
+            "Run Checks button must be visible after opening a grid card"
+        )
 
         // State 5: diagnostics populated.  Closes UX punch-list #007
         // — previously this state re-launched the app and tapped the
@@ -179,6 +189,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     private func runComposeDockWithText(mode: ColorMode, deviceTag: String) throws {
         let app = launchAppWithSampleProfile(mode: mode)
+        openFirstConnectionCardIfPresent(app: app)
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
@@ -211,6 +222,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     private func runDirectMode(mode: ColorMode, deviceTag: String, page: DirectPage) throws {
         let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
+        openFirstConnectionCardIfPresent(app: app)
 
         XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
 
@@ -248,6 +260,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Deliberately do NOT suppress the warning so we can capture
         // it on first Direct entry.
         let app = launchAppWithSampleProfile(mode: mode)
+        openFirstConnectionCardIfPresent(app: app)
 
         let directSegment = app.buttons["Direct"]
         XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
@@ -274,6 +287,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     private func runStickyModifierLocked(mode: ColorMode, deviceTag: String) throws {
         let app = launchAppPrelockingControlWithSampleProfile(mode: mode)
+        openFirstConnectionCardIfPresent(app: app)
 
         XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 8))
 
@@ -301,6 +315,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     private func runPiPWatchDisabled(mode: ColorMode, deviceTag: String) throws {
         let app = launchAppWithSampleProfile(mode: mode)
+        openFirstConnectionCardIfPresent(app: app)
 
         let pip = app.buttons["PiP Watch"]
         XCTAssertTrue(pip.waitForExistence(timeout: 8))
@@ -432,17 +447,13 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             ]
         )
 
-        // Wait for detail column to settle (auto-selected first
-        // profile lands here on iPhone), then navigate back to the
-        // sidebar so the screenshot shows the profile list.
-        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
-        revealSidebarIfNeeded(app: app)
         XCTAssertTrue(
-            app.staticTexts["Studio Mac"].waitForExistence(timeout: 4),
-            "Sidebar should display seeded profiles after back-navigation"
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Connection grid should display seeded profiles after launch"
         )
+        XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 4))
 
-        try saveScreen(named: "14-sidebar-multiple-\(deviceTag)-\(mode.suffix).png")
+        try saveScreen(named: "14-connection-grid-multiple-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPhone — sidebar with per-profile diagnostic verdicts (state #14b)
@@ -466,14 +477,13 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // = gray).
         let app = launchAppWithFixture(.sidebarWithVerdicts, mode: mode)
 
-        XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
-        revealSidebarIfNeeded(app: app)
         XCTAssertTrue(
-            app.staticTexts["Studio Mac"].waitForExistence(timeout: 4),
-            "Sidebar should display fixture profiles after back-navigation"
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Connection grid should display fixture profiles after launch"
         )
+        XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 4))
 
-        try saveScreen(named: "14-sidebar-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
+        try saveScreen(named: "14-connection-grid-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPad — graceful scaling
@@ -513,14 +523,15 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                             )
                         ]
                     )
-                    _ = findChecksButton(in: app).waitForExistence(timeout: 8)
-                    try saveScreen(named: "04-profile-selected-ipad-\(orientationTag)-\(mode.suffix).png")
+                    XCTAssertTrue(app.staticTexts["Connections"].waitForExistence(timeout: 8))
+                    try saveScreen(named: "04-connection-grid-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
 
                 // State 7 — compose with text
                 do {
                     let app = launchAppWithSampleProfile(mode: mode)
+                    openFirstConnectionCardIfPresent(app: app)
                     let editor = app.textViews["Remote input text"]
                     XCTAssertTrue(editor.waitForExistence(timeout: 8))
                     editor.tap()
@@ -532,6 +543,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                 // State 8 — direct mode QWERTY
                 do {
                     let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
+                    openFirstConnectionCardIfPresent(app: app)
                     let directSegment = app.buttons["Direct"]
                     XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
                     directSegment.tap()
@@ -741,6 +753,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         if backButton.exists && backButton.isHittable {
             backButton.tap()
         }
+    }
+
+    private func openFirstConnectionCardIfPresent(app: XCUIApplication) {
+        let gridHeading = app.staticTexts["Connections"]
+        guard gridHeading.waitForExistence(timeout: 3) else {
+            return
+        }
+
+        let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(
+            firstCard.waitForExistence(timeout: 4),
+            "Connection grid card must be tappable before entering session detail"
+        )
+        firstCard.tap()
     }
 
 
