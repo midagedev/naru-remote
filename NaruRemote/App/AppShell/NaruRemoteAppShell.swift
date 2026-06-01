@@ -5,6 +5,7 @@ public struct NaruRemoteAppShell: View {
     @StateObject private var model: NaruRemoteAppModel
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
     @State private var showsProfileEditor = false
+    @State private var showsSelectedProfileDetail = false
     /// When non-nil, an "Edit Profile" sheet is presented for this
     /// profile.  Using `Identifiable` here means SwiftUI will tear
     /// down and re-create the editor's state on each invocation, so
@@ -122,13 +123,22 @@ public struct NaruRemoteAppShell: View {
         // derived purely from `profiles.isEmpty` — no persisted
         // dismissal flag.
         let isEmptyHome = snapshot.profiles.isEmpty
+        let showsConnectionGrid = !isEmptyHome
+            && !isLiveSession
+            && !showsSelectedProfileDetail
+            && snapshot.session == nil
+            && snapshot.diagnosticRun == nil
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             ProfileListView(
                 profiles: snapshot.profiles,
                 selectedProfileID: snapshot.selectedProfile?.id,
                 verdicts: snapshot.lastDiagnosticVerdict,
-                onSelect: model.selectProfile(id:),
+                onSelect: { id in
+                    model.selectProfile(id: id)
+                    showsSelectedProfileDetail = true
+                    preferredCompactColumn = .detail
+                },
                 onEdit: { profile in
                     editingProfile = EditingProfile(
                         profile: profile,
@@ -159,6 +169,17 @@ public struct NaruRemoteAppShell: View {
             Group {
                 if isEmptyHome {
                     EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                } else if showsConnectionGrid {
+                    ConnectionGridView(
+                        cards: snapshot.connectionGridCards,
+                        onSelect: { id in
+                            model.selectProfile(id: id)
+                            showsSelectedProfileDetail = true
+                            preferredCompactColumn = .detail
+                        },
+                        onAddProfile: { showsProfileEditor = true }
+                    )
+                    .navigationBarBackButtonHidden(true)
                 } else if isLiveSession {
                     sessionViewport(fillsAvailableHeight: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -185,7 +206,7 @@ public struct NaruRemoteAppShell: View {
                 // the user has added a computer is exactly the
                 // pre-announcement of capabilities the empty-home CTA
                 // is meant to remove.
-                if !isEmptyHome {
+                if !isEmptyHome && !showsConnectionGrid {
                     VStack(spacing: 0) {
                         IncomingClipboardBanner(
                             review: model.pendingIncomingClipboard,

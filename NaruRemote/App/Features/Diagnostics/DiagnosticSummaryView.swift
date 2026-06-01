@@ -72,7 +72,7 @@ public struct DiagnosticSummaryView: View {
             }
         }
         .padding(16)
-        .background(Color(red: 0.98, green: 0.98, blue: 0.96))
+        .background(NaruColors.surface)
         .accessibilityIdentifier("naru.diagnostics.summary")
         #if os(iOS) && canImport(UIKit)
         .sheet(item: Binding(

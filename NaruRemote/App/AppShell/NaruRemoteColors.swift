@@ -36,6 +36,35 @@ public enum NaruColors {
         dark: rgb(0x30, 0x38, 0x45)
     )
 
+    /// `Surface` token — card and panel fill for app chrome that
+    /// sits directly on `canvas`.  Used by the connection grid and
+    /// diagnostics summary so those surfaces do not bake a light-only
+    /// paper color into dark appearance.
+    /// Light: `#FFFFFF`  Dark: `#1A1E25`
+    public static let surface: Color = adaptive(
+        light: rgb(0xFF, 0xFF, 0xFF),
+        dark: rgb(0x1A, 0x1E, 0x25)
+    )
+
+    /// `Surface Muted` token — low-contrast preview placeholders and
+    /// secondary panels.  Slightly below `surface` in light mode and
+    /// above `surface` in dark mode so empty preview wells remain
+    /// visible without becoming the loudest element on screen.
+    /// Light: `#ECEFF2`  Dark: `#222832`
+    public static let surfaceMuted: Color = adaptive(
+        light: rgb(0xEC, 0xEF, 0xF2),
+        dark: rgb(0x22, 0x28, 0x32)
+    )
+
+    /// Subtle selected-card outline.  Avoids using a translucent
+    /// accent fill over screenshots/preview placeholders, which can
+    /// wash out in one appearance or the other.
+    /// Light: `#2D7D77`  Dark: `#63C7BF`
+    public static let focusRing: Color = adaptive(
+        light: rgb(0x2D, 0x7D, 0x77),
+        dark: rgb(0x63, 0xC7, 0xBF)
+    )
+
     /// `Surface Key` — primary fill for letter / number tiles on the
     /// Direct-mode soft keyboard.  Used to be hardcoded `Color.white`
     /// in `DirectKeystrokeKeyboardView.backgroundFor(role:)`, which
@@ -83,6 +112,23 @@ public enum NaruColors {
     public static let coral: Color = adaptive(
         light: rgb(0xE8, 0x5D, 0x4F),
         dark: rgb(0xFF, 0x75, 0x6B)
+    )
+
+    /// Reachable/healthy status fill tuned for legibility on both
+    /// light card surfaces and dark preview placeholders.
+    /// Light: `#138A5B`  Dark: `#4EDC91`
+    public static let reachable: Color = adaptive(
+        light: rgb(0x13, 0x8A, 0x5B),
+        dark: rgb(0x4E, 0xDC, 0x91)
+    )
+
+    /// Warning/degraded status fill.  More brown than system yellow in
+    /// light mode so it stays readable on white cards, brighter amber
+    /// in dark mode so it does not flatten into the dark surface.
+    /// Light: `#A05D00`  Dark: `#FFB84D`
+    public static let warning: Color = adaptive(
+        light: rgb(0xA0, 0x5D, 0x00),
+        dark: rgb(0xFF, 0xB8, 0x4D)
     )
 
     // MARK: - Helpers

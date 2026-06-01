@@ -146,6 +146,44 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             )
         } ?? []
     }
+
+    public var connectionGridCards: [ConnectionGridCard] {
+        profiles.map { profile in
+            ConnectionGridCard(
+                id: profile.id,
+                displayName: profile.displayName,
+                endpoint: profile.endpoint,
+                hostKind: profile.hostKind,
+                verdict: lastDiagnosticVerdict[profile.id] ?? .unknown,
+                isSelected: selectedProfile?.id == profile.id
+            )
+        }
+    }
+}
+
+public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
+    public let id: ConnectionProfile.ID
+    public let displayName: String
+    public let endpoint: String
+    public let hostKind: ConnectionProfile.HostKind
+    public let verdict: DiagnosticVerdict
+    public let isSelected: Bool
+
+    public init(
+        id: ConnectionProfile.ID,
+        displayName: String,
+        endpoint: String,
+        hostKind: ConnectionProfile.HostKind,
+        verdict: DiagnosticVerdict,
+        isSelected: Bool
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.endpoint = endpoint
+        self.hostKind = hostKind
+        self.verdict = verdict
+        self.isSelected = isSelected
+    }
 }
 
 public struct DiagnosticSummaryRow: Equatable, Sendable, Identifiable {

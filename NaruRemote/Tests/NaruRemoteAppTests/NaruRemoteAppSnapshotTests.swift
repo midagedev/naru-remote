@@ -127,4 +127,31 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.isPiPWatchAvailable)
         XCTAssertEqual(snapshot.pipWatchStatusText, "Watching in PiP")
     }
+
+    func testConnectionGridCardsExposeProfileAndVerdictState() throws {
+        let studio = try ConnectionProfile(
+            displayName: "Studio",
+            host: "studio.tailnet.ts.net",
+            hostKind: .magicDNS
+        )
+        let publicHost = try ConnectionProfile(
+            displayName: "Public Test",
+            host: "203.0.113.5",
+            hostKind: .advancedManualPublicEndpoint
+        )
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [studio, publicHost],
+            selectedProfileID: publicHost.id,
+            lastDiagnosticVerdict: [studio.id: .passed]
+        )
+
+        XCTAssertEqual(snapshot.connectionGridCards.count, 2)
+        XCTAssertEqual(snapshot.connectionGridCards[0].displayName, "Studio")
+        XCTAssertEqual(snapshot.connectionGridCards[0].endpoint, "studio.tailnet.ts.net:5900")
+        XCTAssertEqual(snapshot.connectionGridCards[0].verdict, .passed)
+        XCTAssertFalse(snapshot.connectionGridCards[0].isSelected)
+        XCTAssertEqual(snapshot.connectionGridCards[1].hostKind, .advancedManualPublicEndpoint)
+        XCTAssertEqual(snapshot.connectionGridCards[1].verdict, .unknown)
+        XCTAssertTrue(snapshot.connectionGridCards[1].isSelected)
+    }
 }

@@ -75,9 +75,10 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         let credentialRef = "vnc-password:\(profileID.uuidString)"
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: password)
 
-        // App auto-selects the only seeded profile and (per
-        // `preferredCompactColumn = .detail`) lands on the detail
-        // column at launch.
+        openFirstConnectionCardIfPresent(app: app)
+
+        // Saved-profile launch now starts on the connection grid.
+        // Opening the card lands on the existing pre-connect detail.
         // a11y identifier on a SwiftUI Button is sometimes shadowed
         // by an ancestor (`naru.app.detail`); fall back to label.
         let connect = app.buttons["naru.session.connect"].exists
@@ -118,6 +119,7 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         let profileID = UUID()
         let credentialRef = "vnc-password:\(profileID.uuidString)"
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: "definitely-wrong-pw")
+        openFirstConnectionCardIfPresent(app: app)
 
         // a11y identifier on a SwiftUI Button is sometimes shadowed
         // by an ancestor (`naru.app.detail`); fall back to label.
@@ -169,6 +171,17 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"] = password
         app.launch()
         return app
+    }
+
+    private func openFirstConnectionCardIfPresent(app: XCUIApplication) {
+        let gridHeading = app.staticTexts["Connections"]
+        guard gridHeading.waitForExistence(timeout: 3) else {
+            return
+        }
+
+        let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 4))
+        firstCard.tap()
     }
 
     private func writeSeedProfile(
