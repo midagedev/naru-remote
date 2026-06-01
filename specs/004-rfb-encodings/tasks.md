@@ -102,6 +102,9 @@ iPhone) and ships as its own PR.
   diagnostic export. Owns: test files.
 - **T307** Verify green; PR. Residual-risk: live Tight-JPEG throughput + real resolution
   change (manual device pass).
+- **T308** Live benchmark reporting: `VNCLiveBenchmark` emits redacted schema-v5
+  latency summaries with avg/p50/p95/min/max for first-frame, full-refresh, and
+  continuous-update samples. Owns: tool + benchmark-kit tests. **Done.**
 
 ## Cross-cutting (every increment)
 

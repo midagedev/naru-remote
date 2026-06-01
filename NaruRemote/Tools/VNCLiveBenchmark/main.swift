@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import NaruRemoteCore
+import VNCLiveBenchmarkKit
 
 private let toolName = "VNCLiveBenchmark"
 
@@ -490,7 +491,7 @@ private struct BenchmarkReport: Codable, Equatable {
         idleProbe: IdleProbeReport,
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 4
+        self.schemaVersion = 5
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -514,11 +515,17 @@ private struct ProfileReport: Codable, Equatable {
     let failed: Int
     let fullRefreshSamplesPerAttempt: Int
     let fullRefreshSamplesSucceeded: Int
+    let firstFrameLatency: BenchmarkLatencySummary?
     let averageFirstFrameMilliseconds: Int?
     let minFirstFrameMilliseconds: Int?
+    let p50FirstFrameMilliseconds: Int?
+    let p95FirstFrameMilliseconds: Int?
     let maxFirstFrameMilliseconds: Int?
+    let fullRefreshLatency: BenchmarkLatencySummary?
     let averageFullRefreshMilliseconds: Int?
     let minFullRefreshMilliseconds: Int?
+    let p50FullRefreshMilliseconds: Int?
+    let p95FullRefreshMilliseconds: Int?
     let maxFullRefreshMilliseconds: Int?
     let failureLabels: [String: Int]
 
@@ -536,24 +543,20 @@ private struct ProfileReport: Codable, Equatable {
         self.failed = attempted - firstFrameMilliseconds.count
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.fullRefreshSamplesSucceeded = fullRefreshMilliseconds.count
-        if firstFrameMilliseconds.isEmpty {
-            self.averageFirstFrameMilliseconds = nil
-            self.minFirstFrameMilliseconds = nil
-            self.maxFirstFrameMilliseconds = nil
-        } else {
-            self.averageFirstFrameMilliseconds = firstFrameMilliseconds.reduce(0, +) / firstFrameMilliseconds.count
-            self.minFirstFrameMilliseconds = firstFrameMilliseconds.min()
-            self.maxFirstFrameMilliseconds = firstFrameMilliseconds.max()
-        }
-        if fullRefreshMilliseconds.isEmpty {
-            self.averageFullRefreshMilliseconds = nil
-            self.minFullRefreshMilliseconds = nil
-            self.maxFullRefreshMilliseconds = nil
-        } else {
-            self.averageFullRefreshMilliseconds = fullRefreshMilliseconds.reduce(0, +) / fullRefreshMilliseconds.count
-            self.minFullRefreshMilliseconds = fullRefreshMilliseconds.min()
-            self.maxFullRefreshMilliseconds = fullRefreshMilliseconds.max()
-        }
+        let firstFrameLatency = BenchmarkLatencySummary(firstFrameMilliseconds)
+        self.firstFrameLatency = firstFrameLatency
+        self.averageFirstFrameMilliseconds = firstFrameLatency?.averageMilliseconds
+        self.minFirstFrameMilliseconds = firstFrameLatency?.minMilliseconds
+        self.p50FirstFrameMilliseconds = firstFrameLatency?.p50Milliseconds
+        self.p95FirstFrameMilliseconds = firstFrameLatency?.p95Milliseconds
+        self.maxFirstFrameMilliseconds = firstFrameLatency?.maxMilliseconds
+        let fullRefreshLatency = BenchmarkLatencySummary(fullRefreshMilliseconds)
+        self.fullRefreshLatency = fullRefreshLatency
+        self.averageFullRefreshMilliseconds = fullRefreshLatency?.averageMilliseconds
+        self.minFullRefreshMilliseconds = fullRefreshLatency?.minMilliseconds
+        self.p50FullRefreshMilliseconds = fullRefreshLatency?.p50Milliseconds
+        self.p95FullRefreshMilliseconds = fullRefreshLatency?.p95Milliseconds
+        self.maxFullRefreshMilliseconds = fullRefreshLatency?.maxMilliseconds
         self.failureLabels = failureLabels
     }
 }
@@ -578,8 +581,11 @@ private struct ContinuousUpdatesProbeReport: Codable, Equatable {
     let emptyUpdateSamples: Int
     let contentUpdateSamples: Int
     let timedOutSamples: Int
+    let durationLatency: BenchmarkLatencySummary?
     let averageDurationMilliseconds: Int?
     let minDurationMilliseconds: Int?
+    let p50DurationMilliseconds: Int?
+    let p95DurationMilliseconds: Int?
     let maxDurationMilliseconds: Int?
     let firstTimeoutMilliseconds: Int?
     let failureLabel: String?
@@ -605,9 +611,13 @@ private struct ContinuousUpdatesProbeReport: Codable, Equatable {
         self.emptyUpdateSamples = emptyUpdateSamples
         self.contentUpdateSamples = contentUpdateSamples
         self.timedOutSamples = timeoutMilliseconds == nil ? 0 : 1
-        self.averageDurationMilliseconds = durations.isEmpty ? nil : durations.reduce(0, +) / durations.count
-        self.minDurationMilliseconds = durations.min()
-        self.maxDurationMilliseconds = durations.max()
+        let durationLatency = BenchmarkLatencySummary(durations)
+        self.durationLatency = durationLatency
+        self.averageDurationMilliseconds = durationLatency?.averageMilliseconds
+        self.minDurationMilliseconds = durationLatency?.minMilliseconds
+        self.p50DurationMilliseconds = durationLatency?.p50Milliseconds
+        self.p95DurationMilliseconds = durationLatency?.p95Milliseconds
+        self.maxDurationMilliseconds = durationLatency?.maxMilliseconds
         self.firstTimeoutMilliseconds = timeoutMilliseconds
         self.failureLabel = failureLabel
     }
@@ -668,22 +678,26 @@ private func renderText(_ report: BenchmarkReport) {
     print("profiles:")
     for profile in report.profiles {
         print("- \(profile.label): \(profile.succeeded)/\(profile.attempted) succeeded")
-        if let average = profile.averageFirstFrameMilliseconds,
-           let minimum = profile.minFirstFrameMilliseconds,
-           let maximum = profile.maxFirstFrameMilliseconds {
-            print("  first-frame ms avg/min/max: \(average)/\(minimum)/\(maximum)")
-        } else {
-            print("  first-frame ms avg/min/max: n/a")
-        }
-        if let average = profile.averageFullRefreshMilliseconds,
-           let minimum = profile.minFullRefreshMilliseconds,
-           let maximum = profile.maxFullRefreshMilliseconds {
+        if let latency = profile.firstFrameLatency {
             print(
-                "  full-refresh ms avg/min/max: \(average)/\(minimum)/\(maximum) "
+                "  first-frame ms avg/p50/p95/min/max: "
+                    + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
+                    + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
+                    + "\(latency.maxMilliseconds)"
+            )
+        } else {
+            print("  first-frame ms avg/p50/p95/min/max: n/a")
+        }
+        if let latency = profile.fullRefreshLatency {
+            print(
+                "  full-refresh ms avg/p50/p95/min/max: "
+                    + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
+                    + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
+                    + "\(latency.maxMilliseconds) "
                     + "(\(profile.fullRefreshSamplesSucceeded) samples)"
             )
         } else {
-            print("  full-refresh ms avg/min/max: n/a (\(profile.fullRefreshSamplesSucceeded) samples)")
+            print("  full-refresh ms avg/p50/p95/min/max: n/a (\(profile.fullRefreshSamplesSucceeded) samples)")
         }
         if profile.failureLabels.isEmpty {
             print("  failures: none")
@@ -705,11 +719,14 @@ private func renderText(_ report: BenchmarkReport) {
     let probe = report.continuousUpdatesProbe
     if let failure = probe.failureLabel {
         print("- status: \(probe.status.rawValue), failure: \(failure)")
-    } else if let average = probe.averageDurationMilliseconds,
-              let minimum = probe.minDurationMilliseconds,
-              let maximum = probe.maxDurationMilliseconds {
+    } else if let latency = probe.durationLatency {
         print("- status: \(probe.status.rawValue), received: \(probe.receivedSamples)/\(probe.requestedSamples)")
-        print("  update ms avg/min/max: \(average)/\(minimum)/\(maximum)")
+        print(
+            "  update ms avg/p50/p95/min/max: "
+                + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
+                + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
+                + "\(latency.maxMilliseconds)"
+        )
         print("  empty/content/timeouts: \(probe.emptyUpdateSamples)/\(probe.contentUpdateSamples)/\(probe.timedOutSamples)")
         if let timeout = probe.firstTimeoutMilliseconds {
             print("  first timeout ms: \(timeout)")
