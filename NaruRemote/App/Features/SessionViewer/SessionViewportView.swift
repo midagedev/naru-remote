@@ -5,6 +5,17 @@ import SwiftUI
 import AVFoundation
 #endif
 
+public typealias SessionFramebufferTapHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias SessionFramebufferRightClickHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias SessionFramebufferScrollHandler = @MainActor @Sendable (
+    _ point: CGPoint,
+    _ viewSize: CGSize,
+    _ delta: CGSize
+) -> Void
+public typealias SessionFramebufferPointerDownHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias SessionFramebufferPointerMoveHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias SessionFramebufferPointerUpHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+
 public struct SessionViewportView: View {
     private let title: String
     private let subtitle: String
@@ -19,12 +30,12 @@ public struct SessionViewportView: View {
     private let onConnect: (() -> Void)?
     private let onDisconnect: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
-    private let onFramebufferTap: ((CGPoint, CGSize) -> Void)?
-    private let onFramebufferRightClick: ((CGPoint, CGSize) -> Void)?
-    private let onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)?
-    private let onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)?
-    private let onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)?
-    private let onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)?
+    private let onFramebufferTap: SessionFramebufferTapHandler?
+    private let onFramebufferRightClick: SessionFramebufferRightClickHandler?
+    private let onFramebufferScroll: SessionFramebufferScrollHandler?
+    private let onFramebufferPointerDown: SessionFramebufferPointerDownHandler?
+    private let onFramebufferPointerMove: SessionFramebufferPointerMoveHandler?
+    private let onFramebufferPointerUp: SessionFramebufferPointerUpHandler?
     /// How a one-finger gesture is interpreted (spec 003 US3 / T015).
     /// `.directTouch` keeps the tap-where-you-touch wire path; `.trackpad`
     /// draws the soft cursor and routes gestures through
@@ -113,12 +124,12 @@ public struct SessionViewportView: View {
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
-        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
-        onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferTap: SessionFramebufferTapHandler? = nil,
+        onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
+        onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
+        onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
+        onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
+        onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
@@ -168,12 +179,12 @@ public struct SessionViewportView: View {
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
-        onFramebufferTap: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferRightClick: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferScroll: ((CGPoint, CGSize, CGSize) -> Void)? = nil,
-        onFramebufferPointerDown: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerMove: ((CGPoint, CGSize) -> Void)? = nil,
-        onFramebufferPointerUp: ((CGPoint, CGSize) -> Void)? = nil,
+        onFramebufferTap: SessionFramebufferTapHandler? = nil,
+        onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
+        onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
+        onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
+        onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
+        onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
