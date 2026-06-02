@@ -128,7 +128,7 @@ private struct ConnectionGridCardView: View {
                 )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(card.displayName), \(card.endpoint), \(card.verdict.gridAccessibilityLabel)")
+        .accessibilityLabel("\(card.displayName), \(card.endpoint), \(card.reachability.gridAccessibilityLabel)")
     }
 
     @ViewBuilder
@@ -161,13 +161,13 @@ private struct ConnectionGridCardView: View {
     }
 
     private var statusBadge: some View {
-        Label(card.verdict.gridLabel, systemImage: card.verdict.symbolName)
+        Label(card.reachability.gridLabel, systemImage: card.reachability.symbolName)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(card.verdict.tint)
+            .foregroundStyle(card.reachability.tint)
             .labelStyle(.titleAndIcon)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .accessibilityIdentifier("naru.connection.grid.status.\(card.verdict.rawValue)")
+            .accessibilityIdentifier("naru.connection.grid.reachability.\(card.reachability.identifier)")
     }
 }
 
@@ -197,17 +197,19 @@ private struct ProfilePreviewThumbnailView: View {
     }
 }
 
-private extension DiagnosticVerdict {
+private extension ProfileReachabilityState {
     var gridLabel: String {
         switch self {
         case .unknown:
             return "Unknown"
-        case .passed:
+        case .checking:
+            return "Checking"
+        case .reachable:
             return "Reachable"
-        case .warning:
-            return "Check"
-        case .failed:
-            return "Issue"
+        case .needsPassword:
+            return "Password"
+        case .unreachable:
+            return "Unreachable"
         }
     }
 
@@ -215,12 +217,14 @@ private extension DiagnosticVerdict {
         switch self {
         case .unknown:
             return "reachability unknown"
-        case .passed:
+        case .checking:
+            return "checking reachability"
+        case .reachable:
             return "reachable"
-        case .warning:
-            return "reachable with warnings"
-        case .failed:
-            return "last check failed"
+        case .needsPassword:
+            return "reachable, needs VNC password"
+        case .unreachable(let failedStage):
+            return "unreachable at \(failedStage.rawValue)"
         }
     }
 
@@ -228,11 +232,13 @@ private extension DiagnosticVerdict {
         switch self {
         case .unknown:
             return "circle.dashed"
-        case .passed:
+        case .checking:
+            return "arrow.triangle.2.circlepath.circle.fill"
+        case .reachable:
             return "checkmark.circle.fill"
-        case .warning:
-            return "exclamationmark.circle.fill"
-        case .failed:
+        case .needsPassword:
+            return "key.fill"
+        case .unreachable:
             return "xmark.octagon.fill"
         }
     }
@@ -241,12 +247,29 @@ private extension DiagnosticVerdict {
         switch self {
         case .unknown:
             return .secondary
-        case .passed:
-            return NaruColors.reachable
-        case .warning:
+        case .checking:
             return NaruColors.warning
-        case .failed:
+        case .reachable:
+            return NaruColors.reachable
+        case .needsPassword:
+            return NaruColors.warning
+        case .unreachable:
             return NaruColors.coral
+        }
+    }
+
+    var identifier: String {
+        switch self {
+        case .unknown:
+            return "unknown"
+        case .checking:
+            return "checking"
+        case .reachable:
+            return "reachable"
+        case .needsPassword:
+            return "needsPassword"
+        case .unreachable:
+            return "unreachable"
         }
     }
 }

@@ -24,6 +24,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// These are recognition aids for the connection grid. They are
     /// never exported in diagnostics or sent to a remote host.
     public var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
+    /// Memory-only launch probe state keyed by profile id. These are
+    /// refreshed on app entry and profile edits; stale states are not
+    /// persisted as truth.
+    public var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
     public var directKeystrokeMode: DirectKeystrokeMode
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
@@ -53,6 +57,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         latestServerCursor: RFBServerCursor? = nil,
         profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
+        profileReachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:],
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -68,6 +73,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
         self.latestServerCursor = latestServerCursor
         self.profilePreviews = profilePreviews
+        self.profileReachability = profileReachability
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
@@ -161,6 +167,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                 endpoint: profile.endpoint,
                 hostKind: profile.hostKind,
                 preview: profilePreviews[profile.id],
+                reachability: profileReachability[profile.id] ?? .unknown,
                 verdict: lastDiagnosticVerdict[profile.id] ?? .unknown,
                 isSelected: selectedProfile?.id == profile.id
             )
@@ -174,6 +181,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let endpoint: String
     public let hostKind: ConnectionProfile.HostKind
     public let preview: ProfilePreviewThumbnail?
+    public let reachability: ProfileReachabilityState
     public let verdict: DiagnosticVerdict
     public let isSelected: Bool
 
@@ -183,6 +191,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         endpoint: String,
         hostKind: ConnectionProfile.HostKind,
         preview: ProfilePreviewThumbnail? = nil,
+        reachability: ProfileReachabilityState = .unknown,
         verdict: DiagnosticVerdict,
         isSelected: Bool
     ) {
@@ -191,9 +200,18 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         self.endpoint = endpoint
         self.hostKind = hostKind
         self.preview = preview
+        self.reachability = reachability
         self.verdict = verdict
         self.isSelected = isSelected
     }
+}
+
+public enum ProfileReachabilityState: Equatable, Sendable {
+    case unknown
+    case checking
+    case reachable
+    case needsPassword
+    case unreachable(failedStage: DiagnosticStage)
 }
 
 public struct DiagnosticSummaryRow: Equatable, Sendable, Identifiable {

@@ -155,14 +155,10 @@ enum UXAuditFixtures {
         )
     }
 
-    /// Multi-profile sidebar snapshot whose `lastDiagnosticVerdict`
-    /// dict pre-populates one of each verdict color so the audit
-    /// screenshot exercises the leading status-dot palette (UX
-    /// punch-list #109).  The four profiles deliberately mirror the
-    /// `runSidebarMultipleProfiles` XCUITest seed (Studio Mac /
-    /// Office Linux / Home NUC / Public test) so a reviewer can
-    /// diff the with-verdicts capture against the gray-dot capture
-    /// without mental remapping.
+    /// Multi-profile grid snapshot whose diagnostic verdicts and
+    /// launch reachability states are pre-populated so the audit
+    /// screenshot exercises every status badge plus mixed preview /
+    /// placeholder cards.
     private static func sidebarWithVerdictsSnapshot() -> NaruRemoteAppSnapshot {
         let studio = try! ConnectionProfile(
             id: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!,
@@ -188,6 +184,12 @@ enum UXAuditFixtures {
             host: "203.0.113.5",
             hostKind: .advancedManualPublicEndpoint
         )
+        let travel = try! ConnectionProfile(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000B5")!,
+            displayName: "Travel Mac",
+            host: "100.64.12.20",
+            hostKind: .privateAddress
+        )
 
         let verdicts: [ConnectionProfile.ID: DiagnosticVerdict] = [
             studio.id: .passed,
@@ -197,6 +199,15 @@ enum UXAuditFixtures {
             // `.unknown` (gray) — covers the "no diagnostic ever
             // run" path while the other three exercise green / amber
             // / red.
+        ]
+        let reachability: [ConnectionProfile.ID: ProfileReachabilityState] = [
+            studio.id: .reachable,
+            office.id: .checking,
+            home.id: .unreachable(failedStage: .tcp),
+            publicTest.id: .needsPassword
+            // `travel.id` intentionally omitted so it renders as
+            // `.unknown` and the capture covers all five launch
+            // reachability states.
         ]
         let previews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [
             studio.id: gradientPreview(
@@ -210,9 +221,10 @@ enum UXAuditFixtures {
         ]
 
         return NaruRemoteAppSnapshot(
-            profiles: [studio, office, home, publicTest],
+            profiles: [studio, office, home, publicTest, travel],
             selectedProfileID: studio.id,
             profilePreviews: previews,
+            profileReachability: reachability,
             lastDiagnosticVerdict: verdicts
         )
     }
