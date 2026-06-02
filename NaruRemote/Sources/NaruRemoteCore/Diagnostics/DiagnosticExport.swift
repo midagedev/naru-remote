@@ -5,6 +5,9 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let runID: UUID
     public let profileFingerprint: String
     public let verdict: DiagnosticVerdict
+    public let startedAt: Date
+    public let finishedAt: Date?
+    public let context: DiagnosticRunContext?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -21,6 +24,9 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
         self.verdict = run.verdict
+        self.startedAt = run.startedAt
+        self.finishedAt = run.finishedAt
+        self.context = run.context
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -35,7 +41,9 @@ public struct DiagnosticExport: Equatable, Sendable {
             Row(
                 stageID: stage.stage.rawValue,
                 statusID: stage.status.rawValue,
-                safeDetail: DiagnosticExportSafeDetailCatalog.detail(for: stage)
+                safeDetail: DiagnosticExportSafeDetailCatalog.detail(for: stage),
+                recordedAt: Self.isoString(from: stage.timestamp),
+                failureCode: DiagnosticFailureCodeCatalog.safeCode(stage.metadata?.failureCode)
             )
         }
     }
@@ -48,11 +56,21 @@ public struct DiagnosticExport: Equatable, Sendable {
         public let stageID: String
         public let statusID: String
         public let safeDetail: String
+        public let recordedAt: String
+        public let failureCode: String?
 
-        public init(stageID: String, statusID: String, safeDetail: String) {
+        public init(
+            stageID: String,
+            statusID: String,
+            safeDetail: String,
+            recordedAt: String,
+            failureCode: String? = nil
+        ) {
             self.stageID = stageID
             self.statusID = statusID
             self.safeDetail = safeDetail
+            self.recordedAt = recordedAt
+            self.failureCode = failureCode
         }
     }
 
@@ -89,6 +107,18 @@ public struct DiagnosticExport: Equatable, Sendable {
             buildVersion: buildVersion ?? "n/a",
             runID: runID.uuidString.lowercased(),
             profileFingerprint: profileFingerprint,
+            startedAt: Self.isoString(from: startedAt),
+            finishedAt: finishedAt.map { Self.isoString(from: $0) },
+            runDurationBucket: DiagnosticDurationBucket.bucket(
+                startedAt: startedAt,
+                finishedAt: finishedAt
+            ).rawValue,
+            targetFingerprint: context?.targetFingerprint,
+            profileHostKind: context?.profileHostKind,
+            configuredPort: context?.configuredPort,
+            hasCredentialReference: context?.hasCredentialReference,
+            diagnosticTrigger: context?.trigger?.rawValue,
+            probeTimeoutSeconds: context?.probeTimeoutSeconds,
             verdict: verdict.rawValue,
             stageRows: stageRows
         )
@@ -114,7 +144,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     ) -> String {
         let text = renderShareText(buildVersion: buildVersion, now: now)
         let json = renderCollectionJSON(buildVersion: buildVersion, now: now)
-        return "\(text)\n\n--- Naru Remote Diagnostic JSON v1 ---\n\(json)"
+        return "\(text)\n\n--- Naru Remote Diagnostic JSON v2 ---\n\(json)"
     }
 
     private static func isoString(from date: Date) -> String {
@@ -129,7 +159,13 @@ public struct DiagnosticExport: Equatable, Sendable {
     }
 
     private static func profileFingerprint(for profileID: UUID) -> String {
-        let digest = SHA256.hash(data: Data(profileID.uuidString.lowercased().utf8))
+        DiagnosticFingerprint.sha256Token(profileID.uuidString.lowercased())
+    }
+}
+
+public enum DiagnosticFingerprint {
+    public static func sha256Token(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
         let hex = digest.map { byte in
             let value = String(byte, radix: 16)
             return value.count == 1 ? "0\(value)" : value
@@ -143,14 +179,55 @@ public enum DiagnosticExportDetailLevel: String, Codable, Equatable, Sendable {
     case stageSummary
 }
 
+public enum DiagnosticFailureCodeCatalog {
+    private static let allowedCodes: Set<String> = [
+        "credential.passwordMissing",
+        "error.unknown",
+        "network.connectionFailed",
+        "network.invalidPort",
+        "network.notConnected",
+        "network.timedOut",
+        "network.writeFailed",
+        "rfb.authenticationRequired",
+        "rfb.incompleteTranscript",
+        "rfb.insufficientData",
+        "rfb.invalidProtocolVersion",
+        "rfb.invalidServerCutTextEncoding",
+        "rfb.securityFailed",
+        "rfb.truncatedServerCutText",
+        "rfb.unexpectedMessageType",
+        "rfb.unsupportedFramebufferEncoding",
+        "rfb.unsupportedSecurityTypes"
+    ]
+
+    public static func safeCode(_ code: String?) -> String? {
+        guard let code else {
+            return nil
+        }
+        guard allowedCodes.contains(code) else {
+            return "error.unknown"
+        }
+        return code
+    }
+}
+
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public let schemaVersion: Int
     public let generatedAt: String
     public let buildVersion: String
     public let runID: String
     public let profileFingerprint: String
+    public let startedAt: String
+    public let finishedAt: String?
+    public let runDurationBucket: String
+    public let targetFingerprint: String?
+    public let profileHostKind: String?
+    public let configuredPort: Int?
+    public let hasCredentialReference: Bool?
+    public let diagnosticTrigger: String?
+    public let probeTimeoutSeconds: Double?
     public let verdict: String
     public let stageRows: [DiagnosticExport.Row]
 
@@ -160,6 +237,15 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         buildVersion: String,
         runID: String,
         profileFingerprint: String,
+        startedAt: String,
+        finishedAt: String?,
+        runDurationBucket: String,
+        targetFingerprint: String? = nil,
+        profileHostKind: String? = nil,
+        configuredPort: Int? = nil,
+        hasCredentialReference: Bool? = nil,
+        diagnosticTrigger: String? = nil,
+        probeTimeoutSeconds: Double? = nil,
         verdict: String,
         stageRows: [DiagnosticExport.Row]
     ) {
@@ -168,6 +254,15 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.buildVersion = buildVersion
         self.runID = runID
         self.profileFingerprint = profileFingerprint
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.runDurationBucket = runDurationBucket
+        self.targetFingerprint = targetFingerprint
+        self.profileHostKind = profileHostKind
+        self.configuredPort = configuredPort
+        self.hasCredentialReference = hasCredentialReference
+        self.diagnosticTrigger = diagnosticTrigger
+        self.probeTimeoutSeconds = probeTimeoutSeconds
         self.verdict = verdict
         self.stageRows = stageRows
     }

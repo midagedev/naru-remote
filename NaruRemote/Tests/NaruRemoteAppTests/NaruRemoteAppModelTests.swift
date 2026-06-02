@@ -768,6 +768,58 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[profile.id], .failed)
     }
 
+    func testFailedConnectExportIncludesDebugSafeFailureContext() async throws {
+        let credentialRef = "vnc-password:test"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            port: 5901,
+            credentialRef: credentialRef,
+            hostKind: .privateAddress
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [credentialRef: "secret"])
+        let connector = FakeFirstFrameConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            connectError: RFBNetworkClientError.connectionFailed
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(report.schemaVersion, 2)
+        XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
+        XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
+        XCTAssertEqual(report.configuredPort, 5901)
+        XCTAssertEqual(report.hasCredentialReference, true)
+        XCTAssertEqual(report.diagnosticTrigger, DiagnosticRunTrigger.connect.rawValue)
+        XCTAssertEqual(report.probeTimeoutSeconds, 3)
+        XCTAssertTrue(report.targetFingerprint?.hasPrefix("sha256:") ?? false)
+        XCTAssertEqual(report.targetFingerprint?.count, "sha256:".count + 64)
+        XCTAssertEqual(report.stageRows.last?.stageID, DiagnosticStage.tcp.rawValue)
+        XCTAssertEqual(report.stageRows.last?.failureCode, "network.connectionFailed")
+        XCTAssertFalse(json.contains("desk.tailnet.ts.net"))
+        XCTAssertFalse(json.contains("desk.tailnet.ts.net:5901"))
+        XCTAssertFalse(json.contains(credentialRef))
+        XCTAssertFalse(json.contains("secret"))
+        XCTAssertFalse(json.contains(profile.id.uuidString))
+    }
+
     func testVerdictCacheIsScopedPerProfile() async throws {
         // A second profile's selection + diagnostic should not stomp
         // the first profile's recorded verdict — the dict is per-id
@@ -858,7 +910,7 @@ private final class FakePiPWatchController: PiPWatchControlling {
     }
 }
 
-private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClipboardTextClient {
+private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnecting, RemoteClipboardTextClient {
     struct Request: Equatable {
         let host: String
         let port: UInt16
@@ -874,11 +926,13 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
     private let width: Int
     private let height: Int
     private let name: String
+    private let connectError: Error?
 
-    init(width: Int, height: Int, name: String) {
+    init(width: Int, height: Int, name: String, connectError: Error? = nil) {
         self.width = width
         self.height = height
         self.name = name
+        self.connectError = connectError
         self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
 
@@ -907,8 +961,22 @@ private final class FakeFirstFrameConnector: RFBFirstFrameConnecting, RemoteClip
         port: UInt16,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
+        try connectFirstFrame(host: host, port: port, credential: .none, timeout: timeout)
+    }
+
+    func connectFirstFrame(
+        host: String,
+        port: UInt16,
+        credential: RFBConnectionCredential,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        _ = credential
         recording.withLock { state in
             state.recordedRequests.append(Request(host: host, port: port))
+        }
+
+        if let connectError {
+            throw connectError
         }
 
         return RFBServerInit(

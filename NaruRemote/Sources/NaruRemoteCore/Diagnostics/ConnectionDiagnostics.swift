@@ -17,6 +17,73 @@ public enum DiagnosticStatus: String, Codable, Equatable, Sendable {
     case skipped
 }
 
+public enum DiagnosticRunTrigger: String, Codable, Equatable, Sendable {
+    case manualChecks
+    case connect
+    case streamDrop
+    case reconnect
+    case credentialLookup
+}
+
+public enum DiagnosticDurationBucket: String, Codable, Equatable, Sendable {
+    case notMeasured
+    case underOneSecond
+    case oneToThreeSeconds
+    case threeToTenSeconds
+    case overTenSeconds
+
+    public static func bucket(startedAt: Date, finishedAt: Date?) -> DiagnosticDurationBucket {
+        guard let finishedAt else {
+            return .notMeasured
+        }
+
+        let seconds = max(0, finishedAt.timeIntervalSince(startedAt))
+        switch seconds {
+        case ..<1:
+            return .underOneSecond
+        case ..<3:
+            return .oneToThreeSeconds
+        case ..<10:
+            return .threeToTenSeconds
+        default:
+            return .overTenSeconds
+        }
+    }
+}
+
+public struct DiagnosticRunContext: Codable, Equatable, Sendable {
+    public let targetFingerprint: String?
+    public let profileHostKind: String?
+    public let configuredPort: Int?
+    public let hasCredentialReference: Bool?
+    public let trigger: DiagnosticRunTrigger?
+    public let probeTimeoutSeconds: Double?
+
+    public init(
+        targetFingerprint: String? = nil,
+        profileHostKind: String? = nil,
+        configuredPort: Int? = nil,
+        hasCredentialReference: Bool? = nil,
+        trigger: DiagnosticRunTrigger? = nil,
+        probeTimeoutSeconds: Double? = nil
+    ) {
+        self.targetFingerprint = targetFingerprint
+        self.profileHostKind = profileHostKind
+        self.configuredPort = configuredPort
+        self.hasCredentialReference = hasCredentialReference
+        self.trigger = trigger
+        self.probeTimeoutSeconds = probeTimeoutSeconds
+    }
+}
+
+public struct DiagnosticStageMetadata: Codable, Equatable, Sendable {
+    public let failureCode: String?
+
+    public init(failureCode: String? = nil) {
+        self.failureCode = failureCode
+    }
+}
+
 public struct DiagnosticStageResult: Codable, Equatable, Sendable {
     public let stage: DiagnosticStage
     public let status: DiagnosticStatus
@@ -24,6 +91,7 @@ public struct DiagnosticStageResult: Codable, Equatable, Sendable {
     public let safeDetail: String
     public let nextAction: String?
     public let timestamp: Date
+    public let metadata: DiagnosticStageMetadata?
 
     public init(
         stage: DiagnosticStage,
@@ -31,7 +99,8 @@ public struct DiagnosticStageResult: Codable, Equatable, Sendable {
         safeTitle: String,
         safeDetail: String,
         nextAction: String? = nil,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        metadata: DiagnosticStageMetadata? = nil
     ) {
         self.stage = stage
         self.status = status
@@ -39,6 +108,7 @@ public struct DiagnosticStageResult: Codable, Equatable, Sendable {
         self.safeDetail = safeDetail
         self.nextAction = nextAction
         self.timestamp = timestamp
+        self.metadata = metadata
     }
 }
 
@@ -47,6 +117,7 @@ public struct ConnectionDiagnosticRun: Codable, Equatable, Identifiable, Sendabl
     public let profileID: ConnectionProfile.ID
     public let startedAt: Date
     public var finishedAt: Date?
+    public var context: DiagnosticRunContext?
     public var stages: [DiagnosticStageResult]
 
     public init(
@@ -54,12 +125,14 @@ public struct ConnectionDiagnosticRun: Codable, Equatable, Identifiable, Sendabl
         profileID: ConnectionProfile.ID,
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
+        context: DiagnosticRunContext? = nil,
         stages: [DiagnosticStageResult] = []
     ) {
         self.id = id
         self.profileID = profileID
         self.startedAt = startedAt
         self.finishedAt = finishedAt
+        self.context = context
         self.stages = stages
     }
 
@@ -134,7 +207,8 @@ public enum DiagnosticVerdict: String, Codable, Equatable, Sendable {
 public enum DiagnosticMessageCatalog {
     public static func failure(
         for stage: DiagnosticStage,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        metadata: DiagnosticStageMetadata? = nil
     ) -> DiagnosticStageResult {
         switch stage {
         case .dns:
@@ -144,7 +218,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "MagicDNS did not resolve",
                 safeDetail: "Check Tailscale status and the host name.",
                 nextAction: "Open Tailscale and confirm this device is connected.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         case .tcp:
             DiagnosticStageResult(
@@ -153,7 +228,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "Host reached, VNC port closed",
                 safeDetail: "VNC port did not respond. The host may be off, the port may be closed, or your iPhone's Local Network permission may be denied for Naru Remote.",
                 nextAction: "On iOS: Settings → Naru Remote → Local Network. On the host: confirm port 5900 is open.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         case .rfbHandshake:
             DiagnosticStageResult(
@@ -162,7 +238,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "VNC handshake failed",
                 safeDetail: "The server did not offer a compatible RFB security type. macOS hosts must enable 'VNC viewers may control screen with password' in System Settings → General → Sharing → Screen Sharing → ⓘ.",
                 nextAction: "Enable the VNC viewers checkbox in macOS Sharing settings.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         case .authentication:
             DiagnosticStageResult(
@@ -171,7 +248,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "Authentication failed",
                 safeDetail: "The VNC password was rejected. macOS uses a separate VNC password from your account password — set it in System Settings → General → Sharing → Screen Sharing → ⓘ. VNC Auth uses only the first 8 characters.",
                 nextAction: "Re-check the VNC password (first 8 chars only) under macOS Sharing settings.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         case .firstFrame:
             DiagnosticStageResult(
@@ -180,7 +258,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "No frame received",
                 safeDetail: "The session connected, but no remote frame arrived yet.",
                 nextAction: "Try reconnecting or check the remote display state.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         case .clipboardText:
             DiagnosticStageResult(
@@ -189,7 +268,8 @@ public enum DiagnosticMessageCatalog {
                 safeTitle: "Text clipboard unavailable",
                 safeDetail: "This server did not accept the text clipboard path.",
                 nextAction: "Try a different server or wait for helper support.",
-                timestamp: timestamp
+                timestamp: timestamp,
+                metadata: metadata
             )
         }
     }
