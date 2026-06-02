@@ -721,6 +721,11 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         diagnosticRun = ConnectionDiagnosticRun(
             profileID: profile.id,
+            context: Self.diagnosticContext(
+                for: profile,
+                trigger: .manualChecks,
+                timeout: nil
+            ),
             stages: [
                 DiagnosticStageResult(
                     stage: .dns,
@@ -1043,6 +1048,77 @@ public final class NaruRemoteAppModel: ObservableObject {
         return .unreachable(failedStage: failedStage)
     }
 
+    nonisolated private static func diagnosticContext(
+        for profile: ConnectionProfile,
+        trigger: DiagnosticRunTrigger,
+        timeout: TimeInterval?
+    ) -> DiagnosticRunContext {
+        let normalizedHost = profile.host
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let normalizedTarget = "\(normalizedHost):\(profile.port)"
+        return DiagnosticRunContext(
+            targetFingerprint: DiagnosticFingerprint.sha256Token(normalizedTarget),
+            profileHostKind: profile.hostKind.rawValue,
+            configuredPort: profile.port,
+            hasCredentialReference: profile.credentialRef != nil,
+            trigger: trigger,
+            probeTimeoutSeconds: timeout.map { ($0 * 1000).rounded() / 1000 }
+        )
+    }
+
+    nonisolated private static func diagnosticFailureMetadata(for error: Error) -> DiagnosticStageMetadata {
+        DiagnosticStageMetadata(failureCode: diagnosticFailureCode(for: error))
+    }
+
+    nonisolated private static func diagnosticFailureCode(for error: Error) -> String {
+        if let networkError = error as? RFBNetworkClientError {
+            switch networkError {
+            case .invalidPort:
+                return "network.invalidPort"
+            case .timedOut:
+                return "network.timedOut"
+            case .incompleteTranscript:
+                return "rfb.incompleteTranscript"
+            case .connectionFailed:
+                return "network.connectionFailed"
+            case .writeFailed:
+                return "network.writeFailed"
+            case .authenticationRequired:
+                return "rfb.authenticationRequired"
+            case .unsupportedSecurityTypes:
+                return "rfb.unsupportedSecurityTypes"
+            case .unsupportedFramebufferEncoding:
+                return "rfb.unsupportedFramebufferEncoding"
+            case .notConnected:
+                return "network.notConnected"
+            }
+        }
+
+        if let decoderError = error as? RFBProtocolDecoderError {
+            switch decoderError {
+            case .securityFailed:
+                return "rfb.securityFailed"
+            case .insufficientData:
+                return "rfb.insufficientData"
+            case .invalidProtocolVersion:
+                return "rfb.invalidProtocolVersion"
+            case .unexpectedMessageType:
+                return "rfb.unexpectedMessageType"
+            case .truncatedServerCutText:
+                return "rfb.truncatedServerCutText"
+            case .invalidServerCutTextEncoding:
+                return "rfb.invalidServerCutTextEncoding"
+            }
+        }
+
+        if error is AppCredentialError {
+            return "credential.passwordMissing"
+        }
+
+        return "error.unknown"
+    }
+
     /// Stamps the per-profile verdict cache for #109's leading status
     /// dot.  Centralizing the write here means every diagnostic
     /// completion path (success, failure, credential failure,
@@ -1075,10 +1151,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         return .vncPassword(password)
     }
 
-    private func credentialFailureDiagnosticRun(profile: ConnectionProfile) -> ConnectionDiagnosticRun {
+    private func credentialFailureDiagnosticRun(
+        profile: ConnectionProfile,
+        startedAt: Date
+    ) -> ConnectionDiagnosticRun {
         ConnectionDiagnosticRun(
             profileID: profile.id,
+            startedAt: startedAt,
             finishedAt: Date(),
+            context: Self.diagnosticContext(
+                for: profile,
+                trigger: .credentialLookup,
+                timeout: nil
+            ),
             stages: [
                 DiagnosticStageResult(
                     stage: .dns,
@@ -1091,7 +1176,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                     status: .failed,
                     safeTitle: "Credential unavailable",
                     safeDetail: "Saved VNC password could not be loaded from this device.",
-                    nextAction: "Update the profile password."
+                    nextAction: "Update the profile password.",
+                    metadata: DiagnosticStageMetadata(failureCode: "credential.passwordMissing")
                 )
             ]
         )
@@ -1120,6 +1206,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         cancelPointerEventQueue()
 
         runConnectionChecks()
+        let diagnosticStartedAt = diagnosticRun?.startedAt ?? Date()
         var nextSession = RemoteSession(
             profileID: profile.id,
             state: .connecting,
@@ -1146,7 +1233,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             latestServerCursor = nil
-            diagnosticRun = credentialFailureDiagnosticRun(profile: profile)
+            diagnosticRun = credentialFailureDiagnosticRun(
+                profile: profile,
+                startedAt: diagnosticStartedAt
+            )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             return
         }
@@ -1203,7 +1293,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 session = nextSession
                 diagnosticRun = ConnectionDiagnosticRun(
                     profileID: profile.id,
+                    startedAt: diagnosticStartedAt,
                     finishedAt: Date(),
+                    context: Self.diagnosticContext(
+                        for: profile,
+                        trigger: .connect,
+                        timeout: 3
+                    ),
                     stages: [
                         DiagnosticStageResult(
                             stage: .dns,
@@ -1247,12 +1343,21 @@ public final class NaruRemoteAppModel: ObservableObject {
                 // wrong password, or a real handshake mismatch
                 // (constitution §IV).
                 let failedStage = Self.stage(for: error)
-                let failure = DiagnosticMessageCatalog.failure(for: failedStage)
+                let failure = DiagnosticMessageCatalog.failure(
+                    for: failedStage,
+                    metadata: Self.diagnosticFailureMetadata(for: error)
+                )
                 nextSession.markFailed(failure.safeTitle)
                 session = nextSession
                 diagnosticRun = ConnectionDiagnosticRun(
                     profileID: profile.id,
+                    startedAt: diagnosticStartedAt,
                     finishedAt: Date(),
+                    context: Self.diagnosticContext(
+                        for: profile,
+                        trigger: .connect,
+                        timeout: 3
+                    ),
                     stages: [
                         DiagnosticStageResult(
                             stage: .dns,
@@ -1513,7 +1618,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         if frame.sequence == 1 {
             diagnosticRun = ConnectionDiagnosticRun(
                 profileID: profile.id,
+                startedAt: diagnosticRun?.startedAt ?? Date(),
                 finishedAt: Date(),
+                context: Self.diagnosticContext(
+                    for: profile,
+                    trigger: .connect,
+                    timeout: frameStreamConfiguration.requestTimeout
+                ),
                 stages: [
                     DiagnosticStageResult(
                         stage: .dns,
@@ -1736,7 +1847,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             reconnectAttempts = 0
             diagnosticRun = ConnectionDiagnosticRun(
                 profileID: profile.id,
+                startedAt: diagnosticRun?.startedAt ?? Date(),
                 finishedAt: Date(),
+                context: Self.diagnosticContext(
+                    for: profile,
+                    trigger: .streamDrop,
+                    timeout: frameStreamConfiguration.requestTimeout
+                ),
                 stages: [
                     DiagnosticStageResult(
                         stage: .dns,
@@ -1749,7 +1866,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         status: .failed,
                         safeTitle: "Connection lost",
                         safeDetail: "The remote frame stream stopped responding.",
-                        nextAction: "Check the remote computer and reconnect."
+                        nextAction: "Check the remote computer and reconnect.",
+                        metadata: Self.diagnosticFailureMetadata(for: error)
                     )
                 ]
             )
@@ -1764,7 +1882,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         // "VNC handshake failed" / "Connection failed" pair
         // (constitution §IV).
         let failedStage = Self.stage(for: error)
-        let failure = DiagnosticMessageCatalog.failure(for: failedStage)
+        let failure = DiagnosticMessageCatalog.failure(
+            for: failedStage,
+            metadata: Self.diagnosticFailureMetadata(for: error)
+        )
         updatedSession.markFailed(failure.safeTitle)
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
@@ -1775,7 +1896,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         diagnosticRun = ConnectionDiagnosticRun(
             profileID: profile.id,
+            startedAt: diagnosticRun?.startedAt ?? Date(),
             finishedAt: Date(),
+            context: Self.diagnosticContext(
+                for: profile,
+                trigger: .connect,
+                timeout: frameStreamConfiguration.requestTimeout
+            ),
             stages: [
                 DiagnosticStageResult(
                     stage: .dns,

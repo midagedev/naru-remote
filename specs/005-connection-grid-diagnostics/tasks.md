@@ -43,11 +43,12 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
 ## Increment 5 - Structured diagnostics collection format
 
 - **T501** `DiagnosticExport.swift`: add `DiagnosticCollectionReport` and `renderCollectionJSON(buildVersion:now:)`. Owns: core diagnostics file.
-- **T502** Define schema v1 fields: `schemaVersion`, `generatedAt`, `buildVersion`, `runID`, `profileFingerprint`, `verdict`, `stageRows`. Owns: diagnostics file.
+- **T502** Define schema v2 fields: `schemaVersion`, `generatedAt`, `buildVersion`, `runID`, `profileFingerprint`, `startedAt`, `finishedAt`, `runDurationBucket`, `verdict`, and `stageRows`. Owns: diagnostics file.
 - **T503** Ensure rows are generated only from `DiagnosticExport.Row` and fixed safe catalog detail. Owns: diagnostics file.
 - **T504** `NaruRemoteAppModel.swift` / `DiagnosticSummaryView.swift`: share payload includes plain text plus structured JSON. Owns: app files.
 - **T505** Tests: sentinel redaction for host, endpoint, credentialRef, clipboard, composed text, raw errors, pixels, thumbnails, raw latency; deterministic JSON with pinned date. Owns: test files.
-- **T506** Verify: `swift test`; UI smoke for share button remains enabled only with diagnostics; PR.
+- **T506** Add debug-safe context fields: target fingerprint, host kind, configured port, credential-reference presence, diagnostic trigger, probe timeout seconds, stage timestamps, and typed failure codes. Owns: diagnostics and app-model files.
+- **T507** Verify: `swift test`; UI smoke for share button remains enabled only with diagnostics; PR.
 
 ## Cross-cutting Rules
 

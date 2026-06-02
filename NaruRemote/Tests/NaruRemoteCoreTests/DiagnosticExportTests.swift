@@ -219,19 +219,30 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV1() throws {
+    func testRenderCollectionJSONIsDeterministicSchemaV2() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
             id: runID,
             profileID: profileID,
+            startedAt: Date(timeIntervalSince1970: 1_714_521_618),
             finishedAt: Date(timeIntervalSince1970: 1_714_521_620),
+            context: DiagnosticRunContext(
+                targetFingerprint: DiagnosticFingerprint.sha256Token("desk.tailnet.ts.net:5901"),
+                profileHostKind: ConnectionProfile.HostKind.magicDNS.rawValue,
+                configuredPort: 5901,
+                hasCredentialReference: true,
+                trigger: .connect,
+                probeTimeoutSeconds: 3
+            ),
             stages: [
                 DiagnosticStageResult(
                     stage: .tcp,
                     status: .failed,
                     safeTitle: "Host reached, VNC port closed",
-                    safeDetail: "caller detail must not appear"
+                    safeDetail: "caller detail must not appear",
+                    timestamp: Date(timeIntervalSince1970: 1_714_521_619),
+                    metadata: DiagnosticStageMetadata(failureCode: "network.connectionFailed")
                 )
             ]
         )
@@ -242,25 +253,39 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 1"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 2"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
+        XCTAssertFalse(rendered.contains("desk.tailnet.ts.net"))
+        XCTAssertFalse(rendered.contains("desk.tailnet.ts.net:5901"))
         XCTAssertFalse(rendered.contains("caller detail"))
 
         let decoded = try JSONDecoder().decode(
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.schemaVersion, 2)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
+        XCTAssertEqual(decoded.startedAt, "2024-05-01T00:00:18Z")
+        XCTAssertEqual(decoded.finishedAt, "2024-05-01T00:00:20Z")
+        XCTAssertEqual(decoded.runDurationBucket, DiagnosticDurationBucket.oneToThreeSeconds.rawValue)
+        XCTAssertTrue(decoded.targetFingerprint?.hasPrefix("sha256:") ?? false)
+        XCTAssertEqual(decoded.targetFingerprint?.count, "sha256:".count + 64)
+        XCTAssertEqual(decoded.profileHostKind, ConnectionProfile.HostKind.magicDNS.rawValue)
+        XCTAssertEqual(decoded.configuredPort, 5901)
+        XCTAssertEqual(decoded.hasCredentialReference, true)
+        XCTAssertEqual(decoded.diagnosticTrigger, DiagnosticRunTrigger.connect.rawValue)
+        XCTAssertEqual(decoded.probeTimeoutSeconds, 3)
         XCTAssertEqual(decoded.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertTrue(decoded.profileFingerprint.hasPrefix("sha256:"))
         XCTAssertEqual(decoded.profileFingerprint.count, "sha256:".count + 64)
         XCTAssertEqual(decoded.stageRows, export.stageRows)
         XCTAssertEqual(decoded.stageRows.first?.safeDetail, "TCP reachability stage.")
+        XCTAssertEqual(decoded.stageRows.first?.recordedAt, "2024-05-01T00:00:19Z")
+        XCTAssertEqual(decoded.stageRows.first?.failureCode, "network.connectionFailed")
     }
 
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
@@ -286,8 +311,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v1 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 1"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v2 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 2"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }
@@ -325,7 +350,8 @@ final class DiagnosticExportTests: XCTestCase {
                 status: stage == .authentication ? .failed : .passed,
                 safeTitle: "Raw title \(rawBlob)",
                 safeDetail: "Raw detail \(rawBlob)",
-                nextAction: "\(nextActionSentinel) \(rawBlob)"
+                nextAction: "\(nextActionSentinel) \(rawBlob)",
+                metadata: DiagnosticStageMetadata(failureCode: rawErrorSentinel)
             )
         }
         let run = ConnectionDiagnosticRun(
@@ -340,6 +366,7 @@ final class DiagnosticExportTests: XCTestCase {
         let payload = export.renderSharePayload(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertTrue(json.contains("Authentication stage."))
+        XCTAssertTrue(json.contains("\"failureCode\" : \"error.unknown\""))
         XCTAssertTrue(payload.contains("Authentication stage."))
         XCTAssertTrue(payload.contains("Naru Remote Diagnostic Summary"))
 

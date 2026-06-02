@@ -69,7 +69,7 @@ The grid, status badges, diagnostics panel, placeholders, and buttons remain rea
 
 ### User Story 5 - Collectable Structured Diagnostics (Priority: P1)
 
-When a connection fails, the user can share a structured diagnostic report that the team can aggregate by schema version, stage id, status id, build version, and coarse environment fields. It must keep the current safe-catalog rules: no password, host, endpoint, clipboard text, composed text, pixels, coordinates, raw latency, or raw error strings.
+When a connection fails, the user can share a structured diagnostic report that the team can aggregate by schema version, stage id, status id, build version, and coarse environment fields. It must be detailed enough for support to distinguish "wrong profile target", "VNC port unreachable", "handshake/authentication reached", and "stream dropped" without asking for a second log. It must keep the current safe-catalog rules: no password, host, endpoint, clipboard text, composed text, pixels, coordinates, raw latency, or raw error strings.
 
 **Independent Test**: Unit-test JSON rendering with sentinel secrets in every caller-provided field. Assert the JSON contains only schema keys, safe stage/status ids, safe catalog detail, build version, timestamps, and coarse app/session state.
 
@@ -78,6 +78,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 1. Given a diagnostic run, when the user shares diagnostics, then the share payload includes both human-readable text and a JSON block or file with `schemaVersion`.
 2. Given caller-provided safeDetail/nextAction strings contain secrets, when JSON renders, then those strings are omitted in favor of the fixed safe catalog.
 3. Given a card has a preview thumbnail, when diagnostics are exported, then no image, pixel-derived bytes, frame dimensions beyond safe catalog text, or thumbnail metadata are included.
+4. Given a TCP or RFB failure, when JSON renders, then it includes debug-safe failure context: target fingerprint, host kind, configured port, credential-reference presence, diagnostic trigger, timeout bucket/value, run duration bucket, stage timestamp, and typed failure code.
 
 ## Requirements
 
@@ -92,9 +93,11 @@ When a connection fails, the user can share a structured diagnostic report that 
 - **FR-007**: Reachability states MUST distinguish at least `unknown`, `checking`, `reachable`, `needsPassword`, and `unreachable`.
 - **FR-008**: Reachability probes MUST reuse the fixed diagnostic message catalog for user-visible failure reasons and MUST NOT show raw network errors.
 - **FR-009**: Grid and diagnostics surfaces MUST use adaptive color tokens for canvas, card/surface, hairline, status fills, and text in light and dark appearance.
-- **FR-010**: Diagnostics export MUST provide a structured JSON representation with schema version, build version, generated timestamp, run id, profile fingerprint, stage rows, and verdict.
+- **FR-010**: Diagnostics export MUST provide a structured JSON representation with schema version, build version, generated timestamp, run id, profile fingerprint, run timestamps, run duration bucket, stage rows, and verdict.
 - **FR-011**: Diagnostics JSON MUST use safe catalog stage/status/detail values only; caller-provided stage titles/details/next actions, host, endpoint, credential references, clipboard text, composed text, pointer coordinates, raw latency, raw errors, and pixel data MUST NOT be emitted.
 - **FR-012**: The existing plain-text share summary MUST remain available for humans, but the structured report is the canonical collection format.
+- **FR-013**: Diagnostics JSON MUST include debug-safe connection context when a profile is selected: target fingerprint derived from host+port, host kind, configured port, credential-reference presence, diagnostic trigger, and probe timeout seconds. The raw host, endpoint, username, credential reference, password, and raw network error MUST remain absent.
+- **FR-014**: Failed diagnostic stages MUST include a typed failure code such as `network.connectionFailed`, `network.timedOut`, `rfb.authenticationRequired`, or `rfb.securityFailed` when the app can derive one. Failure codes MUST be fixed enums/strings owned by the app, not raw platform error descriptions.
 
 ### Naru Input Requirements
 
@@ -127,6 +130,8 @@ When a connection fails, the user can share a structured diagnostic report that 
 - **ProfileReachabilityState** - enum for unknown/checking/reachable/needsPassword/unreachable plus safe failed stage id when available.
 - **ReachabilityProbeCoordinator** - app-model owned task coordinator that runs bounded probes and publishes per-profile states without mutating active sessions.
 - **DiagnosticCollectionReport** - structured, schema-versioned safe diagnostic payload generated from `ConnectionDiagnosticRun` and build/app context.
+- **DiagnosticRunContext** - debug-safe metadata for a diagnostic run: fingerprinted target, host kind, configured port, credential-reference presence, trigger, and probe timeout.
+- **DiagnosticStageMetadata** - debug-safe stage metadata such as typed failure code and stage timestamp. It never contains raw platform error text.
 
 ## Acceptance Test Matrix
 
@@ -140,6 +145,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 | Launch reachability probes publish states | App-model unit | iPhone simulator | Fake connector transitions checking to final states |
 | Reachability does not disturb active session | App-model unit | iPhone simulator | Active session remains selected and streaming state is unchanged |
 | Structured diagnostic JSON redacts sentinels | Unit | iPhone simulator | Secret host/password/clipboard/pixel sentinels absent |
+| Structured diagnostic JSON includes debug-safe failure context | Unit | iPhone simulator | TCP failure report includes schema v2 context and typed failure code, with raw host/endpoint/credential absent |
 | Share diagnostics includes human text + JSON | Unit/UI smoke | iPhone simulator | Share provider payload contains both formats |
 | Real Mac VNC launch grid shows reachable and captures preview | Manual device | iPhone physical | Residual-risk manual pass over local/private VNC |
 
