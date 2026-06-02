@@ -219,6 +219,171 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
+    func testRenderCollectionJSONIsDeterministicSchemaV1() throws {
+        let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        let run = ConnectionDiagnosticRun(
+            id: runID,
+            profileID: profileID,
+            finishedAt: Date(timeIntervalSince1970: 1_714_521_620),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .tcp,
+                    status: .failed,
+                    safeTitle: "Host reached, VNC port closed",
+                    safeDetail: "caller detail must not appear"
+                )
+            ]
+        )
+        let export = DiagnosticExport(run: run)
+        let pinnedDate = Date(timeIntervalSince1970: 1_714_521_600)
+
+        let rendered = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
+        let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
+
+        XCTAssertEqual(rendered, renderedAgain)
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 1"))
+        XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
+        XCTAssertFalse(rendered.contains(profileID.uuidString))
+        XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
+        XCTAssertFalse(rendered.contains("caller detail"))
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(rendered.utf8)
+        )
+        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
+        XCTAssertEqual(decoded.buildVersion, "0.1.0")
+        XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
+        XCTAssertEqual(decoded.verdict, DiagnosticVerdict.failed.rawValue)
+        XCTAssertTrue(decoded.profileFingerprint.hasPrefix("sha256:"))
+        XCTAssertEqual(decoded.profileFingerprint.count, "sha256:".count + 64)
+        XCTAssertEqual(decoded.stageRows, export.stageRows)
+        XCTAssertEqual(decoded.stageRows.first?.safeDetail, "TCP reachability stage.")
+    }
+
+    func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let run = ConnectionDiagnosticRun(
+            profileID: profile.id,
+            finishedAt: Date(timeIntervalSince1970: 1),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .dns,
+                    status: .passed,
+                    safeTitle: "Profile ready",
+                    safeDetail: "caller detail must not appear"
+                )
+            ]
+        )
+        let export = DiagnosticExport(run: run)
+
+        let payload = export.renderSharePayload(
+            buildVersion: "0.1.0",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+
+        XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
+        XCTAssertTrue(payload.contains("[dns] passed"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v1 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 1"))
+        XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
+        XCTAssertFalse(payload.contains("caller detail"))
+    }
+
+    func testCollectionJSONAndPayloadAreSafeCatalogOnlyAcrossSensitiveSentinels() throws {
+        let hostSentinel = "desk.tailnet.ts.net"
+        let endpointSentinel = "\(hostSentinel):5900"
+        let credentialRefSentinel = "vnc-password:hunter2-credential"
+        let composedDraftSentinel = "한글과 English 😊 SECRETPHRASE"
+        let rawClipboardSentinel = "REMOTE_COPY_TEXT_DEADBEEF"
+        let rawErrorSentinel = "NWError.posix(ECONNREFUSED) 10.0.0.42:5900"
+        let pixelSentinel = "\u{ED}\u{C3}\u{AB}\u{FE}"
+        let thumbnailSentinel = "iVBORw0KGgoAAAANSUhEUgAA-secret-thumbnail"
+        let rawLatencySentinel = "latency=123.456ms"
+        let nextActionSentinel = "Reset password 12345 on the host"
+
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: hostSentinel,
+            credentialRef: credentialRefSentinel
+        )
+        let rawBlob = [
+            endpointSentinel,
+            credentialRefSentinel,
+            composedDraftSentinel,
+            rawClipboardSentinel,
+            rawErrorSentinel,
+            pixelSentinel,
+            thumbnailSentinel,
+            rawLatencySentinel
+        ].joined(separator: " | ")
+        let stages = DiagnosticStage.allCases.map { stage in
+            DiagnosticStageResult(
+                stage: stage,
+                status: stage == .authentication ? .failed : .passed,
+                safeTitle: "Raw title \(rawBlob)",
+                safeDetail: "Raw detail \(rawBlob)",
+                nextAction: "\(nextActionSentinel) \(rawBlob)"
+            )
+        }
+        let run = ConnectionDiagnosticRun(
+            profileID: profile.id,
+            finishedAt: Date(timeIntervalSince1970: 1_714_521_620),
+            stages: stages
+        )
+        let export = DiagnosticExport(run: run)
+
+        let pinnedDate = Date(timeIntervalSince1970: 1_714_521_600)
+        let json = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
+        let payload = export.renderSharePayload(buildVersion: "0.1.0", now: pinnedDate)
+
+        XCTAssertTrue(json.contains("Authentication stage."))
+        XCTAssertTrue(payload.contains("Authentication stage."))
+        XCTAssertTrue(payload.contains("Naru Remote Diagnostic Summary"))
+
+        let forbidden = [
+            hostSentinel,
+            endpointSentinel,
+            credentialRefSentinel,
+            composedDraftSentinel,
+            rawClipboardSentinel,
+            rawErrorSentinel,
+            pixelSentinel,
+            thumbnailSentinel,
+            rawLatencySentinel,
+            nextActionSentinel,
+            profile.id.uuidString,
+            profile.id.uuidString.lowercased(),
+            "hunter2",
+            "12345",
+            "DEADBEEF",
+            "SECRETPHRASE",
+            "ECONNREFUSED",
+            "secret-thumbnail"
+        ]
+
+        for sentinel in forbidden {
+            XCTAssertFalse(json.contains(sentinel), "collection JSON leaked \(sentinel)")
+            XCTAssertFalse(payload.contains(sentinel), "share payload leaked \(sentinel)")
+        }
+
+        let jsonBytes = Array(json.utf8)
+        let payloadBytes = Array(payload.utf8)
+        for sentinel in forbidden {
+            let sequence = Array(sentinel.utf8)
+            XCTAssertFalse(
+                Self.bytesContain(jsonBytes, subsequence: sequence),
+                "collection JSON leaked a forbidden byte sequence"
+            )
+            XCTAssertFalse(
+                Self.bytesContain(payloadBytes, subsequence: sequence),
+                "share payload leaked a forbidden byte sequence"
+            )
+        }
+    }
+
     private static func bytesContain(_ haystack: [UInt8], subsequence needle: [UInt8]) -> Bool {
         guard !needle.isEmpty, haystack.count >= needle.count else {
             return false

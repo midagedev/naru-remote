@@ -192,7 +192,7 @@ public struct NaruRemoteAppShell: View {
                                 rows: snapshot.diagnosticRows,
                                 shareTextProvider: { [buildVersion] in
                                     model.makeDiagnosticExport()
-                                        .renderShareText(buildVersion: buildVersion)
+                                        .renderSharePayload(buildVersion: buildVersion)
                                 }
                             )
                         }

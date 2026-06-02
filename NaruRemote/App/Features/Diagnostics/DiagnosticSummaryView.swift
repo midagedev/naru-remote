@@ -2,9 +2,9 @@ import SwiftUI
 
 public struct DiagnosticSummaryView: View {
     private let rows: [DiagnosticSummaryRow]
-    /// Closure that produces the share-text payload on demand.
+    /// Closure that produces the safe diagnostic share payload on demand.
     /// The shell wires this to
-    /// `model.makeDiagnosticExport().renderShareText(buildVersion:)`
+    /// `model.makeDiagnosticExport().renderSharePayload(buildVersion:)`
     /// so the view never reaches into `DiagnosticExport` directly.
     /// `nil` hides the Share Diagnostics affordance entirely
     /// (constitution §IV: prefer absence over a stub that could leak).

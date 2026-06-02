@@ -7,8 +7,9 @@ import UIKit
 /// safe-catalog diagnostic summary text to mail, Messages, or any
 /// other share extension.  The activity items are intentionally a
 /// single rendered `String` produced by
-/// `DiagnosticExport.renderShareText(buildVersion:)` — this is the
-/// only surface the shell uses to expose diagnostic content
+/// `DiagnosticExport.renderSharePayload(buildVersion:)`, which
+/// contains human-readable safe text plus structured JSON v1.  This
+/// is the only surface the shell uses to expose diagnostic content
 /// externally (constitution §IV).
 public struct DiagnosticExportShareSheet: UIViewControllerRepresentable {
     private let shareText: String
