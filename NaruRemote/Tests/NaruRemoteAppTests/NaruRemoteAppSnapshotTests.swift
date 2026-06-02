@@ -139,18 +139,29 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             host: "203.0.113.5",
             hostKind: .advancedManualPublicEndpoint
         )
+        let preview = ProfilePreviewThumbnail(
+            width: 1,
+            height: 1,
+            sourceWidth: 2,
+            sourceHeight: 2,
+            capturedAt: Date(timeIntervalSince1970: 100),
+            pixels: [RFBColor(red: 1, green: 2, blue: 3)]
+        )
         let snapshot = NaruRemoteAppSnapshot(
             profiles: [studio, publicHost],
             selectedProfileID: publicHost.id,
+            profilePreviews: [studio.id: preview],
             lastDiagnosticVerdict: [studio.id: .passed]
         )
 
         XCTAssertEqual(snapshot.connectionGridCards.count, 2)
         XCTAssertEqual(snapshot.connectionGridCards[0].displayName, "Studio")
         XCTAssertEqual(snapshot.connectionGridCards[0].endpoint, "studio.tailnet.ts.net:5900")
+        XCTAssertEqual(snapshot.connectionGridCards[0].preview, preview)
         XCTAssertEqual(snapshot.connectionGridCards[0].verdict, .passed)
         XCTAssertFalse(snapshot.connectionGridCards[0].isSelected)
         XCTAssertEqual(snapshot.connectionGridCards[1].hostKind, .advancedManualPublicEndpoint)
+        XCTAssertNil(snapshot.connectionGridCards[1].preview)
         XCTAssertEqual(snapshot.connectionGridCards[1].verdict, .unknown)
         XCTAssertTrue(snapshot.connectionGridCards[1].isSelected)
     }

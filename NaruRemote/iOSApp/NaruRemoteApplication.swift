@@ -45,6 +45,7 @@ struct NaruRemoteApplication: App {
 
     private static func makeModel() -> NaruRemoteAppModel {
         let settingsPersistence = FileAppSettingsPersistence(fileURL: settingsStoreURL())
+        let previewStore = FileProfilePreviewStore(directoryURL: previewStoreURL())
         // The profile store is now an `actor`; its initializer is
         // `async` so we cannot construct it from this synchronous
         // `@StateObject` factory.  Build a fresh model here without a
@@ -65,6 +66,7 @@ struct NaruRemoteApplication: App {
         if let fixtureSnapshot {
             model = NaruRemoteAppModel(
                 snapshot: fixtureSnapshot,
+                profilePreviewStore: previewStore,
                 credentialStore: credentialStore,
                 settingsPersistence: settingsPersistence,
                 pipWatchController: PiPWatchPictureInPictureController(),
@@ -72,6 +74,7 @@ struct NaruRemoteApplication: App {
             )
         } else {
             model = NaruRemoteAppModel(
+                profilePreviewStore: previewStore,
                 credentialStore: credentialStore,
                 settingsPersistence: settingsPersistence,
                 pipWatchController: PiPWatchPictureInPictureController(),
@@ -96,6 +99,7 @@ struct NaruRemoteApplication: App {
                 // works as an in-memory profile editor for this
                 // launch.  The next launch will retry.
             }
+            await model.loadStoredProfilePreviews()
 
             applyTestStickyModifierOverrides(to: model)
             applyTestSuppressDirectModeWarning(to: model)
@@ -206,6 +210,15 @@ struct NaruRemoteApplication: App {
         }
 
         return applicationSupportURL().appendingPathComponent("settings.json")
+    }
+
+    private static func previewStoreURL() -> URL {
+        if let overridePath = ProcessInfo.processInfo.environment["NARU_PREVIEW_STORE_URL"],
+           !overridePath.isEmpty {
+            return URL(fileURLWithPath: overridePath, isDirectory: true)
+        }
+
+        return applicationSupportURL().appendingPathComponent("profile-previews", isDirectory: true)
     }
 
     private static func applicationSupportURL() -> URL {

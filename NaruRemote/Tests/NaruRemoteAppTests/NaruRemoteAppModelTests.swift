@@ -29,6 +29,30 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.selectedProfile, profile)
     }
 
+    func testModelLoadsStoredProfilePreviewsWithProfiles() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let preview = ProfilePreviewThumbnail(
+            width: 1,
+            height: 1,
+            sourceWidth: 2,
+            sourceHeight: 2,
+            capturedAt: Date(timeIntervalSince1970: 100),
+            pixels: [RFBColor(red: 1, green: 2, blue: 3)]
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let profileStore = try await ConnectionProfileStore(persistence: persistence)
+        let previewStore = InMemoryProfilePreviewStore(thumbnails: [profile.id: preview])
+        let model = NaruRemoteAppModel(
+            profileStore: profileStore,
+            profilePreviewStore: previewStore
+        )
+
+        await model.loadStoredProfiles()
+
+        XCTAssertEqual(model.snapshot.profilePreviews[profile.id], preview)
+        XCTAssertEqual(model.snapshot.connectionGridCards.first?.preview, preview)
+    }
+
     func testModelPersistsAddedProfileToStore() async throws {
         let persistence = InMemoryConnectionProfilePersistence()
         let store = try await ConnectionProfileStore(persistence: persistence)
@@ -151,6 +175,61 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
         XCTAssertEqual(model.snapshot.session?.hudMessage, "Connected")
         XCTAssertEqual(model.snapshot.diagnosticRun?.stages.last?.safeDetail, "2x1 remote framebuffer is available.")
+    }
+
+    func testModelStoresStreamingFramebufferPreview() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 640,
+            height: 400,
+            fill: RFBColor(red: 42, green: 7, blue: 9)
+        )
+        let connector = FakeStreamingConnector(width: 640, height: 400, name: "Desk", framebuffer: framebuffer)
+        let previewStore = InMemoryProfilePreviewStore()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            profilePreviewStore: previewStore,
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        let preview = try XCTUnwrap(model.snapshot.profilePreviews[profile.id])
+        XCTAssertEqual(preview.width, 320)
+        XCTAssertEqual(preview.height, 200)
+        XCTAssertEqual(preview.pixels.first, RFBColor(red: 42, green: 7, blue: 9))
+
+        let storedPreview = try await previewStore.loadThumbnail(for: profile.id)
+        XCTAssertEqual(storedPreview, preview)
+    }
+
+    func testDeletingProfileClearsStoredPreview() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let preview = ProfilePreviewThumbnail(
+            width: 1,
+            height: 1,
+            sourceWidth: 2,
+            sourceHeight: 2,
+            capturedAt: Date(timeIntervalSince1970: 100),
+            pixels: [RFBColor(red: 1, green: 2, blue: 3)]
+        )
+        let previewStore = InMemoryProfilePreviewStore(thumbnails: [profile.id: preview])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                profilePreviews: [profile.id: preview]
+            ),
+            profilePreviewStore: previewStore
+        )
+
+        await model.deleteProfile(id: profile.id)
+
+        XCTAssertNil(model.snapshot.profilePreviews[profile.id])
+        let storedPreview = try await previewStore.loadThumbnail(for: profile.id)
+        XCTAssertNil(storedPreview)
     }
 
     func testModelKeepsStreamingFramesAfterFirstFramebuffer() async throws {

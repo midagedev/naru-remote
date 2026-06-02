@@ -198,10 +198,21 @@ enum UXAuditFixtures {
             // run" path while the other three exercise green / amber
             // / red.
         ]
+        let previews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [
+            studio.id: gradientPreview(
+                top: RFBColor(red: 0x16, green: 0x2A, blue: 0x3A),
+                bottom: RFBColor(red: 0x1B, green: 0x72, blue: 0x6F)
+            ),
+            home.id: gradientPreview(
+                top: RFBColor(red: 0x32, green: 0x22, blue: 0x48),
+                bottom: RFBColor(red: 0x8E, green: 0x3D, blue: 0x55)
+            )
+        ]
 
         return NaruRemoteAppSnapshot(
             profiles: [studio, office, home, publicTest],
             selectedProfileID: studio.id,
+            profilePreviews: previews,
             lastDiagnosticVerdict: verdicts
         )
     }
@@ -276,5 +287,43 @@ enum UXAuditFixtures {
     /// runs (no "seconds ago" labels jitter the diff).
     private static func fixedDate(offsetSeconds: TimeInterval) -> Date {
         Date(timeIntervalSince1970: 1_700_000_000 + offsetSeconds)
+    }
+
+    private static func gradientPreview(
+        top: RFBColor,
+        bottom: RFBColor,
+        width: Int = 32,
+        height: Int = 20
+    ) -> ProfilePreviewThumbnail {
+        var pixels: [RFBColor] = []
+        pixels.reserveCapacity(width * height)
+        for y in 0..<height {
+            let blend = Double(y) / Double(max(height - 1, 1))
+            for x in 0..<width {
+                let stripe = (x / 4) % 2 == 0
+                let red = lerp(top.red, bottom.red, blend)
+                let green = lerp(top.green, bottom.green, blend)
+                let blue = lerp(top.blue, bottom.blue, blend)
+                pixels.append(
+                    RFBColor(
+                        red: stripe ? red : UInt8(max(Int(red) - 18, 0)),
+                        green: stripe ? green : UInt8(max(Int(green) - 18, 0)),
+                        blue: stripe ? blue : UInt8(max(Int(blue) - 18, 0))
+                    )
+                )
+            }
+        }
+        return ProfilePreviewThumbnail(
+            width: width,
+            height: height,
+            sourceWidth: 1600,
+            sourceHeight: 1000,
+            capturedAt: fixedDate(offsetSeconds: 7),
+            pixels: pixels
+        )
+    }
+
+    private static func lerp(_ start: UInt8, _ end: UInt8, _ blend: Double) -> UInt8 {
+        UInt8((Double(start) + (Double(end) - Double(start)) * blend).rounded())
     }
 }

@@ -83,7 +83,7 @@ private struct ConnectionGridCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            previewPlaceholder
+            preview
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -131,6 +131,15 @@ private struct ConnectionGridCardView: View {
         .accessibilityLabel("\(card.displayName), \(card.endpoint), \(card.verdict.gridAccessibilityLabel)")
     }
 
+    @ViewBuilder
+    private var preview: some View {
+        if let thumbnail = card.preview {
+            ProfilePreviewThumbnailView(thumbnail: thumbnail)
+        } else {
+            previewPlaceholder
+        }
+    }
+
     private var previewPlaceholder: some View {
         ZStack {
             Rectangle()
@@ -159,6 +168,32 @@ private struct ConnectionGridCardView: View {
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .accessibilityIdentifier("naru.connection.grid.status.\(card.verdict.rawValue)")
+    }
+}
+
+private struct ProfilePreviewThumbnailView: View {
+    let thumbnail: ProfilePreviewThumbnail
+
+    var body: some View {
+        ZStack {
+            if let cgImage = thumbnail.cgImage {
+                GeometryReader { proxy in
+                    Image(decorative: cgImage, scale: 1, orientation: .up)
+                        .resizable()
+                        .interpolation(.medium)
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                }
+            } else {
+                Rectangle()
+                    .fill(NaruColors.surfaceMuted)
+            }
+        }
+        .aspectRatio(16.0 / 10.0, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("Last preview")
+        .accessibilityIdentifier("naru.connection.grid.preview.thumbnail")
     }
 }
 
