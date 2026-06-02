@@ -151,6 +151,10 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             profiles: [studio, publicHost],
             selectedProfileID: publicHost.id,
             profilePreviews: [studio.id: preview],
+            profileReachability: [
+                studio.id: .reachable,
+                publicHost.id: .unreachable(failedStage: .tcp)
+            ],
             lastDiagnosticVerdict: [studio.id: .passed]
         )
 
@@ -158,10 +162,12 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.connectionGridCards[0].displayName, "Studio")
         XCTAssertEqual(snapshot.connectionGridCards[0].endpoint, "studio.tailnet.ts.net:5900")
         XCTAssertEqual(snapshot.connectionGridCards[0].preview, preview)
+        XCTAssertEqual(snapshot.connectionGridCards[0].reachability, .reachable)
         XCTAssertEqual(snapshot.connectionGridCards[0].verdict, .passed)
         XCTAssertFalse(snapshot.connectionGridCards[0].isSelected)
         XCTAssertEqual(snapshot.connectionGridCards[1].hostKind, .advancedManualPublicEndpoint)
         XCTAssertNil(snapshot.connectionGridCards[1].preview)
+        XCTAssertEqual(snapshot.connectionGridCards[1].reachability, .unreachable(failedStage: .tcp))
         XCTAssertEqual(snapshot.connectionGridCards[1].verdict, .unknown)
         XCTAssertTrue(snapshot.connectionGridCards[1].isSelected)
     }

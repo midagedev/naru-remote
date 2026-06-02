@@ -456,7 +456,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "14-connection-grid-multiple-\(deviceTag)-\(mode.suffix).png")
     }
 
-    // MARK: - iPhone — sidebar with per-profile diagnostic verdicts (state #14b)
+    // MARK: - iPhone — grid with previews and reachability states (state #14b)
 
     func testSidebarMultipleProfilesWithVerdicts_light() throws {
         try runSidebarMultipleProfilesWithVerdicts(mode: .light, deviceTag: "iphone")
@@ -467,14 +467,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runSidebarMultipleProfilesWithVerdicts(mode: ColorMode, deviceTag: String) throws {
-        // Closes UX punch-list #109.  The four profiles in the
-        // `sidebar-with-verdicts` fixture deliberately mirror the
-        // `runSidebarMultipleProfiles` seed (Studio Mac / Office Linux
-        // / Home NUC / Public test) but pre-populate
-        // `lastDiagnosticVerdict` with one of each color so the
-        // colored leading status dots actually render in the captured
-        // PNG (passed = green, warning = amber, failed = red, unknown
-        // = gray).
+        // Fixture pre-populates both last diagnostic verdicts and the
+        // launch reachability states that now drive connection-grid
+        // card badges (reachable / checking / password / unreachable /
+        // unknown) without waiting on real network probes.
         let app = launchAppWithFixture(.sidebarWithVerdicts, mode: mode)
 
         XCTAssertTrue(
@@ -482,6 +478,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Connection grid should display fixture profiles after launch"
         )
         XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.staticTexts["Reachable"].waitForExistence(timeout: 4),
+            "Fixture should render a reachable grid badge"
+        )
         XCTAssertTrue(
             app.images["naru.connection.grid.preview.thumbnail"].firstMatch.waitForExistence(timeout: 4)
                 || app.otherElements["naru.connection.grid.preview.thumbnail"].firstMatch.waitForExistence(timeout: 1),

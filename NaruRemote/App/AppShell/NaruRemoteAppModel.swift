@@ -42,6 +42,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// cursor with server fidelity.
     @Published public private(set) var latestServerCursor: RFBServerCursor?
     @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
+    @Published public private(set) var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -112,6 +113,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var adaptiveEncodingRenegotiationTask: Task<Void, Never>?
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
+    private let reachabilityProbeTimeout: TimeInterval
+    private let reachabilityProbeMaximumConcurrency: Int
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
     private var profileStore: ConnectionProfileStore?
@@ -198,6 +201,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     internal private(set) var explicitlyDisconnected: Bool = false
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewSaveMinimumInterval: TimeInterval = 5
+    private var reachabilityProbeTask: Task<Void, Never>?
+    private var reachabilityProbeGeneration = UUID()
     @Published public private(set) var profilePersistenceError: String?
     /// Most recent `AppSettingsPersisting` failure, if any.  We do
     /// not crash on settings persistence errors — settings are
@@ -227,6 +232,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         ),
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
+        reachabilityProbeTimeout: TimeInterval = 2,
+        reachabilityProbeMaximumConcurrency: Int = 2,
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30
@@ -260,6 +267,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
         self.latestServerCursor = snapshot.latestServerCursor
         self.profilePreviews = snapshot.profilePreviews
+        self.profileReachability = snapshot.profileReachability
         self.appSettings = AppSettings()
         self.settingsPersistenceError = nil
         self.profileStore = profileStore
@@ -269,6 +277,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.frameStreamConfiguration = frameStreamConfiguration
         self.reconnectPolicy = reconnectPolicy
         self.connectorFactory = connectorFactory
+        self.reachabilityProbeTimeout = reachabilityProbeTimeout
+        self.reachabilityProbeMaximumConcurrency = max(1, reachabilityProbeMaximumConcurrency)
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
@@ -318,6 +328,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             selectedProfileID = storedProfiles.first?.id
         }
         await loadStoredProfilePreviews()
+        refreshProfileReachability()
     }
 
     public func attachProfilePreviewStore(_ store: any ProfilePreviewStore) async {
@@ -348,6 +359,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         profilePreviews = profilePreviews
             .filter { profileIDs.contains($0.key) }
             .merging(loadedPreviews) { _, loaded in loaded }
+    }
+
+    public func refreshProfileReachability() {
+        startReachabilityProbes(for: profiles)
     }
 
     /// Loads disk-backed `AppSettings` from the injected
@@ -404,6 +419,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
             latestServerCursor: latestServerCursor,
             profilePreviews: profilePreviews,
+            profileReachability: profileReachability,
             directKeystrokeMode: directKeystrokeMode,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -497,6 +513,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         } catch {
             profilePersistenceError = "Profile could not be saved on this device."
         }
+        refreshProfileReachability()
 
         selectedProfileID = profileToSave.id
         if session == nil || session?.profileID != profileToSave.id {
@@ -597,6 +614,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         } catch {
             profilePersistenceError = "Profile could not be saved on this device."
         }
+        refreshProfileReachability()
     }
 
     /// Remove a saved profile from the store.  Best-effort cleans up
@@ -623,6 +641,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         lastDiagnosticVerdict.removeValue(forKey: id)
         profilePreviews.removeValue(forKey: id)
         lastPreviewSaveAt.removeValue(forKey: id)
+        profileReachability.removeValue(forKey: id)
 
         if let credentialRef = removedProfile.credentialRef {
             do {
@@ -889,6 +908,139 @@ public final class NaruRemoteAppModel: ObservableObject {
             return stage(for: decoderError)
         }
         return .rfbHandshake
+    }
+
+    private struct ReachabilityProbeResult: Sendable {
+        let generation: UUID
+        let profileID: ConnectionProfile.ID
+        let state: ProfileReachabilityState
+    }
+
+    private func startReachabilityProbes(for probeProfiles: [ConnectionProfile]) {
+        reachabilityProbeTask?.cancel()
+        let generation = UUID()
+        reachabilityProbeGeneration = generation
+        let profileIDs = Set(probeProfiles.map(\.id))
+        profileReachability = profileReachability.filter { profileIDs.contains($0.key) }
+        guard !probeProfiles.isEmpty else {
+            return
+        }
+
+        for profile in probeProfiles {
+            profileReachability[profile.id] = .checking
+        }
+
+        let connectorFactory = connectorFactory
+        let credentialStore = credentialStore
+        let timeout = reachabilityProbeTimeout
+        let maximumConcurrency = min(reachabilityProbeMaximumConcurrency, probeProfiles.count)
+
+        reachabilityProbeTask = Task { [weak self, probeProfiles, generation, connectorFactory, credentialStore, timeout, maximumConcurrency] in
+            await withTaskGroup(of: ReachabilityProbeResult.self) { group in
+                var nextIndex = 0
+
+                for _ in 0..<maximumConcurrency {
+                    let profile = probeProfiles[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        await Self.probeReachability(
+                            profile: profile,
+                            generation: generation,
+                            connectorFactory: connectorFactory,
+                            credentialStore: credentialStore,
+                            timeout: timeout
+                        )
+                    }
+                }
+
+                while let result = await group.next() {
+                    guard !Task.isCancelled else {
+                        group.cancelAll()
+                        return
+                    }
+
+                    self?.applyReachabilityResult(result)
+
+                    if nextIndex < probeProfiles.count {
+                        let profile = probeProfiles[nextIndex]
+                        nextIndex += 1
+                        group.addTask {
+                            await Self.probeReachability(
+                                profile: profile,
+                                generation: generation,
+                                connectorFactory: connectorFactory,
+                                credentialStore: credentialStore,
+                                timeout: timeout
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyReachabilityResult(_ result: ReachabilityProbeResult) {
+        guard reachabilityProbeGeneration == result.generation else {
+            return
+        }
+        guard profiles.contains(where: { $0.id == result.profileID }) else {
+            return
+        }
+        profileReachability[result.profileID] = result.state
+    }
+
+    nonisolated private static func probeReachability(
+        profile: ConnectionProfile,
+        generation: UUID,
+        connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting,
+        credentialStore: ConnectionCredentialStoreProtocol?,
+        timeout: TimeInterval
+    ) async -> ReachabilityProbeResult {
+        let credential = await reachabilityCredential(for: profile, credentialStore: credentialStore)
+        let connector = connectorFactory()
+
+        do {
+            _ = try await Task.detached {
+                try Self.connectAndReadFirstFrame(
+                    connector: connector,
+                    host: profile.host,
+                    port: UInt16(profile.port),
+                    credential: credential,
+                    timeout: timeout
+                )
+            }.value
+            return ReachabilityProbeResult(generation: generation, profileID: profile.id, state: .reachable)
+        } catch {
+            return ReachabilityProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: reachabilityFailureState(for: error)
+            )
+        }
+    }
+
+    nonisolated private static func reachabilityCredential(
+        for profile: ConnectionProfile,
+        credentialStore: ConnectionCredentialStoreProtocol?
+    ) async -> RFBConnectionCredential {
+        guard let credentialRef = profile.credentialRef else {
+            return .none
+        }
+        guard let credentialStore,
+              let password = try? await credentialStore.password(for: credentialRef),
+              !password.isEmpty
+        else {
+            return .none
+        }
+        return .vncPassword(password)
+    }
+
+    nonisolated private static func reachabilityFailureState(for error: Error) -> ProfileReachabilityState {
+        let failedStage = stage(for: error)
+        if failedStage == .authentication {
+            return .needsPassword
+        }
+        return .unreachable(failedStage: failedStage)
     }
 
     /// Stamps the per-profile verdict cache for #109's leading status
