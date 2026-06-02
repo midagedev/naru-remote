@@ -41,6 +41,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// persisted or exported; the view may use it to draw the local soft
     /// cursor with server fidelity.
     @Published public private(set) var latestServerCursor: RFBServerCursor?
+    @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -114,6 +115,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
     private var profileStore: ConnectionProfileStore?
+    private var profilePreviewStore: (any ProfilePreviewStore)?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let settingsPersistence: AppSettingsPersisting?
     private let pipWatchController: (any PiPWatchControlling)?
@@ -194,6 +196,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// callers cannot mutate this flag — the only setters remain
     /// `disconnect()` and `connectSelectedProfile()`.
     internal private(set) var explicitlyDisconnected: Bool = false
+    private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
+    private static let previewSaveMinimumInterval: TimeInterval = 5
     @Published public private(set) var profilePersistenceError: String?
     /// Most recent `AppSettingsPersisting` failure, if any.  We do
     /// not crash on settings persistence errors — settings are
@@ -204,6 +208,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public init(
         snapshot: NaruRemoteAppSnapshot = NaruRemoteAppSnapshot(),
         profileStore: ConnectionProfileStore? = nil,
+        profilePreviewStore: (any ProfilePreviewStore)? = nil,
         credentialStore: ConnectionCredentialStoreProtocol? = nil,
         settingsPersistence: AppSettingsPersisting? = nil,
         frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
@@ -254,9 +259,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestFramebuffer = snapshot.latestFramebuffer
         self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
         self.latestServerCursor = snapshot.latestServerCursor
+        self.profilePreviews = snapshot.profilePreviews
         self.appSettings = AppSettings()
         self.settingsPersistenceError = nil
         self.profileStore = profileStore
+        self.profilePreviewStore = profilePreviewStore
         self.credentialStore = credentialStore
         self.settingsPersistence = settingsPersistence
         self.frameStreamConfiguration = frameStreamConfiguration
@@ -310,6 +317,37 @@ public final class NaruRemoteAppModel: ObservableObject {
         if selectedProfileID == nil {
             selectedProfileID = storedProfiles.first?.id
         }
+        await loadStoredProfilePreviews()
+    }
+
+    public func attachProfilePreviewStore(_ store: any ProfilePreviewStore) async {
+        guard profilePreviewStore == nil else {
+            return
+        }
+        profilePreviewStore = store
+        await loadStoredProfilePreviews()
+    }
+
+    public func loadStoredProfilePreviews() async {
+        guard let profilePreviewStore else {
+            return
+        }
+        let profileIDs = Set(profiles.map(\.id))
+        guard !profileIDs.isEmpty else {
+            profilePreviews = [:]
+            return
+        }
+
+        var loadedPreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:]
+        for profileID in profileIDs {
+            if let thumbnail = try? await profilePreviewStore.loadThumbnail(for: profileID) {
+                loadedPreviews[profileID] = thumbnail
+            }
+        }
+
+        profilePreviews = profilePreviews
+            .filter { profileIDs.contains($0.key) }
+            .merging(loadedPreviews) { _, loaded in loaded }
     }
 
     /// Loads disk-backed `AppSettings` from the injected
@@ -365,6 +403,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFramebuffer: latestFramebuffer,
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
             latestServerCursor: latestServerCursor,
+            profilePreviews: profilePreviews,
             directKeystrokeMode: directKeystrokeMode,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -582,6 +621,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         // Drop any cached verdict for the deleted profile so the
         // sidebar dot doesn't outlive the row (UX punch-list #109).
         lastDiagnosticVerdict.removeValue(forKey: id)
+        profilePreviews.removeValue(forKey: id)
+        lastPreviewSaveAt.removeValue(forKey: id)
 
         if let credentialRef = removedProfile.credentialRef {
             do {
@@ -599,6 +640,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             _ = try await profileStore?.deleteProfile(id: id)
         } catch {
             profilePersistenceError = "Profile could not be removed on this device."
+        }
+
+        do {
+            try await profilePreviewStore?.deleteThumbnail(for: id)
+        } catch {
+            // Preview deletion is best-effort local cleanup. The
+            // profile itself is already gone and the in-memory
+            // thumbnail cache was cleared above.
         }
 
         if wasActive {
@@ -978,6 +1027,14 @@ public final class NaruRemoteAppModel: ObservableObject {
 
                 nextSession.markFirstFrameReceived(at: connectionResult.frameCapturedAt)
                 latestFramebuffer = connectionResult.framebuffer
+                if let framebuffer = connectionResult.framebuffer {
+                    cachePreview(
+                        framebuffer: framebuffer,
+                        for: profile.id,
+                        capturedAt: connectionResult.frameCapturedAt,
+                        forceDiskSave: true
+                    )
+                }
                 // Single-shot first-frame path has no damage history.
                 latestFrameDirtyRectangles = nil
                 latestServerCursor = nil
@@ -1211,6 +1268,43 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    private func cachePreview(
+        framebuffer: RFBRawFramebuffer,
+        for profileID: ConnectionProfile.ID,
+        capturedAt: Date,
+        forceDiskSave: Bool
+    ) {
+        guard let thumbnail = ProfilePreviewThumbnail(
+            framebuffer: framebuffer,
+            capturedAt: capturedAt
+        ) else {
+            return
+        }
+
+        profilePreviews[profileID] = thumbnail
+        guard let profilePreviewStore else {
+            return
+        }
+
+        let shouldSave: Bool
+        if forceDiskSave {
+            shouldSave = true
+        } else if let lastSavedAt = lastPreviewSaveAt[profileID] {
+            shouldSave = capturedAt.timeIntervalSince(lastSavedAt) >= Self.previewSaveMinimumInterval
+        } else {
+            shouldSave = true
+        }
+
+        guard shouldSave else {
+            return
+        }
+        lastPreviewSaveAt[profileID] = capturedAt
+
+        Task { [profilePreviewStore, thumbnail, profileID] in
+            try? await profilePreviewStore.saveThumbnail(thumbnail, for: profileID)
+        }
+    }
+
     private func shouldRequestAnotherFrame(
         configuration: RFBFramePumpConfiguration,
         pump: RFBFramePump
@@ -1240,6 +1334,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         // drop gets a fresh `maxAttempts` budget.
         reconnectAttempts = 0
         latestFramebuffer = frame.framebuffer
+        cachePreview(
+            framebuffer: frame.framebuffer,
+            for: profile.id,
+            capturedAt: frame.capturedAt,
+            forceDiskSave: frame.sequence == 1
+        )
         // Only forward damage rectangles for incremental frames.  The
         // first frame in a stream is non-incremental and the renderer
         // must perform a full upload (its texture has just been

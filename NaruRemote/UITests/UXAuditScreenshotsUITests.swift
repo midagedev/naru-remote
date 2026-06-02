@@ -482,6 +482,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Connection grid should display fixture profiles after launch"
         )
         XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.images["naru.connection.grid.preview.thumbnail"].firstMatch.waitForExistence(timeout: 4)
+                || app.otherElements["naru.connection.grid.preview.thumbnail"].firstMatch.waitForExistence(timeout: 1),
+            "Fixture should render at least one stored preview thumbnail"
+        )
 
         try saveScreen(named: "14-connection-grid-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
     }

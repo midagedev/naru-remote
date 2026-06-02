@@ -20,6 +20,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// Cursor pseudo-encoding. This is additive to the synthetic
     /// trackpad cursor and is memory-only.
     public var latestServerCursor: RFBServerCursor?
+    /// Local-only, downsampled preview thumbnails keyed by profile id.
+    /// These are recognition aids for the connection grid. They are
+    /// never exported in diagnostics or sent to a remote host.
+    public var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
     public var directKeystrokeMode: DirectKeystrokeMode
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
@@ -48,6 +52,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         latestServerCursor: RFBServerCursor? = nil,
+        profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -62,6 +67,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
         self.latestServerCursor = latestServerCursor
+        self.profilePreviews = profilePreviews
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
@@ -154,6 +160,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                 displayName: profile.displayName,
                 endpoint: profile.endpoint,
                 hostKind: profile.hostKind,
+                preview: profilePreviews[profile.id],
                 verdict: lastDiagnosticVerdict[profile.id] ?? .unknown,
                 isSelected: selectedProfile?.id == profile.id
             )
@@ -166,6 +173,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let displayName: String
     public let endpoint: String
     public let hostKind: ConnectionProfile.HostKind
+    public let preview: ProfilePreviewThumbnail?
     public let verdict: DiagnosticVerdict
     public let isSelected: Bool
 
@@ -174,6 +182,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         displayName: String,
         endpoint: String,
         hostKind: ConnectionProfile.HostKind,
+        preview: ProfilePreviewThumbnail? = nil,
         verdict: DiagnosticVerdict,
         isSelected: Bool
     ) {
@@ -181,6 +190,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         self.displayName = displayName
         self.endpoint = endpoint
         self.hostKind = hostKind
+        self.preview = preview
         self.verdict = verdict
         self.isSelected = isSelected
     }
