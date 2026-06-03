@@ -386,7 +386,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
     }
 
-    func testModelRenegotiatesAdaptiveEncodingsOnceQualityBucketIsKnown() async throws {
+    func testModelDoesNotRenegotiateAdaptiveEncodingsByDefault() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1,
@@ -408,6 +408,38 @@ final class NaruRemoteAppModelTests: XCTestCase {
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
             connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(model.connectionQuality, .good)
+        XCTAssertTrue(connector.renegotiatedPreferences.isEmpty)
+    }
+
+    func testModelRenegotiatesAdaptiveEncodingsWhenOptedInOnceQualityBucketIsKnown() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector },
+            allowsAdaptiveEncodingRenegotiation: true
         )
 
         await model.connectSelectedProfile()

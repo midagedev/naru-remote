@@ -126,6 +126,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
+    private let allowsAdaptiveEncodingRenegotiation: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
     #endif
@@ -241,7 +242,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
             SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
-        }
+        },
+        allowsAdaptiveEncodingRenegotiation: Bool = false
     ) {
         // Profiles are no longer loaded synchronously from
         // `profileStore` here — the store is now an `actor`, so its
@@ -289,6 +291,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.localClipboardWriter = localClipboardWriter
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
+        self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
         #endif
@@ -1781,21 +1784,25 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
-    /// Once the stream has a coarse quality bucket, re-advertise the
-    /// full decoder/control set through the pure spec-004 adaptive
-    /// builder. This keeps connection startup conservative
-    /// (`localLowLatency`) while letting good/fair/poor buckets tune
-    /// Tight JPEG quality, compression hints, server cursor, and pacing
-    /// pseudo-encodings for subsequent frames. Failures are deliberately
-    /// non-fatal: the frame pump will surface a real connection failure
-    /// on the next read/write, and this optimization must not tear down
-    /// an otherwise usable session.
+    /// Optional spec-004 adaptive re-advertisement. Connection-quality
+    /// buckets are always tracked for UI/diagnostics, but production
+    /// sessions stay on the conservative `localLowLatency` profile
+    /// until live benchmark/device evidence is strong enough to enable
+    /// automatic Tight/ZRLE/continuous-update renegotiation by default.
+    /// When opted in, failures are deliberately non-fatal: the frame
+    /// pump will surface a real connection failure on the next
+    /// read/write, and this optimization must not tear down an otherwise
+    /// usable session.
     private func renegotiateAdaptiveEncodingsIfNeeded(
         for bucket: ConnectionQuality,
         transportControl: (any RFBTransportControlClient)?,
         requestTimeout: TimeInterval
     ) {
-        guard bucket != .unknown, lastAdaptiveEncodingQuality != bucket, let transportControl else {
+        guard allowsAdaptiveEncodingRenegotiation,
+              bucket != .unknown,
+              lastAdaptiveEncodingQuality != bucket,
+              let transportControl
+        else {
             return
         }
 

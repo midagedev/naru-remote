@@ -135,6 +135,10 @@ iPhone) and ships as its own PR.
   FPS/latency/dirty-area aggregates can be compared across Hextile, Tight, ZRLE,
   and adaptive profiles before changing app defaults. Owns: live benchmark CLI,
   benchmark-kit profile report/tests, benchmark docs. **Done.**
+- **T315** Gate adaptive re-encoding: keep connection-quality UI sampling but
+  leave automatic Tight/ZRLE/ContinuousUpdates renegotiation off by default
+  until longer live iPhone benchmarks prove it improves sustained interaction.
+  Owns: app-model guard/tests. **Done.**
 
 ## Cross-cutting (every increment)
 
