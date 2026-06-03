@@ -108,6 +108,9 @@ summaries only. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
+For targeted longer runs after an all-profile sweep, pass a comma-separated
+subset such as `--stream-shape-profiles tight-first,zrle-compression-0,adaptive-good-full`
+so the benchmark spends time only on the current candidates.
 The default `--stream-shape-empty-backoff app` mode mirrors the app's
 sustained empty-update backoff so static-screen benchmark pacing matches
 the runtime stream loop; use `none` only when comparing against legacy

@@ -591,10 +591,11 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
-                guard let selection = StreamShapeProfileSelection(rawValue: value) else {
-                    throw UsageError("stream-shape-profiles must be local-low-latency or all.")
+                do {
+                    options.streamShapeProfiles = try StreamShapeProfileSelection.parse(value)
+                } catch let error as BenchmarkStreamShapeProfileSelectionError {
+                    throw UsageError(error.message)
                 }
-                options.streamShapeProfiles = selection
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-transport":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -646,17 +647,38 @@ private struct BenchmarkOptions: Equatable {
     }
 }
 
-private enum StreamShapeProfileSelection: String, Codable, Equatable {
-    case localLowLatency = "local-low-latency"
-    case all
+private struct StreamShapeProfileSelection: Equatable {
+    let rawValue: String
+    let profiles: [BenchmarkProfile]
 
-    var profiles: [BenchmarkProfile] {
-        switch self {
-        case .localLowLatency:
-            return [.localLowLatency]
-        case .all:
-            return BenchmarkProfile.allCases
+    static let localLowLatency = StreamShapeProfileSelection(
+        rawValue: BenchmarkProfile.localLowLatency.label,
+        profiles: [.localLowLatency]
+    )
+
+    static func parse(_ rawValue: String) throws -> StreamShapeProfileSelection {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: rawValue,
+            allProfileLabels: BenchmarkProfile.allCases.map(\.label),
+            localLowLatencyLabel: BenchmarkProfile.localLowLatency.label
+        )
+        let profiles = labels.compactMap(BenchmarkProfile.init(label:))
+        guard profiles.count == labels.count else {
+            let unmappedLabels = labels.filter { BenchmarkProfile(label: $0) == nil }
+            throw UsageError("unknown stream-shape profile label(s): \(unmappedLabels.joined(separator: ", ")).")
         }
+        return StreamShapeProfileSelection(
+            rawValue: canonicalRawValue(for: rawValue, selectedLabels: labels),
+            profiles: profiles
+        )
+    }
+
+    private static func canonicalRawValue(for rawValue: String, selectedLabels: [String]) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "all" || trimmed == BenchmarkProfile.localLowLatency.label {
+            return trimmed
+        }
+        return selectedLabels.joined(separator: ",")
     }
 }
 
@@ -867,7 +889,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeEmptyBackoffMediumIdleFrameIntervalSeconds: TimeInterval
     let streamShapeEmptyBackoffLongIdleFrameIntervalSeconds: TimeInterval
     let firstFrameProfiles: BenchmarkFirstFrameProfileSelection
-    let streamShapeProfiles: StreamShapeProfileSelection
+    let streamShapeProfiles: String
     let streamShapeTransportModes: StreamShapeTransportModeSelection
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
@@ -897,7 +919,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 12
+        self.schemaVersion = 13
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -915,7 +937,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeEmptyBackoffLongIdleFrameIntervalSeconds =
             BenchmarkStreamShapePacingPolicy.appLongIdleFrameInterval
         self.firstFrameProfiles = firstFrameProfiles
-        self.streamShapeProfiles = streamShapeProfiles
+        self.streamShapeProfiles = streamShapeProfiles.rawValue
         self.streamShapeTransportModes = streamShapeTransportModes
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
@@ -1136,7 +1158,7 @@ private func renderText(_ report: BenchmarkReport) {
         )
     }
     print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
-    print("stream-shape profiles: \(report.streamShapeProfiles.rawValue)")
+    print("stream-shape profiles: \(report.streamShapeProfiles)")
     print("stream-shape transport: \(report.streamShapeTransportModes.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
@@ -1331,7 +1353,7 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
@@ -1344,8 +1366,8 @@ private func printUsage() {
                                 Adaptive backoff for sustained empty stream-shape replies. Defaults to app, matching the app's 8/24 empty-update thresholds.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
-      --stream-shape-profiles local-low-latency|all
-                                Profile set for stream-shape probes. Defaults to local-low-latency; use all to compare every encoding profile.
+      --stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))
+                                Profile set for stream-shape probes. Defaults to local-low-latency; use all to compare every encoding profile, or a comma-separated list for targeted long runs.
       --stream-shape-transport request-response|continuous-updates|both
                                 Transport mode for stream-shape probes. Defaults to request-response; use both to compare request/response with the ContinuousUpdates overlay.
       --continuous-update-samples N
