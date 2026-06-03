@@ -95,6 +95,7 @@ swift run VNCLiveBenchmark \
   --stream-shape-idle-frame-interval 0.05 \
   --stream-shape-empty-backoff app \
   --stream-shape-power-mode normal \
+  --stream-shape-client-pressure app \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
   --stream-shape-transport both \
@@ -114,7 +115,11 @@ adds actual safe encoding-mix counts so requested profiles can be compared with
 what the server actually sent. It also emits fixed-threshold tail
 buckets for updates at or above 250 ms / 1000 ms, including only aggregate
 slow-frame counts and whether those slow frames were content, full-dirty, or
-full-upload classified. By default
+full-upload classified. Schema v21 adds
+`--stream-shape-client-pressure off|app`; `app` mirrors the runtime viewer's
+repeated lagging client-processing content-frame trigger and temporarily applies
+the same power-saver pacing floor during stream-shape probes, while reporting
+only the fixed mode label and threshold constants. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
@@ -133,6 +138,9 @@ fixed idle polling.
 The app's default active content-request interval is 60 Hz-class
 `1/60`, while static/empty incremental replies still use the separate
 idle delay and adaptive empty-update backoff.
+Use `--stream-shape-client-pressure app` for sustained heat/FPS comparisons
+after a baseline run with the default `off` mode, especially when receive timing
+shows client-processing tails rather than mostly network/server wait.
 Use `--stream-shape-power-mode low-power` to mirror the app's Low Power
 Mode floors: active content requests are capped at 30 Hz and empty
 incremental polling has a 125 ms minimum unless the explicit configured

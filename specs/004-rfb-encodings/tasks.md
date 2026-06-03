@@ -309,6 +309,13 @@ iPhone) and ships as its own PR.
   frames switch the actual `NaruRemoteAppModel` stream path from the configured
   active cadence to the adaptive power-saver floor without persisting power
   saver mode. Owns: app model seam, app-model test. **Done.**
+- **T345** Benchmark adaptive client-pressure pacing parity: extend
+  `VNCLiveBenchmark` schema v21 with `--stream-shape-client-pressure off|app`
+  so sustained live comparisons can mirror the app's repeated lagging
+  client-processing content-frame trigger and compare normal versus temporary
+  adaptive power-saver pacing without exporting raw timing samples. Owns:
+  benchmark pacing policy/state, CLI/report output, tests, benchmark docs.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
