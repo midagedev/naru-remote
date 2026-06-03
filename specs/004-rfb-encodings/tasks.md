@@ -109,6 +109,11 @@ iPhone) and ships as its own PR.
   framebuffer allocation, steady-state full Metal upload, and small dirty-rect
   upload on an iPhone simulator; skips by default unless explicitly enabled.
   Owns: `SyntheticFramePipelineBenchmarkTests.swift`, benchmark docs. **Done.**
+- **T310** Stream pacing backpressure: app default frame stream caps active
+  content-frame requests at ~30 fps while keeping fake/test streams able to
+  inject `frameInterval: 0`; record VNC performance research and live localhost
+  benchmark baseline. Owns: app model default config, app-model test, benchmark
+  artifacts. **Done.**
 
 ## Cross-cutting (every increment)
 

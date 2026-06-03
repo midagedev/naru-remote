@@ -201,6 +201,19 @@ public final class NaruRemoteAppModel: ObservableObject {
     internal private(set) var explicitlyDisconnected: Bool = false
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewSaveMinimumInterval: TimeInterval = 5
+    public static let defaultActiveFrameInterval: TimeInterval = 1.0 / 30.0
+    public static let defaultIdleFrameInterval: TimeInterval = 0.05
+    public static let defaultFrameStreamConfiguration = RFBFramePumpConfiguration(
+        requestTimeout: 8,
+        // RFB is demand-driven, so this is the app's default backpressure.
+        frameInterval: defaultActiveFrameInterval,
+        // Static screens should not busy-loop empty incremental requests.
+        idleFrameInterval: defaultIdleFrameInterval,
+        // Opportunistic only: the pump stays on request/response until
+        // adaptive SetEncodings advertises ContinuousUpdates and the
+        // transport reports that message 150 is safe for this session.
+        updateMode: .continuousUpdates
+    )
     private var reachabilityProbeTask: Task<Void, Never>?
     private var reachabilityProbeGeneration = UUID()
     @Published public private(set) var profilePersistenceError: String?
@@ -216,20 +229,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         profilePreviewStore: (any ProfilePreviewStore)? = nil,
         credentialStore: ConnectionCredentialStoreProtocol? = nil,
         settingsPersistence: AppSettingsPersisting? = nil,
-        frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
-            requestTimeout: 8,
-            // Uncapped active cadence: drive incremental updates as fast
-            // as the round-trip + decode allow (was 0.25, a ~4 fps
-            // ceiling, the biggest felt-smoothness gap vs macOS Screen
-            // Sharing). Empty/idle polls back off to ~20 Hz so a static
-            // screen never busy-loops the request path.
-            frameInterval: 0,
-            idleFrameInterval: 0.05,
-            // Opportunistic only: the pump stays on request/response until
-            // adaptive SetEncodings advertises ContinuousUpdates and the
-            // transport reports that message 150 is safe for this session.
-            updateMode: .continuousUpdates
-        ),
+        frameStreamConfiguration: RFBFramePumpConfiguration = NaruRemoteAppModel.defaultFrameStreamConfiguration,
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
         reachabilityProbeTimeout: TimeInterval = 2,
