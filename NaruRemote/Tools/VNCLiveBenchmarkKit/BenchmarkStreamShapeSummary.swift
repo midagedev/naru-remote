@@ -65,6 +65,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let dirtyRectangleCount: BenchmarkLatencySummary?
     public let dirtyAreaPermille: BenchmarkLatencySummary?
     public let changedPixelsPermille: BenchmarkLatencySummary?
+    public let tailLatency: BenchmarkStreamShapeTailSummary
     public let rendererUploadSampleCount: Int
     public let rendererPartialUploadSamples: Int
     public let rendererFullUploadSamples: Int
@@ -113,6 +114,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.dirtyRectangleCount = BenchmarkLatencySummary(samples.map(\.dirtyRectangleCount))
         self.dirtyAreaPermille = BenchmarkLatencySummary(samples.map(\.dirtyAreaPermille))
         self.changedPixelsPermille = BenchmarkLatencySummary(samples.map(\.changedPixelsPermille))
+        self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
         self.rendererUploadSampleCount = rendererUploadSamples.count
         self.rendererPartialUploadSamples = rendererPartialUploadSamples
         self.rendererFullUploadSamples = rendererFullUploadSamples
@@ -172,6 +174,41 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         }
         let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
         return value > 0 ? max(rounded, 1) : 0
+    }
+}
+
+public struct BenchmarkStreamShapeTailSummary: Codable, Equatable, Sendable {
+    public static let defaultSlowUpdateThresholdMilliseconds = 250
+    public static let defaultVerySlowUpdateThresholdMilliseconds = 1_000
+
+    public let slowUpdateThresholdMilliseconds: Int
+    public let verySlowUpdateThresholdMilliseconds: Int
+    public let slowUpdateSamples: Int
+    public let slowContentUpdateSamples: Int
+    public let slowFullDirtyAreaSamples: Int
+    public let slowRendererFullUploadSamples: Int
+    public let verySlowUpdateSamples: Int
+
+    public init(
+        samples: [BenchmarkStreamShapeSample],
+        slowUpdateThresholdMilliseconds: Int = Self.defaultSlowUpdateThresholdMilliseconds,
+        verySlowUpdateThresholdMilliseconds: Int = Self.defaultVerySlowUpdateThresholdMilliseconds
+    ) {
+        let slowThreshold = max(slowUpdateThresholdMilliseconds, 0)
+        let verySlowThreshold = max(verySlowUpdateThresholdMilliseconds, slowThreshold)
+        let slowSamples = samples.filter { $0.durationMilliseconds >= slowThreshold }
+
+        self.slowUpdateThresholdMilliseconds = slowThreshold
+        self.verySlowUpdateThresholdMilliseconds = verySlowThreshold
+        self.slowUpdateSamples = slowSamples.count
+        self.slowContentUpdateSamples = slowSamples.filter { $0.kind == .contentUpdate }.count
+        self.slowFullDirtyAreaSamples = slowSamples.filter { $0.dirtyAreaPermille >= 1_000 }.count
+        self.slowRendererFullUploadSamples = slowSamples.filter {
+            $0.rendererUploadStrategy == .full
+        }.count
+        self.verySlowUpdateSamples = samples.filter {
+            $0.durationMilliseconds >= verySlowThreshold
+        }.count
     }
 }
 

@@ -52,6 +52,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.dirtyRectangleCount).maxMilliseconds, 2)
         XCTAssertEqual(try XCTUnwrap(summary.dirtyAreaPermille).maxMilliseconds, 120)
         XCTAssertEqual(try XCTUnwrap(summary.changedPixelsPermille).maxMilliseconds, 90)
+        XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 0)
+        XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 0)
         XCTAssertEqual(summary.rendererUploadSampleCount, 1)
         XCTAssertEqual(summary.rendererPartialUploadSamples, 1)
         XCTAssertEqual(summary.rendererFullUploadSamples, 0)
@@ -112,6 +114,59 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.dirtyAreaPermille, 1_000)
         XCTAssertEqual(sample.changedPixelsPermille, 0)
         XCTAssertEqual(sample.rendererUploadRegionCount, 0)
+    }
+
+    func testTailLatencySummaryCorrelatesSlowSamplesWithDirtyAndUploadBuckets() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 4,
+            samples: [
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 249,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 1000,
+                    changedPixelsPermille: 1000,
+                    rendererUploadStrategy: .full,
+                    rendererUploadRegionCount: 1
+                ),
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 250,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 1000,
+                    changedPixelsPermille: 5,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1
+                ),
+                BenchmarkStreamShapeSample(
+                    kind: .emptyUpdate,
+                    durationMilliseconds: 300,
+                    dirtyRectangleCount: 0,
+                    dirtyAreaPermille: 0,
+                    changedPixelsPermille: 0
+                ),
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 1_000,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 1000,
+                    changedPixelsPermille: 1000,
+                    rendererUploadStrategy: .full,
+                    rendererUploadRegionCount: 1
+                )
+            ],
+            elapsedMilliseconds: 1_800,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.tailLatency.slowUpdateThresholdMilliseconds, 250)
+        XCTAssertEqual(summary.tailLatency.verySlowUpdateThresholdMilliseconds, 1_000)
+        XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 3)
+        XCTAssertEqual(summary.tailLatency.slowContentUpdateSamples, 2)
+        XCTAssertEqual(summary.tailLatency.slowFullDirtyAreaSamples, 2)
+        XCTAssertEqual(summary.tailLatency.slowRendererFullUploadSamples, 1)
+        XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 1)
     }
 
     func testProfileReportRoundTripsThroughJSON() throws {
