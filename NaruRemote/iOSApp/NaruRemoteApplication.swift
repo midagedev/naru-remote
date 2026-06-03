@@ -62,6 +62,7 @@ struct NaruRemoteApplication: App {
         // snapshot) when the env var is unset — production behaviour,
         // zero runtime cost.
         let fixtureSnapshot = UXAuditFixtures.loadFixtureSnapshot()
+            ?? UXAuditFixtures.loadSeedProfileSnapshot()
         let model: NaruRemoteAppModel
         if let fixtureSnapshot {
             model = NaruRemoteAppModel(
@@ -90,14 +91,16 @@ struct NaruRemoteApplication: App {
             // `LocalMacConnectE2EUITests`.
             await applyTestInjectKeychainPassword(into: credentialStore)
 
-            do {
-                let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
-                let store = try await ConnectionProfileStore(persistence: persistence)
-                await model.attachProfileStore(store)
-            } catch {
-                // Profile store could not be opened — the model still
-                // works as an in-memory profile editor for this
-                // launch.  The next launch will retry.
+            if !testSkipsProfileStoreLoad() {
+                do {
+                    let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
+                    let store = try await ConnectionProfileStore(persistence: persistence)
+                    await model.attachProfileStore(store)
+                } catch {
+                    // Profile store could not be opened — the model still
+                    // works as an in-memory profile editor for this
+                    // launch.  The next launch will retry.
+                }
             }
             await model.loadStoredProfilePreviews()
 
@@ -192,6 +195,17 @@ struct NaruRemoteApplication: App {
             // a test failure will surface as "credential unavailable"
             // when Connect is tapped.
         }
+    }
+
+    /// XCUITest E2E hook — when a launch has seeded an in-memory
+    /// profile from environment, tests can opt out of disk profile
+    /// loading so a previous app install cannot replace that profile
+    /// before Connect is tapped.  Production never sets the flag.
+    private static func testSkipsProfileStoreLoad() -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"],
+              !raw.isEmpty
+        else { return false }
+        return raw != "0" && raw.lowercased() != "false"
     }
 
     private static func profileStoreURL() -> URL {

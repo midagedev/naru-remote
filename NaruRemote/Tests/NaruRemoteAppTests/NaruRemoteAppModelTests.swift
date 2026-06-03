@@ -177,6 +177,26 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.diagnosticRun?.stages.last?.safeDetail, "2x1 remote framebuffer is available.")
     }
 
+    func testStreamingFirstFrameFailureAfterHandshakeReportsFirstFrameStage() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Desk", framebuffers: [])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, requestTimeout: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(connector.sessionRequests, [FakeFirstFrameConnector.Request(host: "desk.tailnet.ts.net", port: 5900)])
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(model.snapshot.session?.state, .failed)
+        XCTAssertEqual(model.snapshot.session?.hudMessage, "No frame received")
+        XCTAssertEqual(model.snapshot.diagnosticRun?.firstFailedStage?.stage, .firstFrame)
+        XCTAssertEqual(model.snapshot.diagnosticRun?.firstFailedStage?.metadata?.failureCode, "rfb.incompleteTranscript")
+    }
+
     func testModelStoresStreamingFramebufferPreview() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
@@ -808,7 +828,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(report.configuredPort, 5901)
         XCTAssertEqual(report.hasCredentialReference, true)
         XCTAssertEqual(report.diagnosticTrigger, DiagnosticRunTrigger.connect.rawValue)
-        XCTAssertEqual(report.probeTimeoutSeconds, 3)
+        XCTAssertEqual(report.probeTimeoutSeconds, 8)
         XCTAssertTrue(report.targetFingerprint?.hasPrefix("sha256:") ?? false)
         XCTAssertEqual(report.targetFingerprint?.count, "sha256:".count + 64)
         XCTAssertEqual(report.stageRows.last?.stageID, DiagnosticStage.tcp.rawValue)
