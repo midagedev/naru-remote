@@ -265,3 +265,37 @@ polling at 125 ms unless thermal state requires an even slower delay.
 `streamShapePowerMode` and the fixed low-power content/idle floors so live
 request/response probes can compare normal vs low-power pacing without changing
 the app or exporting device power state in diagnostics.
+
+## D13 — Sustained performance needs duration-capped VNC probes
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+
+**Decision**: add a duration-capped stream-shape benchmark mode before making
+the next production VNC pacing/encoding change. The benchmark must support
+sample-capped sweeps for quick comparisons and duration-only sustained runs for
+thermal/FPS investigations.
+
+**Why**:
+- RFC 6143 keeps normal framebuffer updates request-driven and explicitly says
+  fast clients may regulate incremental request rate to avoid excessive traffic.
+  Short sample runs are enough to catch protocol regressions, but not enough to
+  detect device heat, long-tail decode stalls, or sustained idle-poll pressure.
+- TigerVNC exposes auto selection, preferred encoding, compression level,
+  quality level, and a 17 ms pointer-event interval. That combination is a
+  practical signal that good VNC UX is server/link/device dependent and should
+  be tuned from repeated measurements, not a single static encoding order.
+- IANA records ContinuousUpdates/Fence as RFB extensions rather than the RFC
+  baseline, so sustained experiments still need to compare request/response and
+  extension transport modes side by side before changing the production gate.
+
+**Implementation rule**: `VNCLiveBenchmark` schema v17 records
+`streamShapeDurationSeconds`. Passing `--stream-shape-samples 0` with
+`--stream-shape-duration-seconds` runs until the duration limit, while keeping
+the existing redaction boundary: no host, server name, framebuffer dimensions,
+coordinates, pixels, byte counts, cursor pixels, or raw error descriptions.
+The duration cap also bounds each in-flight update wait and post-update pacing
+delay to the remaining duration so long thermal runs do not drift far past
+their requested wall-clock window.

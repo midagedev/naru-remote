@@ -77,6 +77,7 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
+            durationLimit: options.streamShapeDuration,
             pacingPolicy: streamShapePacingPolicy
         )
         let streamShapeProfileProbes = options.streamShapeProfiles.profiles.flatMap { profile in
@@ -97,6 +98,7 @@ enum VNCLiveBenchmark {
                     timeout: options.timeout,
                     idleTimeout: options.idleTimeout,
                     maxSamples: options.streamShapeSamples,
+                    durationLimit: options.streamShapeDuration,
                     pacingPolicy: streamShapePacingPolicy
                 )
             }
@@ -115,6 +117,7 @@ enum VNCLiveBenchmark {
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
             streamShapeSamples: options.streamShapeSamples,
+            streamShapeDuration: options.streamShapeDuration,
             streamShapeFrameInterval: options.streamShapeFrameInterval,
             streamShapeIdleFrameInterval: options.streamShapeIdleFrameInterval,
             streamShapeEmptyBackoffMode: options.streamShapeEmptyBackoffMode,
@@ -322,12 +325,13 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
+        durationLimit: TimeInterval?,
         pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> StreamShapeProbeReport {
-        guard maxSamples > 0 else {
+        guard maxSamples > 0 || durationLimit != nil else {
             return StreamShapeProbeReport(
                 transportMode: transportMode,
-                requestedSamples: maxSamples,
+                requestedSamples: 0,
                 firstFrameMilliseconds: nil,
                 samples: [],
                 elapsedMilliseconds: nil,
@@ -362,7 +366,11 @@ enum VNCLiveBenchmark {
             failureLabel = safeFailureLabel(for: error, phase: .streamConnect)
             return StreamShapeProbeReport(
                 transportMode: transportMode,
-                requestedSamples: maxSamples,
+                requestedSamples: streamShapeRequestedSamples(
+                    maxSamples: maxSamples,
+                    durationLimit: durationLimit,
+                    receivedSamples: samples.count
+                ),
                 firstFrameMilliseconds: firstFrameMilliseconds,
                 samples: samples,
                 elapsedMilliseconds: elapsedMilliseconds,
@@ -382,7 +390,11 @@ enum VNCLiveBenchmark {
             failureLabel = safeFailureLabel(for: error, phase: .streamFirstFrame)
             return StreamShapeProbeReport(
                 transportMode: transportMode,
-                requestedSamples: maxSamples,
+                requestedSamples: streamShapeRequestedSamples(
+                    maxSamples: maxSamples,
+                    durationLimit: durationLimit,
+                    receivedSamples: samples.count
+                ),
                 firstFrameMilliseconds: firstFrameMilliseconds,
                 samples: samples,
                 elapsedMilliseconds: elapsedMilliseconds,
@@ -392,11 +404,24 @@ enum VNCLiveBenchmark {
         }
 
         let streamStartedAt = Date()
-        for _ in 0..<maxSamples {
+        while shouldRequestAnotherStreamShapeSample(
+            receivedSamples: samples.count,
+            maxSamples: maxSamples,
+            durationLimit: durationLimit,
+            streamStartedAt: streamStartedAt
+        ) {
             let startedAt = Date()
+            let requestTimeout = streamShapeRequestTimeout(
+                idleTimeout: idleTimeout,
+                durationLimit: durationLimit,
+                streamStartedAt: streamStartedAt
+            )
+            guard requestTimeout > 0 else {
+                break
+            }
             do {
                 guard let frame = try pump.nextFrame(
-                    requestTimeout: idleTimeout,
+                    requestTimeout: requestTimeout,
                     updateMode: transportMode.framePumpUpdateMode
                 ) else {
                     break
@@ -411,11 +436,27 @@ enum VNCLiveBenchmark {
                     isEmptyUpdate: isEmptyUpdate,
                     emptyUpdateStreak: emptyUpdateStreak
                 )
-                if pacingDelay > 0 {
-                    Thread.sleep(forTimeInterval: pacingDelay)
+                let cappedPacingDelay = streamShapeCappedDelay(
+                    pacingDelay,
+                    durationLimit: durationLimit,
+                    streamStartedAt: streamStartedAt
+                )
+                if cappedPacingDelay > 0 {
+                    Thread.sleep(forTimeInterval: cappedPacingDelay)
                 }
             } catch RFBNetworkClientError.timedOut {
-                firstTimeoutMilliseconds = milliseconds(from: idleTimeout)
+                if requestTimeout >= idleTimeout {
+                    firstTimeoutMilliseconds = milliseconds(from: requestTimeout)
+                }
+                break
+            } catch RFBNetworkClientError.readTimedOut {
+                if requestTimeout < idleTimeout {
+                    break
+                }
+                failureLabel = safeFailureLabel(
+                    for: RFBNetworkClientError.readTimedOut,
+                    phase: transportMode.streamFailurePhase
+                )
                 break
             } catch {
                 failureLabel = safeFailureLabel(for: error, phase: transportMode.streamFailurePhase)
@@ -426,7 +467,11 @@ enum VNCLiveBenchmark {
 
         return StreamShapeProbeReport(
             transportMode: transportMode,
-            requestedSamples: maxSamples,
+            requestedSamples: streamShapeRequestedSamples(
+                maxSamples: maxSamples,
+                durationLimit: durationLimit,
+                receivedSamples: samples.count
+            ),
             firstFrameMilliseconds: firstFrameMilliseconds,
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
@@ -442,6 +487,7 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
+        durationLimit: TimeInterval?,
         pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> BenchmarkStreamShapeProfileReport {
         let probe = measureStreamShapeProbe(
@@ -451,6 +497,7 @@ enum VNCLiveBenchmark {
             timeout: timeout,
             idleTimeout: idleTimeout,
             maxSamples: maxSamples,
+            durationLimit: durationLimit,
             pacingPolicy: pacingPolicy
         )
         return BenchmarkStreamShapeProfileReport(
@@ -501,6 +548,62 @@ enum VNCLiveBenchmark {
         milliseconds(from: Date().timeIntervalSince(start))
     }
 
+    private static func shouldRequestAnotherStreamShapeSample(
+        receivedSamples: Int,
+        maxSamples: Int,
+        durationLimit: TimeInterval?,
+        streamStartedAt: Date
+    ) -> Bool {
+        if maxSamples > 0, receivedSamples >= maxSamples {
+            return false
+        }
+        guard let durationLimit else {
+            return maxSamples > 0
+        }
+        return Date().timeIntervalSince(streamStartedAt) < durationLimit
+    }
+
+    private static func streamShapeRequestTimeout(
+        idleTimeout: TimeInterval,
+        durationLimit: TimeInterval?,
+        streamStartedAt: Date
+    ) -> TimeInterval {
+        guard let durationLimit else {
+            return idleTimeout
+        }
+        let remaining = durationLimit - Date().timeIntervalSince(streamStartedAt)
+        return min(idleTimeout, max(remaining, 0))
+    }
+
+    private static func streamShapeCappedDelay(
+        _ delay: TimeInterval,
+        durationLimit: TimeInterval?,
+        streamStartedAt: Date
+    ) -> TimeInterval {
+        guard delay > 0 else {
+            return 0
+        }
+        guard let durationLimit else {
+            return delay
+        }
+        let remaining = durationLimit - Date().timeIntervalSince(streamStartedAt)
+        return min(delay, max(remaining, 0))
+    }
+
+    private static func streamShapeRequestedSamples(
+        maxSamples: Int,
+        durationLimit: TimeInterval?,
+        receivedSamples: Int
+    ) -> Int {
+        if maxSamples > 0 {
+            return maxSamples
+        }
+        if durationLimit != nil {
+            return max(receivedSamples, 1)
+        }
+        return 0
+    }
+
     private static func milliseconds(from seconds: TimeInterval) -> Int {
         Int((seconds * 1_000).rounded())
     }
@@ -511,6 +614,7 @@ private struct BenchmarkOptions: Equatable {
     var fullRefreshSamples = 1
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
+    var streamShapeDuration: TimeInterval?
     var streamShapeFrameInterval: TimeInterval = 1.0 / 60.0
     var streamShapeIdleFrameInterval: TimeInterval = 0.05
     var streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode = .app
@@ -567,6 +671,10 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("stream-shape-samples must be a non-negative integer.")
                 }
                 options.streamShapeSamples = samples
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-duration-seconds":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.streamShapeDuration = try positiveTimeInterval(value, option: argument)
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-frame-interval":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -891,6 +999,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let fullRefreshSamplesPerAttempt: Int
     let continuousUpdateSamples: Int
     let streamShapeSamples: Int
+    let streamShapeDurationSeconds: TimeInterval?
     let streamShapeFrameIntervalSeconds: TimeInterval
     let streamShapeIdleFrameIntervalSeconds: TimeInterval
     let streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
@@ -920,6 +1029,7 @@ private struct BenchmarkReport: Codable, Equatable {
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
         streamShapeSamples: Int,
+        streamShapeDuration: TimeInterval?,
         streamShapeFrameInterval: TimeInterval,
         streamShapeIdleFrameInterval: TimeInterval,
         streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode,
@@ -933,12 +1043,13 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 16
+        self.schemaVersion = 17
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
         self.streamShapeSamples = streamShapeSamples
+        self.streamShapeDurationSeconds = streamShapeDuration
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
         self.streamShapeIdleFrameIntervalSeconds = streamShapeIdleFrameInterval
         self.streamShapeEmptyBackoffMode = streamShapeEmptyBackoffMode
@@ -1164,6 +1275,9 @@ private func renderText(_ report: BenchmarkReport) {
     print("attempts per profile: \(report.attemptsPerProfile)")
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("stream-shape samples: \(report.streamShapeSamples)")
+    if let duration = report.streamShapeDurationSeconds {
+        print("stream-shape duration seconds: \(formatSeconds(duration))")
+    }
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
     print("stream-shape idle frame interval seconds: \(formatSeconds(report.streamShapeIdleFrameIntervalSeconds))")
     print("stream-shape empty backoff: \(report.streamShapeEmptyBackoffMode.rawValue)")
@@ -1393,11 +1507,13 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
-      --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 to disable.
+      --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
+      --stream-shape-duration-seconds SECONDS
+                                Optional sustained stream-shape duration limit. When set, the probe stops at this duration or the sample cap, whichever comes first.
       --stream-shape-frame-interval SECONDS
                                 Delay after content stream-shape incremental requests. Defaults to 0.0167, matching the app's 60 Hz normal-mode cap.
       --stream-shape-idle-frame-interval SECONDS
