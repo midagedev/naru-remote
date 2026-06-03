@@ -219,7 +219,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV3() throws {
+    func testRenderCollectionJSONIsDeterministicSchemaV4() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 3"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 4"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(decoded.schemaVersion, 4)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -320,6 +320,12 @@ final class DiagnosticExportTests: XCTestCase {
             dirtyAreaPermilleMax: 900,
             averageChangedPixelsPermille: 100,
             changedPixelsPermilleMax: 875,
+            rendererUploadSampleCount: 80,
+            rendererPartialUploadCount: 70,
+            rendererFullUploadCount: 10,
+            rendererPartialUploadPermille: 875,
+            rendererFullUploadPermille: 125,
+            rendererUploadRegionCountMax: 4,
             thermalState: "serious"
         )
         let export = DiagnosticExport(run: run, streamPerformance: performance)
@@ -333,7 +339,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(decoded.schemaVersion, 4)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
         XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
@@ -359,6 +365,12 @@ final class DiagnosticExportTests: XCTestCase {
             dirtyAreaPermilleMax: -8,
             averageChangedPixelsPermille: -9,
             changedPixelsPermilleMax: 4_000,
+            rendererUploadSampleCount: -10,
+            rendererPartialUploadCount: -11,
+            rendererFullUploadCount: -12,
+            rendererPartialUploadPermille: 4_000,
+            rendererFullUploadPermille: -20,
+            rendererUploadRegionCountMax: -13,
             thermalState: "thermal=SECRET"
         )
 
@@ -378,6 +390,12 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.dirtyAreaPermilleMax, 0)
         XCTAssertEqual(performance.averageChangedPixelsPermille, 0)
         XCTAssertEqual(performance.changedPixelsPermilleMax, 1_000)
+        XCTAssertEqual(performance.rendererUploadSampleCount, 0)
+        XCTAssertEqual(performance.rendererPartialUploadCount, 0)
+        XCTAssertEqual(performance.rendererFullUploadCount, 0)
+        XCTAssertEqual(performance.rendererPartialUploadPermille, 1_000)
+        XCTAssertEqual(performance.rendererFullUploadPermille, 0)
+        XCTAssertEqual(performance.rendererUploadRegionCountMax, 0)
         XCTAssertEqual(performance.thermalState, "unknown")
     }
 
@@ -404,8 +422,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v3 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 3"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v4 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 4"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

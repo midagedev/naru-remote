@@ -174,6 +174,12 @@ iPhone) and ships as its own PR.
   empty-update backoff inside stream-shape probes, expose `app|none` mode, and
   report schema-v10 pacing settings for comparable iPhone/Mac runs. Owns:
   benchmark kit, live benchmark CLI/report/docs, tests. **Done.**
+- **T324** Renderer upload strategy diagnostics: share the renderer's safe
+  full-vs-partial upload classifier between app diagnostics and live benchmark
+  summaries, exposing only aggregate counts/permille and upload-region maxima
+  so hot-device reports can identify full-upload pressure without dimensions,
+  coordinates, pixels, or byte counts. Owns: core classifier, app stats/export,
+  live benchmark summary/docs/tests. **Done.**
 
 ## Cross-cutting (every increment)
 

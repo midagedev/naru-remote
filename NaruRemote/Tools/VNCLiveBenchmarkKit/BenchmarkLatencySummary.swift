@@ -14,6 +14,12 @@ public struct BenchmarkLatencySummary: Codable, Equatable, Sendable {
     public let p95Milliseconds: Int
     public let maxMilliseconds: Int
 
+    public var averageValue: Int { averageMilliseconds }
+    public var minValue: Int { minMilliseconds }
+    public var p50Value: Int { p50Milliseconds }
+    public var p95Value: Int { p95Milliseconds }
+    public var maxValue: Int { maxMilliseconds }
+
     public init?(_ samples: [Int]) {
         guard !samples.isEmpty else {
             return nil

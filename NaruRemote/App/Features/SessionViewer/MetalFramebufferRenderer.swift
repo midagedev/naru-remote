@@ -29,8 +29,8 @@ import MetalKit
 /// `videoGravity = .resizeAspect` choice used by the PiP path.
 @MainActor
 public final class MetalFramebufferRenderer: NSObject {
-    static let maximumPartialUploadRegionCount = 64
-    static let maximumPartialUploadAreaFraction = 0.60
+    static let maximumPartialUploadRegionCount = FramebufferUploadPlan.maximumPartialUploadRegionCount
+    static let maximumPartialUploadAreaFraction = FramebufferUploadPlan.maximumPartialUploadAreaFraction
 
     public let device: MTLDevice
 
@@ -168,7 +168,7 @@ public final class MetalFramebufferRenderer: NSObject {
         // array directly without per-channel swizzling.
         let bytesPerRow = framebuffer.width * 4
 
-        let validDirtyRectangles = Self.validDirtyRectangles(
+        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
             dirtyRectangles,
             textureWidth: texture.width,
             textureHeight: texture.height
@@ -181,17 +181,14 @@ public final class MetalFramebufferRenderer: NSObject {
         // deliberately conservative: use partial uploads for small,
         // localized damage; fall back to one full upload for scattered
         // or mostly-screen updates.
-        let canUsePartialUpload =
-            !textureWasRecreated
-            && texture.width == framebuffer.width
-            && texture.height == framebuffer.height
-            && !validDirtyRectangles.isEmpty
-            && validDirtyRectangles.count <= Self.maximumPartialUploadRegionCount
-            && Self.dirtyAreaFraction(
-                validDirtyRectangles,
-                textureWidth: texture.width,
-                textureHeight: texture.height
-            ) <= Self.maximumPartialUploadAreaFraction
+        let uploadPlan = FramebufferUploadPlan.plan(
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height,
+            dirtyRectangles: validDirtyRectangles,
+            requiresTextureRecreation: textureWasRecreated
+                || texture.width != framebuffer.width
+                || texture.height != framebuffer.height
+        )
 
         framebuffer.pixels.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else {
@@ -199,7 +196,7 @@ public final class MetalFramebufferRenderer: NSObject {
             }
             let basePointer = baseAddress.assumingMemoryBound(to: UInt8.self)
 
-            if canUsePartialUpload {
+            if uploadPlan.strategy == .partial {
                 for rect in validDirtyRectangles {
                     let sourceOffset = (rect.y * bytesPerRow) + (rect.x * 4)
                     let sourcePointer = basePointer.advanced(by: sourceOffset)
@@ -222,40 +219,6 @@ public final class MetalFramebufferRenderer: NSObject {
             }
         }
         return true
-    }
-
-    private static func validDirtyRectangles(
-        _ rectangles: [RFBFrameDamageRect]?,
-        textureWidth: Int,
-        textureHeight: Int
-    ) -> [RFBFrameDamageRect] {
-        guard let rectangles else {
-            return []
-        }
-
-        return rectangles.filter { rect in
-            rect.width > 0
-                && rect.height > 0
-                && rect.x >= 0
-                && rect.y >= 0
-                && rect.x + rect.width <= textureWidth
-                && rect.y + rect.height <= textureHeight
-        }
-    }
-
-    private static func dirtyAreaFraction(
-        _ rectangles: [RFBFrameDamageRect],
-        textureWidth: Int,
-        textureHeight: Int
-    ) -> Double {
-        let fullArea = textureWidth * textureHeight
-        guard fullArea > 0 else {
-            return 1
-        }
-        let dirtyArea = rectangles.reduce(0) { total, rect in
-            total + rect.width * rect.height
-        }
-        return Double(dirtyArea) / Double(fullArea)
     }
 
     fileprivate func draw(in view: MTKView) {
