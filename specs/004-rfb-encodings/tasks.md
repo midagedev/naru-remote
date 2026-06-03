@@ -195,6 +195,13 @@ iPhone) and ships as its own PR.
   local-redacted transport comparison showing request/response works while
   ContinuousUpdates fails after receive. Owns: benchmark failure label kit,
   CLI, tests, live benchmark artifact. **Done.**
+- **T327** Targeted stream-shape profile lists: allow `VNCLiveBenchmark`
+  `--stream-shape-profiles` to accept comma-separated safe profile labels after
+  an all-profile sweep, preserving redacted schema output while avoiding long
+  runs over known-losing profiles. Record the 45-sample all-profile
+  request/response comparison and the 60-sample candidate-list follow-up run.
+  Owns: benchmark profile selection kit/tests, live benchmark CLI/docs,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
