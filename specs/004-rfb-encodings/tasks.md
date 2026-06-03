@@ -126,6 +126,10 @@ iPhone) and ships as its own PR.
   coarse thermal state. Do not export host, dimensions, coordinates, pixels,
   byte counts, raw latency, or raw errors. Owns: app snapshot/model/tests.
   **Done.**
+- **T313** Thermal-aware app pacing: when iOS reports elevated thermal pressure,
+  raise the minimum active/idle frame-request delay from the default 30fps path
+  to fair/serious/critical tiers, while preserving explicit zero-delay fake/test
+  streams. Owns: app pacing policy, app model wiring, app-model tests. **Done.**
 
 ## Cross-cutting (every increment)
 
