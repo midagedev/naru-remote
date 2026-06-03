@@ -92,6 +92,7 @@ swift run VNCLiveBenchmark \
   --stream-shape-samples 30 \
   --stream-shape-frame-interval 0.033 \
   --stream-shape-idle-frame-interval 0.05 \
+  --stream-shape-empty-backoff app \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
   --continuous-update-samples 3
@@ -105,6 +106,10 @@ permille, and changed-pixel permille summaries only. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
+The default `--stream-shape-empty-backoff app` mode mirrors the app's
+sustained empty-update backoff so static-screen benchmark pacing matches
+the runtime stream loop; use `none` only when comparing against legacy
+fixed idle polling.
 For longer stream-shape-only runs, pass `--first-frame-profiles
 stream-shape-profiles` to benchmark first-frame latency only for the
 same profiles being stream-shaped, or `--first-frame-profiles none` to

@@ -62,14 +62,18 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout
         )
+        let streamShapePacingPolicy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: options.streamShapeFrameInterval,
+            idleFrameInterval: options.streamShapeIdleFrameInterval,
+            emptyBackoffMode: options.streamShapeEmptyBackoffMode
+        )
         let streamShapeProbe = measureStreamShapeProbe(
             profile: .localLowLatency,
             configuration: configuration,
             timeout: options.timeout,
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
-            frameInterval: options.streamShapeFrameInterval,
-            idleFrameInterval: options.streamShapeIdleFrameInterval
+            pacingPolicy: streamShapePacingPolicy
         )
         let streamShapeProfileProbes = options.streamShapeProfiles.profiles.map { profile in
             if profile == .localLowLatency {
@@ -85,8 +89,7 @@ enum VNCLiveBenchmark {
                 timeout: options.timeout,
                 idleTimeout: options.idleTimeout,
                 maxSamples: options.streamShapeSamples,
-                frameInterval: options.streamShapeFrameInterval,
-                idleFrameInterval: options.streamShapeIdleFrameInterval
+                pacingPolicy: streamShapePacingPolicy
             )
         }
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
@@ -105,6 +108,7 @@ enum VNCLiveBenchmark {
             streamShapeSamples: options.streamShapeSamples,
             streamShapeFrameInterval: options.streamShapeFrameInterval,
             streamShapeIdleFrameInterval: options.streamShapeIdleFrameInterval,
+            streamShapeEmptyBackoffMode: options.streamShapeEmptyBackoffMode,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             profiles: profiles,
@@ -297,8 +301,7 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
-        frameInterval: TimeInterval,
-        idleFrameInterval: TimeInterval
+        pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> StreamShapeProbeReport {
         guard maxSamples > 0 else {
             return StreamShapeProbeReport(
@@ -318,6 +321,7 @@ enum VNCLiveBenchmark {
         var firstTimeoutMilliseconds: Int?
         var elapsedMilliseconds: Int?
         var failureLabel: String?
+        var emptyUpdateStreak = 0
 
         do {
             _ = try client.connectSession(
@@ -342,9 +346,12 @@ enum VNCLiveBenchmark {
                         from: frame,
                         durationMilliseconds: milliseconds(since: startedAt)
                     ))
-                    let pacingDelay = frame.isIncremental && frame.changedPixelCount == 0
-                        ? idleFrameInterval
-                        : frameInterval
+                    let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
+                    emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
+                    let pacingDelay = pacingPolicy.delay(
+                        isEmptyUpdate: isEmptyUpdate,
+                        emptyUpdateStreak: emptyUpdateStreak
+                    )
                     if pacingDelay > 0 {
                         Thread.sleep(forTimeInterval: pacingDelay)
                     }
@@ -381,8 +388,7 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
-        frameInterval: TimeInterval,
-        idleFrameInterval: TimeInterval
+        pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> BenchmarkStreamShapeProfileReport {
         let probe = measureStreamShapeProbe(
             profile: profile,
@@ -390,8 +396,7 @@ enum VNCLiveBenchmark {
             timeout: timeout,
             idleTimeout: idleTimeout,
             maxSamples: maxSamples,
-            frameInterval: frameInterval,
-            idleFrameInterval: idleFrameInterval
+            pacingPolicy: pacingPolicy
         )
         return BenchmarkStreamShapeProfileReport(
             label: profile.label,
@@ -442,6 +447,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeSamples = 12
     var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
     var streamShapeIdleFrameInterval: TimeInterval = 0.05
+    var streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode = .app
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var timeout: TimeInterval = 5
@@ -501,6 +507,13 @@ private struct BenchmarkOptions: Equatable {
             case "--stream-shape-idle-frame-interval":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeIdleFrameInterval = try nonNegativeTimeInterval(value, option: argument)
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-empty-backoff":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkStreamShapeEmptyBackoffMode(rawValue: value) else {
+                    throw UsageError("stream-shape-empty-backoff must be app or none.")
+                }
+                options.streamShapeEmptyBackoffMode = mode
                 index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -724,6 +737,11 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeSamples: Int
     let streamShapeFrameIntervalSeconds: TimeInterval
     let streamShapeIdleFrameIntervalSeconds: TimeInterval
+    let streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
+    let streamShapeEmptyBackoffMediumStreakThreshold: Int
+    let streamShapeEmptyBackoffLongStreakThreshold: Int
+    let streamShapeEmptyBackoffMediumIdleFrameIntervalSeconds: TimeInterval
+    let streamShapeEmptyBackoffLongIdleFrameIntervalSeconds: TimeInterval
     let firstFrameProfiles: BenchmarkFirstFrameProfileSelection
     let streamShapeProfiles: StreamShapeProfileSelection
     let timeoutSeconds: TimeInterval
@@ -744,6 +762,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeSamples: Int,
         streamShapeFrameInterval: TimeInterval,
         streamShapeIdleFrameInterval: TimeInterval,
+        streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         profiles: [ProfileReport],
@@ -752,7 +771,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 9
+        self.schemaVersion = 10
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -760,6 +779,15 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeSamples = streamShapeSamples
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
         self.streamShapeIdleFrameIntervalSeconds = streamShapeIdleFrameInterval
+        self.streamShapeEmptyBackoffMode = streamShapeEmptyBackoffMode
+        self.streamShapeEmptyBackoffMediumStreakThreshold =
+            BenchmarkStreamShapePacingPolicy.appMediumEmptyUpdateStreakThreshold
+        self.streamShapeEmptyBackoffLongStreakThreshold =
+            BenchmarkStreamShapePacingPolicy.appLongEmptyUpdateStreakThreshold
+        self.streamShapeEmptyBackoffMediumIdleFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appMediumIdleFrameInterval
+        self.streamShapeEmptyBackoffLongIdleFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appLongIdleFrameInterval
         self.firstFrameProfiles = firstFrameProfiles
         self.streamShapeProfiles = streamShapeProfiles
         self.timeoutSeconds = timeoutSeconds
@@ -966,6 +994,16 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape samples: \(report.streamShapeSamples)")
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
     print("stream-shape idle frame interval seconds: \(formatSeconds(report.streamShapeIdleFrameIntervalSeconds))")
+    print("stream-shape empty backoff: \(report.streamShapeEmptyBackoffMode.rawValue)")
+    if report.streamShapeEmptyBackoffMode == .app {
+        print(
+            "stream-shape empty backoff thresholds: "
+                + "\(report.streamShapeEmptyBackoffMediumStreakThreshold)->"
+                + "\(formatSeconds(report.streamShapeEmptyBackoffMediumIdleFrameIntervalSeconds))s, "
+                + "\(report.streamShapeEmptyBackoffLongStreakThreshold)->"
+                + "\(formatSeconds(report.streamShapeEmptyBackoffLongIdleFrameIntervalSeconds))s"
+        )
+    }
     print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
     print("stream-shape profiles: \(report.streamShapeProfiles.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
@@ -1139,7 +1177,7 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
@@ -1148,6 +1186,8 @@ private func printUsage() {
                                 Delay after content stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
       --stream-shape-idle-frame-interval SECONDS
                                 Delay after empty stream-shape incremental requests. Defaults to 0.05, matching the app's idle poll backoff.
+      --stream-shape-empty-backoff app|none
+                                Adaptive backoff for sustained empty stream-shape replies. Defaults to app, matching the app's 8/24 empty-update thresholds.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles local-low-latency|all
