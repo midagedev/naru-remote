@@ -180,6 +180,14 @@ iPhone) and ships as its own PR.
   so hot-device reports can identify full-upload pressure without dimensions,
   coordinates, pixels, or byte counts. Owns: core classifier, app stats/export,
   live benchmark summary/docs/tests. **Done.**
+- **T325** Stream transport benchmark comparison: extend `VNCLiveBenchmark`
+  schema-v12 with `--stream-shape-transport request-response|continuous-updates|both`
+  and a redacted transport-mode field on every stream-shape report, applying a
+  ContinuousUpdates/Fence pseudo-encoding overlay only for the continuous mode so
+  sustained FPS/latency/renderer-upload aggregates can compare request/response
+  polling against push transport before changing app defaults. Owns: live
+  benchmark CLI, benchmark-kit report/tests, research notes, simulator benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

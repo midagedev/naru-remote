@@ -15,6 +15,11 @@ public enum BenchmarkStreamUpdateKind: String, Codable, Equatable, Sendable {
     case contentUpdate = "content-update"
 }
 
+public enum BenchmarkStreamShapeTransportMode: String, Codable, Equatable, Sendable, CaseIterable {
+    case requestResponse = "request-response"
+    case continuousUpdates = "continuous-updates"
+}
+
 public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let kind: BenchmarkStreamUpdateKind
     public let durationMilliseconds: Int
@@ -172,15 +177,18 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
 
 public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let label: String
+    public let transportMode: BenchmarkStreamShapeTransportMode
     public let firstFrameMilliseconds: Int?
     public let summary: BenchmarkStreamShapeSummary
 
     public init(
         label: String,
+        transportMode: BenchmarkStreamShapeTransportMode = .requestResponse,
         firstFrameMilliseconds: Int?,
         summary: BenchmarkStreamShapeSummary
     ) {
         self.label = label
+        self.transportMode = transportMode
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.summary = summary
     }

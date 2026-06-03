@@ -132,6 +132,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
         let report = BenchmarkStreamShapeProfileReport(
             label: "local-low-latency",
+            transportMode: .continuousUpdates,
             firstFrameMilliseconds: 1_234,
             summary: summary
         )
@@ -140,5 +141,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let decoded = try JSONDecoder().decode(BenchmarkStreamShapeProfileReport.self, from: encoded)
 
         XCTAssertEqual(decoded, report)
+        XCTAssertEqual(decoded.transportMode, .continuousUpdates)
+    }
+
+    func testTransportModeRawValuesAreStableForBenchmarkJSON() {
+        XCTAssertEqual(BenchmarkStreamShapeTransportMode.requestResponse.rawValue, "request-response")
+        XCTAssertEqual(BenchmarkStreamShapeTransportMode.continuousUpdates.rawValue, "continuous-updates")
     }
 }
