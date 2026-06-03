@@ -219,7 +219,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV5() throws {
+    func testRenderCollectionJSONIsDeterministicSchemaV6() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 5"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 6"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 5)
+        XCTAssertEqual(decoded.schemaVersion, 6)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -344,7 +344,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 5)
+        XCTAssertEqual(decoded.schemaVersion, 6)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -372,7 +372,7 @@ final class DiagnosticExportTests: XCTestCase {
 
         let payload = """
         {
-          "schemaVersion": 5,
+          "schemaVersion": 6,
           "generatedAt": "2024-05-01T00:00:00Z",
           "buildVersion": "0.1.0",
           "runID": "\(UUID().uuidString.lowercased())",
@@ -415,6 +415,13 @@ final class DiagnosticExportTests: XCTestCase {
             rendererPartialUploadPermille: 4_000,
             rendererFullUploadPermille: -20,
             rendererUploadRegionCountMax: -13,
+            receiveTimingSampleCount: -14,
+            averageReceiveTotalTimingBucket: "timing=SECRET",
+            maxReceiveTotalTimingBucket: DiagnosticTimingBucket.stalled.rawValue,
+            averageNetworkReadTimingBucket: DiagnosticTimingBucket.lagging.rawValue,
+            maxNetworkReadTimingBucket: "timing=SECRET",
+            averageClientProcessingTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
+            maxClientProcessingTimingBucket: "timing=SECRET",
             thermalState: "thermal=SECRET"
         )
 
@@ -440,7 +447,89 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.rendererPartialUploadPermille, 1_000)
         XCTAssertEqual(performance.rendererFullUploadPermille, 0)
         XCTAssertEqual(performance.rendererUploadRegionCountMax, 0)
+        XCTAssertEqual(performance.receiveTimingSampleCount, 0)
+        XCTAssertEqual(performance.averageReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.averageNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.thermalState, "unknown")
+    }
+
+    func testStreamPerformanceReportSanitizesReceiveTimingBuckets() {
+        let performance = DiagnosticStreamPerformanceReport(
+            observedDurationBucket: DiagnosticDurationBucket.threeToTenSeconds.rawValue,
+            deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.fiveToFifteen.rawValue,
+            deliveredFrameCount: 10,
+            contentFrameCount: 8,
+            emptyUpdateCount: 2,
+            transportIdleTimeoutCount: 0,
+            dirtyRectangleSampleCount: 8,
+            dirtyRectangleCountMax: 1,
+            dirtyAreaPermilleMax: 100,
+            changedPixelsPermilleMax: 100,
+            receiveTimingSampleCount: 4,
+            averageReceiveTotalTimingBucket: "timing=SECRET",
+            maxReceiveTotalTimingBucket: DiagnosticTimingBucket.stalled.rawValue,
+            averageNetworkReadTimingBucket: DiagnosticTimingBucket.lagging.rawValue,
+            maxNetworkReadTimingBucket: "timing=SECRET",
+            averageClientProcessingTimingBucket: DiagnosticTimingBucket.subFrame.rawValue,
+            maxClientProcessingTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
+            thermalState: "nominal"
+        )
+
+        XCTAssertEqual(performance.receiveTimingSampleCount, 4)
+        XCTAssertEqual(performance.averageReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxReceiveTotalTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
+        XCTAssertEqual(performance.averageNetworkReadTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
+        XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.subFrame.rawValue)
+        XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+    }
+
+    func testStreamPerformanceReportDecodesMissingNewerFieldsAsSafeDefaults() throws {
+        let payload = """
+        {
+          "observedDurationBucket": "threeToTenSeconds",
+          "deliveredFramesPerSecondBucket": "fiveToFifteen",
+          "deliveredFrameCount": 20,
+          "contentFrameCount": 18,
+          "emptyUpdateCount": 2,
+          "transportIdleTimeoutCount": 0,
+          "contentFramePermille": 900,
+          "emptyUpdatePermille": 100,
+          "transportIdleTimeoutPermille": 0,
+          "dirtyRectangleSampleCount": 18,
+          "averageDirtyRectangleCount": 1,
+          "dirtyRectangleCountMax": 2,
+          "averageDirtyAreaPermille": 40,
+          "dirtyAreaPermilleMax": 80,
+          "averageChangedPixelsPermille": 35,
+          "changedPixelsPermilleMax": 70,
+          "thermalState": "fair"
+        }
+        """
+
+        let performance = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(performance.rendererUploadSampleCount, 0)
+        XCTAssertEqual(performance.rendererPartialUploadCount, 0)
+        XCTAssertEqual(performance.rendererFullUploadCount, 0)
+        XCTAssertNil(performance.rendererPartialUploadPermille)
+        XCTAssertNil(performance.rendererFullUploadPermille)
+        XCTAssertEqual(performance.rendererUploadRegionCountMax, 0)
+        XCTAssertEqual(performance.receiveTimingSampleCount, 0)
+        XCTAssertEqual(performance.averageReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.averageNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.thermalState, "fair")
     }
 
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
@@ -466,8 +555,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v5 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 5"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v6 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 6"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

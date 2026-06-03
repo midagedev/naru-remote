@@ -40,6 +40,13 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var rendererPartialUploadCount: Int
     public var rendererFullUploadCount: Int
     public var rendererUploadRegionCountMax: Int
+    public var receiveTimingSampleCount: Int
+    public var receiveTotalMillisecondsTotal: Int
+    public var receiveTotalMillisecondsMax: Int
+    public var networkReadMillisecondsTotal: Int
+    public var networkReadMillisecondsMax: Int
+    public var clientProcessingMillisecondsTotal: Int
+    public var clientProcessingMillisecondsMax: Int
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
     public var latestFrameCapturedAt: Date?
@@ -64,6 +71,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererPartialUploadCount: Int = 0,
         rendererFullUploadCount: Int = 0,
         rendererUploadRegionCountMax: Int = 0,
+        receiveTimingSampleCount: Int = 0,
+        receiveTotalMillisecondsTotal: Int = 0,
+        receiveTotalMillisecondsMax: Int = 0,
+        networkReadMillisecondsTotal: Int = 0,
+        networkReadMillisecondsMax: Int = 0,
+        clientProcessingMillisecondsTotal: Int = 0,
+        clientProcessingMillisecondsMax: Int = 0,
         thermalState: SessionStreamThermalState = .unknown,
         firstFrameCapturedAt: Date? = nil,
         latestFrameCapturedAt: Date? = nil
@@ -83,6 +97,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.rendererPartialUploadCount = max(rendererPartialUploadCount, 0)
         self.rendererFullUploadCount = max(rendererFullUploadCount, 0)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        self.receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
+        self.receiveTotalMillisecondsTotal = max(receiveTotalMillisecondsTotal, 0)
+        self.receiveTotalMillisecondsMax = max(receiveTotalMillisecondsMax, 0)
+        self.networkReadMillisecondsTotal = max(networkReadMillisecondsTotal, 0)
+        self.networkReadMillisecondsMax = max(networkReadMillisecondsMax, 0)
+        self.clientProcessingMillisecondsTotal = max(clientProcessingMillisecondsTotal, 0)
+        self.clientProcessingMillisecondsMax = max(clientProcessingMillisecondsMax, 0)
         self.thermalState = thermalState
         self.firstFrameCapturedAt = firstFrameCapturedAt
         self.latestFrameCapturedAt = latestFrameCapturedAt
@@ -141,6 +162,30 @@ public struct SessionStreamStats: Equatable, Sendable {
         permille(rendererFullUploadCount, of: rendererUploadSampleCount)
     }
 
+    public var averageReceiveTotalMilliseconds: Int? {
+        averageTiming(receiveTotalMillisecondsTotal)
+    }
+
+    public var averageNetworkReadMilliseconds: Int? {
+        averageTiming(networkReadMillisecondsTotal)
+    }
+
+    public var averageClientProcessingMilliseconds: Int? {
+        averageTiming(clientProcessingMillisecondsTotal)
+    }
+
+    public var maxReceiveTotalMilliseconds: Int? {
+        timingMax(receiveTotalMillisecondsMax)
+    }
+
+    public var maxNetworkReadMilliseconds: Int? {
+        timingMax(networkReadMillisecondsMax)
+    }
+
+    public var maxClientProcessingMilliseconds: Int? {
+        timingMax(clientProcessingMillisecondsMax)
+    }
+
     public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
         guard deliveredFrameCount > 0 else {
             return nil
@@ -169,6 +214,19 @@ public struct SessionStreamStats: Equatable, Sendable {
             rendererPartialUploadPermille: rendererPartialUploadPermille,
             rendererFullUploadPermille: rendererFullUploadPermille,
             rendererUploadRegionCountMax: rendererUploadRegionCountMax,
+            receiveTimingSampleCount: receiveTimingSampleCount,
+            averageReceiveTotalTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageReceiveTotalMilliseconds).rawValue,
+            maxReceiveTotalTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxReceiveTotalMilliseconds).rawValue,
+            averageNetworkReadTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageNetworkReadMilliseconds).rawValue,
+            maxNetworkReadTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxNetworkReadMilliseconds).rawValue,
+            averageClientProcessingTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageClientProcessingMilliseconds).rawValue,
+            maxClientProcessingTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxClientProcessingMilliseconds).rawValue,
             thermalState: thermalState.rawValue
         )
     }
@@ -183,6 +241,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             firstFrameCapturedAt = frame.capturedAt
         }
         latestFrameCapturedAt = frame.capturedAt
+        recordReceiveTiming(frame.timing)
 
         if frame.transportIdleTimedOut {
             transportIdleTimeoutCount += 1
@@ -211,6 +270,23 @@ public struct SessionStreamStats: Equatable, Sendable {
         recordRendererUploadPlan(for: frame)
         lastFramebufferWidth = frame.framebuffer.width
         lastFramebufferHeight = frame.framebuffer.height
+    }
+
+    private mutating func recordReceiveTiming(_ timing: RFBFramebufferUpdateTiming?) {
+        guard let timing else {
+            return
+        }
+
+        receiveTimingSampleCount += 1
+        receiveTotalMillisecondsTotal += timing.totalMilliseconds
+        receiveTotalMillisecondsMax = max(receiveTotalMillisecondsMax, timing.totalMilliseconds)
+        networkReadMillisecondsTotal += timing.networkReadMilliseconds
+        networkReadMillisecondsMax = max(networkReadMillisecondsMax, timing.networkReadMilliseconds)
+        clientProcessingMillisecondsTotal += timing.clientProcessingMilliseconds
+        clientProcessingMillisecondsMax = max(
+            clientProcessingMillisecondsMax,
+            timing.clientProcessingMilliseconds
+        )
     }
 
     private mutating func recordRendererUploadPlan(for frame: RFBFramePumpFrame) {
@@ -253,6 +329,20 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / dirtyRectangleSampleCount
     }
 
+    private func averageTiming(_ total: Int) -> Int? {
+        guard receiveTimingSampleCount > 0 else {
+            return nil
+        }
+        return total / receiveTimingSampleCount
+    }
+
+    private func timingMax(_ value: Int) -> Int? {
+        guard receiveTimingSampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
     private func permille(_ value: Int, of total: Int) -> Int? {
         guard total > 0 else {
             return nil
@@ -286,7 +376,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
     /// Safe aggregate stream counters for the active session. These
     /// counters never include target identity, coordinates, dimensions,
-    /// pixels, byte counts, raw latency samples, or raw errors.
+    /// pixels, byte counts, raw latency/timing samples, or raw errors.
     public var sessionStreamStats: SessionStreamStats
     /// Most recent server-provided cursor shape, decoded from the RFB
     /// Cursor pseudo-encoding. This is additive to the synthetic

@@ -517,3 +517,32 @@ power-saver modes. Benchmark artifact:
 profile-specific switching only after a physical iPhone run shows the same
 profile winning across normal and power-saver modes without increasing
 full-upload outliers, timeouts, or client-processing tails.
+
+## D20 — Share coarse receive-timing buckets from the app diagnostic path
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
+
+**Decision**: bump app diagnostics to schema v6 and include only coarse
+receive-timing buckets for active-session reports: average/max total receive,
+average/max network read, and average/max client processing. Buckets are fixed
+catalog values: `notMeasured`, `subFrame`, `interactive`, `lagging`, and
+`stalled`.
+
+**Why**:
+- The live benchmark now splits receive timing, but the physical iPhone support
+  path still needs enough data to tell whether a hot/low-FPS session is mostly
+  waiting on the server/network or spending time in local decode/dispatch.
+- RFC 6143's request/response stream rolls server wait, network payload reads,
+  decoding, framebuffer mutation, and local dispatch into one visible update.
+  Coarse buckets let support triage that path without exporting raw telemetry.
+- TigerVNC/TightVNC expose encoding/compression choices because the useful
+  trade-off depends on server, link, and client CPU. App diagnostics should
+  provide the same high-level evidence before Naru changes more defaults.
+
+**Privacy rule**: diagnostics must not include raw milliseconds, raw timing
+samples, host identity, framebuffer dimensions, rectangle coordinates, pixels,
+byte counts, device power state, or raw errors. Missing timing from older app
+paths decodes as `notMeasured` so older support payloads remain analyzable.

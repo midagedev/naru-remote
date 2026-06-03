@@ -75,3 +75,24 @@ state remains local.
   server, link, decoder, renderer, or user-selected pacing.
 - Export iOS Low Power Mode. Rejected because support only needs the viewer
   pacing decision, not the broader device power state.
+
+## Decision: Receive Timing Is Exported Only As Coarse Buckets
+
+**Decision**: Diagnostics schema v6 includes aggregate receive timing as fixed
+bucket labels for total receive, network read, and client processing averages
+and maxima. The export does not include raw milliseconds or per-frame timing
+samples.
+
+**Rationale**: Hot iPhone reports need enough context to separate remote/server
+wait from local client decode/dispatch pressure. The existing benchmark timing
+split is useful, but user-shared app diagnostics need a stricter privacy shape:
+coarse buckets are enough to pick the next benchmark/profile experiment while
+keeping raw timing telemetry out of the support payload.
+
+**Alternatives considered**:
+
+- Export avg/p95 milliseconds like the live benchmark. Rejected because user
+  diagnostics have a stricter minimization boundary than opt-in benchmark runs.
+- Omit receive timing entirely. Rejected because support would still be unable
+  to distinguish network/server stalls from client-processing pressure in
+  hot-device reports.
