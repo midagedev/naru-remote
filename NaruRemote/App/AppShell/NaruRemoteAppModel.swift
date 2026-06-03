@@ -1825,9 +1825,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     /// Optional spec-004 adaptive re-advertisement. Connection-quality
     /// buckets are always tracked for UI/diagnostics, but production
-    /// sessions stay on the conservative `localLowLatency` profile
-    /// until live benchmark/device evidence is strong enough to enable
-    /// automatic Tight/ZRLE/continuous-update renegotiation by default.
+    /// sessions stay on the benchmark-backed `localLowLatency`
+    /// Tight-first profile until live benchmark/device evidence is
+    /// strong enough to enable automatic ZRLE/continuous-update
+    /// renegotiation by default.
     /// When opted in, failures are deliberately non-fatal: the frame
     /// pump will surface a real connection failure on the next
     /// read/write, and this optimization must not tear down an otherwise
