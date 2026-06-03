@@ -15,10 +15,13 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         for event: SessionStreamPacingEvent,
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
+        isLowPowerModeEnabled: Bool = false,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
         let configuredDelay = max(configuredDelay, 0)
         guard configuredDelay > 0 else {
+            // Explicit zero-delay streams are opt-in deterministic
+            // fake/test paths; they bypass thermal and low-power floors.
             return 0
         }
 
@@ -28,7 +31,11 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             emptyUpdateStreak: emptyUpdateStreak
         )
         let thermalMinimum = minimumDelay(for: event, thermalState: thermalState)
-        return max(configuredDelayWithBackoff, thermalMinimum)
+        let lowPowerMinimum = minimumDelayForLowPowerMode(
+            for: event,
+            isLowPowerModeEnabled: isLowPowerModeEnabled
+        )
+        return max(configuredDelayWithBackoff, thermalMinimum, lowPowerMinimum)
     }
 
     private static func backoffDelay(
@@ -89,6 +96,22 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             return 0.125
         case .critical:
             return 0.25
+        }
+    }
+
+    private static func minimumDelayForLowPowerMode(
+        for event: SessionStreamPacingEvent,
+        isLowPowerModeEnabled: Bool
+    ) -> TimeInterval {
+        guard isLowPowerModeEnabled else {
+            return 0
+        }
+
+        switch event {
+        case .contentFrame:
+            return 1.0 / 30.0
+        case .emptyUpdate:
+            return 0.125
         }
     }
 }

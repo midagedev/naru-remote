@@ -126,6 +126,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
+    private let lowPowerModeProvider: @Sendable () -> Bool
     private let allowsAdaptiveEncodingRenegotiation: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
@@ -244,6 +245,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
             SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
         },
+        lowPowerModeProvider: @escaping @Sendable () -> Bool = {
+            ProcessInfo.processInfo.isLowPowerModeEnabled
+        },
         allowsAdaptiveEncodingRenegotiation: Bool = false
     ) {
         // Profiles are no longer loaded synchronously from
@@ -292,6 +296,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.localClipboardWriter = localClipboardWriter
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
+        self.lowPowerModeProvider = lowPowerModeProvider
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
@@ -1523,6 +1528,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         return
                     }
                     let thermalState = thermalStateProvider()
+                    let isLowPowerModeEnabled = lowPowerModeProvider()
                     recordSessionStreamStats(for: frame, thermalState: thermalState)
 
                     // An empty incremental update (zero changed pixels)
@@ -1573,12 +1579,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                             for: .emptyUpdate,
                             configuredDelay: configuration.idleFrameInterval,
                             thermalState: thermalState,
+                            isLowPowerModeEnabled: isLowPowerModeEnabled,
                             emptyUpdateStreak: emptyUpdateStreak
                         )
                         : SessionStreamPacingPolicy.delay(
                             for: .contentFrame,
                             configuredDelay: configuration.frameInterval,
-                            thermalState: thermalState
+                            thermalState: thermalState,
+                            isLowPowerModeEnabled: isLowPowerModeEnabled
                         )
                     if pacingDelay > 0 {
                         try await Task.sleep(for: .seconds(pacingDelay))

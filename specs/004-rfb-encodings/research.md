@@ -238,3 +238,25 @@ on 2026-06-04 compared content-frame intervals of about 33 ms, 16.7 ms, and
 0 ms under the same Tight-first profile. Both faster candidates improved
 content-frame FPS over 33 ms; `1/60` keeps a display-rate cap and thermal
 headroom while removing most of the avoidable client-side delay.
+
+## D12 — Low Power Mode should reduce VNC stream pressure before thermal escalation
+
+References:
+- Apple `isLowPowerModeEnabled`: https://developer.apple.com/documentation/foundation/processinfo/islowpowermodeenabled
+- Apple `thermalState`: https://developer.apple.com/documentation/foundation/processinfo/thermalstate-swift.property
+- Apple power notifications: https://developer.apple.com/documentation/xcode/responding-to-power-notifications
+
+**Decision**: keep thermal pacing as the emergency floor, but also sample
+`ProcessInfo.processInfo.isLowPowerModeEnabled` during the frame loop. When Low
+Power Mode is active, cap active content requests at 30 Hz and idle empty-update
+polling at 125 ms unless thermal state requires an even slower delay.
+
+**Why**:
+- Low Power Mode is an explicit user/device power-saving signal. Waiting until
+  `.fair`/`.serious` thermal states before reducing a continuous VNC polling loop
+  is too reactive for sustained iPhone use.
+- Apple documents power-state notifications and `isLowPowerModeEnabled` as the
+  supported way to detect that state; Naru can sample the provider per frame
+  without storing it in diagnostics.
+- Explicit zero-delay fake/test streams remain deterministic. The low-power
+  floor only applies when a real configured delay exists.
