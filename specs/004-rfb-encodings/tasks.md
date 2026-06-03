@@ -229,6 +229,12 @@ iPhone) and ships as its own PR.
   Low Power Mode is enabled, without exporting that state or breaking explicit
   zero-delay fake/test streams. Owns: app pacing policy, app model wiring,
   app-model tests, research notes. **Done.**
+- **T333** Low-power stream-shape benchmark parity: extend `VNCLiveBenchmark`
+  schema v16 with `--stream-shape-power-mode normal|low-power`, mirror the
+  app's Low Power Mode content/idle floors inside stream-shape probes, and
+  record a redacted normal-vs-low-power live comparison for sustained-session
+  tuning. Owns: benchmark kit policy, CLI/report/docs/tests, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
