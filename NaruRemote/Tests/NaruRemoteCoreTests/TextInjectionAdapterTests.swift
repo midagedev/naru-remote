@@ -26,6 +26,26 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(draft.lastStatusMessage, "Paste command sent; remote app confirmation unavailable.")
     }
 
+    func testAdapterWaitsForClipboardSettleBeforePasteCommand() {
+        var sleeps: [TimeInterval] = []
+        let client = FakeClipboardClient()
+        let adapter = TextInjectionAdapter(
+            pasteSettleDelay: 0.12,
+            sleeper: { sleeps.append($0) }
+        )
+        var draft = ComposeDraft(sessionID: UUID(), text: "Paste after settle")
+
+        let attempt = adapter.send(
+            draft: &draft,
+            via: client,
+            pasteCommand: .commandV
+        )
+
+        XCTAssertEqual(sleeps, [0.12])
+        XCTAssertEqual(client.events, [.clipboard("Paste after settle"), .paste(.commandV)])
+        XCTAssertEqual(attempt.status, .unknown)
+    }
+
     func testAdapterRetainsDraftWhenClipboardFails() {
         let client = FakeClipboardClient(setClipboardError: FakeClipboardError.clipboardBlocked)
         let adapter = TextInjectionAdapter()
@@ -68,8 +88,14 @@ final class TextInjectionAdapterTests: XCTestCase {
 }
 
 private final class FakeClipboardClient: RemoteClipboardTextClient {
+    enum Event: Equatable {
+        case clipboard(String)
+        case paste(PasteCommand)
+    }
+
     var clipboardPayloads: [String] = []
     var pasteCommands: [PasteCommand] = []
+    var events: [Event] = []
 
     private let setClipboardError: Error?
     private let pasteError: Error?
@@ -84,6 +110,7 @@ private final class FakeClipboardClient: RemoteClipboardTextClient {
             throw setClipboardError
         }
         clipboardPayloads.append(text)
+        events.append(.clipboard(text))
     }
 
     func sendPasteCommand(_ command: PasteCommand) throws {
@@ -91,6 +118,7 @@ private final class FakeClipboardClient: RemoteClipboardTextClient {
             throw pasteError
         }
         pasteCommands.append(command)
+        events.append(.paste(command))
     }
 }
 

@@ -26,6 +26,16 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         XCTAssertEqual(command.dropFirst(24).prefix(8), Data([4, 0, 0, 0, 0, 0, 0xff, 0xe3]))
     }
 
+    func testCommandVPasteUsesMacVNCAltLeftMapping() {
+        let command = RFBClientMessageEncoder.pasteCommand(.commandV)
+
+        XCTAssertEqual(command.count, 32)
+        XCTAssertEqual(command.prefix(8), Data([4, 1, 0, 0, 0, 0, 0xff, 0xe9]))
+        XCTAssertEqual(command.dropFirst(8).prefix(8), Data([4, 1, 0, 0, 0, 0, 0, 0x76]))
+        XCTAssertEqual(command.dropFirst(16).prefix(8), Data([4, 0, 0, 0, 0, 0, 0, 0x76]))
+        XCTAssertEqual(command.dropFirst(24).prefix(8), Data([4, 0, 0, 0, 0, 0, 0xff, 0xe9]))
+    }
+
     func testEncodePointerEventEmitsSixByteRFC6143Frame() {
         let message = RFBClientMessageEncoder.encodePointerEvent(buttonMask: 0x01, x: 100, y: 200)
 

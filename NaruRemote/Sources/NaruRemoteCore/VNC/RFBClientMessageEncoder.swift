@@ -27,7 +27,7 @@ public enum RFBClientMessageEncodingError: Error, Equatable {
 
 public enum RFBClientMessageEncoder {
     private static let keySymControlLeft: UInt32 = 0xffe3
-    private static let keySymMetaLeft: UInt32 = 0xffe7
+    private static let keySymAltLeft: UInt32 = 0xffe9
     private static let keySymLowercaseV: UInt32 = 0x0076
     private static let maxFencePayloadLength = 64
 
@@ -128,7 +128,9 @@ public enum RFBClientMessageEncoder {
     public static func pasteCommand(_ command: PasteCommand) -> Data {
         let modifier: UInt32 = switch command {
         case .commandV:
-            keySymMetaLeft
+            // RealVNC-compatible Mac VNC mapping: Mac servers commonly
+            // interpret Alt_L as the left Command key for paste.
+            keySymAltLeft
         case .controlV:
             keySymControlLeft
         }

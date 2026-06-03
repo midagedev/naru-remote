@@ -28,6 +28,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T014 [B] Wire `pointerControlMode`, `trackpadCursor` on `NaruRemoteAppModel`; route gestures through the resolver; dispatch commands via `activePointerClient`; reset on disconnect/profile-change/connect. **Done.** Model now also accepts the live `ViewportTransform` from the view so trackpad cursor motion and auto-pan account for current zoom/pan.
 - [x] T015 [B] `TrackpadCursorView` overlay + trackpad gestures in `MetalFramebufferHostingView`; auto-pan-to-cursor when zoomed; mode toggle in control bar. **Done.** The cursor overlay uses the same fit × zoom × pan transform as the framebuffer, model-returned auto-pan is fed back into the view/PiP focus path, and active PiP watch disables remote trackpad input so the preview can be used as a local zoom/pan focus controller.
 - [x] T015a [B] Trackpad drag now sends coalesced buttonless (`0x00`) RFB pointer moves so the remote OS cursor follows the local trackpad cursor without pressing a button. Pinch zoom now anchors on the recognizer midpoint for Photos-like navigation. **Done in PR branch.**
+- [x] T015b [B] Smooth viewport hotfix: keep UIKit pinch/zoomed-pan accumulators from being overwritten by frame-driven SwiftUI updates during an active gesture, pass the immersive crop-to-fill baseline zoom into the UIKit recognizer, preserve pinch anchor pan inside the host view, remove spring animation from trackpad auto-pan, and disable implicit animation on continuous preview scale/offset updates. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
@@ -35,6 +36,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T021 [P][C] `ConnectionQualityTests.swift` — 7 tests (bucket thresholds, EMA, reset, unknown-on-empty). **Done.**
 - [x] T022 [C] Latency sampled in the stream loop → `@Published connectionQuality` on the model, reset on connect/disconnect/profile-change, surfaced in the live control overlay. **Done.**
 - [x] T023 [C] Inline Compose quick-key strip (Esc/Tab/⌃C/↑/↓) in `RemoteInputDockView`, dispatch via `model.sendComposeQuickKey`, draft untouched, gated on active session. `ComposeQuickKeyTests` (7) + `ComposeQuickKeyModelTests` (2). **Done.**
+- [x] T023a [C] Compose paste stabilization: macOS Command-V uses the common Mac VNC `Alt_L` mapping and the production app waits briefly after remote clipboard set before paste. **Done.**
 - [x] T024 [C][VISUAL] Quality chip and compact quick-key menu covered by the active-session UX-audit captures (`16-*` and `17-*`). **Done.**
 
 ## Cross-cutting

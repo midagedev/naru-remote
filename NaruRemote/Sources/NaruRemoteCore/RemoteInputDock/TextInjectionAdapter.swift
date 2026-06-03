@@ -103,7 +103,16 @@ public enum TextInjectionError: Error, Equatable, LocalizedError {
 }
 
 public struct TextInjectionAdapter {
-    public init() {}
+    private let pasteSettleDelay: TimeInterval
+    private let sleeper: (TimeInterval) -> Void
+
+    public init(
+        pasteSettleDelay: TimeInterval = 0,
+        sleeper: @escaping (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    ) {
+        self.pasteSettleDelay = max(0, pasteSettleDelay)
+        self.sleeper = sleeper
+    }
 
     public func send(
         draft: inout ComposeDraft,
@@ -143,6 +152,10 @@ public struct TextInjectionAdapter {
             attempt.status = .failed
             attempt.safeMessage = message
             return attempt
+        }
+
+        if pasteSettleDelay > 0 {
+            sleeper(pasteSettleDelay)
         }
 
         do {

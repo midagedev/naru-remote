@@ -34,6 +34,52 @@ IME-heavy text than per-key events.
 - Helper-native insert: deferred because it requires separate install, trust,
   permissions, and revocation UX.
 
+### Decision 2a: macOS VNC Command-V Uses Alt_L Mapping
+
+**Decision**: The `.commandV` paste shortcut emits `Alt_L + v` over RFB rather
+than `Meta_L + v`.
+
+**Rationale**: RealVNC's Mac keyboard mapping documentation states that Mac
+VNC Server defaults map the `Alt_L` keysym back to the left Command key. This
+matches the observed founder feedback that Compose & Send did not paste
+reliably through macOS Screen Sharing when Naru emitted `Meta_L + v`.
+
+**Alternatives considered**:
+
+- Keep `Meta_L + v`: rejected for the default macOS paste path because it can
+  fail against common Mac VNC server mappings.
+- Send both `Meta_L + v` and `Alt_L + v`: rejected because it risks duplicate
+  paste or unintended shortcuts in focused remote apps.
+
+### Decision 2b: Paste Command Is Delayed After Clipboard Set
+
+**Decision**: The production app waits briefly after sending `ClientCutText`
+before emitting the paste shortcut.
+
+**Rationale**: Real VNC servers update the remote clipboard asynchronously from
+the input key-event stream.  A short local-only settle delay reduces the chance
+that `Cmd-V` reaches the focused remote app before the clipboard payload is
+available, while keeping the Compose & Send interaction effectively immediate
+to the user.
+
+**Alternatives considered**:
+
+- Emit paste immediately: rejected because it can paste the previous remote
+  clipboard contents when the clipboard update lags the key event.
+- Block for a long confirmation window: rejected for the MVP because classic
+  RFB clipboard paste has no reliable focused-app acceptance signal and a long
+  delay would make Send feel broken.
+
+### Follow-up: Extended Clipboard For Reliable Unicode
+
+Classic RFB `ClientCutText` is specified around ISO 8859-1 / Latin-1 text, while
+Naru's differentiator is multilingual Compose.  Practical Unicode clipboard
+support needs the Extended Clipboard pseudo-encoding (`0xc0a1e5ce`) with UTF-8
+text payloads where the server supports it, plus a safe fallback for servers
+that only accept classic cut text.  This is intentionally tracked as a follow-up
+because advertising the pseudo-encoding also requires the stream receive loop
+to handle extended `ServerCutText` capability/action messages.
+
 ## Decision 3: Fake RFB Server Is Required Before Broad Compatibility Claims
 
 **Decision**: Add a fake RFB server or fixture harness early enough to verify
