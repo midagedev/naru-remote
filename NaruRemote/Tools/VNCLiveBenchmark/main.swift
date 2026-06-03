@@ -1020,6 +1020,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let idleProbe: IdleProbeReport
     let streamShapeProbe: StreamShapeProbeReport
     let streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport]
+    let streamShapeRecommendation: BenchmarkStreamShapeRecommendation?
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
 
     init(
@@ -1043,7 +1044,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 17
+        self.schemaVersion = 18
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1081,6 +1082,8 @@ private struct BenchmarkReport: Codable, Equatable {
         self.idleProbe = idleProbe
         self.streamShapeProbe = streamShapeProbe
         self.streamShapeProfileProbes = streamShapeProfileProbes
+        self.streamShapeRecommendation = BenchmarkStreamShapeRecommendation
+            .recommendedRequestResponseProfile(from: streamShapeProfileProbes)
         self.continuousUpdatesProbe = continuousUpdatesProbe
     }
 }
@@ -1358,6 +1361,21 @@ private func renderText(_ report: BenchmarkReport) {
                 indentation: "  "
             )
         }
+    }
+    if let recommendation = report.streamShapeRecommendation {
+        print("")
+        print("stream-shape recommendation:")
+        print("- request-response profile: \(recommendation.label)")
+        print("  reason: \(recommendation.reason)")
+        print(
+            "  update ms avg/p95: "
+                + "\(recommendation.averageUpdateMilliseconds)/\(recommendation.p95UpdateMilliseconds)"
+        )
+        print(
+            "  content fps: \(formatFramesPerSecond(recommendation.contentFramesPerSecond)); "
+                + "full-upload permille: \(recommendation.rendererFullUploadPermille); "
+                + "slow samples: \(recommendation.slowUpdateSamples)/\(recommendation.receivedSamples)"
+        )
     }
     print("")
     print("continuous updates probe:")
