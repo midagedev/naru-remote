@@ -73,6 +73,11 @@ let package = Package(
             name: "VNCLiveBenchmarkKitTests",
             dependencies: ["VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tests/VNCLiveBenchmarkKitTests"
+        ),
+        .testTarget(
+            name: "NaruRemoteBenchmarkTests",
+            dependencies: ["NaruRemoteApp", "NaruRemoteCore"],
+            path: "NaruRemote/Tests/NaruRemoteBenchmarkTests"
         )
     ]
 )

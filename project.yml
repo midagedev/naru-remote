@@ -81,12 +81,27 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.uitests
         TEST_TARGET_NAME: NaruRemote
+  NaruRemoteBenchmarkTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: NaruRemote/Tests/NaruRemoteBenchmarkTests
+    dependencies:
+      - target: NaruRemoteApp
+      - target: NaruRemoteCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.benchmarks
 schemes:
   NaruRemote:
     build:
       targets:
         NaruRemote: all
         NaruRemoteUITests: [test]
+        NaruRemoteBenchmarkTests: [test]
     test:
       targets:
+        - NaruRemoteBenchmarkTests
         - NaruRemoteUITests

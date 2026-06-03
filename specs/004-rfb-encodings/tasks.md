@@ -105,6 +105,10 @@ iPhone) and ships as its own PR.
 - **T308** Live benchmark reporting: `VNCLiveBenchmark` emits redacted schema-v5
   latency summaries with avg/p50/p95/min/max for first-frame, full-refresh, and
   continuous-update samples. Owns: tool + benchmark-kit tests. **Done.**
+- **T309** Simulator synthetic frame benchmark: opt-in XCTest benchmark for
+  framebuffer allocation, steady-state full Metal upload, and small dirty-rect
+  upload on an iPhone simulator; skips by default unless explicitly enabled.
+  Owns: `SyntheticFramePipelineBenchmarkTests.swift`, benchmark docs. **Done.**
 
 ## Cross-cutting (every increment)
 
