@@ -31,6 +31,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T015b [B] Smooth viewport hotfix: keep UIKit pinch/zoomed-pan accumulators from being overwritten by frame-driven SwiftUI updates during an active gesture, pass the immersive crop-to-fill baseline zoom into the UIKit recognizer, preserve pinch anchor pan inside the host view, remove spring animation from trackpad auto-pan, and disable implicit animation on continuous preview scale/offset updates. **Done.**
 - [x] T015c [B] Physical iPhone follow-up: apply Metal zoom/pan directly inside the UIKit `MTKView` host during gestures, use a wider viewport-relative trackpad auto-pan follow zone, and run Compose clipboard/paste injection off the main actor so delayed VNC writes do not stall the keyboard/input dock. **Done.**
 - [x] T015d [B] Physical iPhone smoothness follow-up: host trackpad tap/drag/right-click gestures directly in `MetalFramebufferHostingView` when Metal is available so the hot path avoids SwiftUI `DragGesture` overlay churn, apply returned auto-pan to the `MTKView` immediately, coalesce direct pinch/pan state mirroring to SwiftUI/PiP, and use a compact `TextEditor` for Compose to improve Korean/CJK marked-text entry above the keyboard. **Done.**
+- [x] T015e [B] Physical iPhone correction: make the Metal host clamp and anchor local zoom/pan through the same `ViewportTransform` used by pointer/cursor mapping, and replace Compose's SwiftUI-only text editor path with a UIKit `UITextView` wrapper plus model draft synchronization so Korean/CJK marked text and in-flight send edits are not overwritten. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
@@ -45,6 +46,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass.
 - [ ] T031 Update `ROADMAP.md` (new "Phase 11 — Session Experience" or extend Phase 5/6 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport.
 - [ ] T032 [Manual] Real Mac VNC trackpad + zoom-to-read on physical iPhone — BLOCKED (no device); record residual risk per constitution §III.
+- [ ] T033 [Manual] Physical iPhone Korean/CJK Compose IME retest — verify marked-text composition in the compact `UITextView` dock and record iOS version, keyboard, target app, and whether the sent remote paste matches the local draft exactly.
 
 ## Dependencies
 Stage A core (T001/T002) → A app (T003–T006). Stage B core (T010–T013) parallel with A app; B app (T014–T016) needs A app + B core. Stage C is independent of B and can overlap. VISUAL tasks wait on their stage's app tasks.

@@ -2817,8 +2817,33 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    public func updateComposeDraftText(_ text: String) {
+        guard var draft = composeDraft else {
+            return
+        }
+        guard draft.text != text else {
+            return
+        }
+
+        if draft.sendState == .sending {
+            var nextDraft = ComposeDraft(sessionID: draft.sessionID)
+            nextDraft.updateText(text)
+            composeDraft = nextDraft
+            latestInjectionAttempt = nil
+            return
+        }
+
+        draft.updateText(text)
+        composeDraft = draft
+        latestInjectionAttempt = nil
+    }
+
     public func sendComposedText(_ text: String, pasteCommand: PasteCommand = .commandV) {
         guard var draft = composeDraft else {
+            return
+        }
+
+        guard draft.sendState != .sending else {
             return
         }
 
@@ -2838,10 +2863,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                 status: .failed,
                 safeMessage: message
             )
-            return
-        }
-
-        guard draft.sendState != .sending else {
             return
         }
 

@@ -1349,6 +1349,56 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
     }
 
+    func testModelUpdatesComposeDraftAsUserTypes() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id)
+            )
+        )
+
+        model.updateComposeDraftText("한글 조합 중 English")
+
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글 조합 중 English")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .ready)
+        XCTAssertNil(model.snapshot.latestInjectionAttempt)
+    }
+
+    func testEditingComposeDraftDuringSendPreventsStalePasteFromOverwritingNewText() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("첫 문장", pasteCommand: .controlV)
+        let sendingDraftID = try XCTUnwrap(model.snapshot.composeDraft?.id)
+        for _ in 0..<50 where connector.clipboardPayloads.isEmpty {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(connector.clipboardPayloads, ["첫 문장"])
+
+        model.updateComposeDraftText("새로 쓰는 문장")
+        try await Task.sleep(for: .milliseconds(180))
+
+        XCTAssertNotEqual(model.snapshot.composeDraft?.id, sendingDraftID)
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "새로 쓰는 문장")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .ready)
+        XCTAssertNil(model.snapshot.latestInjectionAttempt)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+    }
+
     func testModelCancelsComposedPasteWhenSessionDisconnectsDuringSettleDelay() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")

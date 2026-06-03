@@ -8,7 +8,7 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 
 public struct RemoteInputDockView: View {
     @State private var text: String
-    /// Tracks whether the compose `TextEditor` has firstResponder.
+    /// Tracks whether the compose editor has firstResponder.
     /// Forwarded to the parent via `onComposeFocusChange` so future
     /// keyboard-aware surfaces can react to it.  Today no overlay
     /// reads it (the first-run checklist that used to depend on
@@ -16,11 +16,12 @@ public struct RemoteInputDockView: View {
     /// single empty-state CTA — spec FR-015).  Direct mode renders
     /// its own keyboard, so the focus signal is only meaningful for
     /// the Compose path.
-    @FocusState private var composeFieldFocused: Bool
+    @State private var composeFieldFocused: Bool = false
 
     private let initialText: String
     private let statusText: String
     private let onSend: (String) -> Void
+    private let onTextChange: (String) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
     private let stickyModifierState: StickyModifierState
     private let layoutStyle: RemoteInputDockLayoutStyle
@@ -41,6 +42,7 @@ public struct RemoteInputDockView: View {
         initialText: String,
         statusText: String,
         onSend: @escaping (String) -> Void = { _ in },
+        onTextChange: @escaping (String) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         layoutStyle: RemoteInputDockLayoutStyle = .standard,
@@ -57,6 +59,7 @@ public struct RemoteInputDockView: View {
         self._text = State(initialValue: initialText)
         self.statusText = statusText
         self.onSend = onSend
+        self.onTextChange = onTextChange
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.layoutStyle = layoutStyle
@@ -81,7 +84,12 @@ public struct RemoteInputDockView: View {
         }
         .accessibilityIdentifier("naru.input.dock")
         .onChange(of: initialText) { _, newValue in
-            text = newValue
+            if text != newValue {
+                text = newValue
+            }
+        }
+        .onChange(of: text) { _, newValue in
+            onTextChange(newValue)
         }
         .onChange(of: composeFieldFocused) { _, newValue in
             // Only meaningful when Compose is the visible mode —
@@ -97,6 +105,7 @@ public struct RemoteInputDockView: View {
             // explicitly clear the focus signal so the app shell
             // can restore the full checklist.
             if isDirect {
+                composeFieldFocused = false
                 onComposeFocusChange(false)
             }
         }
@@ -198,11 +207,11 @@ public struct RemoteInputDockView: View {
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
 
-            TextEditor(text: $text)
-                .focused($composeFieldFocused)
-                .font(.body)
+            ComposeTextEditingView(
+                text: $text,
+                onFocusChange: updateComposeFocus(_:)
+            )
                 .frame(minHeight: 40, maxHeight: 88)
-                .scrollContentBackground(.hidden)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 12)
                 .background(NaruColors.surfaceEditor)
@@ -339,11 +348,11 @@ public struct RemoteInputDockView: View {
         // gives the disabled-state Send button visible breathing
         // room in static screenshots.
         HStack(alignment: .bottom, spacing: 16) {
-            TextEditor(text: $text)
-                .focused($composeFieldFocused)
-                .font(.body)
+            ComposeTextEditingView(
+                text: $text,
+                onFocusChange: updateComposeFocus(_:)
+            )
                 .frame(minHeight: 72, maxHeight: 120)
-                .scrollContentBackground(.hidden)
                 // UX punch-list #302: was `Color.white.opacity(0.74)`
                 // which rendered as a stark bright rectangle on the
                 // dark canvas.  Adaptive `NaruColors.surfaceEditor`
@@ -396,4 +405,85 @@ public struct RemoteInputDockView: View {
             )
         }
     }
+
+    private func updateComposeFocus(_ focused: Bool) {
+        composeFieldFocused = focused
+    }
 }
+
+private struct ComposeTextEditingView: View {
+    @Binding var text: String
+    let onFocusChange: (Bool) -> Void
+
+    var body: some View {
+        #if os(iOS) && canImport(UIKit)
+        MultilingualComposeTextView(
+            text: $text,
+            onFocusChange: onFocusChange
+        )
+        #else
+        TextEditor(text: $text)
+            .font(.body)
+            .scrollContentBackground(.hidden)
+        #endif
+    }
+}
+
+#if os(iOS) && canImport(UIKit)
+private struct MultilingualComposeTextView: UIViewRepresentable {
+    @Binding var text: String
+    let onFocusChange: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.backgroundColor = .clear
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.isScrollEnabled = true
+        textView.keyboardDismissMode = .interactive
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        context.coordinator.parent = self
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.backgroundColor = .clear
+
+        // Do not overwrite UIKit's in-flight marked text. Korean/CJK
+        // composition keeps intermediate state inside UITextView; setting
+        // `text` during that window can collapse or reorder the candidate.
+        if textView.markedTextRange == nil, textView.text != text {
+            textView.text = text
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: MultilingualComposeTextView
+
+        init(parent: MultilingualComposeTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.onFocusChange(true)
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            parent.onFocusChange(false)
+        }
+    }
+}
+#endif
