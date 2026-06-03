@@ -82,7 +82,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 for: .contentFrame,
                 configuredDelay: 1.0 / 60.0,
                 thermalState: .serious,
-                isLowPowerModeEnabled: true
+                usesPowerSaverPacing: true
             ),
             1.0 / 15.0,
             accuracy: 0.0001,
@@ -151,7 +151,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 for: .contentFrame,
                 configuredDelay: 1.0 / 60.0,
                 thermalState: .nominal,
-                isLowPowerModeEnabled: true
+                usesPowerSaverPacing: true
             ),
             1.0 / 30.0,
             accuracy: 0.0001
@@ -161,7 +161,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 for: .emptyUpdate,
                 configuredDelay: 0.05,
                 thermalState: .nominal,
-                isLowPowerModeEnabled: true,
+                usesPowerSaverPacing: true,
                 emptyUpdateStreak: 1
             ),
             0.125,
@@ -172,12 +172,61 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 for: .contentFrame,
                 configuredDelay: 0,
                 thermalState: .nominal,
-                isLowPowerModeEnabled: true
+                usesPowerSaverPacing: true
             ),
             0,
             accuracy: 0.0001,
             "Opt-in fake/test streams that remove pacing should stay deterministic."
         )
+    }
+
+    func testModelLoadsStoredStreamPowerMode() async throws {
+        let persistence = InMemoryAppSettingsPersistence(
+            settings: AppSettings(streamPowerMode: .powerSaver)
+        )
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        await model.loadStoredSettings()
+
+        XCTAssertEqual(model.appSettings.streamPowerMode, .powerSaver)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testModelPersistsStreamPowerModeToggle() async throws {
+        let persistence = InMemoryAppSettingsPersistence()
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        model.toggleStreamPowerMode()
+
+        let savedPowerSaverSettings = try await waitForPersistedStreamPowerMode(
+            .powerSaver,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamPowerMode, .powerSaver)
+        XCTAssertEqual(savedPowerSaverSettings.streamPowerMode, .powerSaver)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamPowerMode()
+
+        let savedBalancedSettings = try await waitForPersistedStreamPowerMode(
+            .balanced,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamPowerMode, .balanced)
+        XCTAssertEqual(savedBalancedSettings.streamPowerMode, .balanced)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testStoredSettingsLoadDoesNotClobberUserStreamPowerToggle() async throws {
+        let persistence = InMemoryAppSettingsPersistence(
+            settings: AppSettings(streamPowerMode: .balanced)
+        )
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        model.setStreamPowerMode(.powerSaver)
+        await model.loadStoredSettings()
+
+        XCTAssertEqual(model.appSettings.streamPowerMode, .powerSaver)
     }
 
     func testModelAddsProfileAndCreatesSessionDraft() async throws {
@@ -1307,6 +1356,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
         await model.deleteProfile(id: profile.id)
 
         XCTAssertNil(model.snapshot.lastDiagnosticVerdict[profile.id])
+    }
+
+    private func waitForPersistedStreamPowerMode(
+        _ expected: StreamPowerMode,
+        in persistence: InMemoryAppSettingsPersistence,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> AppSettings {
+        for _ in 0..<20 {
+            let settings = try await persistence.load()
+            if settings.streamPowerMode == expected {
+                return settings
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let settings = try await persistence.load()
+        XCTAssertEqual(settings.streamPowerMode, expected, file: file, line: line)
+        return settings
     }
 }
 

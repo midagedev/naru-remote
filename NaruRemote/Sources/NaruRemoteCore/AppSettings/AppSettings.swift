@@ -1,16 +1,29 @@
 import Foundation
 
+/// User-visible stream pacing preference for sustained VNC sessions.
+public enum StreamPowerMode: String, Codable, Equatable, Sendable, CaseIterable {
+    /// Maximum responsiveness within the app's normal thermal floors.
+    case balanced
+    /// Slower sustained pacing intended for hot-device / long-session use.
+    case powerSaver = "power-saver"
+
+    public var toggled: StreamPowerMode {
+        switch self {
+        case .balanced:
+            return .powerSaver
+        case .powerSaver:
+            return .balanced
+        }
+    }
+}
+
 /// App-level user preferences that are not tied to a single
 /// `ConnectionProfile` and never carry secrets.  Stored as plain
 /// JSON via `AppSettingsPersisting` (no Keychain).
 ///
-/// Currently empty.  The first persisted setting,
-/// `dismissedOnboardingChecklist`, was removed when first-run
-/// onboarding was reduced to a stateless empty-state CTA derived from
-/// `profiles.isEmpty` (spec FR-015).  The struct + persistence
-/// pipeline are intentionally retained — the next setting toggle
-/// (e.g. Phase 9 Direct Keystroke Streaming Mode default) can plug
-/// in here without rebuilding the JSON read/write layer.
+/// The default JSON remains `{}`.  Non-default settings are encoded
+/// explicitly so older files and missing keys keep loading as
+/// product-default behavior.
 ///
 /// Forward-compat policy: every future field MUST default and decode
 /// through `decodeIfPresent` so an empty `{}` JSON, a legacy file
@@ -20,22 +33,29 @@ import Foundation
 /// throwing.  Only add fields that are actually used — see
 /// constitution §V.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public init() {}
+    public var streamPowerMode: StreamPowerMode
+
+    public init(streamPowerMode: StreamPowerMode = .balanced) {
+        self.streamPowerMode = streamPowerMode
+    }
 
     public init(from decoder: Decoder) throws {
-        // No fields to decode today.  Decoding still succeeds against
-        // any JSON object shape (including legacy files carrying the
-        // removed `dismissedOnboardingChecklist` key) so old settings
-        // files keep loading silently.
-        _ = try decoder.container(keyedBy: EmptyCodingKey.self)
-        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let streamPowerMode = try container.decodeIfPresent(
+            StreamPowerMode.self,
+            forKey: .streamPowerMode
+        ) ?? .balanced
+        self.init(streamPowerMode: streamPowerMode)
     }
 
     public func encode(to encoder: Encoder) throws {
-        // Emit `{}` so the on-disk shape stays consistent and valid
-        // JSON whether or not future fields exist.
-        _ = encoder.container(keyedBy: EmptyCodingKey.self)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if streamPowerMode != .balanced {
+            try container.encode(streamPowerMode, forKey: .streamPowerMode)
+        }
     }
 
-    private enum EmptyCodingKey: CodingKey {}
+    private enum CodingKeys: String, CodingKey {
+        case streamPowerMode
+    }
 }

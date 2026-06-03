@@ -247,6 +247,11 @@ iPhone) and ships as its own PR.
   redacted artifact and keep production ContinuousUpdates/adaptive defaults
   conservative until longer physical-device evidence exists. Owns: benchmark
   artifact, research notes. **Done.**
+- **T336** App stream power-saver control: add a persisted non-secret
+  `balanced|power-saver` viewer setting, expose it as a compact session control,
+  and feed it into the same app pacing floor used by iOS Low Power Mode while
+  keeping `balanced` as the default `{}` settings-file shape. Owns: app settings,
+  app model, session viewer, tests, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

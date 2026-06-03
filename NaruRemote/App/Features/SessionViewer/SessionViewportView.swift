@@ -54,6 +54,12 @@ public struct SessionViewportView: View {
     /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
     /// toggle.
     private let onTogglePointerMode: (() -> Void)?
+    /// User-selected sustained-session stream pacing mode.  This is a
+    /// local viewer preference only; it changes request cadence but does
+    /// not reveal power/thermal state to diagnostics.
+    private let streamPowerMode: StreamPowerMode
+    /// Persists the next `streamPowerMode` through the app model.
+    private let onToggleStreamPowerMode: (() -> Void)?
     /// Latency-derived connection quality, shown as a compact chip while
     /// the session is streaming (spec 003 US4).  Constitution §IV: this
     /// is a coarse bucket only — no raw latency value is displayed or
@@ -148,6 +154,8 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
+        streamPowerMode: StreamPowerMode = .balanced,
+        onToggleStreamPowerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -175,6 +183,8 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onTogglePointerMode = onTogglePointerMode
+        self.streamPowerMode = streamPowerMode
+        self.onToggleStreamPowerMode = onToggleStreamPowerMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -203,6 +213,8 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
+        streamPowerMode: StreamPowerMode = .balanced,
+        onToggleStreamPowerMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -229,6 +241,8 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onTogglePointerMode = onTogglePointerMode
+        self.streamPowerMode = streamPowerMode
+        self.onToggleStreamPowerMode = onToggleStreamPowerMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -404,6 +418,7 @@ public struct SessionViewportView: View {
             if showsDisconnectButton {
                 disconnectButton
             }
+            streamPowerModeButton
             pointerModeButton
             pipWatchButton(iconOnly: true)
         }
@@ -461,6 +476,7 @@ public struct SessionViewportView: View {
                 if showsDisconnectButton {
                     disconnectButton
                 }
+                streamPowerModeButton
                 pointerModeButton
                 pipWatchButton(iconOnly: false)
                 qualityChip
@@ -488,6 +504,7 @@ public struct SessionViewportView: View {
                 if showsDisconnectButton {
                     disconnectButton
                 }
+                streamPowerModeButton
                 pointerModeButton
                 pipWatchButton(iconOnly: true)
                 Spacer(minLength: 4)
@@ -611,6 +628,31 @@ public struct SessionViewportView: View {
         pointerControlMode.isTrackpad
             ? "Trackpad mode — tap to switch to direct touch"
             : "Direct touch — tap to switch to trackpad"
+    }
+
+    @ViewBuilder
+    private var streamPowerModeButton: some View {
+        Button {
+            onToggleStreamPowerMode?()
+        } label: {
+            Label(
+                streamPowerModeLabelText,
+                systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.bordered)
+        .tint(streamPowerMode == .powerSaver ? .green : .accentColor)
+        .disabled(onToggleStreamPowerMode == nil)
+        .help(streamPowerModeLabelText)
+        .accessibilityLabel(streamPowerModeLabelText)
+        .accessibilityIdentifier("naru.session.streamPowerMode")
+    }
+
+    private var streamPowerModeLabelText: String {
+        streamPowerMode == .powerSaver
+            ? "Power saver stream — tap to use balanced pacing"
+            : "Balanced stream — tap to reduce heat"
     }
 
     /// Compact latency-derived connection-quality indicator (spec 003

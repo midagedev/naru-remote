@@ -15,7 +15,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         for event: SessionStreamPacingEvent,
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
-        isLowPowerModeEnabled: Bool = false,
+        usesPowerSaverPacing: Bool = false,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
         let configuredDelay = max(configuredDelay, 0)
@@ -31,11 +31,11 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             emptyUpdateStreak: emptyUpdateStreak
         )
         let thermalMinimum = minimumDelay(for: event, thermalState: thermalState)
-        let lowPowerMinimum = minimumDelayForLowPowerMode(
+        let powerSaverMinimum = minimumDelayForPowerSaverMode(
             for: event,
-            isLowPowerModeEnabled: isLowPowerModeEnabled
+            usesPowerSaverPacing: usesPowerSaverPacing
         )
-        return max(configuredDelayWithBackoff, thermalMinimum, lowPowerMinimum)
+        return max(configuredDelayWithBackoff, thermalMinimum, powerSaverMinimum)
     }
 
     private static func backoffDelay(
@@ -99,11 +99,11 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         }
     }
 
-    private static func minimumDelayForLowPowerMode(
+    private static func minimumDelayForPowerSaverMode(
         for event: SessionStreamPacingEvent,
-        isLowPowerModeEnabled: Bool
+        usesPowerSaverPacing: Bool
     ) -> TimeInterval {
-        guard isLowPowerModeEnabled else {
+        guard usesPowerSaverPacing else {
             return 0
         }
 

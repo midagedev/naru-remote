@@ -335,3 +335,32 @@ physical iPhone duration run of at least 5 minutes shows equal-or-better content
 FPS or tail latency without worsening thermal pressure, and after the target
 server class passes the ContinuousUpdates/Fence path when that extension is part
 of the proposed default.
+
+## D15 — Expose power-saver stream pacing as an explicit viewer control
+
+References:
+- Apple `isLowPowerModeEnabled`: https://developer.apple.com/documentation/foundation/processinfo/islowpowermodeenabled
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add a persisted, non-secret app setting for `balanced` vs
+`power-saver` stream pacing. `balanced` remains the default and still encodes as
+an empty `{}` settings file; `power-saver` reuses the same 30 Hz content-frame
+and 125 ms idle floors that Low Power Mode already applies.
+
+**Why**:
+- The 20 second live pacing/power comparison showed low-power pacing reduces
+  update pressure but also reduces delivered content FPS, so it should stay an
+  explicit user heat/battery lever instead of silently replacing the responsive
+  default.
+- Users can feel thermal discomfort before iOS reports Low Power Mode or elevated
+  thermal state. A viewer-local toggle lets them reduce polling pressure during a
+  long session without leaving the remote-control surface.
+- RFC 6143 keeps incremental updates client-request-driven, and TigerVNC exposes
+  comparable responsiveness-vs-resource controls. Making the trade-off explicit
+  keeps Naru measurable across server/link/device combinations.
+
+**Privacy rule**: the setting may be persisted locally as app preference JSON,
+but no diagnostic or benchmark export should reveal device power state,
+thermal state, target identity, dimensions, coordinates, pixels, byte counts, or
+cursor pixels.
