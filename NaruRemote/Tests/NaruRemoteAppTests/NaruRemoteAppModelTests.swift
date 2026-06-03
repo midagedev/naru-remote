@@ -1021,6 +1021,63 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 1)
     }
 
+    func testModelAppliesAdaptivePressurePacingInFrameLoop() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let slowClientTiming = RFBFramebufferUpdateTiming(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20
+        )
+        let updates = (0..<4).map { _ in
+            RFBFramebufferUpdateResult(
+                framebuffer: framebuffer,
+                dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                changedPixelCount: 1,
+                timing: slowClientTiming
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: updates
+        )
+        let pacingSleepRecorder = PacingSleepRecorder()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 4,
+                frameInterval: 1.0 / 60.0,
+                idleFrameInterval: 0.05
+            ),
+            connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                pacingSleepRecorder.record(delay)
+            }
+        )
+
+        await model.connectSelectedProfile()
+
+        let delays = try await waitForRecordedPacingDelays(
+            4,
+            in: pacingSleepRecorder
+        )
+        XCTAssertEqual(delays[0], 1.0 / 60.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[1], 1.0 / 60.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[2], 1.0 / 30.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[3], 1.0 / 30.0, accuracy: 0.0001)
+        XCTAssertEqual(model.appSettings.streamPowerMode, .balanced)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 4)
+        model.disconnect()
+        try await Task.sleep(for: .milliseconds(10))
+    }
+
     func testModelCancelsFrameStreamAndClearsFramebufferWhenProfileChanges() async throws {
         let first = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let second = try ConnectionProfile(displayName: "Laptop", host: "laptop.tailnet.ts.net")
@@ -1639,6 +1696,42 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let settings = try await persistence.load()
         XCTAssertEqual(settings.streamPowerMode, expected, file: file, line: line)
         return settings
+    }
+
+    private func waitForRecordedPacingDelays(
+        _ expectedCount: Int,
+        in pacingSleepRecorder: PacingSleepRecorder,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> [TimeInterval] {
+        for _ in 0..<20 {
+            let delays = pacingSleepRecorder.delays
+            if delays.count >= expectedCount {
+                return delays
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let delays = pacingSleepRecorder.delays
+        XCTAssertEqual(delays.count, expectedCount, file: file, line: line)
+        return delays
+    }
+}
+
+private final class PacingSleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedDelays: [TimeInterval] = []
+
+    var delays: [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDelays
+    }
+
+    func record(_ delay: TimeInterval) {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedDelays.append(delay)
     }
 }
 
