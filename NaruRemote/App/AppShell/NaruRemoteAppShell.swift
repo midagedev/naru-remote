@@ -109,6 +109,10 @@ public struct NaruRemoteAppShell: View {
             onTogglePointerMode: {
                 model.togglePointerControlMode()
             },
+            streamPowerMode: model.appSettings.streamPowerMode,
+            onToggleStreamPowerMode: {
+                model.toggleStreamPowerMode()
+            },
             connectionQuality: model.connectionQuality,
             fillsAvailableHeight: fillsAvailableHeight
         )

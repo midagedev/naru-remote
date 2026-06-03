@@ -38,6 +38,19 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, AppSettings())
     }
 
+    func testStreamPowerModeDecodesWhenPresent() throws {
+        let json = """
+        {
+          "streamPowerMode": "power-saver"
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertEqual(decoded.streamPowerMode, .powerSaver)
+    }
+
     func testEncodingProducesEmptyJSONObject() throws {
         let data = try JSONEncoder().encode(AppSettings())
         let json = String(decoding: data, as: UTF8.self)
@@ -45,5 +58,15 @@ final class AppSettingsCodableTests: XCTestCase {
         // Stable on-disk shape so the persistence pipeline is
         // unambiguous when the next setting is added.
         XCTAssertEqual(json, "{}")
+    }
+
+    func testEncodingNonDefaultStreamPowerMode() throws {
+        let data = try JSONEncoder().encode(AppSettings(streamPowerMode: .powerSaver))
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertEqual(decoded.streamPowerMode, .powerSaver)
+        XCTAssertTrue(json.contains("\"streamPowerMode\""))
+        XCTAssertTrue(json.contains("\"power-saver\""))
     }
 }

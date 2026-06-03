@@ -51,13 +51,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var pendingIncomingClipboard: IncomingClipboardReview?
     /// App-level user preferences not tied to a single
     /// `ConnectionProfile`.  Loaded eagerly in `init` and
-    /// re-published when a future setting toggle writes through
-    /// `settingsPersistence`.  `AppSettings` is intentionally empty
-    /// today — the first field, `dismissedOnboardingChecklist`, was
-    /// removed when first-run onboarding was reduced to a stateless
-    /// empty-state CTA (spec FR-015).  The pipeline is kept so the
-    /// next setting (Phase 9 Direct mode default, etc.) can plug in
-    /// without re-introducing a persistence layer.
+    /// re-published when a setting toggle writes through
+    /// `settingsPersistence`.  Contains only non-secret viewer
+    /// preferences; credentials and target identity never live here.
     @Published public private(set) var appSettings: AppSettings
 
     /// Direct Keystroke Streaming Mode state (the named §I "MAY"
@@ -415,13 +411,44 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
-    /// Persists "user dismissed the first-run onboarding
-    /// checklist" so the section stays hidden across launches.
-    /// A persistence error is captured in
-    /// `settingsPersistenceError` rather than thrown — the
-    /// in-memory flag still flips so the current session honors
-    /// the dismissal.
-    ///
+    public func setStreamPowerMode(_ mode: StreamPowerMode) {
+        var updated = appSettings
+        updated.streamPowerMode = mode
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    public func toggleStreamPowerMode() {
+        setStreamPowerMode(appSettings.streamPowerMode.toggled)
+    }
+
+    /// Settings are non-critical. The in-memory value flips first so
+    /// the current session honors the user's choice immediately; disk
+    /// failures are surfaced as safe UI state instead of breaking the
+    /// active VNC stream.
+    private func persistAppSettings(_ settings: AppSettings) {
+        guard let settingsPersistence else {
+            return
+        }
+
+        Task { [weak self, settingsPersistence, settings] in
+            do {
+                try await settingsPersistence.save(settings)
+                await MainActor.run {
+                    self?.settingsPersistenceError = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self?.settingsPersistenceError = "Settings could not be saved on this device."
+                }
+            }
+        }
+    }
+
     public var snapshot: NaruRemoteAppSnapshot {
         NaruRemoteAppSnapshot(
             profiles: profiles,
@@ -1528,7 +1555,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         return
                     }
                     let thermalState = thermalStateProvider()
-                    let isLowPowerModeEnabled = lowPowerModeProvider()
+                    let usesPowerSaverPacing = lowPowerModeProvider()
+                        || appSettings.streamPowerMode == .powerSaver
                     recordSessionStreamStats(for: frame, thermalState: thermalState)
 
                     // An empty incremental update (zero changed pixels)
@@ -1579,14 +1607,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                             for: .emptyUpdate,
                             configuredDelay: configuration.idleFrameInterval,
                             thermalState: thermalState,
-                            isLowPowerModeEnabled: isLowPowerModeEnabled,
+                            usesPowerSaverPacing: usesPowerSaverPacing,
                             emptyUpdateStreak: emptyUpdateStreak
                         )
                         : SessionStreamPacingPolicy.delay(
                             for: .contentFrame,
                             configuredDelay: configuration.frameInterval,
                             thermalState: thermalState,
-                            isLowPowerModeEnabled: isLowPowerModeEnabled
+                            usesPowerSaverPacing: usesPowerSaverPacing
                         )
                     if pacingDelay > 0 {
                         try await Task.sleep(for: .seconds(pacingDelay))

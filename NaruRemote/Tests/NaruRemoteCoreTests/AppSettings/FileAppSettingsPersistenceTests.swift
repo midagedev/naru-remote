@@ -1,17 +1,14 @@
 import XCTest
 @testable import NaruRemoteCore
 
-/// `AppSettings` is currently empty (the only field,
-/// `dismissedOnboardingChecklist`, was removed when first-run
-/// onboarding was reduced to a stateless empty-state CTA per spec
-/// FR-015).  These tests still exercise the persistence pipeline
-/// end-to-end so the next setting added here can plug in without
-/// re-validating the file/in-memory backends.
+/// Exercises the non-secret app settings persistence pipeline
+/// end-to-end.  The default file shape remains `{}`, while non-default
+/// viewer preferences are saved explicitly.
 final class FileAppSettingsPersistenceTests: XCTestCase {
     func testSaveThenLoadReturnsSameSettings() async throws {
         let fileURL = try Self.temporarySettingsStoreURL()
         let persistence = FileAppSettingsPersistence(fileURL: fileURL)
-        let settings = AppSettings()
+        let settings = AppSettings(streamPowerMode: .powerSaver)
 
         try await persistence.save(settings)
 
@@ -52,7 +49,7 @@ final class FileAppSettingsPersistenceTests: XCTestCase {
 
     func testInMemoryPersistenceRoundTripsSettings() async throws {
         let persistence = InMemoryAppSettingsPersistence()
-        let settings = AppSettings()
+        let settings = AppSettings(streamPowerMode: .powerSaver)
 
         try await persistence.save(settings)
 
