@@ -26,6 +26,27 @@
 - Regenerate previews only from active memory. Rejected because the grid should remain recognizable after relaunch.
 - Include previews in diagnostics. Rejected by constitution privacy rules.
 
+## Decision: Throttle Live Preview Thumbnail Generation
+
+**Decision**: During an active stream, publish/downsample profile preview
+thumbnails at most once per second after the first frame, while keeping disk
+saves on the existing longer interval.
+
+**Rationale**: The grid only needs a recognizable last-frame thumbnail, not a
+live tile. Simulator frame-pipeline benchmarks show that full-frame local work
+is the expensive side of the viewer path compared with same-frame/dirty-region
+skips, so repeatedly downsampling a profile-card thumbnail during a sustained
+session wastes CPU and can contribute to heat without improving the active
+session view.
+
+**Alternatives considered**:
+
+- Downsample every content frame. Rejected because the session viewport already
+  receives the live frame, and profile-card previews are off-path recognition
+  aids.
+- Only update previews on disconnect. Rejected because a crash or network drop
+  would leave stale grid imagery even after a successful frame stream.
+
 ## Decision: Reachability Probes Are Memory-Only And Bounded
 
 **Decision**: Launch probes publish memory-only states (`unknown`, `checking`, `reachable`, `needsPassword`, `unreachable`) with bounded concurrency and timeout.

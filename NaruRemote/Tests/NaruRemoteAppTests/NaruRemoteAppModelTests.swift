@@ -475,6 +475,124 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(storedPreview, preview)
     }
 
+    func testModelThrottlesStreamingFramebufferPreviewUpdates() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                RFBFramebufferUpdateResult(
+                    framebuffer: firstFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1,
+                    capturedAt: Date(timeIntervalSince1970: 100)
+                ),
+                RFBFramebufferUpdateResult(
+                    framebuffer: secondFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1,
+                    capturedAt: Date(timeIntervalSince1970: 100.5)
+                )
+            ]
+        )
+        let previewStore = InMemoryProfilePreviewStore()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            profilePreviewStore: previewStore,
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
+        let preview = try XCTUnwrap(model.snapshot.profilePreviews[profile.id])
+        XCTAssertEqual(preview.pixels.first, RFBColor(red: 10, green: 0, blue: 0))
+
+        let storedPreview = try await previewStore.loadThumbnail(for: profile.id)
+        XCTAssertEqual(storedPreview, preview)
+    }
+
+    func testModelPublishesReconnectFirstFramePreviewInsideThrottleWindow() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let reconnectFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let firstConnector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                RFBFramebufferUpdateResult(
+                    framebuffer: firstFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1,
+                    capturedAt: Date(timeIntervalSince1970: 100)
+                )
+            ]
+        )
+        let reconnectConnector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                RFBFramebufferUpdateResult(
+                    framebuffer: reconnectFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1,
+                    capturedAt: Date(timeIntervalSince1970: 100.5)
+                )
+            ]
+        )
+        let connectorSequence = FakeStreamingConnectorSequence([
+            firstConnector,
+            reconnectConnector
+        ])
+        let previewStore = InMemoryProfilePreviewStore()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            profilePreviewStore: previewStore,
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connectorSequence.next() }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            try XCTUnwrap(model.snapshot.profilePreviews[profile.id]).pixels.first,
+            RFBColor(red: 10, green: 0, blue: 0)
+        )
+
+        model.disconnect()
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, reconnectFramebuffer)
+        XCTAssertEqual(
+            try XCTUnwrap(model.snapshot.profilePreviews[profile.id]).pixels.first,
+            RFBColor(red: 30, green: 0, blue: 0)
+        )
+    }
+
     func testDeletingProfileClearsStoredPreview() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let preview = ProfilePreviewThumbnail(
@@ -1533,6 +1651,20 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
     func sendPasteCommand(_ command: PasteCommand) throws {
         recording.withLock { state in
             state.recordedPasteCommands.append(command)
+        }
+    }
+}
+
+private final class FakeStreamingConnectorSequence: @unchecked Sendable {
+    private let connectors: OSAllocatedUnfairLock<[FakeStreamingConnector]>
+
+    init(_ connectors: [FakeStreamingConnector]) {
+        self.connectors = OSAllocatedUnfairLock(initialState: connectors)
+    }
+
+    func next() -> RFBFirstFrameConnecting {
+        connectors.withLock { connectors in
+            connectors.removeFirst()
         }
     }
 }

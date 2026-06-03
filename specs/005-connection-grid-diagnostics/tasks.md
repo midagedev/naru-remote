@@ -29,6 +29,10 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
 - **T305** `ConnectionGridView.swift`: render loaded thumbnails with stable aspect ratio; placeholder remains for missing previews. Owns: grid files.
 - **T306** Tests: preview save/load/delete, profile deletion clears preview, diagnostics export excludes preview/pixel sentinels. Owns: test files.
 - **T307** Verify: `swift test`; screenshot fixture with mixed previews; PR.
+- **T308** Throttle active-stream preview thumbnail generation/publish after the
+  first frame so the connection grid remains recognizable without doing
+  downsample work on every live content frame. Owns: app model/tests/research.
+  **Done.**
 
 ## Increment 4 - Launch reachability states
 
