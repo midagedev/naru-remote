@@ -281,6 +281,14 @@ iPhone) and ships as its own PR.
   static production encoding default unchanged until longer physical-iPhone
   evidence is stable across power modes. Owns: benchmark artifact, research
   notes. **Done.**
+- **T341** App receive-timing diagnostic buckets: propagate optional
+  framebuffer receive timing into active-session diagnostics as coarse
+  `notMeasured|subFrame|interactive|lagging|stalled` buckets for total receive,
+  network read, and client processing averages/maxima. Bump diagnostics schema
+  to v6 while continuing to exclude raw milliseconds, raw timing samples, host
+  identity, dimensions, coordinates, pixels, byte counts, device power state,
+  and raw errors. Owns: app snapshot, diagnostic export, tests, diagnostics
+  spec notes. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -60,11 +60,18 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   compare hot-device reports against the stream pacing mode, while continuing to
   exclude device power state, host, dimensions, coordinates, pixels, byte counts,
   and raw latency. Owns: diagnostics/app model/tests. **Done.**
+- **T511** Bump diagnostics to schema v6 with receive-timing buckets:
+  include only coarse aggregate total receive, network-read, and
+  client-processing timing buckets so support can distinguish remote wait from
+  local client pressure in hot/low-FPS sessions, while continuing to exclude raw
+  milliseconds, raw samples, device power state, host, dimensions, coordinates,
+  pixels, byte counts, and raw errors. Owns: diagnostics/app snapshot/model
+  tests. **Done.**
 
 ## Cross-cutting Rules
 
 - Do not persist reachability verdicts across launches as truth; refresh each launch.
 - Do not include preview images or frame-derived bytes in diagnostics.
-- Do not log hostnames, endpoints, passwords, clipboard text, composed text, pointer coordinates, raw latency, raw network errors, or pixels.
+- Do not log hostnames, endpoints, passwords, clipboard text, composed text, pointer coordinates, raw latency, raw timing samples, raw network errors, or pixels.
 - iPhone simulator evidence comes before iPad evidence for every UI increment.
 - Keep `.claude/` untracked and unstaged.

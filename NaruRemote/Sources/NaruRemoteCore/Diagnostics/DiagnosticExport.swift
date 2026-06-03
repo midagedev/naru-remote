@@ -226,7 +226,65 @@ public enum DiagnosticFrameRateBucket: String, Codable, Equatable, Sendable {
     }
 }
 
+public enum DiagnosticTimingBucket: String, Codable, Equatable, Sendable {
+    case notMeasured
+    case subFrame
+    case interactive
+    case lagging
+    case stalled
+
+    public static func bucket(milliseconds: Int?) -> DiagnosticTimingBucket {
+        guard let milliseconds, milliseconds >= 0 else {
+            return .notMeasured
+        }
+
+        switch milliseconds {
+        case ..<16:
+            return .subFrame
+        case ..<80:
+            return .interactive
+        case ..<250:
+            return .lagging
+        default:
+            return .stalled
+        }
+    }
+}
+
 public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case observedDurationBucket
+        case deliveredFramesPerSecondBucket
+        case deliveredFrameCount
+        case contentFrameCount
+        case emptyUpdateCount
+        case transportIdleTimeoutCount
+        case contentFramePermille
+        case emptyUpdatePermille
+        case transportIdleTimeoutPermille
+        case dirtyRectangleSampleCount
+        case averageDirtyRectangleCount
+        case dirtyRectangleCountMax
+        case averageDirtyAreaPermille
+        case dirtyAreaPermilleMax
+        case averageChangedPixelsPermille
+        case changedPixelsPermilleMax
+        case rendererUploadSampleCount
+        case rendererPartialUploadCount
+        case rendererFullUploadCount
+        case rendererPartialUploadPermille
+        case rendererFullUploadPermille
+        case rendererUploadRegionCountMax
+        case receiveTimingSampleCount
+        case averageReceiveTotalTimingBucket
+        case maxReceiveTotalTimingBucket
+        case averageNetworkReadTimingBucket
+        case maxNetworkReadTimingBucket
+        case averageClientProcessingTimingBucket
+        case maxClientProcessingTimingBucket
+        case thermalState
+    }
+
     public let observedDurationBucket: String
     public let deliveredFramesPerSecondBucket: String
     public let deliveredFrameCount: Int
@@ -249,6 +307,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let rendererPartialUploadPermille: Int?
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCountMax: Int
+    public let receiveTimingSampleCount: Int
+    public let averageReceiveTotalTimingBucket: String
+    public let maxReceiveTotalTimingBucket: String
+    public let averageNetworkReadTimingBucket: String
+    public let maxNetworkReadTimingBucket: String
+    public let averageClientProcessingTimingBucket: String
+    public let maxClientProcessingTimingBucket: String
     public let thermalState: String
 
     public init(
@@ -274,6 +339,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         rendererPartialUploadPermille: Int? = nil,
         rendererFullUploadPermille: Int? = nil,
         rendererUploadRegionCountMax: Int = 0,
+        receiveTimingSampleCount: Int = 0,
+        averageReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        averageNetworkReadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxNetworkReadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        averageClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         thermalState: String
     ) {
         self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
@@ -298,7 +370,114 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         self.rendererPartialUploadPermille = Self.clampPermille(rendererPartialUploadPermille)
         self.rendererFullUploadPermille = Self.clampPermille(rendererFullUploadPermille)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        let receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
+        self.receiveTimingSampleCount = receiveTimingSampleCount
+        if receiveTimingSampleCount == 0 {
+            self.averageReceiveTotalTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxReceiveTotalTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.averageNetworkReadTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxNetworkReadTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.averageClientProcessingTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxClientProcessingTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageReceiveTotalTimingBucket = Self.safeTimingBucket(averageReceiveTotalTimingBucket)
+            self.maxReceiveTotalTimingBucket = Self.safeTimingBucket(maxReceiveTotalTimingBucket)
+            self.averageNetworkReadTimingBucket = Self.safeTimingBucket(averageNetworkReadTimingBucket)
+            self.maxNetworkReadTimingBucket = Self.safeTimingBucket(maxNetworkReadTimingBucket)
+            self.averageClientProcessingTimingBucket = Self.safeTimingBucket(averageClientProcessingTimingBucket)
+            self.maxClientProcessingTimingBucket = Self.safeTimingBucket(maxClientProcessingTimingBucket)
+        }
         self.thermalState = Self.safeThermalState(thermalState)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            observedDurationBucket: try container.decode(String.self, forKey: .observedDurationBucket),
+            deliveredFramesPerSecondBucket: try container.decode(
+                String.self,
+                forKey: .deliveredFramesPerSecondBucket
+            ),
+            deliveredFrameCount: try container.decode(Int.self, forKey: .deliveredFrameCount),
+            contentFrameCount: try container.decode(Int.self, forKey: .contentFrameCount),
+            emptyUpdateCount: try container.decode(Int.self, forKey: .emptyUpdateCount),
+            transportIdleTimeoutCount: try container.decode(Int.self, forKey: .transportIdleTimeoutCount),
+            contentFramePermille: try container.decodeIfPresent(Int.self, forKey: .contentFramePermille),
+            emptyUpdatePermille: try container.decodeIfPresent(Int.self, forKey: .emptyUpdatePermille),
+            transportIdleTimeoutPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .transportIdleTimeoutPermille
+            ),
+            dirtyRectangleSampleCount: try container.decode(Int.self, forKey: .dirtyRectangleSampleCount),
+            averageDirtyRectangleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageDirtyRectangleCount
+            ),
+            dirtyRectangleCountMax: try container.decode(Int.self, forKey: .dirtyRectangleCountMax),
+            averageDirtyAreaPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageDirtyAreaPermille
+            ),
+            dirtyAreaPermilleMax: try container.decode(Int.self, forKey: .dirtyAreaPermilleMax),
+            averageChangedPixelsPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageChangedPixelsPermille
+            ),
+            changedPixelsPermilleMax: try container.decode(Int.self, forKey: .changedPixelsPermilleMax),
+            rendererUploadSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererUploadSampleCount
+            ) ?? 0,
+            rendererPartialUploadCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererPartialUploadCount
+            ) ?? 0,
+            rendererFullUploadCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererFullUploadCount
+            ) ?? 0,
+            rendererPartialUploadPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererPartialUploadPermille
+            ),
+            rendererFullUploadPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererFullUploadPermille
+            ),
+            rendererUploadRegionCountMax: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererUploadRegionCountMax
+            ) ?? 0,
+            receiveTimingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .receiveTimingSampleCount
+            ) ?? 0,
+            averageReceiveTotalTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageReceiveTotalTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxReceiveTotalTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxReceiveTotalTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            averageNetworkReadTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageNetworkReadTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxNetworkReadTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxNetworkReadTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            averageClientProcessingTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageClientProcessingTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxClientProcessingTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxClientProcessingTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            thermalState: try container.decode(String.self, forKey: .thermalState)
+        )
     }
 
     private static func clampPermille(_ value: Int?) -> Int? {
@@ -311,6 +490,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
 
     private static func safeFrameRateBucket(_ value: String) -> String {
         DiagnosticFrameRateBucket(rawValue: value)?.rawValue ?? DiagnosticFrameRateBucket.notMeasured.rawValue
+    }
+
+    private static func safeTimingBucket(_ value: String) -> String {
+        DiagnosticTimingBucket(rawValue: value)?.rawValue ?? DiagnosticTimingBucket.notMeasured.rawValue
     }
 
     private static func safeThermalState(_ value: String) -> String {
@@ -355,7 +538,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 5
+    public static let currentSchemaVersion = 6
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

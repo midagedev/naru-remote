@@ -1177,7 +1177,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 5)
+        XCTAssertEqual(report.schemaVersion, 6)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1218,7 +1218,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 RFBFramebufferUpdateResult(
                     framebuffer: secondFramebuffer,
                     dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
-                    changedPixelCount: 1
+                    changedPixelCount: 1,
+                    timing: RFBFramebufferUpdateTiming(
+                        totalMilliseconds: 420,
+                        networkReadMilliseconds: 360
+                    )
                 )
             ]
         )
@@ -1243,7 +1247,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 5)
+        XCTAssertEqual(report.schemaVersion, 6)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -1258,7 +1262,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.rendererPartialUploadPermille, 500)
         XCTAssertEqual(performance.rendererFullUploadPermille, 500)
         XCTAssertEqual(performance.rendererUploadRegionCountMax, 1)
+        XCTAssertEqual(performance.receiveTimingSampleCount, 1)
+        XCTAssertEqual(performance.averageReceiveTotalTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
+        XCTAssertEqual(performance.maxReceiveTotalTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
+        XCTAssertEqual(performance.averageNetworkReadTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
+        XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
+        XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.thermalState, SessionStreamThermalState.fair.rawValue)
+        XCTAssertTrue(json.contains("\"averageReceiveTotalTimingBucket\" : \"stalled\""))
+        XCTAssertFalse(json.contains("totalMilliseconds"))
+        XCTAssertFalse(json.contains("networkReadMilliseconds"))
+        XCTAssertFalse(json.contains("clientProcessingMilliseconds"))
         XCTAssertFalse(json.contains("desk.tailnet.ts.net"))
         XCTAssertFalse(json.contains(profile.id.uuidString))
     }
