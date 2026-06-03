@@ -46,6 +46,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass.
 - [ ] T031 Update `ROADMAP.md` (new "Phase 11 — Session Experience" or extend Phase 5/6 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport.
 - [ ] T032 [Manual] Real Mac VNC trackpad + zoom-to-read on physical iPhone — BLOCKED (no device); record residual risk per constitution §III.
+- [ ] T033 [Manual] Physical iPhone Korean/CJK Compose IME retest — verify marked-text composition in the compact `UITextView` dock and record iOS version, keyboard, target app, and whether the sent remote paste matches the local draft exactly.
 
 ## Dependencies
 Stage A core (T001/T002) → A app (T003–T006). Stage B core (T010–T013) parallel with A app; B app (T014–T016) needs A app + B core. Stage C is independent of B and can overlap. VISUAL tasks wait on their stage's app tasks.
