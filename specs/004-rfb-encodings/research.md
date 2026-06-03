@@ -618,3 +618,33 @@ thermal bucket, renderer aggregates, and safe encoding counts.
 **Rejected**: automatically changing the persisted `balanced|power-saver`
 setting or renegotiating encodings from this signal. Those are user-visible or
 server-affecting policy changes and still need longer physical-device evidence.
+
+## D23 — Benchmark app-style client-pressure pacing before further defaults
+
+References:
+- Apple power notifications: https://developer.apple.com/documentation/xcode/responding-to-power-notifications
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: extend `VNCLiveBenchmark` with an opt-in
+`--stream-shape-client-pressure app` mode that mirrors the app's local
+client-processing pressure trigger: repeated lagging content frames temporarily
+apply the same power-saver pacing floor for subsequent stream-shape requests.
+Keep the default `off` so historical benchmark runs remain comparable.
+
+**Why**:
+- The app can now protect hot sustained sessions by backing off when local
+  client-processing repeatedly looks expensive. The live benchmark needs the
+  same mode before physical iPhone/Mac runs can compare normal pacing against
+  adaptive client-pressure pacing using the same target, screen state, profile,
+  and transport.
+- The trigger continues to distinguish local decode/dispatch pressure from
+  socket/server wait by looking only at the derived client-processing timing.
+- This is safer than changing encoding defaults: it adds a measurement mode
+  first, so future defaults can be based on whether adaptive pacing improves
+  heat/FPS/tail-latency observations without hiding profile or server behavior.
+
+**Privacy rule**: schema v21 reports only the selected fixed mode label and the
+fixed app threshold/recovery constants. Raw timing samples, host identity,
+framebuffer dimensions, coordinates, pixels, byte counts, cursor pixels, and
+raw errors remain excluded.
