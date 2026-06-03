@@ -585,3 +585,36 @@ safe encoding labels. They must not include host identity, framebuffer
 dimensions, rectangle coordinates, pixels, compressed bytes, byte counts,
 cursor pixels, unsupported raw encoding codes, raw errors, or per-rectangle
 payload details.
+
+## D22 — Adaptive client-pressure pacing should be local and temporary
+
+References:
+- Apple power notifications: https://developer.apple.com/documentation/xcode/responding-to-power-notifications
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: when the live app observes repeated content frames whose local
+client-processing time is in the lagging bucket, temporarily apply the same
+power-saver pacing floor already used by the explicit viewer setting and iOS Low
+Power Mode. Keep this state memory-only, per stream, and reset it naturally
+after a bounded number of subsequent update decisions.
+
+**Why**:
+- Apple recommends reducing screen-update and networking frequency under power
+  or thermal pressure. Users can feel heat before `thermalState` escalates, and
+  the app already measures enough receive-path timing to distinguish client work
+  from server/network wait.
+- RFC 6143 keeps incremental framebuffer requests client-driven and explicitly
+  allows fast clients to regulate request rate to avoid excessive traffic.
+- TigerVNC exposes automatic and manual performance controls because encoding,
+  bandwidth, latency, and client CPU costs vary by server/link. Naru should keep
+  the responsive default but protect sustained iPhone sessions when the local
+  frame path repeatedly looks expensive.
+
+**Privacy rule**: the trigger uses raw timing only in memory while the stream is
+alive. Diagnostics continue to export only coarse timing buckets, power mode,
+thermal bucket, renderer aggregates, and safe encoding counts.
+
+**Rejected**: automatically changing the persisted `balanced|power-saver`
+setting or renegotiating encodings from this signal. Those are user-visible or
+server-affecting policy changes and still need longer physical-device evidence.

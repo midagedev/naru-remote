@@ -180,6 +180,104 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterRepeatedLaggingClientProcessing() {
+        var state = SessionStreamPressurePacingState()
+        let slowFrame = pressureTestFrame(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20
+        )
+
+        state.record(frame: slowFrame)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        state.record(frame: slowFrame)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        state.record(frame: slowFrame)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+        for _ in 0..<SessionStreamPressurePacingState.adaptiveRecoveryUpdateCount {
+            state.record(frame: fastFrame)
+        }
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateIgnoresNetworkWaitAndEmptyUpdates() {
+        var state = SessionStreamPressurePacingState()
+        let networkWaitFrame = pressureTestFrame(
+            totalMilliseconds: 320,
+            networkReadMilliseconds: 260
+        )
+        let emptySlowFrame = pressureTestFrame(
+            totalMilliseconds: 160,
+            networkReadMilliseconds: 20,
+            isIncremental: true,
+            changedPixelCount: 0
+        )
+        let timeoutSlowFrame = pressureTestFrame(
+            totalMilliseconds: 160,
+            networkReadMilliseconds: 20,
+            transportIdleTimedOut: true
+        )
+
+        for _ in 0..<6 {
+            state.record(frame: networkWaitFrame)
+            state.record(frame: emptySlowFrame)
+            state.record(frame: timeoutSlowFrame)
+        }
+
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateRequiresConsecutiveLaggingContentFrames() {
+        var state = SessionStreamPressurePacingState()
+        let slowFrame = pressureTestFrame(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20
+        )
+        let emptyFrame = pressureTestFrame(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20,
+            isIncremental: true,
+            changedPixelCount: 0
+        )
+
+        state.record(frame: slowFrame)
+        state.record(frame: emptyFrame)
+        state.record(frame: slowFrame)
+        state.record(frame: slowFrame)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+
+        state.record(frame: slowFrame)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateRecoveryCountsEveryUpdateDecision() {
+        var state = SessionStreamPressurePacingState()
+        let slowFrame = pressureTestFrame(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20
+        )
+        let emptyFrame = pressureTestFrame(
+            totalMilliseconds: 15,
+            networkReadMilliseconds: 10,
+            isIncremental: true,
+            changedPixelCount: 0
+        )
+
+        for _ in 0..<SessionStreamPressurePacingState.consecutiveLaggingContentFrameThreshold {
+            state.record(frame: slowFrame)
+        }
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+
+        for _ in 0..<SessionStreamPressurePacingState.adaptiveRecoveryUpdateCount {
+            state.record(frame: emptyFrame)
+        }
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testModelLoadsStoredStreamPowerMode() async throws {
         let persistence = InMemoryAppSettingsPersistence(
             settings: AppSettings(streamPowerMode: .powerSaver)
@@ -1499,6 +1597,29 @@ final class NaruRemoteAppModelTests: XCTestCase {
         await model.deleteProfile(id: profile.id)
 
         XCTAssertNil(model.snapshot.lastDiagnosticVerdict[profile.id])
+    }
+
+    private func pressureTestFrame(
+        totalMilliseconds: Int,
+        networkReadMilliseconds: Int,
+        isIncremental: Bool = true,
+        changedPixelCount: Int = 1,
+        transportIdleTimedOut: Bool = false
+    ) -> RFBFramePumpFrame {
+        RFBFramePumpFrame(
+            sequence: 1,
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: changedPixelCount == 0 ? [] : [
+                RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)
+            ],
+            changedPixelCount: changedPixelCount,
+            isIncremental: isIncremental,
+            transportIdleTimedOut: transportIdleTimedOut,
+            timing: RFBFramebufferUpdateTiming(
+                totalMilliseconds: totalMilliseconds,
+                networkReadMilliseconds: networkReadMilliseconds
+            )
+        )
     }
 
     private func waitForPersistedStreamPowerMode(

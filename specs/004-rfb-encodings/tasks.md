@@ -298,6 +298,12 @@ iPhone) and ships as its own PR.
   raw errors, or unsupported raw encoding codes. Owns: core result/decoder,
   frame pump, benchmark kit/CLI/tests, benchmark docs/research notes.
   **Done.**
+- **T343** Adaptive client-pressure stream pacing: detect repeated content
+  frames whose local client-processing timing is lagging, then temporarily apply
+  the existing power-saver pacing floor for the active stream without changing
+  the persisted viewer setting or exporting raw timing samples. Ignore
+  network/server wait, empty updates, and idle timeouts as triggers. Owns: app
+  pacing state, app model wiring, tests, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 
