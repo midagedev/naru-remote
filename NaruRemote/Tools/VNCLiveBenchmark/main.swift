@@ -60,12 +60,30 @@ enum VNCLiveBenchmark {
             idleTimeout: options.idleTimeout
         )
         let streamShapeProbe = measureStreamShapeProbe(
+            profile: .localLowLatency,
             configuration: configuration,
             timeout: options.timeout,
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
             frameInterval: options.streamShapeFrameInterval
         )
+        let streamShapeProfileProbes = options.streamShapeProfiles.profiles.map { profile in
+            if profile == .localLowLatency {
+                return BenchmarkStreamShapeProfileReport(
+                    label: profile.label,
+                    firstFrameMilliseconds: streamShapeProbe.firstFrameMilliseconds,
+                    summary: streamShapeProbe.summary
+                )
+            }
+            return measureStreamShapeProfileProbe(
+                profile: profile,
+                configuration: configuration,
+                timeout: options.timeout,
+                idleTimeout: options.idleTimeout,
+                maxSamples: options.streamShapeSamples,
+                frameInterval: options.streamShapeFrameInterval
+            )
+        }
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
             configuration: configuration,
             timeout: options.timeout,
@@ -81,9 +99,11 @@ enum VNCLiveBenchmark {
             idleTimeoutSeconds: options.idleTimeout,
             streamShapeSamples: options.streamShapeSamples,
             streamShapeFrameInterval: options.streamShapeFrameInterval,
+            streamShapeProfiles: options.streamShapeProfiles,
             profiles: profiles,
             idleProbe: idleProbe,
             streamShapeProbe: streamShapeProbe,
+            streamShapeProfileProbes: streamShapeProfileProbes,
             continuousUpdatesProbe: continuousUpdatesProbe
         )
     }
@@ -265,6 +285,7 @@ enum VNCLiveBenchmark {
     }
 
     private static func measureStreamShapeProbe(
+        profile: BenchmarkProfile,
         configuration: LiveTargetConfiguration,
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
@@ -282,7 +303,7 @@ enum VNCLiveBenchmark {
             )
         }
 
-        let client = RFBNetworkClient(encodingPreference: .localLowLatency)
+        let client = RFBNetworkClient(encodingPreference: profile.preference)
         let pump = RFBFramePump(source: client)
         var samples: [BenchmarkStreamShapeSample] = []
         var firstFrameMilliseconds: Int?
@@ -343,6 +364,29 @@ enum VNCLiveBenchmark {
         )
     }
 
+    private static func measureStreamShapeProfileProbe(
+        profile: BenchmarkProfile,
+        configuration: LiveTargetConfiguration,
+        timeout: TimeInterval,
+        idleTimeout: TimeInterval,
+        maxSamples: Int,
+        frameInterval: TimeInterval
+    ) -> BenchmarkStreamShapeProfileReport {
+        let probe = measureStreamShapeProbe(
+            profile: profile,
+            configuration: configuration,
+            timeout: timeout,
+            idleTimeout: idleTimeout,
+            maxSamples: maxSamples,
+            frameInterval: frameInterval
+        )
+        return BenchmarkStreamShapeProfileReport(
+            label: profile.label,
+            firstFrameMilliseconds: probe.firstFrameMilliseconds,
+            summary: probe.summary
+        )
+    }
+
     private static func streamShapeSample(
         from frame: RFBFramePumpFrame,
         durationMilliseconds: Int
@@ -384,6 +428,7 @@ private struct BenchmarkOptions: Equatable {
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
     var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
+    var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
@@ -438,6 +483,13 @@ private struct BenchmarkOptions: Equatable {
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeFrameInterval = try nonNegativeTimeInterval(value, option: argument)
                 index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-profiles":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let selection = StreamShapeProfileSelection(rawValue: value) else {
+                    throw UsageError("stream-shape-profiles must be local-low-latency or all.")
+                }
+                options.streamShapeProfiles = selection
+                index = arguments.index(index, offsetBy: 2)
             case "--timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.timeout = try positiveTimeInterval(value, option: argument)
@@ -478,6 +530,20 @@ private struct BenchmarkOptions: Equatable {
             throw UsageError("\(option) must be a non-negative number of seconds.")
         }
         return interval
+    }
+}
+
+private enum StreamShapeProfileSelection: String, Codable, Equatable {
+    case localLowLatency = "local-low-latency"
+    case all
+
+    var profiles: [BenchmarkProfile] {
+        switch self {
+        case .localLowLatency:
+            return [.localLowLatency]
+        case .all:
+            return BenchmarkProfile.allCases
+        }
     }
 }
 
@@ -538,7 +604,7 @@ private func readPasswordFromTerminal() throws -> String {
     return password
 }
 
-private enum BenchmarkProfile: CaseIterable {
+private enum BenchmarkProfile: CaseIterable, Equatable {
     case localLowLatency
     case tightFirst
     case zrleFirst
@@ -611,12 +677,14 @@ private struct BenchmarkReport: Codable, Equatable {
     let continuousUpdateSamples: Int
     let streamShapeSamples: Int
     let streamShapeFrameIntervalSeconds: TimeInterval
+    let streamShapeProfiles: StreamShapeProfileSelection
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
     let safety: [String]
     let profiles: [ProfileReport]
     let idleProbe: IdleProbeReport
     let streamShapeProbe: StreamShapeProbeReport
+    let streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport]
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
 
     init(
@@ -627,18 +695,21 @@ private struct BenchmarkReport: Codable, Equatable {
         idleTimeoutSeconds: TimeInterval,
         streamShapeSamples: Int,
         streamShapeFrameInterval: TimeInterval,
+        streamShapeProfiles: StreamShapeProfileSelection,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
         streamShapeProbe: StreamShapeProbeReport,
+        streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 6
+        self.schemaVersion = 7
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
         self.streamShapeSamples = streamShapeSamples
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
+        self.streamShapeProfiles = streamShapeProfiles
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.safety = [
@@ -649,6 +720,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.profiles = profiles
         self.idleProbe = idleProbe
         self.streamShapeProbe = streamShapeProbe
+        self.streamShapeProfileProbes = streamShapeProfileProbes
         self.continuousUpdatesProbe = continuousUpdatesProbe
     }
 }
@@ -841,6 +913,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("stream-shape samples: \(report.streamShapeSamples)")
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
+    print("stream-shape profiles: \(report.streamShapeProfiles.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
@@ -887,6 +960,18 @@ private func renderText(_ report: BenchmarkReport) {
     print("")
     print("stream-shape probe:")
     renderStreamShapeProbe(report.streamShapeProbe)
+    if report.streamShapeProfileProbes.count > 1 {
+        print("")
+        print("stream-shape profile probes:")
+        for profileProbe in report.streamShapeProfileProbes {
+            print("- \(profileProbe.label):")
+            renderStreamShapeSummary(
+                firstFrameMilliseconds: profileProbe.firstFrameMilliseconds,
+                summary: profileProbe.summary,
+                indentation: "  "
+            )
+        }
+    }
     print("")
     print("continuous updates probe:")
     let probe = report.continuousUpdatesProbe
@@ -912,31 +997,42 @@ private func renderText(_ report: BenchmarkReport) {
 }
 
 private func renderStreamShapeProbe(_ probe: StreamShapeProbeReport) {
-    let summary = probe.summary
+    renderStreamShapeSummary(
+        firstFrameMilliseconds: probe.firstFrameMilliseconds,
+        summary: probe.summary,
+        indentation: ""
+    )
+}
+
+private func renderStreamShapeSummary(
+    firstFrameMilliseconds: Int?,
+    summary: BenchmarkStreamShapeSummary,
+    indentation: String
+) {
     if let failure = summary.failureLabel {
-        print("- status: \(summary.status.rawValue), failure: \(failure)")
+        print("\(indentation)- status: \(summary.status.rawValue), failure: \(failure)")
         return
     }
 
-    print("- status: \(summary.status.rawValue), received: \(summary.receivedSamples)/\(summary.requestedSamples)")
-    if let firstFrameMilliseconds = probe.firstFrameMilliseconds {
-        print("  first-frame ms: \(firstFrameMilliseconds)")
+    print("\(indentation)- status: \(summary.status.rawValue), received: \(summary.receivedSamples)/\(summary.requestedSamples)")
+    if let firstFrameMilliseconds {
+        print("\(indentation)  first-frame ms: \(firstFrameMilliseconds)")
     }
     if let fps = summary.deliveredFramesPerSecond {
-        print("  delivered incremental fps: \(formatFramesPerSecond(fps))")
+        print("\(indentation)  delivered incremental fps: \(formatFramesPerSecond(fps))")
     }
     if let latency = summary.updateLatency {
         print(
-            "  update ms avg/p50/p95/min/max: "
+            "\(indentation)  update ms avg/p50/p95/min/max: "
                 + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
                 + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
                 + "\(latency.maxMilliseconds)"
         )
     }
-    print("  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
+    print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
     if let dirtyRectangles = summary.dirtyRectangleCount {
         print(
-            "  dirty rect count avg/p50/p95/min/max: "
+            "\(indentation)  dirty rect count avg/p50/p95/min/max: "
                 + "\(dirtyRectangles.averageMilliseconds)/\(dirtyRectangles.p50Milliseconds)/"
                 + "\(dirtyRectangles.p95Milliseconds)/\(dirtyRectangles.minMilliseconds)/"
                 + "\(dirtyRectangles.maxMilliseconds)"
@@ -944,7 +1040,7 @@ private func renderStreamShapeProbe(_ probe: StreamShapeProbeReport) {
     }
     if let dirtyArea = summary.dirtyAreaPermille {
         print(
-            "  dirty area permille avg/p50/p95/min/max: "
+            "\(indentation)  dirty area permille avg/p50/p95/min/max: "
                 + "\(dirtyArea.averageMilliseconds)/\(dirtyArea.p50Milliseconds)/"
                 + "\(dirtyArea.p95Milliseconds)/\(dirtyArea.minMilliseconds)/"
                 + "\(dirtyArea.maxMilliseconds)"
@@ -952,14 +1048,14 @@ private func renderStreamShapeProbe(_ probe: StreamShapeProbeReport) {
     }
     if let changedPixels = summary.changedPixelsPermille {
         print(
-            "  changed pixel permille avg/p50/p95/min/max: "
+            "\(indentation)  changed pixel permille avg/p50/p95/min/max: "
                 + "\(changedPixels.averageMilliseconds)/\(changedPixels.p50Milliseconds)/"
                 + "\(changedPixels.p95Milliseconds)/\(changedPixels.minMilliseconds)/"
                 + "\(changedPixels.maxMilliseconds)"
         )
     }
     if let timeout = summary.firstTimeoutMilliseconds {
-        print("  first timeout ms: \(timeout)")
+        print("\(indentation)  first timeout ms: \(timeout)")
     }
 }
 
@@ -989,13 +1085,15 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
-      --stream-shape-samples N  Incremental request/response samples after a full frame using local-low-latency encoding. Defaults to 12; use 0 to disable.
+      --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 to disable.
       --stream-shape-frame-interval SECONDS
                                 Delay between stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
+      --stream-shape-profiles local-low-latency|all
+                                Profile set for stream-shape probes. Defaults to local-low-latency; use all to compare every encoding profile.
       --continuous-update-samples N
                                 Maximum pushed updates to sample after enabling continuous updates. Defaults to 1.
       --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.

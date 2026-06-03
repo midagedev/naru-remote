@@ -101,4 +101,32 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.dirtyAreaPermille, 1_000)
         XCTAssertEqual(sample.changedPixelsPermille, 0)
     }
+
+    func testProfileReportRoundTripsThroughJSON() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [
+                BenchmarkStreamShapeSample(
+                    kind: .emptyUpdate,
+                    durationMilliseconds: 12,
+                    dirtyRectangleCount: 0,
+                    dirtyAreaPermille: 0,
+                    changedPixelsPermille: 0
+                )
+            ],
+            elapsedMilliseconds: 33,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let report = BenchmarkStreamShapeProfileReport(
+            label: "local-low-latency",
+            firstFrameMilliseconds: 1_234,
+            summary: summary
+        )
+
+        let encoded = try JSONEncoder().encode(report)
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeProfileReport.self, from: encoded)
+
+        XCTAssertEqual(decoded, report)
+    }
 }
