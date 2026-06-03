@@ -143,10 +143,9 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public var copyRect: Bool
     /// Prefer Hextile ahead of ZRLE for benchmark experiments or future
     /// adaptive profiles. Live macOS Screen Sharing testing showed that
-    /// merely keeping ZRLE in the list can make that server choose the
-    /// slower path, so the app's current local-low-latency default omits
-    /// ZRLE entirely and uses `increment2` only when bandwidth is the
-    /// explicit priority.
+    /// merely keeping ZRLE in the list can make that server choose a
+    /// less stable path, so the app's local-low-latency default keeps
+    /// ZRLE out until server/link evidence is strong enough to switch.
     public var preferHextileOverZRLE: Bool
     public var desktopSize: Bool
     public var extendedDesktopSize: Bool
@@ -199,15 +198,16 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// ahead of Hextile in the preference order.
     public static let increment2 = RFBEncodingPreference(zrle: true)
 
-    /// Default for interactive private-network control: Tight first with
-    /// Hextile/Raw fallback, no ZRLE advertisement, and no
-    /// ContinuousUpdates. Live macOS Screen Sharing benchmarks showed this
-    /// profile improves sustained request/response FPS and average update
-    /// latency over Hextile-first while avoiding the failed
-    /// ContinuousUpdates path. `increment2` remains the bandwidth-first
-    /// ZRLE profile for future adaptive selection.
+    /// Default for sustained private-network control: Tight first with
+    /// Hextile/Raw fallback and server-cursor pseudo-encodings. Longer
+    /// macOS Screen Sharing request/response benchmarks showed that
+    /// ZRLE compression 0 and Tight-first trade the lead across screen
+    /// states, so production keeps the established Tight-first default
+    /// while requesting real server cursor shapes for trackpad fidelity.
+    /// ContinuousUpdates remains disabled by default.
     public static let localLowLatency = RFBEncodingPreference(
         tight: true,
+        cursor: true,
         tightQualityLevel: 8,
         compressionLevel: 1
     )

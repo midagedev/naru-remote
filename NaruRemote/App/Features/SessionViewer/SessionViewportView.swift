@@ -780,7 +780,7 @@ public struct SessionViewportView: View {
     /// surface.
     @ViewBuilder
     private func cursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
-        if let serverCursor, serverCursor.width > 0, serverCursor.height > 0 {
+        if Self.cursorOverlayKind(serverCursor: serverCursor) == .serverShape, let serverCursor {
             serverCursorOverlay(cursor: serverCursor, framebuffer: framebuffer)
         } else {
             syntheticCursorOverlay(framebuffer: framebuffer)
@@ -1422,6 +1422,18 @@ public struct SessionViewportView: View {
             isPiPWatching: isPiPWatching,
             pointerControlMode: pointerControlMode
         ) && cursor.isVisible
+    }
+
+    enum CursorOverlayKind: Equatable {
+        case serverShape
+        case syntheticFallback
+    }
+
+    static func cursorOverlayKind(serverCursor: RFBServerCursor?) -> CursorOverlayKind {
+        guard let serverCursor, serverCursor.width > 0, serverCursor.height > 0 else {
+            return .syntheticFallback
+        }
+        return .serverShape
     }
 
     /// Double-tap zoom uses the same transform math as pointer mapping

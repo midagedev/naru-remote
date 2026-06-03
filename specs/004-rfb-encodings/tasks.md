@@ -259,6 +259,12 @@ iPhone) and ships as its own PR.
   localhost profile comparison showing `zrle-compression-0` as a stronger normal
   sustained candidate while low-power results remain close. Owns: benchmark kit,
   CLI/report output, tests, benchmark artifact, research notes. **Done.**
+- **T338** Default server cursor request: after 60 second normal/low-power
+  redacted live comparisons showed mixed Tight-first vs ZRLE-compression-0
+  winners, keep the production real-encoding order conservative but add
+  Cursor/XCursor pseudo-encodings to `localLowLatency` so trackpad mode can use
+  real server cursor shapes when the server supports them. Owns: encoding
+  preference, tests, benchmark artifact, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 
