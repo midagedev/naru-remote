@@ -170,6 +170,10 @@ iPhone) and ships as its own PR.
   only after sustained static-screen replies, reset immediately on content
   frames, and keep thermal pacing / zero-delay test streams deterministic.
   Owns: session stream pacing policy, app stream loop, tests. **Done.**
+- **T323** Live benchmark adaptive idle parity: mirror the app's sustained
+  empty-update backoff inside stream-shape probes, expose `app|none` mode, and
+  report schema-v10 pacing settings for comparable iPhone/Mac runs. Owns:
+  benchmark kit, live benchmark CLI/report/docs, tests. **Done.**
 
 ## Cross-cutting (every increment)
 
