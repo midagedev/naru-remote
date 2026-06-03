@@ -270,7 +270,7 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
             _ = try client.receiveFramebufferUpdate(timeout: 0.05)
             XCTFail("receiveFramebufferUpdate should time out when the server sends no frame")
         } catch let error as RFBNetworkClientError {
-            XCTAssertEqual(error, .timedOut)
+            XCTAssertEqual(error, .readTimedOut)
         }
 
         XCTAssertEqual(client.state, .failed)

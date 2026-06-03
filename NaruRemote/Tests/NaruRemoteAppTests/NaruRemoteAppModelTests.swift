@@ -820,6 +820,55 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains(profile.id.uuidString))
     }
 
+    func testFailedConnectExportSeparatesTimeoutSource() async throws {
+        let connectTimeoutReport = try await failedConnectReport(
+            connectError: RFBNetworkClientError.connectTimedOut
+        )
+        XCTAssertEqual(connectTimeoutReport.stageRows.last?.stageID, DiagnosticStage.tcp.rawValue)
+        XCTAssertEqual(connectTimeoutReport.stageRows.last?.failureCode, "network.connectTimedOut")
+
+        let readTimeoutReport = try await failedConnectReport(
+            connectError: RFBNetworkClientError.readTimedOut
+        )
+        XCTAssertEqual(readTimeoutReport.stageRows.last?.stageID, DiagnosticStage.rfbHandshake.rawValue)
+        XCTAssertEqual(readTimeoutReport.stageRows.last?.failureCode, "network.readTimedOut")
+    }
+
+    private func failedConnectReport(connectError: RFBNetworkClientError) async throws -> DiagnosticCollectionReport {
+        let credentialRef = "vnc-password:test-timeout-\(UUID().uuidString)"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "100.126.136.43",
+            port: 5900,
+            credentialRef: credentialRef,
+            hostKind: .privateAddress
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [credentialRef: "secret"])
+        let connector = FakeFirstFrameConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            connectError: connectError
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        return try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+    }
+
     func testVerdictCacheIsScopedPerProfile() async throws {
         // A second profile's selection + diagnostic should not stomp
         // the first profile's recorded verdict — the dict is per-id

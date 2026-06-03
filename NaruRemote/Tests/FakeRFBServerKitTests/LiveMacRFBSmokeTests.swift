@@ -290,7 +290,7 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 idleMs,
                 status
             ))
-        } catch RFBNetworkClientError.timedOut {
+        } catch let error as RFBNetworkClientError where error == .timedOut || error == .readTimedOut {
             let heldMs = Date().timeIntervalSince(idleStart) * 1000
             print(String(
                 format: "Idle incremental held for %.0f ms after firstFrame=%.0f ms (no empty-update churn)",
@@ -348,12 +348,18 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         switch error {
         case RFBNetworkClientError.invalidPort:
             return "invalid-port"
+        case RFBNetworkClientError.connectTimedOut:
+            return "connect-timeout"
         case RFBNetworkClientError.timedOut:
             return "timeout"
+        case RFBNetworkClientError.readTimedOut:
+            return "read-timeout"
         case RFBNetworkClientError.incompleteTranscript:
             return "incomplete-transcript"
         case RFBNetworkClientError.connectionFailed:
             return "connection-failed"
+        case RFBNetworkClientError.writeTimedOut:
+            return "write-timeout"
         case RFBNetworkClientError.writeFailed:
             return "write-failed"
         case RFBNetworkClientError.authenticationRequired:

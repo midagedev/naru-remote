@@ -97,7 +97,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 - **FR-011**: Diagnostics JSON MUST use safe catalog stage/status/detail values only; caller-provided stage titles/details/next actions, host, endpoint, credential references, clipboard text, composed text, pointer coordinates, raw latency, raw errors, and pixel data MUST NOT be emitted.
 - **FR-012**: The existing plain-text share summary MUST remain available for humans, but the structured report is the canonical collection format.
 - **FR-013**: Diagnostics JSON MUST include debug-safe connection context when a profile is selected: target fingerprint derived from host+port, host kind, configured port, credential-reference presence, diagnostic trigger, and probe timeout seconds. The raw host, endpoint, username, credential reference, password, and raw network error MUST remain absent.
-- **FR-014**: Failed diagnostic stages MUST include a typed failure code such as `network.connectionFailed`, `network.timedOut`, `rfb.authenticationRequired`, or `rfb.securityFailed` when the app can derive one. Failure codes MUST be fixed enums/strings owned by the app, not raw platform error descriptions.
+- **FR-014**: Failed diagnostic stages MUST include a typed failure code such as `network.connectionFailed`, `network.connectTimedOut`, `network.readTimedOut`, `rfb.authenticationRequired`, or `rfb.securityFailed` when the app can derive one. Failure codes MUST be fixed enums/strings owned by the app, not raw platform error descriptions.
 
 ### Naru Input Requirements
 
