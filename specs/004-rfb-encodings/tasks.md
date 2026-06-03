@@ -274,6 +274,13 @@ iPhone) and ships as its own PR.
   pixels, byte counts, raw timing samples, or raw errors. Owns: core result,
   network client, frame pump, benchmark kit/CLI/tests, benchmark docs/artifact.
   **Done.**
+- **T340** Timed receive-profile comparison: run schema v19 20 second
+  duration-only localhost comparisons for `local-low-latency` vs
+  `zrle-compression-0` under normal and low-power pacing, recording only
+  redacted aggregate update/receive/network/client-processing timing. Keep the
+  static production encoding default unchanged until longer physical-iPhone
+  evidence is stable across power modes. Owns: benchmark artifact, research
+  notes. **Done.**
 
 ## Cross-cutting (every increment)
 
