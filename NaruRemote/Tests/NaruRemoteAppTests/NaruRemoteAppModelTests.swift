@@ -61,7 +61,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
             SessionStreamPacingPolicy.delay(
                 for: .emptyUpdate,
                 configuredDelay: 0.05,
-                thermalState: .critical
+                thermalState: .critical,
+                emptyUpdateStreak: 24
             ),
             0.25,
             accuracy: 0.0001
@@ -75,6 +76,61 @@ final class NaruRemoteAppModelTests: XCTestCase {
             0,
             accuracy: 0.0001,
             "Opt-in fake/test streams that remove pacing should stay deterministic."
+        )
+    }
+
+    func testSessionStreamPacingPolicyBacksOffForSustainedEmptyUpdates() {
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0.05,
+                thermalState: .nominal,
+                emptyUpdateStreak: 1
+            ),
+            0.05,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0.05,
+                thermalState: .nominal,
+                emptyUpdateStreak: 8
+            ),
+            0.075,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0.05,
+                thermalState: .nominal,
+                emptyUpdateStreak: 24
+            ),
+            0.125,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 30.0,
+                thermalState: .nominal,
+                emptyUpdateStreak: 24
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001,
+            "Empty-update streaks must not throttle content frames after activity resumes."
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0,
+                thermalState: .nominal,
+                emptyUpdateStreak: 24
+            ),
+            0,
+            accuracy: 0.0001,
+            "Opt-in fake/test streams that remove idle pacing should stay deterministic."
         )
     }
 

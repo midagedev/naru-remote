@@ -166,6 +166,10 @@ iPhone) and ships as its own PR.
   separate empty-update idle delay so sustained live measurements can mirror
   the app's content-frame and static-screen backpressure separately. Owns:
   live benchmark CLI/report/docs. **Done.**
+- **T322** Adaptive idle stream backoff: increase the app's empty-update delay
+  only after sustained static-screen replies, reset immediately on content
+  frames, and keep thermal pacing / zero-delay test streams deterministic.
+  Owns: session stream pacing policy, app stream loop, tests. **Done.**
 
 ## Cross-cutting (every increment)
 
