@@ -41,6 +41,23 @@ final class BenchmarkFailureLabelTests: XCTestCase {
             "unexpected-error"
         )
     }
+
+    func testPhaseLabelsPrefixSafeCatalogLabelOnly() {
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBNetworkClientError.connectionFailed,
+                phase: .streamContinuousUpdates
+            ),
+            "stream-continuous-updates-connection-failed"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBNetworkClientError.writeTimedOut,
+                phase: .continuousProbeEnable
+            ),
+            "continuous-probe-enable-write-timeout"
+        )
+    }
 }
 
 private enum FixtureError: Error {
