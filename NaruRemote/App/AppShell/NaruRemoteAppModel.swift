@@ -125,6 +125,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let incomingClipboardReceiveTimeout: TimeInterval
+    private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
     #endif
@@ -237,7 +238,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         reachabilityProbeMaximumConcurrency: Int = 2,
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
-        incomingClipboardReceiveTimeout: TimeInterval = 30
+        incomingClipboardReceiveTimeout: TimeInterval = 30,
+        thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
+            SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
+        }
     ) {
         // Profiles are no longer loaded synchronously from
         // `profileStore` here — the store is now an `actor`, so its
@@ -284,6 +288,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
+        self.thermalStateProvider = thermalStateProvider
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
         #endif
@@ -1510,7 +1515,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
-                    recordSessionStreamStats(for: frame)
+                    let thermalState = thermalStateProvider()
+                    recordSessionStreamStats(for: frame, thermalState: thermalState)
 
                     // An empty incremental update (zero changed pixels)
                     // means the connection is alive but nothing on screen
@@ -1544,8 +1550,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // (idleFrameInterval) so a static screen never
                     // busy-loops the request path.
                     let pacingDelay = isEmptyUpdate
-                        ? configuration.idleFrameInterval
-                        : configuration.frameInterval
+                        ? SessionStreamPacingPolicy.delay(
+                            for: .emptyUpdate,
+                            configuredDelay: configuration.idleFrameInterval,
+                            thermalState: thermalState
+                        )
+                        : SessionStreamPacingPolicy.delay(
+                            for: .contentFrame,
+                            configuredDelay: configuration.frameInterval,
+                            thermalState: thermalState
+                        )
                     if pacingDelay > 0 {
                         try await Task.sleep(for: .seconds(pacingDelay))
                     }
@@ -1616,10 +1630,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionStreamStats = SessionStreamStats()
     }
 
-    private func recordSessionStreamStats(for frame: RFBFramePumpFrame) {
+    private func recordSessionStreamStats(
+        for frame: RFBFramePumpFrame,
+        thermalState: SessionStreamThermalState
+    ) {
         sessionStreamStats.record(
             frame: frame,
-            thermalState: SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
+            thermalState: thermalState
         )
     }
 

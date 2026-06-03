@@ -20,6 +20,64 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
     }
 
+    func testSessionStreamPacingPolicyBacksOffForThermalPressure() {
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 30.0,
+                thermalState: .nominal
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 30.0,
+                thermalState: .fair
+            ),
+            1.0 / 24.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 30.0,
+                thermalState: .serious
+            ),
+            1.0 / 15.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 30.0,
+                thermalState: .critical
+            ),
+            1.0 / 8.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0.05,
+                thermalState: .critical
+            ),
+            0.25,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 0,
+                thermalState: .critical
+            ),
+            0,
+            accuracy: 0.0001,
+            "Opt-in fake/test streams that remove pacing should stay deterministic."
+        )
+    }
+
     func testModelAddsProfileAndCreatesSessionDraft() async throws {
         let model = NaruRemoteAppModel()
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
@@ -120,6 +178,33 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.credentials, [.vncPassword("secret")])
         XCTAssertEqual(model.snapshot.session?.state, .active)
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
+    }
+
+    func testModelRecordsInjectedSessionThermalState() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            thermalStateProvider: { .serious }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.thermalState, .serious)
     }
 
     func testModelFailsSafelyWhenProfileCredentialReferenceCannotBeLoaded() async throws {
