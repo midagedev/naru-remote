@@ -9,6 +9,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let finishedAt: Date?
     public let context: DiagnosticRunContext?
     public let streamPerformance: DiagnosticStreamPerformanceReport?
+    public let viewerStreamPowerMode: StreamPowerMode?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -21,7 +22,8 @@ public struct DiagnosticExport: Equatable, Sendable {
     public init(
         run: ConnectionDiagnosticRun,
         detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
-        streamPerformance: DiagnosticStreamPerformanceReport? = nil
+        streamPerformance: DiagnosticStreamPerformanceReport? = nil,
+        viewerStreamPowerMode: StreamPowerMode? = nil
     ) {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
@@ -30,6 +32,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.finishedAt = run.finishedAt
         self.context = run.context
         self.streamPerformance = streamPerformance
+        self.viewerStreamPowerMode = viewerStreamPowerMode
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -124,7 +127,8 @@ public struct DiagnosticExport: Equatable, Sendable {
             probeTimeoutSeconds: context?.probeTimeoutSeconds,
             verdict: verdict.rawValue,
             stageRows: stageRows,
-            streamPerformance: streamPerformance
+            streamPerformance: streamPerformance,
+            viewerStreamPowerMode: viewerStreamPowerMode?.rawValue
         )
     }
 
@@ -351,7 +355,28 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case generatedAt
+        case buildVersion
+        case runID
+        case profileFingerprint
+        case startedAt
+        case finishedAt
+        case runDurationBucket
+        case targetFingerprint
+        case profileHostKind
+        case configuredPort
+        case hasCredentialReference
+        case diagnosticTrigger
+        case probeTimeoutSeconds
+        case verdict
+        case stageRows
+        case streamPerformance
+        case viewerStreamPowerMode
+    }
 
     public let schemaVersion: Int
     public let generatedAt: String
@@ -370,6 +395,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let verdict: String
     public let stageRows: [DiagnosticExport.Row]
     public let streamPerformance: DiagnosticStreamPerformanceReport?
+    public let viewerStreamPowerMode: String?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -388,7 +414,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         probeTimeoutSeconds: Double? = nil,
         verdict: String,
         stageRows: [DiagnosticExport.Row],
-        streamPerformance: DiagnosticStreamPerformanceReport? = nil
+        streamPerformance: DiagnosticStreamPerformanceReport? = nil,
+        viewerStreamPowerMode: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -407,6 +434,42 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.verdict = verdict
         self.stageRows = stageRows
         self.streamPerformance = streamPerformance
+        self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            schemaVersion: try container.decode(Int.self, forKey: .schemaVersion),
+            generatedAt: try container.decode(String.self, forKey: .generatedAt),
+            buildVersion: try container.decode(String.self, forKey: .buildVersion),
+            runID: try container.decode(String.self, forKey: .runID),
+            profileFingerprint: try container.decode(String.self, forKey: .profileFingerprint),
+            startedAt: try container.decode(String.self, forKey: .startedAt),
+            finishedAt: try container.decodeIfPresent(String.self, forKey: .finishedAt),
+            runDurationBucket: try container.decode(String.self, forKey: .runDurationBucket),
+            targetFingerprint: try container.decodeIfPresent(String.self, forKey: .targetFingerprint),
+            profileHostKind: try container.decodeIfPresent(String.self, forKey: .profileHostKind),
+            configuredPort: try container.decodeIfPresent(Int.self, forKey: .configuredPort),
+            hasCredentialReference: try container.decodeIfPresent(Bool.self, forKey: .hasCredentialReference),
+            diagnosticTrigger: try container.decodeIfPresent(String.self, forKey: .diagnosticTrigger),
+            probeTimeoutSeconds: try container.decodeIfPresent(Double.self, forKey: .probeTimeoutSeconds),
+            verdict: try container.decode(String.self, forKey: .verdict),
+            stageRows: try container.decode([DiagnosticExport.Row].self, forKey: .stageRows),
+            streamPerformance: try container.decodeIfPresent(
+                DiagnosticStreamPerformanceReport.self,
+                forKey: .streamPerformance
+            ),
+            viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode)
+        )
+    }
+
+    private static func safeViewerStreamPowerMode(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let allowedValues = Set(StreamPowerMode.allCases.map(\.rawValue))
+        return allowedValues.contains(value) ? value : nil
     }
 }
 

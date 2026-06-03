@@ -219,7 +219,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV4() throws {
+    func testRenderCollectionJSONIsDeterministicSchemaV5() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 4"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 5"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 4)
+        XCTAssertEqual(decoded.schemaVersion, 5)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -287,6 +287,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(decoded.stageRows.first?.recordedAt, "2024-05-01T00:00:19Z")
         XCTAssertEqual(decoded.stageRows.first?.failureCode, "network.connectionFailed")
         XCTAssertNil(decoded.streamPerformance)
+        XCTAssertNil(decoded.viewerStreamPowerMode)
     }
 
     func testRenderCollectionJSONIncludesSafeStreamPerformanceSummary() throws {
@@ -328,7 +329,11 @@ final class DiagnosticExportTests: XCTestCase {
             rendererUploadRegionCountMax: 4,
             thermalState: "serious"
         )
-        let export = DiagnosticExport(run: run, streamPerformance: performance)
+        let export = DiagnosticExport(
+            run: run,
+            streamPerformance: performance,
+            viewerStreamPowerMode: .powerSaver
+        )
 
         let rendered = export.renderCollectionJSON(
             buildVersion: "0.1.0",
@@ -339,12 +344,51 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 4)
+        XCTAssertEqual(decoded.schemaVersion, 5)
         XCTAssertEqual(decoded.streamPerformance, performance)
+        XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
         XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
+        XCTAssertTrue(rendered.contains("\"viewerStreamPowerMode\" : \"power-saver\""))
         XCTAssertFalse(rendered.contains("caller detail"))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
+    }
+
+    func testCollectionReportClampsUnsafeViewerStreamPowerMode() throws {
+        let report = DiagnosticCollectionReport(
+            generatedAt: "2024-05-01T00:00:00Z",
+            buildVersion: "0.1.0",
+            runID: UUID().uuidString.lowercased(),
+            profileFingerprint: "sha256:\(String(repeating: "0", count: 64))",
+            startedAt: "2024-05-01T00:00:00Z",
+            finishedAt: nil,
+            runDurationBucket: DiagnosticDurationBucket.notMeasured.rawValue,
+            verdict: DiagnosticVerdict.unknown.rawValue,
+            stageRows: [],
+            viewerStreamPowerMode: "mode=SECRET"
+        )
+
+        XCTAssertNil(report.viewerStreamPowerMode)
+
+        let payload = """
+        {
+          "schemaVersion": 5,
+          "generatedAt": "2024-05-01T00:00:00Z",
+          "buildVersion": "0.1.0",
+          "runID": "\(UUID().uuidString.lowercased())",
+          "profileFingerprint": "sha256:\(String(repeating: "0", count: 64))",
+          "startedAt": "2024-05-01T00:00:00Z",
+          "runDurationBucket": "notMeasured",
+          "verdict": "unknown",
+          "stageRows": [],
+          "viewerStreamPowerMode": "mode=SECRET"
+        }
+        """
+        let decoded = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(payload.utf8)
+        )
+        XCTAssertNil(decoded.viewerStreamPowerMode)
     }
 
     func testStreamPerformanceReportClampsUnsafeCatalogValues() {
@@ -422,8 +466,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v4 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 4"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v5 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 5"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

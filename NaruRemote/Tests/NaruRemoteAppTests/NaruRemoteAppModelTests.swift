@@ -1177,8 +1177,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 4)
+        XCTAssertEqual(report.schemaVersion, 5)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
+        XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
         XCTAssertEqual(report.configuredPort, 5901)
         XCTAssertEqual(report.hasCredentialReference, true)
@@ -1227,6 +1228,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector },
             thermalStateProvider: { .fair }
         )
+        model.setStreamPowerMode(.powerSaver)
 
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
@@ -1241,7 +1243,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 4)
+        XCTAssertEqual(report.schemaVersion, 5)
+        XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
         XCTAssertEqual(performance.emptyUpdateCount, 0)

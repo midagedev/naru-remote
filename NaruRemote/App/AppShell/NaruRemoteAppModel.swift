@@ -751,16 +751,22 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// risk leaking caller-provided raw details (constitution §IV).
     public func makeDiagnosticExport() -> DiagnosticExport {
         let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
+        let viewerStreamPowerMode = appSettings.streamPowerMode
         guard let run = diagnosticRun else {
             return DiagnosticExport(
                 run: ConnectionDiagnosticRun(
                     profileID: selectedProfileID ?? UUID(),
                     stages: []
                 ),
-                streamPerformance: streamPerformance
+                streamPerformance: streamPerformance,
+                viewerStreamPowerMode: viewerStreamPowerMode
             )
         }
-        return DiagnosticExport(run: run, streamPerformance: streamPerformance)
+        return DiagnosticExport(
+            run: run,
+            streamPerformance: streamPerformance,
+            viewerStreamPowerMode: viewerStreamPowerMode
+        )
     }
 
     public func runConnectionChecks() {

@@ -360,7 +360,9 @@ and 125 ms idle floors that Low Power Mode already applies.
   comparable responsiveness-vs-resource controls. Making the trade-off explicit
   keeps Naru measurable across server/link/device combinations.
 
-**Privacy rule**: the setting may be persisted locally as app preference JSON,
-but no diagnostic or benchmark export should reveal device power state,
-thermal state, target identity, dimensions, coordinates, pixels, byte counts, or
-cursor pixels.
+**Privacy rule**: the setting may be persisted locally as app preference JSON and
+reported as fixed `balanced|power-saver` diagnostic context. Diagnostics and
+benchmarks must still avoid device power state, target identity, dimensions,
+coordinates, pixels, byte counts, cursor pixels, and raw power/latency samples;
+only the existing coarse thermal bucket remains allowed for stream-performance
+triage.
