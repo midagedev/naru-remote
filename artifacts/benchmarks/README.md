@@ -95,6 +95,7 @@ swift run VNCLiveBenchmark \
   --stream-shape-empty-backoff app \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
+  --stream-shape-transport both \
   --continuous-update-samples 3
 ```
 
@@ -111,6 +112,12 @@ The default `--stream-shape-empty-backoff app` mode mirrors the app's
 sustained empty-update backoff so static-screen benchmark pacing matches
 the runtime stream loop; use `none` only when comparing against legacy
 fixed idle polling.
+Use `--stream-shape-transport both` when comparing request/response
+polling against the ContinuousUpdates/Fence overlay before changing the
+production transport gate.
+In `both` mode, the top-level `streamShapeProbe` remains the first
+selected profile/transport as a compatibility summary; use
+`streamShapeProfileProbes` for the full profile-by-transport matrix.
 For longer stream-shape-only runs, pass `--first-frame-profiles
 stream-shape-profiles` to benchmark first-frame latency only for the
 same profiles being stream-shaped, or `--first-frame-profiles none` to

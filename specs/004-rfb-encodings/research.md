@@ -181,3 +181,30 @@ contains zero `print`/logging.
 - **Residual risk (constitution §III)**: live macOS Screen Sharing / TigerVNC ZRLE/Tight
   throughput, real CopyRect scroll, and a real resolution change are a documented manual
   device pass — no VNC server or physical device is available in this environment.
+
+## D10 — Benchmark transport before enabling push mode by default
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+
+**Decision**: keep the production adaptive/ContinuousUpdates gate conservative, but make
+`VNCLiveBenchmark` compare stream-shape transport modes directly:
+`request-response`, `continuous-updates`, or `both`.
+
+**Why**:
+- RFC 6143's core update flow is request-driven (`FramebufferUpdateRequest` →
+  `FramebufferUpdate`). This remains the universal compatibility baseline.
+- TigerVNC's viewer exposes auto-selection plus manual `PreferredEncoding`,
+  `QualityLevel`, and `CompressLevel` controls, which is a strong signal that
+  encoding/quality/transport trade-offs are server- and link-dependent rather than
+  globally optimal.
+- ContinuousUpdates is an extension code, not the RFC baseline. IANA records it in
+  the RFB registry, but real servers differ in support and idle behavior.
+
+**Implementation rule**: the benchmark's continuous mode applies only a fixed
+Fence/ContinuousUpdates pseudo-encoding overlay to the selected encoding profile, then
+runs the same stream-shape summary pipeline. Reports emit only the transport label plus
+existing aggregate latency/FPS/dirty-area/renderer-upload summaries; they still omit host,
+dimensions, coordinates, pixels, byte counts, cursor pixels, and raw errors.
