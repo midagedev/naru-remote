@@ -316,6 +316,11 @@ iPhone) and ships as its own PR.
   adaptive power-saver pacing without exporting raw timing samples. Owns:
   benchmark pacing policy/state, CLI/report output, tests, benchmark docs.
   **Done.**
+- **T346** App adaptive pressure empty-update parity: keep empty incremental
+  updates from breaking the app's lagging content-frame streak so the live app
+  and `VNCLiveBenchmark --stream-shape-client-pressure app` interpret sparse
+  content streams consistently, while still resetting on transport idle
+  timeout. Owns: app pacing state and app-model tests. **Done.**
 
 ## Cross-cutting (every increment)
 

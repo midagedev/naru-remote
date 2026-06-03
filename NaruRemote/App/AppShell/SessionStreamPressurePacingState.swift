@@ -20,8 +20,12 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             adaptiveRecoveryUpdatesRemaining -= 1
         }
 
-        guard isContentFrame(frame) else {
+        if frame.transportIdleTimedOut {
             consecutiveLaggingContentFrames = 0
+            return
+        }
+
+        if isEmptyIncrementalUpdate(frame) {
             return
         }
 
@@ -46,10 +50,7 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         consecutiveLaggingContentFrames = 0
     }
 
-    private func isContentFrame(_ frame: RFBFramePumpFrame) -> Bool {
-        guard !frame.transportIdleTimedOut else {
-            return false
-        }
-        return !(frame.isIncremental && frame.changedPixelCount == 0)
+    private func isEmptyIncrementalUpdate(_ frame: RFBFramePumpFrame) -> Bool {
+        frame.isIncremental && frame.changedPixelCount == 0
     }
 }

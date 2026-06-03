@@ -237,15 +237,58 @@ final class NaruRemoteAppModelTests: XCTestCase {
             totalMilliseconds: 120,
             networkReadMilliseconds: 20
         )
-        let emptyFrame = pressureTestFrame(
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        state.record(frame: slowFrame)
+        state.record(frame: fastFrame)
+        state.record(frame: slowFrame)
+        state.record(frame: slowFrame)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+
+        state.record(frame: slowFrame)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateDoesNotBreakContentStreakOnEmptyUpdates() {
+        var state = SessionStreamPressurePacingState()
+        let slowFrame = pressureTestFrame(
             totalMilliseconds: 120,
-            networkReadMilliseconds: 20,
+            networkReadMilliseconds: 20
+        )
+        let emptyFrame = pressureTestFrame(
+            totalMilliseconds: 15,
+            networkReadMilliseconds: 10,
             isIncremental: true,
             changedPixelCount: 0
         )
 
         state.record(frame: slowFrame)
         state.record(frame: emptyFrame)
+        state.record(frame: slowFrame)
+        state.record(frame: emptyFrame)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+
+        state.record(frame: slowFrame)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateBreaksContentStreakOnTransportTimeout() {
+        var state = SessionStreamPressurePacingState()
+        let slowFrame = pressureTestFrame(
+            totalMilliseconds: 120,
+            networkReadMilliseconds: 20
+        )
+        let timeoutFrame = pressureTestFrame(
+            totalMilliseconds: 160,
+            networkReadMilliseconds: 20,
+            transportIdleTimedOut: true
+        )
+
+        state.record(frame: slowFrame)
+        state.record(frame: timeoutFrame)
         state.record(frame: slowFrame)
         state.record(frame: slowFrame)
         XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
