@@ -402,6 +402,22 @@ final class LiveMacRFBSmokeTests: XCTestCase {
             return "malformed-cursor"
         case RFBRawFramebufferDecoderError.malformedTight:
             return "malformed-tight"
+        case RFBByteReaderError.insufficientData:
+            return "byte-reader-insufficient-data"
+        case RFBByteReaderError.negativeRequest:
+            return "byte-reader-negative-request"
+        case RFBZlibInflateStream.InflateError.initializationFailed:
+            return "zlib-initialization-failed"
+        case RFBZlibInflateStream.InflateError.inflateFailed:
+            return "zlib-inflate-failed"
+        case RFBZlibInflateStream.InflateError.streamEndedUnexpectedly:
+            return "zlib-stream-ended"
+        case RFBTightZlibStreams.StoreError.invalidStreamIndex:
+            return "tight-zlib-invalid-stream"
+        case RFBVNCAuthenticationError.invalidChallengeLength:
+            return "vnc-auth-invalid-challenge"
+        case RFBVNCAuthenticationError.encryptionFailed:
+            return "vnc-auth-encryption-failed"
         case RFBClientMessageEncodingError.unsupportedFenceFlags:
             return "client-message-encoding"
         case RFBClientMessageEncodingError.fencePayloadTooLarge:
