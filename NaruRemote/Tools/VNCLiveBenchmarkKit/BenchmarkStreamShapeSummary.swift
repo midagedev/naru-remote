@@ -235,3 +235,98 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         self.summary = summary
     }
 }
+
+public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
+    public let label: String
+    public let transportMode: BenchmarkStreamShapeTransportMode
+    public let reason: String
+    public let averageUpdateMilliseconds: Int
+    public let p95UpdateMilliseconds: Int
+    public let contentFramesPerSecond: Double
+    public let rendererFullUploadPermille: Int
+    public let slowUpdateSamples: Int
+    public let receivedSamples: Int
+    public let contentUpdateSamples: Int
+
+    public init(
+        label: String,
+        transportMode: BenchmarkStreamShapeTransportMode,
+        reason: String,
+        averageUpdateMilliseconds: Int,
+        p95UpdateMilliseconds: Int,
+        contentFramesPerSecond: Double,
+        rendererFullUploadPermille: Int,
+        slowUpdateSamples: Int,
+        receivedSamples: Int,
+        contentUpdateSamples: Int
+    ) {
+        self.label = label
+        self.transportMode = transportMode
+        self.reason = reason
+        self.averageUpdateMilliseconds = max(averageUpdateMilliseconds, 0)
+        self.p95UpdateMilliseconds = max(p95UpdateMilliseconds, 0)
+        self.contentFramesPerSecond = max(contentFramesPerSecond, 0)
+        self.rendererFullUploadPermille = min(max(rendererFullUploadPermille, 0), 1_000)
+        self.slowUpdateSamples = max(slowUpdateSamples, 0)
+        self.receivedSamples = max(receivedSamples, 0)
+        self.contentUpdateSamples = max(contentUpdateSamples, 0)
+    }
+
+    public static func recommendedRequestResponseProfile(
+        from reports: [BenchmarkStreamShapeProfileReport]
+    ) -> BenchmarkStreamShapeRecommendation? {
+        reports
+            .compactMap(BenchmarkStreamShapeRecommendation.init(report:))
+            .sorted(by: isPreferred)
+            .first
+    }
+
+    private init?(report: BenchmarkStreamShapeProfileReport) {
+        guard report.transportMode == .requestResponse,
+              report.summary.failureLabel == nil,
+              report.summary.receivedSamples > 0,
+              report.summary.contentUpdateSamples > 0,
+              report.summary.rendererUploadSampleCount > 0,
+              let updateLatency = report.summary.updateLatency,
+              let contentFramesPerSecond = report.summary.contentFramesPerSecond,
+              let rendererFullUploadPermille = report.summary.rendererFullUploadPermille
+        else {
+            return nil
+        }
+
+        self.init(
+            label: report.label,
+            transportMode: report.transportMode,
+            reason: "lowest-average-update-latency-among-request-response-profiles",
+            averageUpdateMilliseconds: updateLatency.averageMilliseconds,
+            p95UpdateMilliseconds: updateLatency.p95Milliseconds,
+            contentFramesPerSecond: contentFramesPerSecond,
+            rendererFullUploadPermille: rendererFullUploadPermille,
+            slowUpdateSamples: report.summary.tailLatency.slowUpdateSamples,
+            receivedSamples: report.summary.receivedSamples,
+            contentUpdateSamples: report.summary.contentUpdateSamples
+        )
+    }
+
+    private static func isPreferred(
+        _ lhs: BenchmarkStreamShapeRecommendation,
+        _ rhs: BenchmarkStreamShapeRecommendation
+    ) -> Bool {
+        if lhs.averageUpdateMilliseconds != rhs.averageUpdateMilliseconds {
+            return lhs.averageUpdateMilliseconds < rhs.averageUpdateMilliseconds
+        }
+        if lhs.p95UpdateMilliseconds != rhs.p95UpdateMilliseconds {
+            return lhs.p95UpdateMilliseconds < rhs.p95UpdateMilliseconds
+        }
+        if lhs.rendererFullUploadPermille != rhs.rendererFullUploadPermille {
+            return lhs.rendererFullUploadPermille < rhs.rendererFullUploadPermille
+        }
+        if lhs.slowUpdateSamples != rhs.slowUpdateSamples {
+            return lhs.slowUpdateSamples < rhs.slowUpdateSamples
+        }
+        if lhs.contentFramesPerSecond != rhs.contentFramesPerSecond {
+            return lhs.contentFramesPerSecond > rhs.contentFramesPerSecond
+        }
+        return lhs.receivedSamples > rhs.receivedSamples
+    }
+}

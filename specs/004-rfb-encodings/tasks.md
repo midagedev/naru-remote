@@ -252,6 +252,13 @@ iPhone) and ships as its own PR.
   and feed it into the same app pacing floor used by iOS Low Power Mode while
   keeping `balanced` as the default `{}` settings-file shape. Owns: app settings,
   app model, session viewer, tests, research notes. **Done.**
+- **T337** Benchmark profile recommendation: extend `VNCLiveBenchmark` schema
+  v18 with a safe request/response profile recommendation derived from
+  stream-shape profile probes, ranking by aggregate update latency, p95 latency,
+  renderer full-upload ratio, slow samples, and content FPS. Record a redacted
+  localhost profile comparison showing `zrle-compression-0` as a stronger normal
+  sustained candidate while low-power results remain close. Owns: benchmark kit,
+  CLI/report output, tests, benchmark artifact, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

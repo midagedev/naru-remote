@@ -366,3 +366,38 @@ benchmarks must still avoid device power state, target identity, dimensions,
 coordinates, pixels, byte counts, cursor pixels, and raw power/latency samples;
 only the existing coarse thermal bucket remains allowed for stream-performance
 triage.
+
+## D16 — Add benchmark-derived profile recommendations before changing defaults
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+- Apple Metal resource options: https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/ResourceOptions.html
+- Apple Metal frame-rate guidance: https://developer-mdn.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FrameRate.html
+
+**Decision**: extend the live benchmark report with a safe
+request/response-profile recommendation instead of changing production encoding
+defaults from a single localhost run.
+
+**Why**:
+- RFC 6143 makes RFB framebuffer updates client-request-driven, so profile
+  choice, request pacing, and server update shape all interact. A recommendation
+  derived from the same aggregate stream-shape probes gives each target/link a
+  measurable answer rather than hard-coding one static profile.
+- The IANA registry marks ContinuousUpdates/Fence as extensions, and the latest
+  localhost run still failed in the ContinuousUpdates receive phase. The
+  recommendation therefore ranks request/response candidates only.
+- The latest synthetic renderer benchmark showed full uploads are still much
+  more expensive than dirty-rect partial uploads and same-frame skips, while the
+  live run showed renderer uploads are mostly partial. That points the next
+  default-tuning decision toward encoding/profile evidence, not another redraw
+  loop change.
+
+**Benchmark evidence**: see
+`artifacts/benchmarks/2026-06-04-profile-recommendation-summary.md`.
+
+**Privacy rule**: the recommendation may include only fixed profile labels,
+transport mode, aggregate update latency summaries, content FPS, renderer
+full-upload permille, slow-sample counts, and received/content sample counts. It
+must not include host, server name, framebuffer dimensions, coordinates, pixels,
+byte counts, cursor pixels, raw latency samples, raw power state, or raw errors.
