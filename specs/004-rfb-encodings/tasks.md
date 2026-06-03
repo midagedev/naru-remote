@@ -149,6 +149,10 @@ iPhone) and ships as its own PR.
   stream-shape probes, so practical iPhone/Mac sustained-stream experiments
   can run longer without repeatedly paying an all-profile startup sweep. Owns:
   live benchmark CLI, benchmark-kit selection tests, benchmark docs. **Done.**
+- **T318** Cursor-only empty update handling: when an incremental update carries
+  a server cursor pseudo-encoding but no changed pixels, publish the memory-only
+  cursor shape while keeping the unchanged framebuffer out of the GPU/PiP
+  republish path. Owns: app model/tests. **Done.**
 
 ## Cross-cutting (every increment)
 
