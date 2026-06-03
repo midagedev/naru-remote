@@ -224,6 +224,11 @@ iPhone) and ships as its own PR.
   while preserving separate idle empty-update backoff and thermal floors.
   Owns: app model default, app-model test, benchmark docs/artifact, research
   notes. **Done.**
+- **T332** Low Power Mode stream pacing: sample the platform low-power state
+  in the app frame loop and raise the minimum active/idle request delay while
+  Low Power Mode is enabled, without exporting that state or breaking explicit
+  zero-delay fake/test streams. Owns: app pacing policy, app model wiring,
+  app-model tests, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

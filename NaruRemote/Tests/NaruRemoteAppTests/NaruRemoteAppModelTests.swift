@@ -77,6 +77,17 @@ final class NaruRemoteAppModelTests: XCTestCase {
             accuracy: 0.0001,
             "Opt-in fake/test streams that remove pacing should stay deterministic."
         )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 60.0,
+                thermalState: .serious,
+                isLowPowerModeEnabled: true
+            ),
+            1.0 / 15.0,
+            accuracy: 0.0001,
+            "Thermal floors should win when they are stricter than Low Power Mode."
+        )
     }
 
     func testSessionStreamPacingPolicyBacksOffForSustainedEmptyUpdates() {
@@ -131,6 +142,41 @@ final class NaruRemoteAppModelTests: XCTestCase {
             0,
             accuracy: 0.0001,
             "Opt-in fake/test streams that remove idle pacing should stay deterministic."
+        )
+    }
+
+    func testSessionStreamPacingPolicyBacksOffForLowPowerMode() {
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 1.0 / 60.0,
+                thermalState: .nominal,
+                isLowPowerModeEnabled: true
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .emptyUpdate,
+                configuredDelay: 0.05,
+                thermalState: .nominal,
+                isLowPowerModeEnabled: true,
+                emptyUpdateStreak: 1
+            ),
+            0.125,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 0,
+                thermalState: .nominal,
+                isLowPowerModeEnabled: true
+            ),
+            0,
+            accuracy: 0.0001,
+            "Opt-in fake/test streams that remove pacing should stay deterministic."
         )
     }
 
