@@ -10,6 +10,21 @@ private struct PendingPointerMove {
     let profileID: ConnectionProfile.ID?
 }
 
+private struct RemoteClipboardTextClientBox: @unchecked Sendable {
+    let client: any RemoteClipboardTextClient
+    private let identity: ObjectIdentifier
+
+    init(client: any RemoteClipboardTextClient) {
+        self.client = client
+        self.identity = ObjectIdentifier(client)
+    }
+
+    func matches(_ other: (any RemoteClipboardTextClient)?) -> Bool {
+        guard let other else { return false }
+        return ObjectIdentifier(other) == identity
+    }
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.12
@@ -2808,9 +2823,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         draft.updateText(text)
+        let now = Date()
+
+        guard !draft.text.isEmpty else {
+            let message = TextInjectionError.emptyDraft.localizedDescription
+            draft.markFailed(reason: message, at: now)
+            composeDraft = draft
+            latestInjectionAttempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .vncClipboardPaste,
+                startedAt: now,
+                finishedAt: now,
+                status: .failed,
+                safeMessage: message
+            )
+            return
+        }
+
+        guard draft.sendState != .sending else {
+            return
+        }
 
         guard let activeTextClient else {
-            let now = Date()
             let message = TextInjectionError
                 .clipboardUnavailable("Connect to a remote session before sending text.")
                 .localizedDescription
@@ -2828,15 +2863,204 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let attempt = TextInjectionAdapter(
-            pasteSettleDelay: Self.remoteClipboardPasteSettleDelay
-        ).send(
-            draft: &draft,
-            via: activeTextClient,
-            pasteCommand: pasteCommand
-        )
+        let draftForSend = draft
+        draft.markSending(path: .vncClipboardPaste, at: now)
         composeDraft = draft
-        latestInjectionAttempt = attempt
+        latestInjectionAttempt = TextInjectionAttempt(
+            draftID: draft.id,
+            sessionID: draft.sessionID,
+            path: .vncClipboardPaste,
+            startedAt: now,
+            status: .unknown,
+            remoteClipboardRestore: .unsupported,
+            safeMessage: "Sending through vncClipboardPaste"
+        )
+
+        let draftID = draft.id
+        let sessionID = draft.sessionID
+        let clientBox = RemoteClipboardTextClientBox(client: activeTextClient)
+        let pasteSettleDelay = Self.remoteClipboardPasteSettleDelay
+
+        Task.detached(priority: .userInitiated) { [weak self, clientBox, draftForSend, pasteCommand, now] in
+            var sendingDraft = draftForSend
+            var attempt = TextInjectionAttempt(
+                draftID: sendingDraft.id,
+                sessionID: sendingDraft.sessionID,
+                path: .vncClipboardPaste,
+                startedAt: now,
+                remoteClipboardRestore: .unsupported
+            )
+            sendingDraft.markSending(path: .vncClipboardPaste, at: now)
+
+            guard await Self.isCurrentTextInjection(
+                self,
+                draftID: draftID,
+                sessionID: sessionID,
+                clientBox: clientBox
+            ) else {
+                await Self.cancelTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            do {
+                try clientBox.client.setClipboardText(sendingDraft.text)
+            } catch {
+                let message = Self.safeClipboardFailureMessage(from: error)
+                sendingDraft.markFailed(reason: message, at: now)
+                attempt.finishedAt = now
+                attempt.status = .failed
+                attempt.safeMessage = message
+                await Self.finishTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            if pasteSettleDelay > 0 {
+                let nanoseconds = UInt64((pasteSettleDelay * 1_000_000_000).rounded())
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+
+            guard await Self.isCurrentTextInjection(
+                self,
+                draftID: draftID,
+                sessionID: sessionID,
+                clientBox: clientBox
+            ) else {
+                await Self.cancelTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            do {
+                try clientBox.client.sendPasteCommand(pasteCommand)
+            } catch {
+                let message = Self.safePasteFailureMessage(from: error)
+                sendingDraft.markFailed(reason: message, at: now)
+                attempt.finishedAt = now
+                attempt.status = .failed
+                attempt.safeMessage = message
+                await Self.finishTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            let message = "Paste command sent; remote app confirmation unavailable."
+            sendingDraft.markUnknown(message: message, at: now)
+            attempt.finishedAt = now
+            attempt.status = .unknown
+            attempt.safeMessage = message
+            await Self.finishTextInjection(
+                self,
+                draft: sendingDraft,
+                attempt: attempt,
+                draftID: draftID,
+                sessionID: sessionID
+            )
+        }
+    }
+
+    private static func isCurrentTextInjection(
+        _ model: NaruRemoteAppModel?,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID,
+        clientBox: RemoteClipboardTextClientBox
+    ) async -> Bool {
+        await MainActor.run {
+            guard let model,
+                  model.composeDraft?.id == draftID,
+                  model.composeDraft?.sessionID == sessionID,
+                  model.session?.id == sessionID,
+                  model.session?.state == .active,
+                  clientBox.matches(model.activeTextClient)
+            else {
+                return false
+            }
+            return true
+        }
+    }
+
+    private static func finishTextInjection(
+        _ model: NaruRemoteAppModel?,
+        draft: ComposeDraft,
+        attempt: TextInjectionAttempt,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID
+    ) async {
+        await MainActor.run {
+            guard let model,
+                  model.composeDraft?.id == draftID,
+                  model.composeDraft?.sessionID == sessionID
+            else {
+                return
+            }
+            model.composeDraft = draft
+            model.latestInjectionAttempt = attempt
+        }
+    }
+
+    private static func cancelTextInjection(
+        _ model: NaruRemoteAppModel?,
+        draft: ComposeDraft,
+        attempt: TextInjectionAttempt,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID
+    ) async {
+        var cancelledDraft = draft
+        var cancelledAttempt = attempt
+        let message = "Text send cancelled because the remote session changed."
+        let finishedAt = Date()
+        cancelledDraft.markFailed(reason: message, at: finishedAt)
+        cancelledAttempt.finishedAt = finishedAt
+        cancelledAttempt.status = .failed
+        cancelledAttempt.safeMessage = message
+        await finishTextInjection(
+            model,
+            draft: cancelledDraft,
+            attempt: cancelledAttempt,
+            draftID: draftID,
+            sessionID: sessionID
+        )
+    }
+
+    nonisolated private static func safeClipboardFailureMessage(from error: Error) -> String {
+        if let error = error as? TextInjectionError {
+            return error.localizedDescription
+        }
+
+        return TextInjectionError
+            .clipboardUnavailable("Remote clipboard did not accept text.")
+            .localizedDescription
+    }
+
+    nonisolated private static func safePasteFailureMessage(from error: Error) -> String {
+        if let error = error as? TextInjectionError {
+            return error.localizedDescription
+        }
+
+        return TextInjectionError
+            .pasteCommandFailed("Remote paste command could not be delivered.")
+            .localizedDescription
     }
 
     private func enqueuePointerCommands(

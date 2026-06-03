@@ -870,9 +870,10 @@ public struct SessionViewportView: View {
                 // hero background) preserves the same geometry for hit
                 // testing, cursor drawing, and zoom/pan math.
                 .overlay {
-                    if Self.allowsTrackpadInputOverlay(
+                    if Self.usesSwiftUITrackpadInputOverlay(
                         isPiPWatching: isPiPWatching,
-                        pointerControlMode: pointerControlMode
+                        pointerControlMode: pointerControlMode,
+                        metalFramebufferInputSupported: Self.metalFramebufferInputSupported
                     ) {
                         trackpadGestureSurface(framebuffer: framebuffer)
                     }
@@ -1017,10 +1018,23 @@ public struct SessionViewportView: View {
                 },
                 onZoomToggle: { point, viewSize in
                     toggleZoom(at: point, in: viewSize, framebuffer: framebuffer)
+                },
+                pointerControlMode: pointerControlMode,
+                onTrackpadGesture: { gesture, transform in
+                    let updatedTransform = onTrackpadGesture?(gesture, transform) ?? transform
+                    applyViewportTransform(
+                        updatedTransform,
+                        framebuffer: framebuffer,
+                        viewSize: transform.viewSize
+                    )
+                    return updatedTransform
                 }
             )
-                .scaleEffect(zoomScale)
-                .offset(panOffset)
+                // The Metal path applies zoom/pan directly inside
+                // `MetalFramebufferHostingView` so UIKit recognizers
+                // can move the pixels immediately during a gesture.
+                // SwiftUI state still drives overlays, hit mapping,
+                // and PiP focus, but not the hot visual transform.
                 .transaction { transaction in
                     transaction.animation = nil
                 }
@@ -1418,6 +1432,25 @@ public struct SessionViewportView: View {
         pointerControlMode: PointerControlMode
     ) -> Bool {
         !isPiPWatching && pointerControlMode.isTrackpad
+    }
+
+    static func usesSwiftUITrackpadInputOverlay(
+        isPiPWatching: Bool,
+        pointerControlMode: PointerControlMode,
+        metalFramebufferInputSupported: Bool
+    ) -> Bool {
+        allowsTrackpadInputOverlay(
+            isPiPWatching: isPiPWatching,
+            pointerControlMode: pointerControlMode
+        ) && !metalFramebufferInputSupported
+    }
+
+    private static var metalFramebufferInputSupported: Bool {
+        #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
+        MetalFramebufferView.isSupported()
+        #else
+        false
+        #endif
     }
 
     static func showsTrackpadCursor(
