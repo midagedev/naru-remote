@@ -54,8 +54,11 @@ public struct PointerGestureOutcome: Equatable, Sendable {
 public struct PointerGestureResolver: Sendable {
     public let mode: PointerControlMode
     public let trackpadSensitivity: CGFloat
-    /// Margin (view points) kept between the trackpad cursor and the
-    /// viewport edge before auto-pan kicks in while zoomed.
+    /// Minimum margin (view points) kept between the trackpad cursor
+    /// and the viewport edge before auto-pan kicks in while zoomed.
+    /// The resolver raises this to a viewport-relative follow zone on
+    /// phone-sized screens so the view moves with the cursor before it
+    /// feels stuck to the edge.
     public let autoPanMargin: CGFloat
 
     public init(
@@ -151,7 +154,7 @@ public struct PointerGestureResolver: Sendable {
             )
             let pannedTransform = transform.panToReveal(
                 framebufferPoint: movedCursor.position,
-                margin: autoPanMargin
+                margin: followPanMargin(for: transform)
             )
             return PointerGestureOutcome(
                 transform: pannedTransform,
@@ -178,7 +181,7 @@ public struct PointerGestureResolver: Sendable {
             )
             let pannedTransform = transform.panToReveal(
                 framebufferPoint: movedCursor.position,
-                margin: autoPanMargin
+                margin: followPanMargin(for: transform)
             )
             let x = RFBPointerCommand.clamp(movedCursor.position.x)
             let y = RFBPointerCommand.clamp(movedCursor.position.y)
@@ -237,5 +240,14 @@ public struct PointerGestureResolver: Sendable {
             x: RFBPointerCommand.clamp(cursor.position.x),
             y: RFBPointerCommand.clamp(cursor.position.y)
         )
+    }
+
+    private func followPanMargin(for transform: ViewportTransform) -> CGFloat {
+        guard transform.isZoomed else { return autoPanMargin }
+        let shortestSide = min(transform.viewSize.width, transform.viewSize.height)
+        guard shortestSide.isFinite, shortestSide > 0 else {
+            return autoPanMargin
+        }
+        return max(autoPanMargin, shortestSide * 0.32)
     }
 }

@@ -159,4 +159,25 @@ final class PointerGestureResolverTests: XCTestCase {
             RFBPointerCommand(buttonMask: 0x00, x: 999, y: 500)
         ])
     }
+
+    func testTrackpadDragUsesViewportRelativeFollowZoneWhenZoomed() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 650, y: 500), isVisible: true)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 200, height: 0)),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertLessThan(
+            outcome.transform.panOffset.width,
+            zoomed.panOffset.width,
+            "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
+        )
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 750, y: 500)
+        ])
+    }
 }

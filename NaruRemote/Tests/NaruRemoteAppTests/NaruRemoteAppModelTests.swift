@@ -1333,14 +1333,51 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(50))
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .controlV)
+
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sending)
+        try await Task.sleep(for: .milliseconds(180))
 
         XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
         XCTAssertEqual(connector.pasteCommands, [.controlV])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+    }
+
+    func testModelCancelsComposedPasteWhenSessionDisconnectsDuringSettleDelay() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("중단되어야 하는 paste", pasteCommand: .controlV)
+        for _ in 0..<50 where connector.clipboardPayloads.isEmpty {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(connector.clipboardPayloads, ["중단되어야 하는 paste"])
+
+        model.disconnect()
+        try await Task.sleep(for: .milliseconds(180))
+
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text send cancelled because the remote session changed."
+        )
     }
 
     func testModelRetainsComposedTextWhenSendHasNoActiveConnection() throws {

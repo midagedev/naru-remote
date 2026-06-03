@@ -57,7 +57,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public protocol RemoteClipboardTextClient {
+public protocol RemoteClipboardTextClient: AnyObject {
     func setClipboardText(_ text: String) throws
     func sendPasteCommand(_ command: PasteCommand) throws
 

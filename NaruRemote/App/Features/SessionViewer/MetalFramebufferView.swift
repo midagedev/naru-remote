@@ -70,6 +70,15 @@ public typealias MetalFramebufferPanHandler = @MainActor @Sendable (_ offset: CG
 /// view transform per constitution §I, never an RFB message.
 public typealias MetalFramebufferZoomToggleHandler = @MainActor @Sendable (_ point: CGPoint, _ viewSize: CGSize) -> Void
 
+/// Closure invoked for trackpad-mode gestures hosted directly by the
+/// UIKit/Metal surface.  Returning the updated transform lets the host
+/// apply auto-pan immediately, before SwiftUI's published-state round
+/// trip catches up.
+public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
+    _ gesture: PointerGesture,
+    _ transform: ViewportTransform
+) -> ViewportTransform?
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
@@ -85,6 +94,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onPointerUp: MetalFramebufferPointerUpHandler?
     private let onPan: MetalFramebufferPanHandler?
     private let onZoomToggle: MetalFramebufferZoomToggleHandler?
+    private let pointerControlMode: PointerControlMode
+    private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
     /// Current local zoom scale, owned by the SwiftUI parent and pushed
     /// down so the host's gesture handlers know whether a one-finger
     /// drag is a pan (zoomed) or a remote drag (fit), and so the pan
@@ -115,7 +126,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onPointerMove: MetalFramebufferPointerMoveHandler? = nil,
         onPointerUp: MetalFramebufferPointerUpHandler? = nil,
         onPan: MetalFramebufferPanHandler? = nil,
-        onZoomToggle: MetalFramebufferZoomToggleHandler? = nil
+        onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
+        pointerControlMode: PointerControlMode = .directTouch,
+        onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -134,6 +147,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onPointerUp = onPointerUp
         self.onPan = onPan
         self.onZoomToggle = onZoomToggle
+        self.pointerControlMode = pointerControlMode
+        self.onTrackpadGesture = onTrackpadGesture
     }
 
     public static func isSupported() -> Bool {
@@ -159,6 +174,11 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.pointerUpHandler = onPointerUp
         host.panHandler = onPan
         host.zoomToggleHandler = onZoomToggle
+        host.trackpadGestureHandler = onTrackpadGesture
+        host.syncInputState(
+            pointerControlMode: pointerControlMode,
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
+        )
         host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         context.coordinator.prepareForSession(sessionID)
         // The very first frame after the view is constructed must
@@ -185,6 +205,11 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.pointerUpHandler = onPointerUp
         uiView.panHandler = onPan
         uiView.zoomToggleHandler = onZoomToggle
+        uiView.trackpadGestureHandler = onTrackpadGesture
+        uiView.syncInputState(
+            pointerControlMode: pointerControlMode,
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
+        )
         uiView.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         if didEnqueueFramebuffer {
             uiView.requestRedraw()
@@ -253,6 +278,15 @@ public struct MetalFramebufferView: UIViewRepresentable {
 /// The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
 /// intentionally does NOT install any of these recognizers.
 public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDelegate {
+    private struct PendingViewportState {
+        var zoomScale: CGFloat
+        var panOffset: CGSize
+        var anchor: CGPoint
+        var viewSize: CGSize
+        var shouldPublishZoom: Bool
+        var shouldPublishPan: Bool
+    }
+
     private weak var metalView: MTKView?
     private weak var coordinator: MetalFramebufferView.Coordinator?
 
@@ -301,6 +335,21 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// — never an RFB message (constitution §I).
     public var zoomToggleHandler: MetalFramebufferZoomToggleHandler?
 
+    /// Closure invoked for trackpad-mode gestures.  The model resolves
+    /// cursor movement + remote pointer commands and returns any local
+    /// auto-pan transform, which this host applies immediately.
+    public var trackpadGestureHandler: MetalFramebufferTrackpadGestureHandler?
+
+    /// Current one-finger input mode.  Direct-touch keeps the existing
+    /// tap/drag behavior; trackpad mode turns tap/drag into cursor
+    /// gestures without routing through a SwiftUI overlay.
+    private var pointerControlMode: PointerControlMode = .directTouch
+
+    /// Live framebuffer dimensions used to build the same pure
+    /// `ViewportTransform` the SwiftUI overlay used before the Metal
+    /// path took over trackpad gesture hosting.
+    private var currentFramebufferSize: CGSize = .zero
+
     /// Current local pan offset (view points), kept in sync with the
     /// SwiftUI parent.  Accumulated during a zoomed one-finger drag and
     /// re-clamped against the live content/zoom each callback.
@@ -316,10 +365,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var dragLastViewPoint: CGPoint?
     private var dragDownEmitted: Bool = false
 
+    /// Trackpad drag state for deriving per-callback deltas from
+    /// UIKit's cumulative pan translation.
+    private var trackpadDragLastTranslation: CGSize = .zero
+    private var trackpadDragMoved: Bool = false
+
     /// Current local zoom scale, owned by the host view so the
     /// recognizer can clamp incrementally between callbacks.  The
-    /// SwiftUI parent mirrors the value through `pinchHandler` and
-    /// applies a `.scaleEffect` to the framebuffer presentation.
+    /// SwiftUI parent mirrors the value through `pinchHandler`, while
+    /// the host applies the visible transform directly to the MTKView
+    /// so streaming-driven SwiftUI diffs do not sit in the gesture's
+    /// critical path.
     private var currentZoomScale: CGFloat = 1.0
 
     /// Dynamic lower bound for pinch zoom.  Standard aspect-fit sessions use
@@ -337,6 +393,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// internal accumulator never drifts past the visible clamp.
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
+
+    /// Coalesces SwiftUI/PiP state mirroring while UIKit applies the
+    /// visible Metal transform immediately.  This keeps frame-driven
+    /// SwiftUI work out of the per-touch critical path.
+    private var pendingViewportState: PendingViewportState?
+    private var viewportStatePublishTask: Task<Void, Never>?
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -365,6 +427,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         mtkView.isUserInteractionEnabled = false
 
         addSubview(mtkView)
+        clipsToBounds = true
         NSLayoutConstraint.activate([
             mtkView.leadingAnchor.constraint(equalTo: leadingAnchor),
             mtkView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -390,6 +453,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         doubleTapRecognizer.numberOfTapsRequired = 2
         doubleTapRecognizer.cancelsTouchesInView = false
         tapRecognizer.require(toFail: doubleTapRecognizer)
+
+        // Trackpad-mode right click.  In direct-touch mode we leave
+        // two-finger tap inert for now and keep long-press as the
+        // established secondary-click path.
+        let secondaryTapRecognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleSecondaryTapGesture(_:))
+        )
+        secondaryTapRecognizer.numberOfTouchesRequired = 2
+        secondaryTapRecognizer.cancelsTouchesInView = false
+        tapRecognizer.require(toFail: secondaryTapRecognizer)
 
         let longPressRecognizer = UILongPressGestureRecognizer(
             target: self,
@@ -441,11 +515,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
         addGestureRecognizer(tapRecognizer)
         addGestureRecognizer(doubleTapRecognizer)
+        addGestureRecognizer(secondaryTapRecognizer)
         addGestureRecognizer(longPressRecognizer)
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(dragRecognizer)
         isUserInteractionEnabled = true
+    }
+
+    deinit {
+        viewportStatePublishTask?.cancel()
     }
 
     /// Push the parent's current zoom/pan into the host so gesture
@@ -461,6 +540,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         currentZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = offset
+        applyViewportTransformToMetalView()
+    }
+
+    public func syncInputState(pointerControlMode: PointerControlMode, framebufferSize: CGSize) {
+        self.pointerControlMode = pointerControlMode
+        self.currentFramebufferSize = CGSize(
+            width: max(framebufferSize.width, 0),
+            height: max(framebufferSize.height, 0)
+        )
     }
 
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
@@ -493,13 +581,25 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     @objc private func handleTapGesture(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended,
-              let handler = tapHandler
-        else {
+        guard recognizer.state == .ended else {
             return
         }
         let point = recognizer.location(in: self)
-        handler(point, bounds.size)
+        if pointerControlMode.isTrackpad {
+            dispatchTrackpadGesture(.tap(viewPoint: point))
+        } else {
+            tapHandler?(point, bounds.size)
+        }
+    }
+
+    @MainActor
+    @objc private func handleSecondaryTapGesture(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              pointerControlMode.isTrackpad
+        else {
+            return
+        }
+        dispatchTrackpadGesture(.secondaryTap(viewPoint: recognizer.location(in: self)))
     }
 
     @MainActor
@@ -518,13 +618,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // Fire on .began so the right-click feedback lands the moment
         // the press qualifies; later .changed/.ended states do not
         // re-trigger another button-3 dispatch.
-        guard recognizer.state == .began,
-              let handler = rightClickHandler
-        else {
+        guard recognizer.state == .began else {
             return
         }
         let point = recognizer.location(in: self)
-        handler(point, bounds.size)
+        if pointerControlMode.isTrackpad {
+            dispatchTrackpadGesture(.secondaryTap(viewPoint: point))
+        } else {
+            rightClickHandler?(point, bounds.size)
+        }
     }
 
     @MainActor
@@ -558,6 +660,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             break
         case .ended, .cancelled, .failed:
             isViewportTransformGestureActive = false
+            flushPendingViewportState()
             return
         default:
             return
@@ -584,17 +687,28 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let nextPanOffset = clampedPan(proposedPan)
         let panDidChange = nextPanOffset != currentPanOffset
         currentPanOffset = nextPanOffset
+        applyViewportTransformToMetalView()
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
-        // handler is wired only to the SwiftUI `.scaleEffect`.
-        pinchHandler?(clamped, anchor, bounds.size)
-        if panDidChange {
-            panHandler?(nextPanOffset, bounds.size)
-        }
+        // handler mirrors state into SwiftUI overlays and PiP focus;
+        // the MTKView has already moved on this callback.
+        queueViewportStatePublish(
+            zoomScale: clamped,
+            panOffset: nextPanOffset,
+            anchor: anchor,
+            viewSize: bounds.size,
+            shouldPublishZoom: true,
+            shouldPublishPan: panDidChange
+        )
     }
 
     @MainActor
     @objc private func handleDragGesture(_ recognizer: UIPanGestureRecognizer) {
+        if pointerControlMode.isTrackpad {
+            handleTrackpadDrag(recognizer)
+            return
+        }
+
         // When the framebuffer is zoomed, a one-finger drag PANS the
         // local view (constitution §I — no RFB message) instead of
         // driving a remote button-1 drag.  At fit scale there is
@@ -678,8 +792,55 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 height: currentPanOffset.height + translation.y
             )
             currentPanOffset = clampedPan(proposed)
-            panHandler?(currentPanOffset, bounds.size)
+            applyViewportTransformToMetalView()
+            queueViewportStatePublish(
+                zoomScale: currentZoomScale,
+                panOffset: currentPanOffset,
+                anchor: recognizer.location(in: self),
+                viewSize: bounds.size,
+                shouldPublishZoom: false,
+                shouldPublishPan: true
+            )
         case .ended, .cancelled, .failed:
+            isViewportTransformGestureActive = false
+            flushPendingViewportState()
+        default:
+            break
+        }
+    }
+
+    /// One-finger drag in trackpad mode: move the local cursor
+    /// relatively and let the model send buttonless pointer moves.
+    /// Auto-pan returned by the model is applied to the MTKView here,
+    /// avoiding a SwiftUI overlay/state round trip in the hot path.
+    @MainActor
+    private func handleTrackpadDrag(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            isViewportTransformGestureActive = true
+            trackpadDragLastTranslation = .zero
+            trackpadDragMoved = false
+            dispatchTrackpadGesture(.dragBegan(viewPoint: recognizer.location(in: self)))
+        case .changed:
+            let translation = recognizer.translation(in: self)
+            let delta = CGSize(
+                width: translation.x - trackpadDragLastTranslation.width,
+                height: translation.y - trackpadDragLastTranslation.height
+            )
+            trackpadDragLastTranslation = CGSize(width: translation.x, height: translation.y)
+            guard delta != .zero else {
+                return
+            }
+            trackpadDragMoved = true
+            dispatchTrackpadGesture(
+                .dragChanged(viewPoint: recognizer.location(in: self), translation: delta)
+            )
+        case .ended, .cancelled, .failed:
+            if trackpadDragMoved {
+                dispatchTrackpadGesture(.dragEnded(viewPoint: recognizer.location(in: self)))
+            }
+            trackpadDragLastTranslation = .zero
+            trackpadDragMoved = false
             isViewportTransformGestureActive = false
         default:
             break
@@ -706,6 +867,90 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             width: anchor.x - center.x - zoomRatio * (anchor.x - center.x - current.width),
             height: anchor.y - center.y - zoomRatio * (anchor.y - center.y - current.height)
         )
+    }
+
+    private func applyViewportTransformToMetalView() {
+        metalView?.transform = CGAffineTransform(
+            a: currentZoomScale,
+            b: 0,
+            c: 0,
+            d: currentZoomScale,
+            tx: currentPanOffset.width,
+            ty: currentPanOffset.height
+        )
+    }
+
+    @MainActor
+    private func queueViewportStatePublish(
+        zoomScale: CGFloat,
+        panOffset: CGSize,
+        anchor: CGPoint,
+        viewSize: CGSize,
+        shouldPublishZoom: Bool,
+        shouldPublishPan: Bool
+    ) {
+        let existing = pendingViewportState
+        pendingViewportState = PendingViewportState(
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            anchor: anchor,
+            viewSize: viewSize,
+            shouldPublishZoom: (existing?.shouldPublishZoom ?? false) || shouldPublishZoom,
+            shouldPublishPan: (existing?.shouldPublishPan ?? false) || shouldPublishPan
+        )
+
+        guard viewportStatePublishTask == nil else {
+            return
+        }
+        viewportStatePublishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 16_000_000)
+            self?.flushPendingViewportState()
+        }
+    }
+
+    @MainActor
+    private func flushPendingViewportState() {
+        viewportStatePublishTask?.cancel()
+        viewportStatePublishTask = nil
+        guard let pending = pendingViewportState else {
+            return
+        }
+        pendingViewportState = nil
+
+        if pending.shouldPublishZoom {
+            pinchHandler?(pending.zoomScale, pending.anchor, pending.viewSize)
+        }
+        if pending.shouldPublishPan {
+            panHandler?(pending.panOffset, pending.viewSize)
+        }
+    }
+
+    @discardableResult
+    private func dispatchTrackpadGesture(_ gesture: PointerGesture) -> ViewportTransform? {
+        guard let trackpadGestureHandler,
+              currentFramebufferSize.width > 0,
+              currentFramebufferSize.height > 0,
+              bounds.width > 0,
+              bounds.height > 0
+        else {
+            return nil
+        }
+
+        let transform = ViewportTransform(
+            framebufferSize: currentFramebufferSize,
+            viewSize: bounds.size,
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset,
+            maxZoomScale: Self.maxZoomScale
+        )
+        guard let updated = trackpadGestureHandler(gesture, transform) else {
+            return nil
+        }
+
+        currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
+        currentPanOffset = clampedPan(updated.panOffset)
+        applyViewportTransformToMetalView()
+        return updated
     }
 
     // MARK: UIGestureRecognizerDelegate

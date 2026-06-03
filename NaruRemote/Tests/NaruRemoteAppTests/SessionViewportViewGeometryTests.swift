@@ -27,6 +27,37 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testMetalInputSurfaceSuppressesSwiftUITrackpadOverlay() {
+        XCTAssertFalse(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: false,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: true
+            )
+        )
+        XCTAssertTrue(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: false,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: false
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: true,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: false
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: false,
+                pointerControlMode: .directTouch,
+                metalFramebufferInputSupported: false
+            )
+        )
+    }
+
     func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
         XCTAssertEqual(
             SessionViewportView.cursorOverlayKind(serverCursor: nil),
