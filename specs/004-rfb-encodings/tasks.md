@@ -202,6 +202,12 @@ iPhone) and ships as its own PR.
   request/response comparison and the 60-sample candidate-list follow-up run.
   Owns: benchmark profile selection kit/tests, live benchmark CLI/docs,
   benchmark artifact. **Done.**
+- **T328** Benchmark-backed default encoding profile: switch the production
+  `localLowLatency` negotiation from Hextile-first to Tight-first with
+  Hextile/Raw fallback, keeping ZRLE and ContinuousUpdates off by default based
+  on the redacted 45/60-sample live comparisons, then record a post-change
+  24-sample live smoke. Owns: core encoding preference, negotiation tests,
+  app-model comment, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

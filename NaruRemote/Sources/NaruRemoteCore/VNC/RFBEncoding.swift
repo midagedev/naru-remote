@@ -199,12 +199,18 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// ahead of Hextile in the preference order.
     public static let increment2 = RFBEncodingPreference(zrle: true)
 
-    /// Default for interactive private-network control: Hextile first
-    /// and no ZRLE advertisement. On the founder's macOS Screen Sharing
-    /// endpoint this is consistently faster than any ZRLE-advertising
-    /// profile for first-frame/control latency. `increment2` remains the
-    /// bandwidth-first ZRLE profile for future adaptive selection.
-    public static let localLowLatency = RFBEncodingPreference.increment1
+    /// Default for interactive private-network control: Tight first with
+    /// Hextile/Raw fallback, no ZRLE advertisement, and no
+    /// ContinuousUpdates. Live macOS Screen Sharing benchmarks showed this
+    /// profile improves sustained request/response FPS and average update
+    /// latency over Hextile-first while avoiding the failed
+    /// ContinuousUpdates path. `increment2` remains the bandwidth-first
+    /// ZRLE profile for future adaptive selection.
+    public static let localLowLatency = RFBEncodingPreference(
+        tight: true,
+        tightQualityLevel: 8,
+        compressionLevel: 1
+    )
 
     /// Adaptive profile for spec 004 FR-012/FR-013. This is deliberately
     /// pure: supported decoders, requested pseudo-encodings, and the

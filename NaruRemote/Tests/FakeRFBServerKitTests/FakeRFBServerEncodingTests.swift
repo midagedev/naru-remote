@@ -29,14 +29,17 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         // message type 2, padding 0, u16 count, then count × s32.
         let encodings = try Self.decodeSetEncodings(message)
 
+        let tightIndex = encodings.firstIndex(of: RFBEncoding.tight)
         let hextileIndex = encodings.firstIndex(of: RFBEncoding.hextile)
         let copyRectIndex = encodings.firstIndex(of: RFBEncoding.copyRect)
         let rawIndex = encodings.firstIndex(of: RFBEncoding.raw)
         XCTAssertNotNil(rawIndex, "Raw must always be advertised as the floor")
+        XCTAssertNotNil(tightIndex)
         XCTAssertNotNil(hextileIndex)
         XCTAssertNotNil(copyRectIndex)
         XCTAssertFalse(encodings.contains(RFBEncoding.zrle))
-        XCTAssertEqual(hextileIndex, 0, "Default app negotiation should favor local-low-latency Hextile first")
+        XCTAssertEqual(tightIndex, 0, "Default app negotiation should favor benchmark-backed Tight first")
+        XCTAssertLessThan(tightIndex!, rawIndex!)
         XCTAssertLessThan(hextileIndex!, rawIndex!)
         XCTAssertLessThan(copyRectIndex!, rawIndex!)
     }
