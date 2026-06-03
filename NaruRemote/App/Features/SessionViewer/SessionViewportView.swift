@@ -953,6 +953,7 @@ public struct SessionViewportView: View {
             let preview = MetalFramebufferView(
                 framebuffer: framebuffer,
                 dirtyRectangles: frameDirtyRectangles,
+                sessionID: session?.id,
                 zoomScale: zoomScale,
                 panOffset: panOffset,
                 onTap: onFramebufferTap,

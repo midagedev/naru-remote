@@ -153,6 +153,10 @@ iPhone) and ships as its own PR.
   a server cursor pseudo-encoding but no changed pixels, publish the memory-only
   cursor shape while keeping the unchanged framebuffer out of the GPU/PiP
   republish path. Owns: app model/tests. **Done.**
+- **T319** Same-frame Metal upload gate: keep SwiftUI-only redraws such as
+  cursor overlay changes from re-enqueueing the identical framebuffer into the
+  Metal upload path, while preserving uploads when dirty rectangles or pixel
+  storage change. Owns: session viewer upload gate/tests. **Done.**
 
 ## Cross-cutting (every increment)
 
