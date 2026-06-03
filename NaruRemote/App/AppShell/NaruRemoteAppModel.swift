@@ -1448,6 +1448,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
 
             var completedInitialHandshake = false
+            var emptyUpdateStreak = 0
             do {
                 let serverInit = try await Task.detached {
                     try streamingClient.connectSession(
@@ -1533,6 +1534,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // skipping framebuffer publish + GPU upload + PiP
                     // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
+                    emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
                     if isEmptyUpdate, let serverCursor = frame.serverCursor {
                         noteServerCursorUpdate(
                             serverCursor,
@@ -1562,12 +1564,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // fast as the round-trip allows (frameInterval, default
                     // 0 means fluid); back off only on empty/idle polls
                     // (idleFrameInterval) so a static screen never
-                    // busy-loops the request path.
+                    // busy-loops the request path. Sustained empty
+                    // updates add a small extra backoff, but content
+                    // frames reset the streak immediately.
                     let pacingDelay = isEmptyUpdate
                         ? SessionStreamPacingPolicy.delay(
                             for: .emptyUpdate,
                             configuredDelay: configuration.idleFrameInterval,
-                            thermalState: thermalState
+                            thermalState: thermalState,
+                            emptyUpdateStreak: emptyUpdateStreak
                         )
                         : SessionStreamPacingPolicy.delay(
                             for: .contentFrame,
