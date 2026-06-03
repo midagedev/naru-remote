@@ -28,9 +28,9 @@ public enum PointerGesture: Equatable, Sendable {
 }
 
 /// The outcome of resolving one gesture: an updated viewport transform
-/// (local-only), an updated trackpad cursor (local-only), and zero or
-/// more RFB `PointerEvent`s the App model must send on the wire. Zoom
-/// and pan produce an empty `commands` array (constitution §I).
+/// (local-only), an updated trackpad cursor position, and zero or more
+/// RFB `PointerEvent`s the App model must send on the wire. Zoom and
+/// pan-only gestures produce an empty `commands` array (constitution §I).
 public struct PointerGestureOutcome: Equatable, Sendable {
     public var transform: ViewportTransform
     public var cursor: TrackpadCursor
@@ -141,7 +141,8 @@ public struct PointerGestureResolver: Sendable {
         case .dragBegan:
             return PointerGestureOutcome(transform: transform, cursor: cursor)
         case let .dragChanged(_, translation):
-            // Move the cursor relatively; auto-pan to keep it visible.
+            // Move the cursor relatively, move the remote OS pointer
+            // with no button held, and auto-pan to keep it visible.
             let movedCursor = cursor.moved(
                 byViewDelta: translation,
                 displayScale: transform.displayScale,
@@ -152,7 +153,11 @@ public struct PointerGestureResolver: Sendable {
                 framebufferPoint: movedCursor.position,
                 margin: autoPanMargin
             )
-            return PointerGestureOutcome(transform: pannedTransform, cursor: movedCursor)
+            return PointerGestureOutcome(
+                transform: pannedTransform,
+                cursor: movedCursor,
+                commands: [buttonlessPointerMove(at: movedCursor)]
+            )
         case .dragEnded:
             return PointerGestureOutcome(transform: transform, cursor: cursor)
         case .pressDragBegan:
@@ -223,6 +228,14 @@ public struct PointerGestureResolver: Sendable {
             transform: transform,
             cursor: cursor,
             commands: RFBPointerCommand.click(mask: mask, x: x, y: y)
+        )
+    }
+
+    private func buttonlessPointerMove(at cursor: TrackpadCursor) -> RFBPointerCommand {
+        RFBPointerCommand(
+            buttonMask: RFBPointerCommand.released,
+            x: RFBPointerCommand.clamp(cursor.position.x),
+            y: RFBPointerCommand.clamp(cursor.position.y)
         )
     }
 }

@@ -5,11 +5,11 @@ import Foundation
 ///
 /// - `directTouch`: a tap clicks at the touched point; a one-finger
 ///   drag pans the viewport while zoomed (the established behavior,
-///   extended with pan). The soft cursor is hidden.
-/// - `trackpad`: a one-finger drag moves a visible soft cursor
-///   relatively (like a laptop trackpad); a tap clicks at the cursor.
-///   This is Google Remote Desktop's default and the phone precision
-///   win (`spec.md` 003 US3).
+///   extended with pan). The trackpad cursor is hidden.
+/// - `trackpad`: a one-finger drag moves the visible cursor and emits
+///   buttonless remote pointer moves (like a laptop trackpad); a tap
+///   clicks at the cursor. This is Google Remote Desktop's default and
+///   the phone precision win (`spec.md` 003 US3).
 public enum PointerControlMode: String, Sendable, Equatable, CaseIterable, Codable {
     case directTouch
     case trackpad
@@ -22,9 +22,10 @@ public enum PointerControlMode: String, Sendable, Equatable, CaseIterable, Codab
     public var isTrackpad: Bool { self == .trackpad }
 }
 
-/// A soft cursor positioned in remote framebuffer pixel space, used by
-/// trackpad mode. Pure value type — the App layer renders an overlay
-/// at `position` mapped through `ViewportTransform.viewPoint(...)`.
+/// A cursor position in remote framebuffer pixel space, used by
+/// trackpad mode. Pure value type — the App layer sends buttonless RFB
+/// pointer moves and renders either the server cursor shape or a local
+/// fallback at `position` mapped through `ViewportTransform.viewPoint(...)`.
 public struct TrackpadCursor: Equatable, Sendable {
     /// Cursor position in framebuffer pixels.
     public var position: CGPoint

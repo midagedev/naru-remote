@@ -52,7 +52,7 @@ A user reading small terminal text pinches to zoom in, then drags with one finge
 
 ### User Story 3 — Trackpad Mode With A Visible Cursor (Priority: P1)
 
-A user switches the pointer mode to **Trackpad**. A soft cursor appears on the remote screen. One-finger drag moves the cursor relatively (like a laptop trackpad); a tap left-clicks at the cursor; a two-finger tap right-clicks; a two-finger drag scrolls. This is Google Remote Desktop's default and the precision win for phone control. **Direct-touch** mode (tap where you want to click) remains available via the toggle.
+A user switches the pointer mode to **Trackpad**. A cursor appears on the remote screen. One-finger drag moves the remote pointer relatively (like a laptop trackpad) by sending buttonless RFB pointer moves; a tap left-clicks at the cursor; a two-finger tap right-clicks; a two-finger drag scrolls. This is Google Remote Desktop's default and the precision win for phone control. **Direct-touch** mode (tap where you want to click) remains available via the toggle.
 
 **Why this priority**: Trackpad-with-cursor is the single most recognizable Google Remote Desktop interaction and the biggest precision improvement for a small screen. Both modes share the same view→framebuffer mapping and RFB `PointerEvent` emission, so they must ship together to avoid a divergent second mapping later.
 
@@ -60,12 +60,12 @@ A user switches the pointer mode to **Trackpad**. A soft cursor appears on the r
 
 **Acceptance Scenarios**:
 
-1. **Given** trackpad mode is active, **When** the user drags one finger, **Then** a visible cursor moves relatively across the remote screen (clamped to the framebuffer bounds) and **no** button is pressed during the move.
+1. **Given** trackpad mode is active, **When** the user drags one finger, **Then** the cursor moves relatively across the remote screen (clamped to the framebuffer bounds) and Naru emits buttonless (`0x00`) pointer-move events so the remote OS pointer follows without pressing any button.
 2. **Given** trackpad mode with the cursor positioned, **When** the user taps once, **Then** Naru emits a button-1 `PointerEvent` down+up pair at the **cursor's** framebuffer coordinate.
 3. **Given** trackpad mode, **When** the user taps with two fingers, **Then** Naru emits a button-3 (right-click) down+up pair at the cursor coordinate.
 4. **Given** trackpad mode and the user wants to drag (select text / move a window), **When** they tap-and-hold then drag (tap-and-a-half), **Then** Naru emits button-1 down at the cursor, button-1 holds through the move, and button-1 up on release.
 5. **Given** trackpad mode and the screen is zoomed in, **When** the cursor approaches a screen edge, **Then** the viewport auto-pans to keep the cursor visible.
-6. **Given** the user switches to **Direct-touch** mode, **When** they tap the screen, **Then** Naru emits a button-1 pair at the **touched** framebuffer point (the existing behavior), and the soft cursor is hidden.
+6. **Given** the user switches to **Direct-touch** mode, **When** they tap the screen, **Then** Naru emits a button-1 pair at the **touched** framebuffer point (the existing behavior), and the trackpad cursor is hidden.
 
 ---
 
@@ -119,9 +119,9 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **FR-004**: When zoomed beyond fit, the user MUST be able to pan the viewport with a one-finger drag (in direct-touch mode); the pan offset MUST be clamped so no out-of-bounds region is revealed.
 - **FR-005**: A double-tap MUST toggle between fit and a comfortable zoom centered on the tapped point; the animation MUST not emit any RFB message.
 - **FR-006**: The user MUST be able to switch between **Direct-touch** and **Trackpad** pointer modes from the control surface in one tap. The choice persists for the session and resets to the product default on a fresh session start.
-- **FR-007**: In **Trackpad** mode, a one-finger drag MUST move a **visible** soft cursor relatively (scaled by a sensitivity factor), clamped to `[0,width-1] × [0,height-1]` framebuffer pixels, and MUST NOT press any button during the move.
+- **FR-007**: In **Trackpad** mode, a one-finger drag MUST move the visible cursor relatively (scaled by a sensitivity factor), clamped to `[0,width-1] × [0,height-1]` framebuffer pixels, and MUST emit buttonless (`0x00`) RFB pointer-move events so the remote OS pointer follows without pressing any button.
 - **FR-008**: In **Trackpad** mode, a single tap MUST emit a button-1 down+up `PointerEvent` pair at the **cursor** coordinate; a two-finger tap MUST emit a button-3 pair at the cursor; a tap-and-a-half (tap then hold-drag) MUST emit button-1 down → hold-through-move → up.
-- **FR-009**: In **Direct-touch** mode, a single tap MUST emit a button-1 pair at the **touched** framebuffer point (existing behavior); long-press MUST emit button-3 at the point; the soft cursor MUST be hidden.
+- **FR-009**: In **Direct-touch** mode, a single tap MUST emit a button-1 pair at the **touched** framebuffer point (existing behavior); long-press MUST emit button-3 at the point; the trackpad cursor MUST be hidden.
 - **FR-010**: Two-finger drag MUST emit RFB scroll-wheel events in both modes (existing behavior), distinct from pan.
 - **FR-011**: In **Trackpad** mode while zoomed, the viewport MUST auto-pan to keep the cursor visible as it nears an edge.
 - **FR-012**: A compact connection-status chip MUST reflect `RemoteSessionState` (connecting / active / reconnecting(n,N) / degraded / failed / closed) with distinct symbol + color, and MUST show a coarse connection-quality bucket (Good / Fair / Poor) derived from frame round-trip timing while active.
@@ -156,7 +156,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **ViewportTransform** — pure value type: fit-scale (framebuffer→view at content-fit), user zoom scale (clamped `[1.0, maxScale]`), pan offset (clamped so content edges stay flush). Maps view points ↔ framebuffer pixels. Single source of truth for both pointer modes (FR-014). Lives in `NaruRemoteCore` so it is `swift test`-able with no UIKit.
 - **PointerControlMode** — enum `directTouch | trackpad`. Default product value applied on fresh session start.
 - **TrackpadCursor** — framebuffer-pixel cursor position + visibility, with relative-move (sensitivity) and clamp logic. Pure, in `NaruRemoteCore`.
-- **PointerControlModel** — turns a gesture (mode, gesture kind, view delta/point, current transform) into either a cursor update (no wire) or an RFB `PointerEvent` sequence. Pure logic in Core; the App layer wires gestures and dispatch.
+- **PointerControlModel** — turns a gesture (mode, gesture kind, view delta/point, current transform) into a cursor update and/or an RFB `PointerEvent` sequence. Pure logic in Core; the App layer wires gestures and dispatch.
 - **ConnectionQuality** — coarse bucket (`good | fair | poor | unknown`) derived from a rolling frame round-trip timing sample. Pure; no value retained.
 
 ## Acceptance Test Matrix *(mandatory)*
@@ -169,7 +169,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 | Pinch zoom clamps to `[1, max]`; pan offset clamps to bounds | Unit | iPhone (simulator) | `swift test` for `ViewportTransform` zoom/pan clamp |
 | Double-tap toggles fit↔zoom-to-point | Unit + screenshot | iPhone (simulator) | `swift test` anchoring math; screenshot |
 | Direct-touch tap maps through zoom+pan to correct framebuffer pixel | Unit + Fake RFB | iPhone (simulator) | recorder `(mask,x,y)` matches expected pixel |
-| Trackpad drag moves cursor relatively, clamped, no button | Unit | iPhone (simulator) | `swift test` for `TrackpadCursor` move/clamp |
+| Trackpad drag moves cursor relatively, clamped, buttonless remote pointer move | Unit + Fake RFB | iPhone (simulator) | `swift test` for `TrackpadCursor` move/clamp and recorder `(0x00,x,y)` |
 | Trackpad tap → button-1 at cursor; 2-finger tap → button-3 at cursor | Unit + Fake RFB | iPhone (simulator) | recorder triples for move→tap→2-finger-tap |
 | Trackpad tap-and-a-half → button-1 down/hold/up | Unit + Fake RFB | iPhone (simulator) | recorder down→move(0x01)→up sequence |
 | Pointer-mode toggle in one tap; cursor shown only in trackpad | XCUITest | iPhone (simulator) | screenshot of each mode |
@@ -195,7 +195,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 - RFB `PointerEvent` coordinates are absolute framebuffer pixels (RFC 6143 §7.5.5) — trackpad mode still emits absolute coordinates derived from the cursor position, so no new wire semantics are introduced; the relativity is purely local cursor bookkeeping.
 - The Metal renderer (`MetalFramebufferRenderer`) already supports aspect-fit presentation; this feature changes the SwiftUI framing and gesture layer, not the GPU upload path.
 - iPhone first per constitution §VI; iPad is graceful scaling.
-- Encodings, continuous updates, and Cursor/DesktopSize pseudo-encodings are **out of scope** here and tracked in `specs/004-rfb-encodings`. This feature draws a **synthetic** soft cursor in trackpad mode (it does not depend on the server Cursor pseudo-encoding).
+- Encodings, continuous updates, and DesktopSize pseudo-encodings are tracked in `specs/004-rfb-encodings`. Trackpad mode uses the server Cursor pseudo-encoding shape when the active connection provides it, with a synthetic cursor glyph only as a local fallback.
 
 ## Non-Goals
 

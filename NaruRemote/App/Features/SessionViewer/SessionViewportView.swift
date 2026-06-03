@@ -38,18 +38,18 @@ public struct SessionViewportView: View {
     private let onFramebufferPointerUp: SessionFramebufferPointerUpHandler?
     /// How a one-finger gesture is interpreted (spec 003 US3 / T015).
     /// `.directTouch` keeps the tap-where-you-touch wire path; `.trackpad`
-    /// draws the soft cursor and routes gestures through
-    /// `onTrackpadGesture`.  Constitution §I: cursor moves are LOCAL —
-    /// only clicks/drags resolved by the model reach the wire.
+    /// draws the trackpad cursor and routes gestures through
+    /// `onTrackpadGesture`. Constitution §I: viewport auto-pan is LOCAL;
+    /// cursor moves reach the remote OS as buttonless pointer moves.
     private let pointerControlMode: PointerControlMode
-    /// Soft cursor (framebuffer pixels) drawn over the preview while in
-    /// trackpad mode.  Constitution §IV: the position is rendered but
+    /// Trackpad cursor (framebuffer pixels) drawn over the preview while
+    /// in trackpad mode. Constitution §IV: the position is rendered but
     /// never logged or persisted.
     private let trackpadCursor: TrackpadCursor
     /// Routes a trackpad-mode gesture (resolved view point + per-event
     /// translation) to the model with the live zoom/pan transform.  The
     /// returned transform is local-only auto-pan state that keeps the
-    /// soft cursor visible while zoomed (spec 003 FR-011).
+    /// cursor visible while zoomed (spec 003 FR-011).
     private let onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)?
     /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
     /// toggle.
@@ -651,11 +651,11 @@ public struct SessionViewportView: View {
     }
 
     /// Transparent, full-bleed gesture layer used only in trackpad mode.
-    /// A one-finger drag emits `dragChanged`/`dragEnded` (relative cursor
-    /// motion) and a near-stationary press emits `tap` (click at the
-    /// cursor).  The `GeometryReader` captures the framebuffer
-    /// container's size so this view can pass the live fit × zoom × pan
-    /// `ViewportTransform` to the model.
+    /// A one-finger drag emits `dragChanged`/`dragEnded` (relative remote
+    /// pointer motion with no button pressed) and a near-stationary press
+    /// emits `tap` (click at the cursor). The `GeometryReader` captures
+    /// the framebuffer container's size so this view can pass the live
+    /// fit × zoom × pan `ViewportTransform` to the model.
     /// `translation` is the per-event delta in view points (`DragGesture`
     /// reports cumulative translation, so we diff against the previous
     /// value).
@@ -711,7 +711,14 @@ public struct SessionViewportView: View {
     ) {
         let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
         let updatedTransform = onTrackpadGesture?(gesture, transform) ?? transform
-        applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
+        if updatedTransform.zoomScale == transform.zoomScale,
+           updatedTransform.panOffset != transform.panOffset {
+            withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.88)) {
+                applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
+            }
+        } else {
+            applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
+        }
     }
 
     private func applyViewportTransform(
@@ -724,10 +731,11 @@ public struct SessionViewportView: View {
         syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
     }
 
-    /// Maps the soft cursor's framebuffer position into the container's
-    /// view space with the same aspect-fit the preview uses, then draws
-    /// the cursor glyph.  `.allowsHitTesting(false)` keeps it from eating
-    /// the gesture surface.
+    /// Maps the trackpad cursor's framebuffer position into the
+    /// container's view space with the same transform the preview uses,
+    /// then draws the server cursor shape or a local fallback glyph.
+    /// `.allowsHitTesting(false)` keeps it from eating the gesture
+    /// surface.
     @ViewBuilder
     private func cursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
         if let serverCursor, serverCursor.width > 0, serverCursor.height > 0 {
@@ -950,12 +958,12 @@ public struct SessionViewportView: View {
                 onTap: onFramebufferTap,
                 onRightClick: onFramebufferRightClick,
                 onScroll: onFramebufferScroll,
-                onPinch: { newScale, viewSize in
+                onPinch: { newScale, anchor, viewSize in
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.
                     applyZoomScale(
                         newScale,
-                        anchor: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2),
+                        anchor: anchor,
                         framebuffer: framebuffer,
                         viewSize: viewSize
                     )

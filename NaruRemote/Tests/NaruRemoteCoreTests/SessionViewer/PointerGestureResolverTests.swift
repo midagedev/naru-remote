@@ -107,7 +107,7 @@ final class PointerGestureResolverTests: XCTestCase {
         ])
     }
 
-    func testTrackpadDragMovesCursorWithoutButton() {
+    func testTrackpadDragMovesRemotePointerWithoutButtonPress() {
         let resolver = PointerGestureResolver(mode: .trackpad)
         let cursor = TrackpadCursor(position: CGPoint(x: 100, y: 100), isVisible: true)
         let outcome = resolver.resolve(
@@ -115,7 +115,9 @@ final class PointerGestureResolverTests: XCTestCase {
             transform: transform(),
             cursor: cursor
         )
-        XCTAssertTrue(outcome.commands.isEmpty, "Cursor move must not press a button")
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 140, y: 120)
+        ], "Trackpad cursor movement should move the remote pointer without pressing a button")
         // fit scale is 1.0, sensitivity 1 → 1:1 framebuffer travel.
         XCTAssertEqual(outcome.cursor.position.x, 140, accuracy: 1e-6)
         XCTAssertEqual(outcome.cursor.position.y, 120, accuracy: 1e-6)
@@ -153,6 +155,8 @@ final class PointerGestureResolverTests: XCTestCase {
             cursor: cursor
         )
         XCTAssertNotEqual(outcome.transform.panOffset, zoomed.panOffset, "Auto-pan should move the viewport")
-        XCTAssertTrue(outcome.commands.isEmpty)
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 999, y: 500)
+        ])
     }
 }
