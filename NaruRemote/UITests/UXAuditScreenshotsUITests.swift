@@ -401,13 +401,23 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Remote Desktop.
         let app = launchAppWithFixture(.sessionActiveWidescreen, mode: mode)
 
+        let compactEditor = app.textFields["Remote input text"]
         XCTAssertTrue(
-            app.otherElements["naru.session.viewport"].waitForExistence(timeout: 8)
-                || app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 4),
-            "Active-session viewport must be mounted"
+            compactEditor.waitForExistence(timeout: 8),
+            "Active-session compact compose field must be reachable"
         )
 
         try saveScreen(named: "16-session-active-widescreen-\(deviceTag)-\(mode.suffix).png")
+
+        compactEditor.tap()
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 5),
+            "System keyboard must rise from the compact live-session input field"
+        )
+
+        try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPhone — sidebar with multiple profiles
