@@ -479,3 +479,41 @@ aggregate those values as avg/p50/p95/min/max.
 must not include host, server name, framebuffer dimensions, coordinates, pixels,
 byte counts, cursor pixels, raw per-frame logs, or raw errors. They are emitted
 only in benchmark stdout/JSON, not persisted as user diagnostics by default.
+
+## D19 — Keep static encoding default unchanged after timed receive-profile comparison
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
+- TurboVNC H.264 study: https://turbovnc.org/About/H264
+
+**Decision**: keep the production `localLowLatency` static encoding default
+unchanged after the first schema v19 timed receive-profile comparison. Continue
+to treat `zrle-compression-0` as an important benchmark candidate, not a global
+default, until longer physical-iPhone evidence is stable across normal and
+power-saver modes. Benchmark artifact:
+`artifacts/benchmarks/2026-06-04-timed-profile-receive-comparison.md`.
+
+**Why**:
+- A 20 second normal-pacing localhost run selected `zrle-compression-0` by lower
+  average update latency and zero full-upload samples, but the current
+  `local-low-latency` profile still had slightly higher content FPS. This is a
+  useful candidate signal, not a decisive default switch.
+- A matching low-power run saw `local-low-latency` fail with
+  `stream-incremental-read-timeout`, while `zrle-compression-0` completed but
+  produced full-dirty/full-upload outliers. The profile evidence is still
+  sensitive to pacing and screen state.
+- The receive split showed most p95 latency still tracks network/server read
+  wait, while rare full-dirty/full-upload frames dominate client-processing max.
+  That points the next work toward longer physical-device runs with controlled
+  screen activity and thermal observation, not another static default flip.
+- RFC 6143's request/response stream gives the client pacing control, while
+  TigerVNC/TightVNC/TurboVNC documentation all frame compression choice as a
+  CPU/bandwidth/latency tradeoff. Naru should preserve compatibility until the
+  benchmark evidence can distinguish profile choice from server repaint shape.
+
+**Follow-up criterion**: revisit the static default or add adaptive
+profile-specific switching only after a physical iPhone run shows the same
+profile winning across normal and power-saver modes without increasing
+full-upload outliers, timeouts, or client-processing tails.
