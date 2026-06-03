@@ -294,11 +294,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 tightZlibStreams: context.4,
                 timeout: timeout
             )
-        } catch RFBNetworkClientError.timedOut where allowsIdleTimeout {
+        } catch let error as RFBNetworkClientError where allowsIdleTimeout && error.isReadTimeoutLike {
             guard reader.consumedByteCount == 0,
                   let previousFramebuffer = context.2 else {
                 failConnection(connection)
-                throw RFBNetworkClientError.timedOut
+                throw error
             }
             updateResult = RFBFramebufferUpdateResult(
                 framebuffer: previousFramebuffer,
@@ -843,9 +843,12 @@ extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpda
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)
+    case connectTimedOut
     case timedOut
+    case readTimedOut
     case incompleteTranscript(expected: Int, actual: Int)
     case connectionFailed
+    case writeTimedOut
     case writeFailed
     case authenticationRequired([UInt8])
     case unsupportedSecurityTypes([UInt8])
@@ -856,12 +859,18 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
         switch self {
         case .invalidPort(let port):
             return "Invalid RFB port: \(port)"
+        case .connectTimedOut:
+            return "Timed out while opening RFB TCP connection."
         case .timedOut:
-            return "Timed out while reading RFB transcript."
+            return "Timed out while waiting for RFB network activity."
+        case .readTimedOut:
+            return "Timed out while reading from RFB connection."
         case .incompleteTranscript(let expected, let actual):
             return "RFB transcript incomplete. Expected \(expected) bytes, received \(actual)."
         case .connectionFailed:
             return "RFB TCP connection failed."
+        case .writeTimedOut:
+            return "Timed out while writing to RFB connection."
         case .writeFailed:
             return "RFB write failed."
         case .authenticationRequired(let types):
@@ -872,6 +881,26 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
             return "Unsupported RFB framebuffer encoding: \(encoding)"
         case .notConnected:
             return "No active RFB connection is available."
+        }
+    }
+}
+
+private extension RFBNetworkClientError {
+    var isReadTimeoutLike: Bool {
+        switch self {
+        case .readTimedOut, .timedOut:
+            return true
+        case .invalidPort,
+             .connectTimedOut,
+             .incompleteTranscript,
+             .connectionFailed,
+             .writeTimedOut,
+             .writeFailed,
+             .authenticationRequired,
+             .unsupportedSecurityTypes,
+             .unsupportedFramebufferEncoding,
+             .notConnected:
+            return false
         }
     }
 }
@@ -1086,11 +1115,11 @@ private final class RFBNetworkReceiveState: @unchecked Sendable {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else {
-                throw RFBNetworkClientError.timedOut
+                throw RFBNetworkClientError.readTimedOut
             }
 
             if !condition.wait(until: Date().addingTimeInterval(remaining)) {
-                throw RFBNetworkClientError.timedOut
+                throw RFBNetworkClientError.readTimedOut
             }
         }
 
@@ -1166,7 +1195,7 @@ private final class RFBNetworkConnectionReadyState: @unchecked Sendable {
 
     func wait(timeout: TimeInterval) throws {
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.connectTimedOut
         }
 
         switch currentResult {
@@ -1175,7 +1204,7 @@ private final class RFBNetworkConnectionReadyState: @unchecked Sendable {
         case .failure(let error):
             throw error
         case nil:
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.connectTimedOut
         }
     }
 
@@ -1224,7 +1253,7 @@ private final class RFBNetworkWriteState: @unchecked Sendable {
 
     func wait(timeout: TimeInterval) throws {
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.writeTimedOut
         }
 
         switch currentResult {
@@ -1233,7 +1262,7 @@ private final class RFBNetworkWriteState: @unchecked Sendable {
         case .failure(let error):
             throw error
         case nil:
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.writeTimedOut
         }
     }
 
@@ -1400,7 +1429,7 @@ private final class RFBNetworkReadState: @unchecked Sendable {
 
     func wait(timeout: TimeInterval) throws -> Data {
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.readTimedOut
         }
 
         switch currentResult {
@@ -1409,7 +1438,7 @@ private final class RFBNetworkReadState: @unchecked Sendable {
         case .failure(let error):
             throw error
         case nil:
-            throw RFBNetworkClientError.timedOut
+            throw RFBNetworkClientError.readTimedOut
         }
     }
 

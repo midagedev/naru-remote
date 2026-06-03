@@ -183,10 +183,13 @@ public enum DiagnosticFailureCodeCatalog {
     private static let allowedCodes: Set<String> = [
         "credential.passwordMissing",
         "error.unknown",
+        "network.connectTimedOut",
         "network.connectionFailed",
         "network.invalidPort",
         "network.notConnected",
+        "network.readTimedOut",
         "network.timedOut",
+        "network.writeTimedOut",
         "network.writeFailed",
         "rfb.authenticationRequired",
         "rfb.incompleteTranscript",

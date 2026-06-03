@@ -872,9 +872,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// `DiagnosticMessageCatalog.failure(for:)`.
     nonisolated private static func stage(for error: RFBNetworkClientError) -> DiagnosticStage {
         switch error {
-        case .invalidPort, .timedOut, .connectionFailed, .writeFailed, .notConnected:
+        case .invalidPort, .connectTimedOut, .timedOut, .connectionFailed, .writeTimedOut, .writeFailed, .notConnected:
             return .tcp
-        case .incompleteTranscript, .unsupportedFramebufferEncoding:
+        case .readTimedOut, .incompleteTranscript, .unsupportedFramebufferEncoding:
             return .rfbHandshake
         case .authenticationRequired, .unsupportedSecurityTypes:
             return .authentication
@@ -1076,12 +1076,18 @@ public final class NaruRemoteAppModel: ObservableObject {
             switch networkError {
             case .invalidPort:
                 return "network.invalidPort"
+            case .connectTimedOut:
+                return "network.connectTimedOut"
             case .timedOut:
                 return "network.timedOut"
+            case .readTimedOut:
+                return "network.readTimedOut"
             case .incompleteTranscript:
                 return "rfb.incompleteTranscript"
             case .connectionFailed:
                 return "network.connectionFailed"
+            case .writeTimedOut:
+                return "network.writeTimedOut"
             case .writeFailed:
                 return "network.writeFailed"
             case .authenticationRequired:
