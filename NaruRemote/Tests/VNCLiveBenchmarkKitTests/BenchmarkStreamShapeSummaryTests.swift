@@ -1,4 +1,5 @@
 import XCTest
+import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapeSummaryTests: XCTestCase {
@@ -25,7 +26,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     durationMilliseconds: 30,
                     dirtyRectangleCount: 2,
                     dirtyAreaPermille: 120,
-                    changedPixelsPermille: 90
+                    changedPixelsPermille: 90,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 2
                 ),
                 BenchmarkStreamShapeSample(
                     kind: .emptyUpdate,
@@ -49,6 +52,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.dirtyRectangleCount).maxMilliseconds, 2)
         XCTAssertEqual(try XCTUnwrap(summary.dirtyAreaPermille).maxMilliseconds, 120)
         XCTAssertEqual(try XCTUnwrap(summary.changedPixelsPermille).maxMilliseconds, 90)
+        XCTAssertEqual(summary.rendererUploadSampleCount, 1)
+        XCTAssertEqual(summary.rendererPartialUploadSamples, 1)
+        XCTAssertEqual(summary.rendererFullUploadSamples, 0)
+        XCTAssertEqual(summary.rendererPartialUploadPermille, 1_000)
+        XCTAssertEqual(summary.rendererFullUploadPermille, 0)
+        XCTAssertEqual(try XCTUnwrap(summary.rendererUploadRegionCount).maxMilliseconds, 2)
     }
 
     func testTimeoutWithoutSamplesReportsNoUpdateBeforeTimeout() {
@@ -93,13 +102,16 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             durationMilliseconds: -1,
             dirtyRectangleCount: -2,
             dirtyAreaPermille: 1_500,
-            changedPixelsPermille: -100
+            changedPixelsPermille: -100,
+            rendererUploadStrategy: .partial,
+            rendererUploadRegionCount: -3
         )
 
         XCTAssertEqual(sample.durationMilliseconds, 0)
         XCTAssertEqual(sample.dirtyRectangleCount, 0)
         XCTAssertEqual(sample.dirtyAreaPermille, 1_000)
         XCTAssertEqual(sample.changedPixelsPermille, 0)
+        XCTAssertEqual(sample.rendererUploadRegionCount, 0)
     }
 
     func testProfileReportRoundTripsThroughJSON() throws {

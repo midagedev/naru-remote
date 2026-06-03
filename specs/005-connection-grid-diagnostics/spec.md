@@ -146,7 +146,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 | Launch reachability probes publish states | App-model unit | iPhone simulator | Fake connector transitions checking to final states |
 | Reachability does not disturb active session | App-model unit | iPhone simulator | Active session remains selected and streaming state is unchanged |
 | Structured diagnostic JSON redacts sentinels | Unit | iPhone simulator | Secret host/password/clipboard/pixel sentinels absent |
-| Structured diagnostic JSON includes debug-safe failure and stream context | Unit | iPhone simulator | TCP failure report includes schema v3 context and typed failure code; active-session report includes safe stream-performance aggregates; raw host/endpoint/credential/pixels remain absent |
+| Structured diagnostic JSON includes debug-safe failure and stream context | Unit | iPhone simulator | TCP failure report includes schema v4 context and typed failure code; active-session report includes safe stream-performance and renderer upload aggregates; raw host/endpoint/credential/pixels remain absent |
 | Share diagnostics includes human text + JSON | Unit/UI smoke | iPhone simulator | Share provider payload contains both formats |
 | Real Mac VNC launch grid shows reachable and captures preview | Manual device | iPhone physical | Residual-risk manual pass over local/private VNC |
 

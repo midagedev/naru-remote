@@ -39,6 +39,12 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.dirtyRectangleCountMax, 1)
         XCTAssertEqual(report.dirtyAreaPermilleMax, 1_000)
         XCTAssertEqual(report.changedPixelsPermilleMax, 1_000)
+        XCTAssertEqual(report.rendererUploadSampleCount, 1)
+        XCTAssertEqual(report.rendererPartialUploadCount, 0)
+        XCTAssertEqual(report.rendererFullUploadCount, 1)
+        XCTAssertEqual(report.rendererPartialUploadPermille, 0)
+        XCTAssertEqual(report.rendererFullUploadPermille, 1_000)
+        XCTAssertEqual(report.rendererUploadRegionCountMax, 1)
         XCTAssertEqual(report.thermalState, SessionStreamThermalState.serious.rawValue)
     }
 

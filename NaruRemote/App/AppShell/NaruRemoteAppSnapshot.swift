@@ -36,9 +36,17 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var dirtyAreaPermilleMax: Int
     public var changedPixelsPermilleTotal: Int
     public var changedPixelsPermilleMax: Int
+    public var rendererUploadSampleCount: Int
+    public var rendererPartialUploadCount: Int
+    public var rendererFullUploadCount: Int
+    public var rendererUploadRegionCountMax: Int
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
     public var latestFrameCapturedAt: Date?
+    // Internal-only renderer planning cache. It is not exported in
+    // diagnostics; only aggregate upload strategy counts leave memory.
+    private var lastFramebufferWidth: Int?
+    private var lastFramebufferHeight: Int?
 
     public init(
         deliveredFrameCount: Int = 0,
@@ -52,6 +60,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         dirtyAreaPermilleMax: Int = 0,
         changedPixelsPermilleTotal: Int = 0,
         changedPixelsPermilleMax: Int = 0,
+        rendererUploadSampleCount: Int = 0,
+        rendererPartialUploadCount: Int = 0,
+        rendererFullUploadCount: Int = 0,
+        rendererUploadRegionCountMax: Int = 0,
         thermalState: SessionStreamThermalState = .unknown,
         firstFrameCapturedAt: Date? = nil,
         latestFrameCapturedAt: Date? = nil
@@ -67,6 +79,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.dirtyAreaPermilleMax = max(dirtyAreaPermilleMax, 0)
         self.changedPixelsPermilleTotal = max(changedPixelsPermilleTotal, 0)
         self.changedPixelsPermilleMax = max(changedPixelsPermilleMax, 0)
+        self.rendererUploadSampleCount = max(rendererUploadSampleCount, 0)
+        self.rendererPartialUploadCount = max(rendererPartialUploadCount, 0)
+        self.rendererFullUploadCount = max(rendererFullUploadCount, 0)
+        self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
         self.thermalState = thermalState
         self.firstFrameCapturedAt = firstFrameCapturedAt
         self.latestFrameCapturedAt = latestFrameCapturedAt
@@ -117,6 +133,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         permille(transportIdleTimeoutCount, of: deliveredFrameCount)
     }
 
+    public var rendererPartialUploadPermille: Int? {
+        permille(rendererPartialUploadCount, of: rendererUploadSampleCount)
+    }
+
+    public var rendererFullUploadPermille: Int? {
+        permille(rendererFullUploadCount, of: rendererUploadSampleCount)
+    }
+
     public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
         guard deliveredFrameCount > 0 else {
             return nil
@@ -139,6 +163,12 @@ public struct SessionStreamStats: Equatable, Sendable {
             dirtyAreaPermilleMax: dirtyAreaPermilleMax,
             averageChangedPixelsPermille: averageChangedPixelsPermille,
             changedPixelsPermilleMax: changedPixelsPermilleMax,
+            rendererUploadSampleCount: rendererUploadSampleCount,
+            rendererPartialUploadCount: rendererPartialUploadCount,
+            rendererFullUploadCount: rendererFullUploadCount,
+            rendererPartialUploadPermille: rendererPartialUploadPermille,
+            rendererFullUploadPermille: rendererFullUploadPermille,
+            rendererUploadRegionCountMax: rendererUploadRegionCountMax,
             thermalState: thermalState.rawValue
         )
     }
@@ -177,6 +207,43 @@ public struct SessionStreamStats: Equatable, Sendable {
         dirtyAreaPermilleMax = max(dirtyAreaPermilleMax, dirtyAreaPermille)
         changedPixelsPermilleTotal += changedPixelsPermille
         changedPixelsPermilleMax = max(changedPixelsPermilleMax, changedPixelsPermille)
+
+        recordRendererUploadPlan(for: frame)
+        lastFramebufferWidth = frame.framebuffer.width
+        lastFramebufferHeight = frame.framebuffer.height
+    }
+
+    private mutating func recordRendererUploadPlan(for frame: RFBFramePumpFrame) {
+        guard !(frame.isIncremental && frame.changedPixelCount == 0) else {
+            return
+        }
+
+        let requiresTextureRecreation = lastFramebufferWidth != frame.framebuffer.width
+            || lastFramebufferHeight != frame.framebuffer.height
+        let dirtyRectangles = frame.isIncremental ? frame.dirtyRectangles : nil
+        let uploadPlan = FramebufferUploadPlan.plan(
+            framebufferWidth: frame.framebuffer.width,
+            framebufferHeight: frame.framebuffer.height,
+            dirtyRectangles: dirtyRectangles,
+            requiresTextureRecreation: requiresTextureRecreation
+        )
+
+        guard uploadPlan.strategy != .none else {
+            return
+        }
+        rendererUploadSampleCount += 1
+        rendererUploadRegionCountMax = max(
+            rendererUploadRegionCountMax,
+            uploadPlan.uploadRegionCount
+        )
+        switch uploadPlan.strategy {
+        case .partial:
+            rendererPartialUploadCount += 1
+        case .full:
+            rendererFullUploadCount += 1
+        case .none:
+            break
+        }
     }
 
     private func average(_ total: Int) -> Int? {

@@ -413,13 +413,23 @@ enum VNCLiveBenchmark {
         let dirtyArea = frame.dirtyRectangles.reduce(0) { total, rect in
             total + max(rect.width, 0) * max(rect.height, 0)
         }
+        let kind: BenchmarkStreamUpdateKind = frame.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate
+        let uploadPlan = FramebufferUploadPlan.plan(
+            framebufferWidth: frame.framebuffer.width,
+            framebufferHeight: frame.framebuffer.height,
+            dirtyRectangles: frame.isIncremental ? frame.dirtyRectangles : nil,
+            requiresTextureRecreation: false,
+            shouldUpload: kind == .contentUpdate
+        )
 
         return BenchmarkStreamShapeSample(
-            kind: frame.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
+            kind: kind,
             durationMilliseconds: durationMilliseconds,
             dirtyRectangleCount: frame.dirtyRectangles.count,
             dirtyAreaPermille: permille(dirtyArea, of: framebufferArea),
-            changedPixelsPermille: permille(frame.changedPixelCount, of: framebufferArea)
+            changedPixelsPermille: permille(frame.changedPixelCount, of: framebufferArea),
+            rendererUploadStrategy: uploadPlan.strategy,
+            rendererUploadRegionCount: uploadPlan.uploadRegionCount
         )
     }
 
@@ -771,7 +781,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 10
+        self.schemaVersion = 11
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -795,6 +805,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.safety = [
             "host, password, server name, framebuffer dimensions, pixel payloads, byte counts, cursor pixels, and raw error descriptions are not emitted",
             "stream-shape metrics emit aggregate counts and permille ratios only",
+            "renderer upload metrics emit aggregate strategy counts only",
             "reports are written to stdout only"
         ]
         self.profiles = profiles
@@ -1146,6 +1157,27 @@ private func renderStreamShapeSummary(
                 + "\(changedPixels.maxMilliseconds)"
         )
     }
+    if summary.rendererUploadSampleCount > 0 {
+        print(
+            "\(indentation)  renderer uploads partial/full: "
+                + "\(summary.rendererPartialUploadSamples)/\(summary.rendererFullUploadSamples)"
+        )
+        if let partialPermille = summary.rendererPartialUploadPermille,
+           let fullPermille = summary.rendererFullUploadPermille {
+            print(
+                "\(indentation)  renderer upload permille partial/full: "
+                    + "\(partialPermille)/\(fullPermille)"
+            )
+        }
+        if let uploadRegions = summary.rendererUploadRegionCount {
+            print(
+                "\(indentation)  renderer upload region count avg/p50/p95/min/max: "
+                    + "\(uploadRegions.averageValue)/\(uploadRegions.p50Value)/"
+                    + "\(uploadRegions.p95Value)/\(uploadRegions.minValue)/"
+                    + "\(uploadRegions.maxValue)"
+            )
+        }
+    }
     if let timeout = summary.firstTimeoutMilliseconds {
         print("\(indentation)  first timeout ms: \(timeout)")
     }
@@ -1204,6 +1236,7 @@ private func printUsage() {
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.
     Stream-shape metrics emit aggregate counts and permille ratios only.
+    Renderer upload metrics emit aggregate strategy counts only.
     """)
 }
 

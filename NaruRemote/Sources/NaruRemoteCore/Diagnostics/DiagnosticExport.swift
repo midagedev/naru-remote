@@ -148,7 +148,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     ) -> String {
         let text = renderShareText(buildVersion: buildVersion, now: now)
         let json = renderCollectionJSON(buildVersion: buildVersion, now: now)
-        return "\(text)\n\n--- Naru Remote Diagnostic JSON v3 ---\n\(json)"
+        return "\(text)\n\n--- Naru Remote Diagnostic JSON v\(DiagnosticCollectionReport.currentSchemaVersion) ---\n\(json)"
     }
 
     private static func isoString(from date: Date) -> String {
@@ -239,6 +239,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let dirtyAreaPermilleMax: Int
     public let averageChangedPixelsPermille: Int?
     public let changedPixelsPermilleMax: Int
+    public let rendererUploadSampleCount: Int
+    public let rendererPartialUploadCount: Int
+    public let rendererFullUploadCount: Int
+    public let rendererPartialUploadPermille: Int?
+    public let rendererFullUploadPermille: Int?
+    public let rendererUploadRegionCountMax: Int
     public let thermalState: String
 
     public init(
@@ -258,6 +264,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         dirtyAreaPermilleMax: Int,
         averageChangedPixelsPermille: Int? = nil,
         changedPixelsPermilleMax: Int,
+        rendererUploadSampleCount: Int = 0,
+        rendererPartialUploadCount: Int = 0,
+        rendererFullUploadCount: Int = 0,
+        rendererPartialUploadPermille: Int? = nil,
+        rendererFullUploadPermille: Int? = nil,
+        rendererUploadRegionCountMax: Int = 0,
         thermalState: String
     ) {
         self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
@@ -276,6 +288,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         self.dirtyAreaPermilleMax = Self.clampPermille(dirtyAreaPermilleMax) ?? 0
         self.averageChangedPixelsPermille = Self.clampPermille(averageChangedPixelsPermille)
         self.changedPixelsPermilleMax = Self.clampPermille(changedPixelsPermilleMax) ?? 0
+        self.rendererUploadSampleCount = max(rendererUploadSampleCount, 0)
+        self.rendererPartialUploadCount = max(rendererPartialUploadCount, 0)
+        self.rendererFullUploadCount = max(rendererFullUploadCount, 0)
+        self.rendererPartialUploadPermille = Self.clampPermille(rendererPartialUploadPermille)
+        self.rendererFullUploadPermille = Self.clampPermille(rendererFullUploadPermille)
+        self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
         self.thermalState = Self.safeThermalState(thermalState)
     }
 
@@ -333,7 +351,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
 
     public let schemaVersion: Int
     public let generatedAt: String

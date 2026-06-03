@@ -1,4 +1,5 @@
 import Foundation
+import NaruRemoteCore
 
 public enum BenchmarkStreamShapeStatus: String, Codable, Equatable, Sendable {
     case disabled
@@ -20,19 +21,25 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let dirtyRectangleCount: Int
     public let dirtyAreaPermille: Int
     public let changedPixelsPermille: Int
+    public let rendererUploadStrategy: FramebufferUploadStrategy
+    public let rendererUploadRegionCount: Int
 
     public init(
         kind: BenchmarkStreamUpdateKind,
         durationMilliseconds: Int,
         dirtyRectangleCount: Int,
         dirtyAreaPermille: Int,
-        changedPixelsPermille: Int
+        changedPixelsPermille: Int,
+        rendererUploadStrategy: FramebufferUploadStrategy = .none,
+        rendererUploadRegionCount: Int = 0
     ) {
         self.kind = kind
         self.durationMilliseconds = max(durationMilliseconds, 0)
         self.dirtyRectangleCount = max(dirtyRectangleCount, 0)
         self.dirtyAreaPermille = Self.clampPermille(dirtyAreaPermille)
         self.changedPixelsPermille = Self.clampPermille(changedPixelsPermille)
+        self.rendererUploadStrategy = rendererUploadStrategy
+        self.rendererUploadRegionCount = max(rendererUploadRegionCount, 0)
     }
 
     private static func clampPermille(_ value: Int) -> Int {
@@ -53,6 +60,12 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let dirtyRectangleCount: BenchmarkLatencySummary?
     public let dirtyAreaPermille: BenchmarkLatencySummary?
     public let changedPixelsPermille: BenchmarkLatencySummary?
+    public let rendererUploadSampleCount: Int
+    public let rendererPartialUploadSamples: Int
+    public let rendererFullUploadSamples: Int
+    public let rendererPartialUploadPermille: Int?
+    public let rendererFullUploadPermille: Int?
+    public let rendererUploadRegionCount: BenchmarkLatencySummary?
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
 
@@ -66,6 +79,13 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let requestedSamples = max(requestedSamples, 0)
         let emptyUpdateSamples = samples.filter { $0.kind == .emptyUpdate }.count
         let contentUpdateSamples = samples.filter { $0.kind == .contentUpdate }.count
+        let rendererUploadSamples = samples.filter { $0.rendererUploadStrategy != .none }
+        let rendererPartialUploadSamples = rendererUploadSamples.filter {
+            $0.rendererUploadStrategy == .partial
+        }.count
+        let rendererFullUploadSamples = rendererUploadSamples.filter {
+            $0.rendererUploadStrategy == .full
+        }.count
 
         self.status = Self.status(
             requestedSamples: requestedSamples,
@@ -88,6 +108,20 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.dirtyRectangleCount = BenchmarkLatencySummary(samples.map(\.dirtyRectangleCount))
         self.dirtyAreaPermille = BenchmarkLatencySummary(samples.map(\.dirtyAreaPermille))
         self.changedPixelsPermille = BenchmarkLatencySummary(samples.map(\.changedPixelsPermille))
+        self.rendererUploadSampleCount = rendererUploadSamples.count
+        self.rendererPartialUploadSamples = rendererPartialUploadSamples
+        self.rendererFullUploadSamples = rendererFullUploadSamples
+        self.rendererPartialUploadPermille = Self.permille(
+            rendererPartialUploadSamples,
+            of: rendererUploadSamples.count
+        )
+        self.rendererFullUploadPermille = Self.permille(
+            rendererFullUploadSamples,
+            of: rendererUploadSamples.count
+        )
+        self.rendererUploadRegionCount = BenchmarkLatencySummary(
+            rendererUploadSamples.map(\.rendererUploadRegionCount)
+        )
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
         self.failureLabel = failureLabel
     }
@@ -125,6 +159,14 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             return nil
         }
         return Double(sampleCount) / (Double(elapsedMilliseconds) / 1_000)
+    }
+
+    private static func permille(_ value: Int, of total: Int) -> Int? {
+        guard total > 0 else {
+            return nil
+        }
+        let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
+        return value > 0 ? max(rounded, 1) : 0
     }
 }
 

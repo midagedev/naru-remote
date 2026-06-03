@@ -26,6 +26,11 @@ final class BenchmarkLatencySummaryTests: XCTestCase {
         XCTAssertEqual(summary.p50Milliseconds, 20)
         XCTAssertEqual(summary.p95Milliseconds, 40)
         XCTAssertEqual(summary.maxMilliseconds, 40)
+        XCTAssertEqual(summary.averageValue, 25)
+        XCTAssertEqual(summary.minValue, 10)
+        XCTAssertEqual(summary.p50Value, 20)
+        XCTAssertEqual(summary.p95Value, 40)
+        XCTAssertEqual(summary.maxValue, 40)
     }
 
     func testNinetyFifthPercentileHighlightsTailLatency() throws {

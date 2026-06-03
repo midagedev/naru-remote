@@ -102,7 +102,8 @@ The live benchmark intentionally redacts the target identity and avoids
 emitting framebuffer dimensions, pixel payloads, byte counts, cursor
 pixels, and raw error descriptions. The stream-shape probe emits
 aggregate FPS, update-latency, dirty-rectangle-count, dirty-area
-permille, and changed-pixel permille summaries only. By default
+permille, changed-pixel permille, and renderer upload strategy
+summaries only. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.

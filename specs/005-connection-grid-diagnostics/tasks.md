@@ -50,6 +50,11 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
 - **T506** Add debug-safe context fields: target fingerprint, host kind, configured port, credential-reference presence, diagnostic trigger, probe timeout seconds, stage timestamps, and typed failure codes. Owns: diagnostics and app-model files.
 - **T507** Verify: `swift test`; UI smoke for share button remains enabled only with diagnostics; PR.
 - **T508** Add schema v3 stream-performance summary: include safe aggregate frame counts, content/empty/timeout ratios, dirty-rectangle/change-area aggregates, duration/FPS buckets, and thermal state; exclude pixels, dimensions, coordinates, raw latency samples, and raw target identity. Owns: diagnostics/app snapshot/model/tests. **Done.**
+- **T509** Bump diagnostics to schema v4 with renderer upload strategy
+  aggregates: expose only full/partial upload counts, permille, and upload
+  region-count maxima so hot-device reports can identify full-upload pressure
+  without host, dimensions, coordinates, pixels, byte counts, or raw latency.
+  Owns: diagnostics/app snapshot/model/tests. **Done.**
 
 ## Cross-cutting Rules
 
