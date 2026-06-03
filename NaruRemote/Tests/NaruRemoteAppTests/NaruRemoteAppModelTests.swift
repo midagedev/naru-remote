@@ -1026,7 +1026,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 2)
+        XCTAssertEqual(report.schemaVersion, 3)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
         XCTAssertEqual(report.configuredPort, 5901)
@@ -1037,10 +1037,69 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(report.targetFingerprint?.count, "sha256:".count + 64)
         XCTAssertEqual(report.stageRows.last?.stageID, DiagnosticStage.tcp.rawValue)
         XCTAssertEqual(report.stageRows.last?.failureCode, "network.connectionFailed")
+        XCTAssertNil(report.streamPerformance)
         XCTAssertFalse(json.contains("desk.tailnet.ts.net"))
         XCTAssertFalse(json.contains("desk.tailnet.ts.net:5901"))
         XCTAssertFalse(json.contains(credentialRef))
         XCTAssertFalse(json.contains("secret"))
+        XCTAssertFalse(json.contains(profile.id.uuidString))
+    }
+
+    func testActiveSessionExportIncludesSafeStreamPerformanceSummary() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            updateResults: [
+                .fullFrame(framebuffer: firstFramebuffer),
+                RFBFramebufferUpdateResult(
+                    framebuffer: secondFramebuffer,
+                    dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                    changedPixelCount: 1
+                )
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector },
+            thermalStateProvider: { .fair }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        let performance = try XCTUnwrap(report.streamPerformance)
+        XCTAssertEqual(report.schemaVersion, 3)
+        XCTAssertEqual(performance.deliveredFrameCount, 2)
+        XCTAssertEqual(performance.contentFrameCount, 2)
+        XCTAssertEqual(performance.emptyUpdateCount, 0)
+        XCTAssertEqual(performance.contentFramePermille, 1_000)
+        XCTAssertEqual(performance.dirtyRectangleCountMax, 1)
+        XCTAssertEqual(performance.dirtyAreaPermilleMax, 1_000)
+        XCTAssertEqual(performance.changedPixelsPermilleMax, 1_000)
+        XCTAssertEqual(performance.thermalState, SessionStreamThermalState.fair.rawValue)
+        XCTAssertFalse(json.contains("desk.tailnet.ts.net"))
         XCTAssertFalse(json.contains(profile.id.uuidString))
     }
 

@@ -3,6 +3,45 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class NaruRemoteAppSnapshotTests: XCTestCase {
+    func testSessionStreamStatsBuildSafeDiagnosticPerformanceReport() throws {
+        let framebuffer = RFBRawFramebuffer(width: 4, height: 4)
+        let firstFrame = RFBFramePumpFrame(
+            sequence: 1,
+            framebuffer: framebuffer,
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 4)],
+            changedPixelCount: 16,
+            capturedAt: Date(timeIntervalSince1970: 100),
+            isIncremental: false
+        )
+        let emptyFrame = RFBFramePumpFrame(
+            sequence: 2,
+            framebuffer: framebuffer,
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            capturedAt: Date(timeIntervalSince1970: 100.5),
+            isIncremental: true
+        )
+        var stats = SessionStreamStats()
+
+        stats.record(frame: firstFrame, thermalState: .nominal)
+        stats.record(frame: emptyFrame, thermalState: .serious)
+
+        let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
+        XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
+        XCTAssertEqual(report.deliveredFramesPerSecondBucket, DiagnosticFrameRateBucket.underFive.rawValue)
+        XCTAssertEqual(report.deliveredFrameCount, 2)
+        XCTAssertEqual(report.contentFrameCount, 1)
+        XCTAssertEqual(report.emptyUpdateCount, 1)
+        XCTAssertEqual(report.contentFramePermille, 500)
+        XCTAssertEqual(report.emptyUpdatePermille, 500)
+        XCTAssertEqual(report.transportIdleTimeoutPermille, 0)
+        XCTAssertEqual(report.dirtyRectangleSampleCount, 2)
+        XCTAssertEqual(report.dirtyRectangleCountMax, 1)
+        XCTAssertEqual(report.dirtyAreaPermilleMax, 1_000)
+        XCTAssertEqual(report.changedPixelsPermilleMax, 1_000)
+        XCTAssertEqual(report.thermalState, SessionStreamThermalState.serious.rawValue)
+    }
+
     func testSessionStreamStatsTrackTimeoutsWithoutDirtySamples() {
         let framebuffer = RFBRawFramebuffer(width: 4, height: 4)
         let timeoutFrame = RFBFramePumpFrame(

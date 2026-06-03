@@ -8,6 +8,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let startedAt: Date
     public let finishedAt: Date?
     public let context: DiagnosticRunContext?
+    public let streamPerformance: DiagnosticStreamPerformanceReport?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -19,7 +20,8 @@ public struct DiagnosticExport: Equatable, Sendable {
 
     public init(
         run: ConnectionDiagnosticRun,
-        detailLevel: DiagnosticExportDetailLevel = .summaryOnly
+        detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
+        streamPerformance: DiagnosticStreamPerformanceReport? = nil
     ) {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
@@ -27,6 +29,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.startedAt = run.startedAt
         self.finishedAt = run.finishedAt
         self.context = run.context
+        self.streamPerformance = streamPerformance
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -120,7 +123,8 @@ public struct DiagnosticExport: Equatable, Sendable {
             diagnosticTrigger: context?.trigger?.rawValue,
             probeTimeoutSeconds: context?.probeTimeoutSeconds,
             verdict: verdict.rawValue,
-            stageRows: stageRows
+            stageRows: stageRows,
+            streamPerformance: streamPerformance
         )
     }
 
@@ -144,7 +148,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     ) -> String {
         let text = renderShareText(buildVersion: buildVersion, now: now)
         let json = renderCollectionJSON(buildVersion: buildVersion, now: now)
-        return "\(text)\n\n--- Naru Remote Diagnostic JSON v2 ---\n\(json)"
+        return "\(text)\n\n--- Naru Remote Diagnostic JSON v3 ---\n\(json)"
     }
 
     private static func isoString(from date: Date) -> String {
@@ -177,6 +181,120 @@ public enum DiagnosticFingerprint {
 public enum DiagnosticExportDetailLevel: String, Codable, Equatable, Sendable {
     case summaryOnly
     case stageSummary
+}
+
+public enum DiagnosticFrameRateBucket: String, Codable, Equatable, Sendable {
+    case notMeasured
+    case underFive
+    case fiveToFifteen
+    case fifteenToTwentyFour
+    case twentyFourToThirty
+    case thirtyToSixty
+    case sixtyOrMore
+
+    public static func bucket(
+        deliveredFrameCount: Int,
+        observedDurationSeconds: TimeInterval?
+    ) -> DiagnosticFrameRateBucket {
+        guard deliveredFrameCount > 1,
+              let observedDurationSeconds,
+              observedDurationSeconds > 0
+        else {
+            return .notMeasured
+        }
+
+        let framesAfterFirst = max(deliveredFrameCount - 1, 0)
+        let framesPerSecond = Double(framesAfterFirst) / observedDurationSeconds
+        switch framesPerSecond {
+        case ..<5:
+            return .underFive
+        case ..<15:
+            return .fiveToFifteen
+        case ..<24:
+            return .fifteenToTwentyFour
+        case ..<30:
+            return .twentyFourToThirty
+        case ..<60:
+            return .thirtyToSixty
+        default:
+            return .sixtyOrMore
+        }
+    }
+}
+
+public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
+    public let observedDurationBucket: String
+    public let deliveredFramesPerSecondBucket: String
+    public let deliveredFrameCount: Int
+    public let contentFrameCount: Int
+    public let emptyUpdateCount: Int
+    public let transportIdleTimeoutCount: Int
+    public let contentFramePermille: Int?
+    public let emptyUpdatePermille: Int?
+    public let transportIdleTimeoutPermille: Int?
+    public let dirtyRectangleSampleCount: Int
+    public let averageDirtyRectangleCount: Int?
+    public let dirtyRectangleCountMax: Int
+    public let averageDirtyAreaPermille: Int?
+    public let dirtyAreaPermilleMax: Int
+    public let averageChangedPixelsPermille: Int?
+    public let changedPixelsPermilleMax: Int
+    public let thermalState: String
+
+    public init(
+        observedDurationBucket: String,
+        deliveredFramesPerSecondBucket: String,
+        deliveredFrameCount: Int,
+        contentFrameCount: Int,
+        emptyUpdateCount: Int,
+        transportIdleTimeoutCount: Int,
+        contentFramePermille: Int? = nil,
+        emptyUpdatePermille: Int? = nil,
+        transportIdleTimeoutPermille: Int? = nil,
+        dirtyRectangleSampleCount: Int,
+        averageDirtyRectangleCount: Int? = nil,
+        dirtyRectangleCountMax: Int,
+        averageDirtyAreaPermille: Int? = nil,
+        dirtyAreaPermilleMax: Int,
+        averageChangedPixelsPermille: Int? = nil,
+        changedPixelsPermilleMax: Int,
+        thermalState: String
+    ) {
+        self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
+        self.deliveredFramesPerSecondBucket = Self.safeFrameRateBucket(deliveredFramesPerSecondBucket)
+        self.deliveredFrameCount = max(deliveredFrameCount, 0)
+        self.contentFrameCount = max(contentFrameCount, 0)
+        self.emptyUpdateCount = max(emptyUpdateCount, 0)
+        self.transportIdleTimeoutCount = max(transportIdleTimeoutCount, 0)
+        self.contentFramePermille = Self.clampPermille(contentFramePermille)
+        self.emptyUpdatePermille = Self.clampPermille(emptyUpdatePermille)
+        self.transportIdleTimeoutPermille = Self.clampPermille(transportIdleTimeoutPermille)
+        self.dirtyRectangleSampleCount = max(dirtyRectangleSampleCount, 0)
+        self.averageDirtyRectangleCount = averageDirtyRectangleCount.map { max($0, 0) }
+        self.dirtyRectangleCountMax = max(dirtyRectangleCountMax, 0)
+        self.averageDirtyAreaPermille = Self.clampPermille(averageDirtyAreaPermille)
+        self.dirtyAreaPermilleMax = Self.clampPermille(dirtyAreaPermilleMax) ?? 0
+        self.averageChangedPixelsPermille = Self.clampPermille(averageChangedPixelsPermille)
+        self.changedPixelsPermilleMax = Self.clampPermille(changedPixelsPermilleMax) ?? 0
+        self.thermalState = Self.safeThermalState(thermalState)
+    }
+
+    private static func clampPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+
+    private static func safeDurationBucket(_ value: String) -> String {
+        DiagnosticDurationBucket(rawValue: value)?.rawValue ?? DiagnosticDurationBucket.notMeasured.rawValue
+    }
+
+    private static func safeFrameRateBucket(_ value: String) -> String {
+        DiagnosticFrameRateBucket(rawValue: value)?.rawValue ?? DiagnosticFrameRateBucket.notMeasured.rawValue
+    }
+
+    private static func safeThermalState(_ value: String) -> String {
+        let allowedValues = Set(["unknown", "nominal", "fair", "serious", "critical"])
+        return allowedValues.contains(value) ? value : "unknown"
+    }
 }
 
 public enum DiagnosticFailureCodeCatalog {
@@ -215,7 +333,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let generatedAt: String
@@ -233,6 +351,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let probeTimeoutSeconds: Double?
     public let verdict: String
     public let stageRows: [DiagnosticExport.Row]
+    public let streamPerformance: DiagnosticStreamPerformanceReport?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -250,7 +369,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         diagnosticTrigger: String? = nil,
         probeTimeoutSeconds: Double? = nil,
         verdict: String,
-        stageRows: [DiagnosticExport.Row]
+        stageRows: [DiagnosticExport.Row],
+        streamPerformance: DiagnosticStreamPerformanceReport? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -268,6 +388,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.probeTimeoutSeconds = probeTimeoutSeconds
         self.verdict = verdict
         self.stageRows = stageRows
+        self.streamPerformance = streamPerformance
     }
 }
 

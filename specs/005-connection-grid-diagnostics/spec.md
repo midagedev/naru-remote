@@ -98,6 +98,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 - **FR-012**: The existing plain-text share summary MUST remain available for humans, but the structured report is the canonical collection format.
 - **FR-013**: Diagnostics JSON MUST include debug-safe connection context when a profile is selected: target fingerprint derived from host+port, host kind, configured port, credential-reference presence, diagnostic trigger, and probe timeout seconds. The raw host, endpoint, username, credential reference, password, and raw network error MUST remain absent.
 - **FR-014**: Failed diagnostic stages MUST include a typed failure code such as `network.connectionFailed`, `network.connectTimedOut`, `network.readTimedOut`, `rfb.authenticationRequired`, or `rfb.securityFailed` when the app can derive one. Failure codes MUST be fixed enums/strings owned by the app, not raw platform error descriptions.
+- **FR-015**: Diagnostics JSON MAY include active-session stream-performance aggregates for support triage: frame counts, content/empty/timeout ratios, dirty-rectangle/change-area aggregates, coarse duration/FPS buckets, and thermal state. It MUST NOT include pixels, frame dimensions, coordinates, raw latency samples, raw target identity, preview data, or user content.
 
 ### Naru Input Requirements
 
@@ -145,7 +146,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 | Launch reachability probes publish states | App-model unit | iPhone simulator | Fake connector transitions checking to final states |
 | Reachability does not disturb active session | App-model unit | iPhone simulator | Active session remains selected and streaming state is unchanged |
 | Structured diagnostic JSON redacts sentinels | Unit | iPhone simulator | Secret host/password/clipboard/pixel sentinels absent |
-| Structured diagnostic JSON includes debug-safe failure context | Unit | iPhone simulator | TCP failure report includes schema v2 context and typed failure code, with raw host/endpoint/credential absent |
+| Structured diagnostic JSON includes debug-safe failure and stream context | Unit | iPhone simulator | TCP failure report includes schema v3 context and typed failure code; active-session report includes safe stream-performance aggregates; raw host/endpoint/credential/pixels remain absent |
 | Share diagnostics includes human text + JSON | Unit/UI smoke | iPhone simulator | Share provider payload contains both formats |
 | Real Mac VNC launch grid shows reachable and captures preview | Manual device | iPhone physical | Residual-risk manual pass over local/private VNC |
 
