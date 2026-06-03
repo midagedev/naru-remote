@@ -102,7 +102,11 @@ final class RFBFramePumpTests: XCTestCase {
             ],
             changedPixelCount: 1_000,
             capturedAt: capturedAt,
-            serverCursor: cursor
+            serverCursor: cursor,
+            timing: RFBFramebufferUpdateTiming(
+                totalMilliseconds: 21,
+                networkReadMilliseconds: 17
+            )
         )
         let source = FakeDamageTrackingFramebufferUpdateSource(results: [result])
         let pump = RFBFramePump(source: source)
@@ -115,6 +119,9 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(frame.changeActivity, .moderate)
         XCTAssertEqual(frame.capturedAt, capturedAt)
         XCTAssertEqual(frame.serverCursor, cursor)
+        XCTAssertEqual(frame.timing?.totalMilliseconds, 21)
+        XCTAssertEqual(frame.timing?.networkReadMilliseconds, 17)
+        XCTAssertEqual(frame.timing?.clientProcessingMilliseconds, 4)
     }
 
     func testPumpUsesIdleIntervalAfterEmptyIncrementalFrame() throws {

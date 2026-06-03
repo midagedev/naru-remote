@@ -143,6 +143,24 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         )
     }
 
+    func testFramebufferUpdateTimingClampsAndDerivesClientProcessing() {
+        let timing = RFBFramebufferUpdateTiming(
+            totalMilliseconds: 18,
+            networkReadMilliseconds: 11
+        )
+        let clamped = RFBFramebufferUpdateTiming(
+            totalMilliseconds: -5,
+            networkReadMilliseconds: 20
+        )
+
+        XCTAssertEqual(timing.totalMilliseconds, 18)
+        XCTAssertEqual(timing.networkReadMilliseconds, 11)
+        XCTAssertEqual(timing.clientProcessingMilliseconds, 7)
+        XCTAssertEqual(clamped.totalMilliseconds, 0)
+        XCTAssertEqual(clamped.networkReadMilliseconds, 20)
+        XCTAssertEqual(clamped.clientProcessingMilliseconds, 0)
+    }
+
     func testFramebufferUpdateResultDecodesLegacyPayloadWithoutContinuousEndFlag() throws {
         let original = RFBFramebufferUpdateResult(
             framebuffer: RFBRawFramebuffer(width: 1, height: 1),
@@ -154,12 +172,14 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object.removeValue(forKey: "endedContinuousUpdates")
         object.removeValue(forKey: "transportIdleTimedOut")
+        object.removeValue(forKey: "timing")
         let legacyPayload = try JSONSerialization.data(withJSONObject: object)
 
         let decoded = try JSONDecoder().decode(RFBFramebufferUpdateResult.self, from: legacyPayload)
 
         XCTAssertFalse(decoded.endedContinuousUpdates)
         XCTAssertFalse(decoded.transportIdleTimedOut)
+        XCTAssertNil(decoded.timing)
         XCTAssertEqual(decoded.framebuffer, original.framebuffer)
         XCTAssertEqual(decoded.dirtyRectangles, original.dirtyRectangles)
         XCTAssertEqual(decoded.changedPixelCount, original.changedPixelCount)
@@ -195,6 +215,27 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         )
 
         XCTAssertTrue(decoded.transportIdleTimedOut)
+    }
+
+    func testFramebufferUpdateResultRoundTripsReceiveTiming() throws {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            timing: RFBFramebufferUpdateTiming(
+                totalMilliseconds: 42,
+                networkReadMilliseconds: 40
+            )
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RFBFramebufferUpdateResult.self,
+            from: try JSONEncoder().encode(original)
+        )
+
+        XCTAssertEqual(decoded.timing?.totalMilliseconds, 42)
+        XCTAssertEqual(decoded.timing?.networkReadMilliseconds, 40)
+        XCTAssertEqual(decoded.timing?.clientProcessingMilliseconds, 2)
     }
 
     func testRejectsUnsupportedFramebufferEncoding() throws {

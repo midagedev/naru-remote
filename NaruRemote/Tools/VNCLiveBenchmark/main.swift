@@ -532,7 +532,10 @@ enum VNCLiveBenchmark {
             dirtyAreaPermille: permille(dirtyArea, of: framebufferArea),
             changedPixelsPermille: permille(frame.changedPixelCount, of: framebufferArea),
             rendererUploadStrategy: uploadPlan.strategy,
-            rendererUploadRegionCount: uploadPlan.uploadRegionCount
+            rendererUploadRegionCount: uploadPlan.uploadRegionCount,
+            receiveTotalMilliseconds: frame.timing?.totalMilliseconds,
+            networkReadMilliseconds: frame.timing?.networkReadMilliseconds,
+            clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds
         )
     }
 
@@ -1044,7 +1047,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 18
+        self.schemaVersion = 19
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1076,6 +1079,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "host, password, server name, framebuffer dimensions, pixel payloads, byte counts, cursor pixels, and raw error descriptions are not emitted",
             "stream-shape metrics emit aggregate counts and permille ratios only",
             "renderer upload metrics emit aggregate strategy counts only",
+            "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
             "reports are written to stdout only"
         ]
         self.profiles = profiles
@@ -1274,7 +1278,7 @@ private enum ContinuousUpdateSampleKind: Equatable {
 private func renderText(_ report: BenchmarkReport) {
     print("\(toolName)")
     print("target: \(report.target)")
-    print("safety: host/password/server name/framebuffer dimensions/pixels/byte counts/cursor pixels/raw errors are not emitted")
+    print("safety: \(report.safety.joined(separator: "; "))")
     print("attempts per profile: \(report.attemptsPerProfile)")
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("stream-shape samples: \(report.streamShapeSamples)")
@@ -1471,6 +1475,30 @@ private func renderStreamShapeSummary(
                 + "\(changedPixels.averageMilliseconds)/\(changedPixels.p50Milliseconds)/"
                 + "\(changedPixels.p95Milliseconds)/\(changedPixels.minMilliseconds)/"
                 + "\(changedPixels.maxMilliseconds)"
+        )
+    }
+    if let receiveTotal = summary.receiveTotalLatency {
+        print(
+            "\(indentation)  receive total ms avg/p50/p95/min/max: "
+                + "\(receiveTotal.averageMilliseconds)/\(receiveTotal.p50Milliseconds)/"
+                + "\(receiveTotal.p95Milliseconds)/\(receiveTotal.minMilliseconds)/"
+                + "\(receiveTotal.maxMilliseconds)"
+        )
+    }
+    if let networkRead = summary.networkReadLatency {
+        print(
+            "\(indentation)  network read ms avg/p50/p95/min/max: "
+                + "\(networkRead.averageMilliseconds)/\(networkRead.p50Milliseconds)/"
+                + "\(networkRead.p95Milliseconds)/\(networkRead.minMilliseconds)/"
+                + "\(networkRead.maxMilliseconds)"
+        )
+    }
+    if let clientProcessing = summary.clientProcessingLatency {
+        print(
+            "\(indentation)  client processing ms avg/p50/p95/min/max: "
+                + "\(clientProcessing.averageMilliseconds)/\(clientProcessing.p50Milliseconds)/"
+                + "\(clientProcessing.p95Milliseconds)/\(clientProcessing.minMilliseconds)/"
+                + "\(clientProcessing.maxMilliseconds)"
         )
     }
     if summary.rendererUploadSampleCount > 0 {

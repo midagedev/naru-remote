@@ -445,3 +445,37 @@ benchmark candidate set.
 ContinuousUpdates/Fence, or adaptive-full renegotiation by default. Unsupported
 Cursor/XCursor pseudo-encodings must remain harmless; the UI keeps the synthetic
 cursor fallback when no server cursor arrives.
+
+## D18 — Split live receive timing before further heat/FPS default changes
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
+- TurboVNC H.264 study: https://turbovnc.org/About/H264
+
+**Decision**: extend `VNCLiveBenchmark` with aggregate receive-path timing
+before changing more production stream defaults. Each live framebuffer update
+may now carry optional safe timing for total receive time, socket-read
+waiting/copy time, and derived client-processing time; stream-shape summaries
+aggregate those values as avg/p50/p95/min/max.
+
+**Why**:
+- RFC 6143's normal framebuffer stream is request/response: a single observed
+  update latency includes request write, network/server wait, compressed payload
+  reads, decoder work, framebuffer mutation, and local dispatch. Existing
+  benchmark fields could show that a frame was slow, but not whether the client
+  was burning time locally.
+- TigerVNC documents automatic protocol selection that switches between
+  stronger compression and faster-to-generate encodings based on link speed.
+  TightVNC/TurboVNC documentation likewise frames quality/compression as a CPU
+  vs bandwidth tradeoff. Naru needs the same evidence before choosing a static
+  encoding or adaptive policy for sustained iPhone sessions.
+- Recent local evidence shows renderer full uploads are usually avoided; heat
+  therefore needs a benchmark split that can point at network/server wait versus
+  local decode/dispatch pressure.
+
+**Privacy rule**: timing fields are aggregate millisecond summaries only. They
+must not include host, server name, framebuffer dimensions, coordinates, pixels,
+byte counts, cursor pixels, raw per-frame logs, or raw errors. They are emitted
+only in benchmark stdout/JSON, not persisted as user diagnostics by default.

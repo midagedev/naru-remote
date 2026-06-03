@@ -311,6 +311,11 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertTrue(idle.dirtyRectangles.isEmpty)
         XCTAssertEqual(idle.changedPixelCount, 0)
         XCTAssertTrue(idle.transportIdleTimedOut)
+        XCTAssertNotNil(first.timing)
+        XCTAssertNotNil(idle.timing)
+        XCTAssertGreaterThanOrEqual(first.timing?.totalMilliseconds ?? -1, 0)
+        XCTAssertGreaterThanOrEqual(first.timing?.networkReadMilliseconds ?? -1, 0)
+        XCTAssertGreaterThanOrEqual(first.timing?.clientProcessingMilliseconds ?? -1, 0)
         XCTAssertEqual(client.state, .receivingFrames)
 
         try await client.sendPointerEvent(buttonMask: 0, x: 1, y: 1)
