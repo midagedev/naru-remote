@@ -201,6 +201,25 @@ public struct RFBServerCursor: Codable, Equatable, Sendable {
     }
 }
 
+public struct RFBFramebufferUpdateTiming: Codable, Equatable, Sendable {
+    /// Coarse elapsed receive time for benchmark bucketing, rounded to
+    /// whole milliseconds before storage.
+    public let totalMilliseconds: Int
+    /// Coarse socket read time accumulated across blocking reads.
+    public let networkReadMilliseconds: Int
+    /// Derived from rounded millisecond buckets, so it should be used
+    /// for aggregate diagnosis rather than sub-millisecond profiling.
+    public let clientProcessingMilliseconds: Int
+
+    public init(totalMilliseconds: Int, networkReadMilliseconds: Int) {
+        let totalMilliseconds = max(totalMilliseconds, 0)
+        let networkReadMilliseconds = max(networkReadMilliseconds, 0)
+        self.totalMilliseconds = totalMilliseconds
+        self.networkReadMilliseconds = networkReadMilliseconds
+        self.clientProcessingMilliseconds = max(totalMilliseconds - networkReadMilliseconds, 0)
+    }
+}
+
 public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case framebuffer
@@ -211,6 +230,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         case serverCursor
         case endedContinuousUpdates
         case transportIdleTimedOut
+        case timing
     }
 
     public let framebuffer: RFBRawFramebuffer
@@ -234,6 +254,12 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// while keeping the socket and buffered read state intact. This is
     /// not a frame round-trip latency sample.
     public let transportIdleTimedOut: Bool
+    /// Optional receive-path timing captured by the live network client.
+    /// Contains only aggregate millisecond durations: total receive,
+    /// socket-read waiting/copy time, and the derived client processing
+    /// remainder. It carries no target identity, dimensions, coordinates,
+    /// byte counts, pixels, or raw payload details.
+    public let timing: RFBFramebufferUpdateTiming?
 
     public init(
         framebuffer: RFBRawFramebuffer,
@@ -243,7 +269,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         didResizeDesktop: Bool = false,
         serverCursor: RFBServerCursor? = nil,
         endedContinuousUpdates: Bool = false,
-        transportIdleTimedOut: Bool = false
+        transportIdleTimedOut: Bool = false,
+        timing: RFBFramebufferUpdateTiming? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -253,6 +280,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         self.serverCursor = serverCursor
         self.endedContinuousUpdates = endedContinuousUpdates
         self.transportIdleTimedOut = transportIdleTimedOut
+        self.timing = timing
     }
 
     public init(from decoder: Decoder) throws {
@@ -265,7 +293,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             didResizeDesktop: try container.decodeIfPresent(Bool.self, forKey: .didResizeDesktop) ?? false,
             serverCursor: try container.decodeIfPresent(RFBServerCursor.self, forKey: .serverCursor),
             endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false,
-            transportIdleTimedOut: try container.decodeIfPresent(Bool.self, forKey: .transportIdleTimedOut) ?? false
+            transportIdleTimedOut: try container.decodeIfPresent(Bool.self, forKey: .transportIdleTimedOut) ?? false,
+            timing: try container.decodeIfPresent(RFBFramebufferUpdateTiming.self, forKey: .timing)
         )
     }
 
@@ -279,6 +308,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         try container.encodeIfPresent(serverCursor, forKey: .serverCursor)
         try container.encode(endedContinuousUpdates, forKey: .endedContinuousUpdates)
         try container.encode(transportIdleTimedOut, forKey: .transportIdleTimedOut)
+        try container.encodeIfPresent(timing, forKey: .timing)
     }
 
     public static func fullFrame(
@@ -302,6 +332,20 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
 
     public var totalPixelCount: Int {
         framebuffer.width * framebuffer.height
+    }
+
+    public func withTiming(_ timing: RFBFramebufferUpdateTiming?) -> RFBFramebufferUpdateResult {
+        RFBFramebufferUpdateResult(
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount,
+            capturedAt: capturedAt,
+            didResizeDesktop: didResizeDesktop,
+            serverCursor: serverCursor,
+            endedContinuousUpdates: endedContinuousUpdates,
+            transportIdleTimedOut: transportIdleTimedOut,
+            timing: timing
+        )
     }
 
     public var changedPixelRatio: Double {

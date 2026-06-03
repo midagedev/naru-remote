@@ -28,6 +28,9 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let changedPixelsPermille: Int
     public let rendererUploadStrategy: FramebufferUploadStrategy
     public let rendererUploadRegionCount: Int
+    public let receiveTotalMilliseconds: Int?
+    public let networkReadMilliseconds: Int?
+    public let clientProcessingMilliseconds: Int?
 
     public init(
         kind: BenchmarkStreamUpdateKind,
@@ -36,7 +39,10 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         dirtyAreaPermille: Int,
         changedPixelsPermille: Int,
         rendererUploadStrategy: FramebufferUploadStrategy = .none,
-        rendererUploadRegionCount: Int = 0
+        rendererUploadRegionCount: Int = 0,
+        receiveTotalMilliseconds: Int? = nil,
+        networkReadMilliseconds: Int? = nil,
+        clientProcessingMilliseconds: Int? = nil
     ) {
         self.kind = kind
         self.durationMilliseconds = max(durationMilliseconds, 0)
@@ -45,10 +51,17 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         self.changedPixelsPermille = Self.clampPermille(changedPixelsPermille)
         self.rendererUploadStrategy = rendererUploadStrategy
         self.rendererUploadRegionCount = max(rendererUploadRegionCount, 0)
+        self.receiveTotalMilliseconds = Self.clampOptionalMilliseconds(receiveTotalMilliseconds)
+        self.networkReadMilliseconds = Self.clampOptionalMilliseconds(networkReadMilliseconds)
+        self.clientProcessingMilliseconds = Self.clampOptionalMilliseconds(clientProcessingMilliseconds)
     }
 
     private static func clampPermille(_ value: Int) -> Int {
         min(max(value, 0), 1_000)
+    }
+
+    private static func clampOptionalMilliseconds(_ value: Int?) -> Int? {
+        value.map { max($0, 0) }
     }
 }
 
@@ -66,6 +79,9 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let dirtyRectangleCount: BenchmarkLatencySummary?
     public let dirtyAreaPermille: BenchmarkLatencySummary?
     public let changedPixelsPermille: BenchmarkLatencySummary?
+    public let receiveTotalLatency: BenchmarkLatencySummary?
+    public let networkReadLatency: BenchmarkLatencySummary?
+    public let clientProcessingLatency: BenchmarkLatencySummary?
     public let tailLatency: BenchmarkStreamShapeTailSummary
     public let rendererUploadSampleCount: Int
     public let rendererPartialUploadSamples: Int
@@ -119,6 +135,9 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.dirtyRectangleCount = BenchmarkLatencySummary(samples.map(\.dirtyRectangleCount))
         self.dirtyAreaPermille = BenchmarkLatencySummary(samples.map(\.dirtyAreaPermille))
         self.changedPixelsPermille = BenchmarkLatencySummary(samples.map(\.changedPixelsPermille))
+        self.receiveTotalLatency = BenchmarkLatencySummary(samples.compactMap(\.receiveTotalMilliseconds))
+        self.networkReadLatency = BenchmarkLatencySummary(samples.compactMap(\.networkReadMilliseconds))
+        self.clientProcessingLatency = BenchmarkLatencySummary(samples.compactMap(\.clientProcessingMilliseconds))
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
         self.rendererUploadSampleCount = rendererUploadSamples.count
         self.rendererPartialUploadSamples = rendererPartialUploadSamples

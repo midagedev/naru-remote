@@ -28,14 +28,20 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     dirtyAreaPermille: 120,
                     changedPixelsPermille: 90,
                     rendererUploadStrategy: .partial,
-                    rendererUploadRegionCount: 2
+                    rendererUploadRegionCount: 2,
+                    receiveTotalMilliseconds: 25,
+                    networkReadMilliseconds: 20,
+                    clientProcessingMilliseconds: 5
                 ),
                 BenchmarkStreamShapeSample(
                     kind: .emptyUpdate,
                     durationMilliseconds: 50,
                     dirtyRectangleCount: 0,
                     dirtyAreaPermille: 0,
-                    changedPixelsPermille: 0
+                    changedPixelsPermille: 0,
+                    receiveTotalMilliseconds: 48,
+                    networkReadMilliseconds: 47,
+                    clientProcessingMilliseconds: 1
                 )
             ],
             elapsedMilliseconds: 100,
@@ -53,6 +59,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.dirtyRectangleCount).maxMilliseconds, 2)
         XCTAssertEqual(try XCTUnwrap(summary.dirtyAreaPermille).maxMilliseconds, 120)
         XCTAssertEqual(try XCTUnwrap(summary.changedPixelsPermille).maxMilliseconds, 90)
+        XCTAssertEqual(try XCTUnwrap(summary.receiveTotalLatency).averageMilliseconds, 36)
+        XCTAssertEqual(try XCTUnwrap(summary.networkReadLatency).averageMilliseconds, 33)
+        XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
         XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 0)
         XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 0)
         XCTAssertEqual(summary.rendererUploadSampleCount, 1)
@@ -108,7 +117,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             dirtyAreaPermille: 1_500,
             changedPixelsPermille: -100,
             rendererUploadStrategy: .partial,
-            rendererUploadRegionCount: -3
+            rendererUploadRegionCount: -3,
+            receiveTotalMilliseconds: -4,
+            networkReadMilliseconds: -5,
+            clientProcessingMilliseconds: -6
         )
 
         XCTAssertEqual(sample.durationMilliseconds, 0)
@@ -116,6 +128,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.dirtyAreaPermille, 1_000)
         XCTAssertEqual(sample.changedPixelsPermille, 0)
         XCTAssertEqual(sample.rendererUploadRegionCount, 0)
+        XCTAssertEqual(sample.receiveTotalMilliseconds, 0)
+        XCTAssertEqual(sample.networkReadMilliseconds, 0)
+        XCTAssertEqual(sample.clientProcessingMilliseconds, 0)
     }
 
     func testTailLatencySummaryCorrelatesSlowSamplesWithDirtyAndUploadBuckets() {
@@ -303,6 +318,28 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
     func testTransportModeRawValuesAreStableForBenchmarkJSON() {
         XCTAssertEqual(BenchmarkStreamShapeTransportMode.requestResponse.rawValue, "request-response")
         XCTAssertEqual(BenchmarkStreamShapeTransportMode.continuousUpdates.rawValue, "continuous-updates")
+    }
+
+    func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 10,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 1,
+                    changedPixelsPermille: 1
+                )
+            ],
+            elapsedMilliseconds: 10,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertNil(summary.receiveTotalLatency)
+        XCTAssertNil(summary.networkReadLatency)
+        XCTAssertNil(summary.clientProcessingLatency)
     }
 
     private func streamShapeSample(

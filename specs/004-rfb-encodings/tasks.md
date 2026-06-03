@@ -265,6 +265,15 @@ iPhone) and ships as its own PR.
   Cursor/XCursor pseudo-encodings to `localLowLatency` so trackpad mode can use
   real server cursor shapes when the server supports them. Owns: encoding
   preference, tests, benchmark artifact, research notes. **Done.**
+- **T339** Receive-path timing benchmark split: attach optional safe timing to
+  live `RFBFramebufferUpdateResult` values, propagate it through the frame pump,
+  and extend `VNCLiveBenchmark` schema v19 with aggregate receive-total,
+  network-read, and client-processing millisecond summaries. This distinguishes
+  socket wait from local decode/dispatch pressure when investigating hot iPhone
+  sustained sessions, without emitting host identity, dimensions, coordinates,
+  pixels, byte counts, raw timing samples, or raw errors. Owns: core result,
+  network client, frame pump, benchmark kit/CLI/tests, benchmark docs/artifact.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

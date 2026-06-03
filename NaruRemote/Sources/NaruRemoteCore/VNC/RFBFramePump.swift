@@ -60,6 +60,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
     public let isIncremental: Bool
     public let serverCursor: RFBServerCursor?
     public let transportIdleTimedOut: Bool
+    public let timing: RFBFramebufferUpdateTiming?
 
     public init(
         sequence: Int,
@@ -70,7 +71,8 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         capturedAt: Date = Date(),
         isIncremental: Bool,
         serverCursor: RFBServerCursor? = nil,
-        transportIdleTimedOut: Bool = false
+        transportIdleTimedOut: Bool = false,
+        timing: RFBFramebufferUpdateTiming? = nil
     ) {
         self.sequence = sequence
         self.framebuffer = framebuffer
@@ -88,6 +90,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.isIncremental = isIncremental
         self.serverCursor = serverCursor
         self.transportIdleTimedOut = transportIdleTimedOut
+        self.timing = timing
     }
 
     public init(
@@ -104,6 +107,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.isIncremental = isIncremental
         self.serverCursor = updateResult.serverCursor
         self.transportIdleTimedOut = updateResult.transportIdleTimedOut
+        self.timing = updateResult.timing
     }
 }
 

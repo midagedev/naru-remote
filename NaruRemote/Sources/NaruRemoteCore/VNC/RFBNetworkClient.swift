@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Dispatch
 
 // @unchecked Sendable justified: RFBNetworkClient conforms to the
 // public `RFBFirstFrameConnecting` / `RFBStreamingClient` /
@@ -283,9 +284,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         // reads (spec 004 FR-002). The reader also consumes TigerVNC
         // transport-control messages that may arrive before a frame.
         let reader = ConnectionByteReader(connection: connection, timeout: timeout)
+        let receiveStartedAt = RFBMonotonicTiming.now()
         let updateResult: RFBFramebufferUpdateResult
         do {
-            updateResult = try receiveNextFramebufferUpdate(
+            let decodedResult = try receiveNextFramebufferUpdate(
                 connection: connection,
                 reader: reader,
                 serverInit: serverInit,
@@ -293,6 +295,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 zlibStream: context.3,
                 tightZlibStreams: context.4,
                 timeout: timeout
+            )
+            updateResult = decodedResult.withTiming(
+                RFBFramebufferUpdateTiming(
+                    totalMilliseconds: Self.milliseconds(since: receiveStartedAt),
+                    networkReadMilliseconds: reader.readDurationMilliseconds
+                )
             )
         } catch let error as RFBNetworkClientError where allowsIdleTimeout && error.isReadTimeoutLike {
             guard reader.consumedByteCount == 0,
@@ -304,7 +312,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 framebuffer: previousFramebuffer,
                 dirtyRectangles: [],
                 changedPixelCount: 0,
-                transportIdleTimedOut: true
+                transportIdleTimedOut: true,
+                timing: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: Self.milliseconds(since: receiveStartedAt),
+                    networkReadMilliseconds: reader.readDurationMilliseconds
+                )
             )
         } catch {
             failConnection(connection)
@@ -837,6 +849,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             UInt32(bytes[offset + 2]) << 8 |
             UInt32(bytes[offset + 3])
     }
+
+    private static func milliseconds(since start: UInt64) -> Int {
+        RFBMonotonicTiming.milliseconds(since: start)
+    }
 }
 
 extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBContinuousFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
@@ -905,6 +921,28 @@ private extension RFBNetworkClientError {
     }
 }
 
+private enum RFBMonotonicTiming {
+    static func now() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds
+    }
+
+    static func nanoseconds(since start: UInt64) -> UInt64 {
+        let end = now()
+        guard end >= start else {
+            return 0
+        }
+        return end - start
+    }
+
+    static func milliseconds(since start: UInt64) -> Int {
+        milliseconds(fromNanoseconds: nanoseconds(since: start))
+    }
+
+    static func milliseconds(fromNanoseconds nanoseconds: UInt64) -> Int {
+        Int((Double(nanoseconds) / 1_000_000).rounded())
+    }
+}
+
 /// `RFBByteReader` over a live `RFBNetworkConnection` (spec 004
 /// FR-002). Each `readBytes(_:)` blocks (up to `timeout`) for exactly
 /// the requested bytes via `readExactly`, so a rectangle that spans
@@ -915,6 +953,11 @@ private final class ConnectionByteReader: RFBByteReader {
     private let connection: RFBNetworkConnection
     private let timeout: TimeInterval
     private(set) var consumedByteCount = 0
+    private var readDurationNanoseconds: UInt64 = 0
+
+    var readDurationMilliseconds: Int {
+        RFBMonotonicTiming.milliseconds(fromNanoseconds: readDurationNanoseconds)
+    }
 
     init(connection: RFBNetworkConnection, timeout: TimeInterval) {
         self.connection = connection
@@ -925,9 +968,16 @@ private final class ConnectionByteReader: RFBByteReader {
         guard count > 0 else {
             return []
         }
-        let data = try connection.readExactly(byteCount: count, timeout: timeout)
-        consumedByteCount += data.count
-        return [UInt8](data)
+        let startedAt = RFBMonotonicTiming.now()
+        do {
+            let data = try connection.readExactly(byteCount: count, timeout: timeout)
+            readDurationNanoseconds += RFBMonotonicTiming.nanoseconds(since: startedAt)
+            consumedByteCount += data.count
+            return [UInt8](data)
+        } catch {
+            readDurationNanoseconds += RFBMonotonicTiming.nanoseconds(since: startedAt)
+            throw error
+        }
     }
 }
 
