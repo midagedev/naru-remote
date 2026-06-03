@@ -539,7 +539,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         currentZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
-        currentPanOffset = offset
+        currentPanOffset = clampedPan(offset)
         applyViewportTransformToMetalView()
     }
 
@@ -553,16 +553,25 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
 
-    /// Clamp a pan offset so the scaled content can never reveal
-    /// background past its edges.  Mirrors
-    /// `ViewportTransform.clampPan` (NaruRemoteCore) — the content size
-    /// is the host bounds times the live zoom scale.
+    /// Clamp against the actual aspect-fit framebuffer content, not
+    /// the MTKView rectangle. The remote frame is first aspect-fit by
+    /// the renderer, then locally zoomed/panned by this host; wide
+    /// desktops in portrait otherwise hit the wrong boundary and feel
+    /// sticky near crop-to-fill edges.
     private func clampedPan(_ pan: CGSize) -> CGSize {
-        let maxX = max(0, (bounds.width * currentZoomScale - bounds.width) / 2)
-        let maxY = max(0, (bounds.height * currentZoomScale - bounds.height) / 2)
-        return CGSize(
-            width: min(max(pan.width, -maxX), maxX),
-            height: min(max(pan.height, -maxY), maxY)
+        viewportTransform(zoomScale: currentZoomScale, panOffset: pan).panOffset
+    }
+
+    private func viewportTransform(
+        zoomScale: CGFloat,
+        panOffset: CGSize
+    ) -> ViewportTransform {
+        ViewportTransform(
+            framebufferSize: currentFramebufferSize,
+            viewSize: bounds.size,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: Self.maxZoomScale
         )
     }
 
@@ -671,20 +680,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let anchor = recognizer.location(in: self)
         recognizer.scale = 1.0
         let clamped = min(max(proposed, currentMinimumZoomScale), Self.maxZoomScale)
-        let proposedPan: CGSize
+        let nextTransform: ViewportTransform
         if clamped <= currentMinimumZoomScale + 0.0001 {
-            proposedPan = .zero
+            nextTransform = viewportTransform(zoomScale: clamped, panOffset: .zero)
         } else {
-            proposedPan = Self.anchoredPanOffset(
-                currentPanOffset,
-                previousZoomScale: previousZoomScale,
-                newZoomScale: clamped,
-                anchor: anchor,
-                boundsSize: bounds.size
+            nextTransform = viewportTransform(
+                zoomScale: previousZoomScale,
+                panOffset: currentPanOffset
             )
+            .zoomed(to: clamped, about: anchor)
         }
-        currentZoomScale = clamped
-        let nextPanOffset = clampedPan(proposedPan)
+        currentZoomScale = nextTransform.zoomScale
+        let nextPanOffset = nextTransform.panOffset
         let panDidChange = nextPanOffset != currentPanOffset
         currentPanOffset = nextPanOffset
         applyViewportTransformToMetalView()
@@ -693,7 +700,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // handler mirrors state into SwiftUI overlays and PiP focus;
         // the MTKView has already moved on this callback.
         queueViewportStatePublish(
-            zoomScale: clamped,
+            zoomScale: currentZoomScale,
             panOffset: nextPanOffset,
             anchor: anchor,
             viewSize: bounds.size,
@@ -845,28 +852,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         default:
             break
         }
-    }
-
-    static func anchoredPanOffset(
-        _ current: CGSize,
-        previousZoomScale: CGFloat,
-        newZoomScale: CGFloat,
-        anchor: CGPoint,
-        boundsSize: CGSize
-    ) -> CGSize {
-        guard previousZoomScale > 0,
-              boundsSize.width > 0,
-              boundsSize.height > 0
-        else {
-            return current
-        }
-
-        let zoomRatio = newZoomScale / previousZoomScale
-        let center = CGPoint(x: boundsSize.width / 2, y: boundsSize.height / 2)
-        return CGSize(
-            width: anchor.x - center.x - zoomRatio * (anchor.x - center.x - current.width),
-            height: anchor.y - center.y - zoomRatio * (anchor.y - center.y - current.height)
-        )
     }
 
     private func applyViewportTransformToMetalView() {

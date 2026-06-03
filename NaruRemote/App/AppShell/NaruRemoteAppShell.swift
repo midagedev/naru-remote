@@ -223,6 +223,7 @@ public struct NaruRemoteAppShell: View {
                             initialText: snapshot.composeDraft?.text ?? "",
                             statusText: snapshot.inputStatusText,
                             onSend: { model.sendComposedText($0) },
+                            onTextChange: { model.updateComposeDraftText($0) },
                             directKeystrokeMode: snapshot.directKeystrokeMode,
                             stickyModifierState: snapshot.stickyModifierState,
                             layoutStyle: isLiveSession ? .compactAccessory : .standard,
