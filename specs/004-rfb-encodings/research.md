@@ -531,6 +531,13 @@ average/max network read, and average/max client processing. Buckets are fixed
 catalog values: `notMeasured`, `subFrame`, `interactive`, `lagging`, and
 `stalled`.
 
+**Bucket thresholds**: `subFrame` is below 16 ms, roughly inside one 60 Hz
+display frame. `interactive` is below 80 ms, where a single update can still
+feel responsive enough for remote-control input. `lagging` is below 250 ms,
+where the session is visibly delayed but still progressing. `stalled` covers
+250 ms and above, which is the support signal for checking server/network wait,
+decode pressure, or renderer outliers before changing defaults.
+
 **Why**:
 - The live benchmark now splits receive timing, but the physical iPhone support
   path still needs enough data to tell whether a hot/low-FPS session is mostly
