@@ -73,6 +73,7 @@ public typealias MetalFramebufferZoomToggleHandler = @MainActor @Sendable (_ poi
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
+    private let sessionID: RemoteSession.ID?
     private let device: MTLDevice?
     private let accessibilityIdentifier: String
     private let onTap: MetalFramebufferTapHandler?
@@ -96,6 +97,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     public init(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
+        sessionID: RemoteSession.ID? = nil,
         device: MTLDevice? = MTLCreateSystemDefaultDevice(),
         accessibilityIdentifier: String = "naru.session.metalFramebuffer",
         zoomScale: CGFloat = 1,
@@ -112,6 +114,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
+        self.sessionID = sessionID
         self.device = device
         self.accessibilityIdentifier = accessibilityIdentifier
         self.zoomScale = zoomScale
@@ -151,6 +154,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.panHandler = onPan
         host.zoomToggleHandler = onZoomToggle
         host.syncZoomPan(scale: zoomScale, offset: panOffset)
+        context.coordinator.prepareForSession(sessionID)
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
         // and there is nothing prior on the GPU to combine with the
@@ -161,6 +165,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
+        context.coordinator.prepareForSession(sessionID)
         context.coordinator.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
         uiView.tapHandler = onTap
         uiView.rightClickHandler = onRightClick
@@ -183,7 +188,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         let renderer: MetalFramebufferRenderer?
         let delegate: MetalFramebufferViewDelegate?
         private var lastFramebufferDimensions: (width: Int, height: Int)?
-        private var lastPixelHashSeed: Int = 0
+        private var sessionID: RemoteSession.ID?
+        private var uploadGate = FramebufferUploadGate()
 
         init(device: MTLDevice?) {
             if let device, let renderer = MetalFramebufferRenderer(device: device) {
@@ -195,10 +201,25 @@ public struct MetalFramebufferView: UIViewRepresentable {
             }
         }
 
+        func prepareForSession(_ nextSessionID: RemoteSession.ID?) {
+            guard nextSessionID != sessionID else {
+                return
+            }
+            sessionID = nextSessionID
+            lastFramebufferDimensions = nil
+            uploadGate.reset()
+        }
+
         func enqueue(
             _ framebuffer: RFBRawFramebuffer,
             dirtyRectangles: [RFBFrameDamageRect]? = nil
         ) {
+            guard uploadGate.shouldEnqueue(
+                framebuffer: framebuffer,
+                dirtyRectangles: dirtyRectangles
+            ) else {
+                return
+            }
             renderer?.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
         }
