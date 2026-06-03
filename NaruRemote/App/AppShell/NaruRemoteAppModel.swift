@@ -199,7 +199,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// callers cannot mutate this flag — the only setters remain
     /// `disconnect()` and `connectSelectedProfile()`.
     internal private(set) var explicitlyDisconnected: Bool = false
+    private var lastPreviewPublishAt: [ConnectionProfile.ID: Date] = [:]
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
+    private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
     public static let defaultActiveFrameInterval: TimeInterval = 1.0 / 60.0
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -686,6 +688,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         // sidebar dot doesn't outlive the row (UX punch-list #109).
         lastDiagnosticVerdict.removeValue(forKey: id)
         profilePreviews.removeValue(forKey: id)
+        lastPreviewPublishAt.removeValue(forKey: id)
         lastPreviewSaveAt.removeValue(forKey: id)
         profileReachability.removeValue(forKey: id)
 
@@ -1294,6 +1297,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         session = nextSession
         composeDraft = ComposeDraft(sessionID: nextSession.id)
         resetSessionStreamStats()
+        resetPreviewThrottle(for: profile.id)
 
         let credential: RFBConnectionCredential
         do {
@@ -1468,6 +1472,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let configuration = frameStreamConfiguration
         activeFrameStreamID = streamID
         activeFramePump = pump
+        resetPreviewThrottle(for: profile.id)
         // Capture the profile + credential on every fresh stream
         // start so a later drop can reconnect against the same
         // pair.  This is intentionally written every start (not
@@ -1646,6 +1651,20 @@ public final class NaruRemoteAppModel: ObservableObject {
         capturedAt: Date,
         forceDiskSave: Bool
     ) {
+        let shouldPublish: Bool
+        if forceDiskSave {
+            shouldPublish = true
+        } else if let lastPublishedAt = lastPreviewPublishAt[profileID] {
+            shouldPublish = capturedAt.timeIntervalSince(lastPublishedAt)
+                >= Self.previewPublishMinimumInterval
+        } else {
+            shouldPublish = true
+        }
+
+        guard shouldPublish else {
+            return
+        }
+
         guard let thumbnail = ProfilePreviewThumbnail(
             framebuffer: framebuffer,
             capturedAt: capturedAt
@@ -1653,6 +1672,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        lastPreviewPublishAt[profileID] = capturedAt
         profilePreviews[profileID] = thumbnail
         guard let profilePreviewStore else {
             return
@@ -1690,6 +1710,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func resetSessionStreamStats() {
         sessionStreamStats = SessionStreamStats()
+    }
+
+    private func resetPreviewThrottle(for profileID: ConnectionProfile.ID) {
+        lastPreviewPublishAt.removeValue(forKey: profileID)
     }
 
     private func recordSessionStreamStats(
