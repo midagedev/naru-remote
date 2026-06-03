@@ -112,6 +112,9 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[0, 1], red)
         XCTAssertEqual(result.framebuffer[1, 1], green)
         XCTAssertEqual(result.dirtyRectangles.count, 2)
+        XCTAssertEqual(result.encodingMix.rawRectangles, 1)
+        XCTAssertEqual(result.encodingMix.copyRectRectangles, 1)
+        XCTAssertEqual(result.encodingMix.totalRectangles, 2)
     }
 
     // MARK: - Hextile (encoding 5)
@@ -334,6 +337,8 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         )
 
         XCTAssertEqual(result.framebuffer[0, 0], red)
+        XCTAssertEqual(result.encodingMix.rawRectangles, 1)
+        XCTAssertEqual(result.encodingMix.lastRectRectangles, 1)
     }
 
     // MARK: - Cursor pseudo-encoding (-239)
@@ -357,6 +362,7 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer, previous)
         XCTAssertTrue(result.dirtyRectangles.isEmpty)
         XCTAssertEqual(result.changedPixelCount, 0)
+        XCTAssertEqual(result.encodingMix.cursorRectangles, 1)
 
         let cursor = try XCTUnwrap(result.serverCursor)
         XCTAssertEqual(cursor.width, 2)

@@ -31,6 +31,21 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let receiveTotalMilliseconds: Int?
     public let networkReadMilliseconds: Int?
     public let clientProcessingMilliseconds: Int?
+    public let actualEncodingMix: RFBFramebufferEncodingMix
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case durationMilliseconds
+        case dirtyRectangleCount
+        case dirtyAreaPermille
+        case changedPixelsPermille
+        case rendererUploadStrategy
+        case rendererUploadRegionCount
+        case receiveTotalMilliseconds
+        case networkReadMilliseconds
+        case clientProcessingMilliseconds
+        case actualEncodingMix
+    }
 
     public init(
         kind: BenchmarkStreamUpdateKind,
@@ -42,7 +57,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         rendererUploadRegionCount: Int = 0,
         receiveTotalMilliseconds: Int? = nil,
         networkReadMilliseconds: Int? = nil,
-        clientProcessingMilliseconds: Int? = nil
+        clientProcessingMilliseconds: Int? = nil,
+        actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
     ) {
         self.kind = kind
         self.durationMilliseconds = max(durationMilliseconds, 0)
@@ -54,6 +70,33 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         self.receiveTotalMilliseconds = Self.clampOptionalMilliseconds(receiveTotalMilliseconds)
         self.networkReadMilliseconds = Self.clampOptionalMilliseconds(networkReadMilliseconds)
         self.clientProcessingMilliseconds = Self.clampOptionalMilliseconds(clientProcessingMilliseconds)
+        self.actualEncodingMix = actualEncodingMix
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decode(BenchmarkStreamUpdateKind.self, forKey: .kind),
+            durationMilliseconds: try container.decode(Int.self, forKey: .durationMilliseconds),
+            dirtyRectangleCount: try container.decode(Int.self, forKey: .dirtyRectangleCount),
+            dirtyAreaPermille: try container.decode(Int.self, forKey: .dirtyAreaPermille),
+            changedPixelsPermille: try container.decode(Int.self, forKey: .changedPixelsPermille),
+            rendererUploadStrategy: try container.decode(
+                FramebufferUploadStrategy.self,
+                forKey: .rendererUploadStrategy
+            ),
+            rendererUploadRegionCount: try container.decode(Int.self, forKey: .rendererUploadRegionCount),
+            receiveTotalMilliseconds: try container.decodeIfPresent(Int.self, forKey: .receiveTotalMilliseconds),
+            networkReadMilliseconds: try container.decodeIfPresent(Int.self, forKey: .networkReadMilliseconds),
+            clientProcessingMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .clientProcessingMilliseconds
+            ),
+            actualEncodingMix: try container.decodeIfPresent(
+                RFBFramebufferEncodingMix.self,
+                forKey: .actualEncodingMix
+            ) ?? RFBFramebufferEncodingMix()
+        )
     }
 
     private static func clampPermille(_ value: Int) -> Int {
@@ -89,8 +132,38 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let rendererPartialUploadPermille: Int?
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCount: BenchmarkLatencySummary?
+    public let actualEncodingMix: RFBFramebufferEncodingMix
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case requestedSamples
+        case receivedSamples
+        case emptyUpdateSamples
+        case contentUpdateSamples
+        case timedOutSamples
+        case elapsedMilliseconds
+        case deliveredFramesPerSecond
+        case contentFramesPerSecond
+        case updateLatency
+        case dirtyRectangleCount
+        case dirtyAreaPermille
+        case changedPixelsPermille
+        case receiveTotalLatency
+        case networkReadLatency
+        case clientProcessingLatency
+        case tailLatency
+        case rendererUploadSampleCount
+        case rendererPartialUploadSamples
+        case rendererFullUploadSamples
+        case rendererPartialUploadPermille
+        case rendererFullUploadPermille
+        case rendererUploadRegionCount
+        case actualEncodingMix
+        case firstTimeoutMilliseconds
+        case failureLabel
+    }
 
     public init(
         requestedSamples: Int,
@@ -153,8 +226,77 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.rendererUploadRegionCount = BenchmarkLatencySummary(
             rendererUploadSamples.map(\.rendererUploadRegionCount)
         )
+        self.actualEncodingMix = samples.reduce(RFBFramebufferEncodingMix()) { partial, sample in
+            partial.adding(sample.actualEncodingMix)
+        }
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
         self.failureLabel = failureLabel
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = try container.decode(BenchmarkStreamShapeStatus.self, forKey: .status)
+        self.requestedSamples = try container.decode(Int.self, forKey: .requestedSamples)
+        self.receivedSamples = try container.decode(Int.self, forKey: .receivedSamples)
+        self.emptyUpdateSamples = try container.decode(Int.self, forKey: .emptyUpdateSamples)
+        self.contentUpdateSamples = try container.decode(Int.self, forKey: .contentUpdateSamples)
+        self.timedOutSamples = try container.decode(Int.self, forKey: .timedOutSamples)
+        self.elapsedMilliseconds = try container.decodeIfPresent(Int.self, forKey: .elapsedMilliseconds)
+        self.deliveredFramesPerSecond = try container.decodeIfPresent(
+            Double.self,
+            forKey: .deliveredFramesPerSecond
+        )
+        self.contentFramesPerSecond = try container.decodeIfPresent(
+            Double.self,
+            forKey: .contentFramesPerSecond
+        )
+        self.updateLatency = try container.decodeIfPresent(BenchmarkLatencySummary.self, forKey: .updateLatency)
+        self.dirtyRectangleCount = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .dirtyRectangleCount
+        )
+        self.dirtyAreaPermille = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .dirtyAreaPermille
+        )
+        self.changedPixelsPermille = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .changedPixelsPermille
+        )
+        self.receiveTotalLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .receiveTotalLatency
+        )
+        self.networkReadLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .networkReadLatency
+        )
+        self.clientProcessingLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .clientProcessingLatency
+        )
+        self.tailLatency = try container.decode(BenchmarkStreamShapeTailSummary.self, forKey: .tailLatency)
+        self.rendererUploadSampleCount = try container.decode(Int.self, forKey: .rendererUploadSampleCount)
+        self.rendererPartialUploadSamples = try container.decode(Int.self, forKey: .rendererPartialUploadSamples)
+        self.rendererFullUploadSamples = try container.decode(Int.self, forKey: .rendererFullUploadSamples)
+        self.rendererPartialUploadPermille = try container.decodeIfPresent(
+            Int.self,
+            forKey: .rendererPartialUploadPermille
+        )
+        self.rendererFullUploadPermille = try container.decodeIfPresent(
+            Int.self,
+            forKey: .rendererFullUploadPermille
+        )
+        self.rendererUploadRegionCount = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .rendererUploadRegionCount
+        )
+        self.actualEncodingMix = try container.decodeIfPresent(
+            RFBFramebufferEncodingMix.self,
+            forKey: .actualEncodingMix
+        ) ?? RFBFramebufferEncodingMix()
+        self.firstTimeoutMilliseconds = try container.decodeIfPresent(Int.self, forKey: .firstTimeoutMilliseconds)
+        self.failureLabel = try container.decodeIfPresent(String.self, forKey: .failureLabel)
     }
 
     private static func status(

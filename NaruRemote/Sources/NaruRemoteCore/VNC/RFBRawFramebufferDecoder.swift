@@ -220,6 +220,134 @@ public struct RFBFramebufferUpdateTiming: Codable, Equatable, Sendable {
     }
 }
 
+public struct RFBFramebufferEncodingMix: Codable, Equatable, Sendable {
+    public let rawRectangles: Int
+    public let copyRectRectangles: Int
+    public let hextileRectangles: Int
+    public let zrleRectangles: Int
+    public let tightRectangles: Int
+    public let cursorRectangles: Int
+    public let xCursorRectangles: Int
+    public let desktopSizeRectangles: Int
+    public let extendedDesktopSizeRectangles: Int
+    public let lastRectRectangles: Int
+    public let endOfContinuousUpdatesEvents: Int
+
+    public init(
+        rawRectangles: Int = 0,
+        copyRectRectangles: Int = 0,
+        hextileRectangles: Int = 0,
+        zrleRectangles: Int = 0,
+        tightRectangles: Int = 0,
+        cursorRectangles: Int = 0,
+        xCursorRectangles: Int = 0,
+        desktopSizeRectangles: Int = 0,
+        extendedDesktopSizeRectangles: Int = 0,
+        lastRectRectangles: Int = 0,
+        endOfContinuousUpdatesEvents: Int = 0
+    ) {
+        self.rawRectangles = max(rawRectangles, 0)
+        self.copyRectRectangles = max(copyRectRectangles, 0)
+        self.hextileRectangles = max(hextileRectangles, 0)
+        self.zrleRectangles = max(zrleRectangles, 0)
+        self.tightRectangles = max(tightRectangles, 0)
+        self.cursorRectangles = max(cursorRectangles, 0)
+        self.xCursorRectangles = max(xCursorRectangles, 0)
+        self.desktopSizeRectangles = max(desktopSizeRectangles, 0)
+        self.extendedDesktopSizeRectangles = max(extendedDesktopSizeRectangles, 0)
+        self.lastRectRectangles = max(lastRectRectangles, 0)
+        self.endOfContinuousUpdatesEvents = max(endOfContinuousUpdatesEvents, 0)
+    }
+
+    /// Counts safe catalogued framebuffer update records, including
+    /// pseudo-encodings such as cursor, desktop-size, and LastRect.
+    public var totalRectangles: Int {
+        rawRectangles
+            + copyRectRectangles
+            + hextileRectangles
+            + zrleRectangles
+            + tightRectangles
+            + cursorRectangles
+            + xCursorRectangles
+            + desktopSizeRectangles
+            + extendedDesktopSizeRectangles
+            + lastRectRectangles
+    }
+
+    public func recordingRectangle(encoding: Int32) -> RFBFramebufferEncodingMix {
+        switch encoding {
+        case RFBEncoding.raw:
+            return adding(rawRectangles: 1)
+        case RFBEncoding.copyRect:
+            return adding(copyRectRectangles: 1)
+        case RFBEncoding.hextile:
+            return adding(hextileRectangles: 1)
+        case RFBEncoding.zrle:
+            return adding(zrleRectangles: 1)
+        case RFBEncoding.tight:
+            return adding(tightRectangles: 1)
+        case RFBEncoding.cursor:
+            return adding(cursorRectangles: 1)
+        case RFBEncoding.xCursor:
+            return adding(xCursorRectangles: 1)
+        case RFBEncoding.desktopSize:
+            return adding(desktopSizeRectangles: 1)
+        case RFBEncoding.extendedDesktopSize:
+            return adding(extendedDesktopSizeRectangles: 1)
+        case RFBEncoding.lastRect:
+            return adding(lastRectRectangles: 1)
+        default:
+            return self
+        }
+    }
+
+    public func adding(_ other: RFBFramebufferEncodingMix) -> RFBFramebufferEncodingMix {
+        RFBFramebufferEncodingMix(
+            rawRectangles: rawRectangles + other.rawRectangles,
+            copyRectRectangles: copyRectRectangles + other.copyRectRectangles,
+            hextileRectangles: hextileRectangles + other.hextileRectangles,
+            zrleRectangles: zrleRectangles + other.zrleRectangles,
+            tightRectangles: tightRectangles + other.tightRectangles,
+            cursorRectangles: cursorRectangles + other.cursorRectangles,
+            xCursorRectangles: xCursorRectangles + other.xCursorRectangles,
+            desktopSizeRectangles: desktopSizeRectangles + other.desktopSizeRectangles,
+            extendedDesktopSizeRectangles: extendedDesktopSizeRectangles + other.extendedDesktopSizeRectangles,
+            lastRectRectangles: lastRectRectangles + other.lastRectRectangles,
+            endOfContinuousUpdatesEvents: endOfContinuousUpdatesEvents + other.endOfContinuousUpdatesEvents
+        )
+    }
+
+    private func adding(
+        rawRectangles: Int = 0,
+        copyRectRectangles: Int = 0,
+        hextileRectangles: Int = 0,
+        zrleRectangles: Int = 0,
+        tightRectangles: Int = 0,
+        cursorRectangles: Int = 0,
+        xCursorRectangles: Int = 0,
+        desktopSizeRectangles: Int = 0,
+        extendedDesktopSizeRectangles: Int = 0,
+        lastRectRectangles: Int = 0,
+        endOfContinuousUpdatesEvents: Int = 0
+    ) -> RFBFramebufferEncodingMix {
+        adding(
+            RFBFramebufferEncodingMix(
+                rawRectangles: rawRectangles,
+                copyRectRectangles: copyRectRectangles,
+                hextileRectangles: hextileRectangles,
+                zrleRectangles: zrleRectangles,
+                tightRectangles: tightRectangles,
+                cursorRectangles: cursorRectangles,
+                xCursorRectangles: xCursorRectangles,
+                desktopSizeRectangles: desktopSizeRectangles,
+                extendedDesktopSizeRectangles: extendedDesktopSizeRectangles,
+                lastRectRectangles: lastRectRectangles,
+                endOfContinuousUpdatesEvents: endOfContinuousUpdatesEvents
+            )
+        )
+    }
+}
+
 public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case framebuffer
@@ -231,6 +359,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         case endedContinuousUpdates
         case transportIdleTimedOut
         case timing
+        case encodingMix
     }
 
     public let framebuffer: RFBRawFramebuffer
@@ -260,6 +389,11 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// remainder. It carries no target identity, dimensions, coordinates,
     /// byte counts, pixels, or raw payload details.
     public let timing: RFBFramebufferUpdateTiming?
+    /// Safe counts of actual framebuffer encodings observed in this
+    /// update. Counts are fixed catalog labels only; no raw payload,
+    /// rectangle coordinates, dimensions, byte counts, or pixels are
+    /// stored here.
+    public let encodingMix: RFBFramebufferEncodingMix
 
     public init(
         framebuffer: RFBRawFramebuffer,
@@ -270,7 +404,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         serverCursor: RFBServerCursor? = nil,
         endedContinuousUpdates: Bool = false,
         transportIdleTimedOut: Bool = false,
-        timing: RFBFramebufferUpdateTiming? = nil
+        timing: RFBFramebufferUpdateTiming? = nil,
+        encodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -281,6 +416,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         self.endedContinuousUpdates = endedContinuousUpdates
         self.transportIdleTimedOut = transportIdleTimedOut
         self.timing = timing
+        self.encodingMix = encodingMix
     }
 
     public init(from decoder: Decoder) throws {
@@ -294,7 +430,11 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             serverCursor: try container.decodeIfPresent(RFBServerCursor.self, forKey: .serverCursor),
             endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false,
             transportIdleTimedOut: try container.decodeIfPresent(Bool.self, forKey: .transportIdleTimedOut) ?? false,
-            timing: try container.decodeIfPresent(RFBFramebufferUpdateTiming.self, forKey: .timing)
+            timing: try container.decodeIfPresent(RFBFramebufferUpdateTiming.self, forKey: .timing),
+            encodingMix: try container.decodeIfPresent(
+                RFBFramebufferEncodingMix.self,
+                forKey: .encodingMix
+            ) ?? RFBFramebufferEncodingMix()
         )
     }
 
@@ -309,6 +449,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         try container.encode(endedContinuousUpdates, forKey: .endedContinuousUpdates)
         try container.encode(transportIdleTimedOut, forKey: .transportIdleTimedOut)
         try container.encodeIfPresent(timing, forKey: .timing)
+        try container.encode(encodingMix, forKey: .encodingMix)
     }
 
     public static func fullFrame(
@@ -344,7 +485,8 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             serverCursor: serverCursor,
             endedContinuousUpdates: endedContinuousUpdates,
             transportIdleTimedOut: transportIdleTimedOut,
-            timing: timing
+            timing: timing,
+            encodingMix: encodingMix
         )
     }
 

@@ -289,6 +289,15 @@ iPhone) and ships as its own PR.
   identity, dimensions, coordinates, pixels, byte counts, device power state,
   and raw errors. Owns: app snapshot, diagnostic export, tests, diagnostics
   spec notes. **Done.**
+- **T342** Actual encoding mix benchmark telemetry: count the actual safe
+  framebuffer encoding labels observed in decoded updates, propagate them
+  through the frame pump, and extend `VNCLiveBenchmark` schema v20 with sample
+  and aggregate stream-shape encoding mixes. This distinguishes requested
+  encoding profiles from what the server actually sent without emitting target
+  identity, dimensions, coordinates, pixels, byte counts, compressed payloads,
+  raw errors, or unsupported raw encoding codes. Owns: core result/decoder,
+  frame pump, benchmark kit/CLI/tests, benchmark docs/research notes.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
