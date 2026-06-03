@@ -238,6 +238,12 @@ enum VNCLiveBenchmark {
         var samples: [ContinuousUpdateSample] = []
         var timeoutMilliseconds: Int?
         var continuousUpdatesEnabled = false
+        defer {
+            if continuousUpdatesEnabled {
+                try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
+            }
+            client.disconnect()
+        }
 
         do {
             _ = try client.connectSession(
@@ -246,62 +252,65 @@ enum VNCLiveBenchmark {
                 credential: .vncPassword(configuration.password),
                 timeout: timeout
             )
-            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
-
-            try client.enableContinuousUpdates(true, region: nil, timeout: timeout)
-            continuousUpdatesEnabled = true
-
-            for _ in 0..<maxSamples {
-                let startedAt = Date()
-                do {
-                    let update = try client.receiveFramebufferUpdate(timeout: idleTimeout)
-                    samples.append(ContinuousUpdateSample(
-                        kind: update.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
-                        durationMilliseconds: milliseconds(since: startedAt)
-                    ))
-                } catch RFBNetworkClientError.timedOut {
-                    timeoutMilliseconds = milliseconds(from: idleTimeout)
-                    break
-                }
-            }
-
-            try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
-            client.disconnect()
-
-            return ContinuousUpdatesProbeReport(
-                requestedSamples: maxSamples,
-                samples: samples,
-                timeoutMilliseconds: timeoutMilliseconds,
-                failureLabel: nil
-            )
-        } catch RFBNetworkClientError.timedOut {
-            if continuousUpdatesEnabled {
-                try? client.enableContinuousUpdates(false, region: nil, timeout: timeout)
-            }
-            client.disconnect()
-            guard continuousUpdatesEnabled else {
-                return ContinuousUpdatesProbeReport(
-                    requestedSamples: maxSamples,
-                    samples: samples,
-                    timeoutMilliseconds: nil,
-                    failureLabel: "timeout"
-                )
-            }
-            return ContinuousUpdatesProbeReport(
-                requestedSamples: maxSamples,
-                samples: samples,
-                timeoutMilliseconds: milliseconds(from: idleTimeout),
-                failureLabel: nil
-            )
         } catch {
-            client.disconnect()
             return ContinuousUpdatesProbeReport(
                 requestedSamples: maxSamples,
                 samples: samples,
                 timeoutMilliseconds: nil,
-                failureLabel: safeFailureLabel(for: error)
+                failureLabel: safeFailureLabel(for: error, phase: .continuousProbeConnect)
             )
         }
+
+        do {
+            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+        } catch {
+            return ContinuousUpdatesProbeReport(
+                requestedSamples: maxSamples,
+                samples: samples,
+                timeoutMilliseconds: nil,
+                failureLabel: safeFailureLabel(for: error, phase: .continuousProbeFirstFrame)
+            )
+        }
+
+        do {
+            try client.enableContinuousUpdates(true, region: nil, timeout: timeout)
+            continuousUpdatesEnabled = true
+        } catch {
+            return ContinuousUpdatesProbeReport(
+                requestedSamples: maxSamples,
+                samples: samples,
+                timeoutMilliseconds: nil,
+                failureLabel: safeFailureLabel(for: error, phase: .continuousProbeEnable)
+            )
+        }
+
+        for _ in 0..<maxSamples {
+            let startedAt = Date()
+            do {
+                let update = try client.receiveFramebufferUpdate(timeout: idleTimeout)
+                samples.append(ContinuousUpdateSample(
+                    kind: update.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
+                    durationMilliseconds: milliseconds(since: startedAt)
+                ))
+            } catch RFBNetworkClientError.timedOut {
+                timeoutMilliseconds = milliseconds(from: idleTimeout)
+                break
+            } catch {
+                return ContinuousUpdatesProbeReport(
+                    requestedSamples: maxSamples,
+                    samples: samples,
+                    timeoutMilliseconds: nil,
+                    failureLabel: safeFailureLabel(for: error, phase: .continuousProbeReceive)
+                )
+            }
+        }
+
+        return ContinuousUpdatesProbeReport(
+            requestedSamples: maxSamples,
+            samples: samples,
+            timeoutMilliseconds: timeoutMilliseconds,
+            failureLabel: nil
+        )
     }
 
     private static func measureStreamShapeProbe(
@@ -335,6 +344,10 @@ enum VNCLiveBenchmark {
         var elapsedMilliseconds: Int?
         var failureLabel: String?
         var emptyUpdateStreak = 0
+        defer {
+            pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
+            client.disconnect()
+        }
 
         do {
             _ = try client.connectSession(
@@ -343,53 +356,71 @@ enum VNCLiveBenchmark {
                 credential: .vncPassword(configuration.password),
                 timeout: timeout
             )
+        } catch {
+            failureLabel = safeFailureLabel(for: error, phase: .streamConnect)
+            return StreamShapeProbeReport(
+                transportMode: transportMode,
+                requestedSamples: maxSamples,
+                firstFrameMilliseconds: firstFrameMilliseconds,
+                samples: samples,
+                elapsedMilliseconds: elapsedMilliseconds,
+                firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+                failureLabel: failureLabel
+            )
+        }
 
+        do {
             let firstFrameStartedAt = Date()
             _ = try pump.nextFrame(
                 requestTimeout: timeout,
                 updateMode: transportMode.framePumpUpdateMode
             )
             firstFrameMilliseconds = milliseconds(since: firstFrameStartedAt)
+        } catch {
+            failureLabel = safeFailureLabel(for: error, phase: .streamFirstFrame)
+            return StreamShapeProbeReport(
+                transportMode: transportMode,
+                requestedSamples: maxSamples,
+                firstFrameMilliseconds: firstFrameMilliseconds,
+                samples: samples,
+                elapsedMilliseconds: elapsedMilliseconds,
+                firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+                failureLabel: failureLabel
+            )
+        }
 
-            let streamStartedAt = Date()
-            for _ in 0..<maxSamples {
-                let startedAt = Date()
-                do {
-                    guard let frame = try pump.nextFrame(
-                        requestTimeout: idleTimeout,
-                        updateMode: transportMode.framePumpUpdateMode
-                    ) else {
-                        break
-                    }
-                    samples.append(streamShapeSample(
-                        from: frame,
-                        durationMilliseconds: milliseconds(since: startedAt)
-                    ))
-                    let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
-                    emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
-                    let pacingDelay = pacingPolicy.delay(
-                        isEmptyUpdate: isEmptyUpdate,
-                        emptyUpdateStreak: emptyUpdateStreak
-                    )
-                    if pacingDelay > 0 {
-                        Thread.sleep(forTimeInterval: pacingDelay)
-                    }
-                } catch RFBNetworkClientError.timedOut {
-                    firstTimeoutMilliseconds = milliseconds(from: idleTimeout)
-                    break
-                } catch {
-                    failureLabel = safeFailureLabel(for: error)
+        let streamStartedAt = Date()
+        for _ in 0..<maxSamples {
+            let startedAt = Date()
+            do {
+                guard let frame = try pump.nextFrame(
+                    requestTimeout: idleTimeout,
+                    updateMode: transportMode.framePumpUpdateMode
+                ) else {
                     break
                 }
+                samples.append(streamShapeSample(
+                    from: frame,
+                    durationMilliseconds: milliseconds(since: startedAt)
+                ))
+                let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
+                emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
+                let pacingDelay = pacingPolicy.delay(
+                    isEmptyUpdate: isEmptyUpdate,
+                    emptyUpdateStreak: emptyUpdateStreak
+                )
+                if pacingDelay > 0 {
+                    Thread.sleep(forTimeInterval: pacingDelay)
+                }
+            } catch RFBNetworkClientError.timedOut {
+                firstTimeoutMilliseconds = milliseconds(from: idleTimeout)
+                break
+            } catch {
+                failureLabel = safeFailureLabel(for: error, phase: transportMode.streamFailurePhase)
+                break
             }
-            elapsedMilliseconds = milliseconds(since: streamStartedAt)
-            pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
-            client.disconnect()
-        } catch {
-            pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
-            client.disconnect()
-            failureLabel = safeFailureLabel(for: error)
         }
+        elapsedMilliseconds = milliseconds(since: streamStartedAt)
 
         return StreamShapeProbeReport(
             transportMode: transportMode,
@@ -793,6 +824,15 @@ private extension BenchmarkStreamShapeTransportMode {
             return .requestResponse
         case .continuousUpdates:
             return .continuousUpdates
+        }
+    }
+
+    var streamFailurePhase: BenchmarkFailurePhase {
+        switch self {
+        case .requestResponse:
+            return .streamIncremental
+        case .continuousUpdates:
+            return .streamContinuousUpdates
         }
     }
 }
@@ -1326,4 +1366,8 @@ private func printUsage() {
 
 private func safeFailureLabel(for error: Error) -> String {
     BenchmarkFailureLabel.safeLabel(for: error)
+}
+
+private func safeFailureLabel(for error: Error, phase: BenchmarkFailurePhase) -> String {
+    BenchmarkFailureLabel.safeLabel(for: error, phase: phase)
 }

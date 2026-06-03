@@ -188,6 +188,13 @@ iPhone) and ships as its own PR.
   polling against push transport before changing app defaults. Owns: live
   benchmark CLI, benchmark-kit report/tests, research notes, simulator benchmark
   artifact. **Done.**
+- **T326** Phase-aware live benchmark failure labels: prefix safe benchmark
+  failure labels with fixed catalog phases for stream connect, first frame,
+  incremental request/response, ContinuousUpdates stream receive, and standalone
+  ContinuousUpdates probe connect/first-frame/enable/receive. Record the
+  local-redacted transport comparison showing request/response works while
+  ContinuousUpdates fails after receive. Owns: benchmark failure label kit,
+  CLI, tests, live benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -1,6 +1,17 @@
 import Foundation
 import NaruRemoteCore
 
+public enum BenchmarkFailurePhase: String, Codable, Equatable, Sendable {
+    case streamConnect = "stream-connect"
+    case streamFirstFrame = "stream-first-frame"
+    case streamIncremental = "stream-incremental"
+    case streamContinuousUpdates = "stream-continuous-updates"
+    case continuousProbeConnect = "continuous-probe-connect"
+    case continuousProbeFirstFrame = "continuous-probe-first-frame"
+    case continuousProbeEnable = "continuous-probe-enable"
+    case continuousProbeReceive = "continuous-probe-receive"
+}
+
 public enum BenchmarkFailureLabel {
     public static func safeLabel(for error: Error) -> String {
         switch error {
@@ -85,5 +96,9 @@ public enum BenchmarkFailureLabel {
         default:
             return "unexpected-error"
         }
+    }
+
+    public static func safeLabel(for error: Error, phase: BenchmarkFailurePhase) -> String {
+        "\(phase.rawValue)-\(safeLabel(for: error))"
     }
 }
