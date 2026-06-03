@@ -144,6 +144,11 @@ iPhone) and ships as its own PR.
   labels with tests, and record an 8-sample all-profile stream-shape comparison
   before changing default encodings. Owns: benchmark kit, CLI, tests, benchmark
   artifact. **Done.**
+- **T317** Long-run benchmark profile selection: let `VNCLiveBenchmark` skip
+  or narrow the first-frame/full-refresh profile sweep independently from
+  stream-shape probes, so practical iPhone/Mac sustained-stream experiments
+  can run longer without repeatedly paying an all-profile startup sweep. Owns:
+  live benchmark CLI, benchmark-kit selection tests, benchmark docs. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -46,6 +46,36 @@ They do not prove physical iPhone thermal behavior, battery impact, or
 real display scheduling. Always close thermal/FPS claims with a physical
 iPhone pass.
 
+## Physical iPhone: Live Connection Smoke
+
+Use the physical-device UI test before claiming iPhone reachability,
+thermal, or sustained-session behavior. Keep the device unlocked and on
+the home screen. Pass signing as a command-line build setting rather than
+committing a personal team ID to `project.yml`.
+
+```bash
+read -rs NARU_PHYSICAL_E2E_PASSWORD
+export NARU_PHYSICAL_E2E_PASSWORD
+export NARU_PHYSICAL_E2E_HOST=<private Mac address or MagicDNS name>
+export NARU_PHYSICAL_E2E_PORT=5900
+export NARU_PHYSICAL_E2E_HOST_KIND=privateAddress
+
+xcodebuild \
+  -project NaruRemote.xcodeproj \
+  -scheme NaruRemote \
+  -destination 'platform=iOS,id=<physical-device-id>' \
+  -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests \
+  DEVELOPMENT_TEAM=<local-development-team-id> \
+  test
+
+unset NARU_PHYSICAL_E2E_PASSWORD
+```
+
+If Xcode reports that the destination may need to be unlocked after a
+preparation error, unlock the device and rerun the same command. Do not
+store the password, device identifier, screenshots, or diagnostic
+payloads in this folder.
+
 ## Live VNC Target: Encoding And Update Latency
 
 Use the existing live benchmark for real VNC server behavior. Configure
@@ -60,6 +90,7 @@ swift run VNCLiveBenchmark \
   --full-refresh-samples 2 \
   --stream-shape-samples 30 \
   --stream-shape-frame-interval 0.033 \
+  --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
   --continuous-update-samples 3
 ```
@@ -72,3 +103,7 @@ permille, and changed-pixel permille summaries only. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
+For longer stream-shape-only runs, pass `--first-frame-profiles
+stream-shape-profiles` to benchmark first-frame latency only for the
+same profiles being stream-shaped, or `--first-frame-profiles none` to
+skip the first-frame/full-refresh sweep entirely.

@@ -44,7 +44,10 @@ enum VNCLiveBenchmark {
         configuration: LiveTargetConfiguration,
         options: BenchmarkOptions
     ) throws -> BenchmarkReport {
-        let profiles = BenchmarkProfile.allCases.map { profile in
+        let firstFrameProfiles = options.firstFrameProfiles.profiles(
+            streamShapeProfiles: options.streamShapeProfiles
+        )
+        let profiles = firstFrameProfiles.map { profile in
             measureProfile(
                 profile,
                 configuration: configuration,
@@ -99,6 +102,7 @@ enum VNCLiveBenchmark {
             idleTimeoutSeconds: options.idleTimeout,
             streamShapeSamples: options.streamShapeSamples,
             streamShapeFrameInterval: options.streamShapeFrameInterval,
+            firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             profiles: profiles,
             idleProbe: idleProbe,
@@ -428,6 +432,7 @@ private struct BenchmarkOptions: Equatable {
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
     var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
+    var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
@@ -482,6 +487,15 @@ private struct BenchmarkOptions: Equatable {
             case "--stream-shape-frame-interval":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeFrameInterval = try nonNegativeTimeInterval(value, option: argument)
+                index = arguments.index(index, offsetBy: 2)
+            case "--first-frame-profiles":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let selection = BenchmarkFirstFrameProfileSelection(rawValue: value) else {
+                    throw UsageError(
+                        "first-frame-profiles must be \(BenchmarkFirstFrameProfileSelection.usageDescription)."
+                    )
+                }
+                options.firstFrameProfiles = selection
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -544,6 +558,17 @@ private enum StreamShapeProfileSelection: String, Codable, Equatable {
         case .all:
             return BenchmarkProfile.allCases
         }
+    }
+}
+
+private extension BenchmarkFirstFrameProfileSelection {
+    func profiles(streamShapeProfiles: StreamShapeProfileSelection) -> [BenchmarkProfile] {
+        let labels = selectedLabels(
+            allProfileLabels: BenchmarkProfile.allCases.map(\.label),
+            streamShapeProfileLabels: streamShapeProfiles.profiles.map(\.label),
+            localLowLatencyLabel: BenchmarkProfile.localLowLatency.label
+        )
+        return labels.compactMap(BenchmarkProfile.init(label:))
     }
 }
 
@@ -635,6 +660,13 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
         }
     }
 
+    init?(label: String) {
+        guard let profile = Self.allCases.first(where: { $0.label == label }) else {
+            return nil
+        }
+        self = profile
+    }
+
     var preference: RFBEncodingPreference {
         switch self {
         case .localLowLatency:
@@ -677,6 +709,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let continuousUpdateSamples: Int
     let streamShapeSamples: Int
     let streamShapeFrameIntervalSeconds: TimeInterval
+    let firstFrameProfiles: BenchmarkFirstFrameProfileSelection
     let streamShapeProfiles: StreamShapeProfileSelection
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
@@ -695,6 +728,7 @@ private struct BenchmarkReport: Codable, Equatable {
         idleTimeoutSeconds: TimeInterval,
         streamShapeSamples: Int,
         streamShapeFrameInterval: TimeInterval,
+        firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
@@ -702,13 +736,14 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 7
+        self.schemaVersion = 8
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
         self.streamShapeSamples = streamShapeSamples
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
+        self.firstFrameProfiles = firstFrameProfiles
         self.streamShapeProfiles = streamShapeProfiles
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
@@ -913,6 +948,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("stream-shape samples: \(report.streamShapeSamples)")
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
+    print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
     print("stream-shape profiles: \(report.streamShapeProfiles.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
@@ -1085,13 +1121,15 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 to disable.
       --stream-shape-frame-interval SECONDS
                                 Delay between stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
+      --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
+                                Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles local-low-latency|all
                                 Profile set for stream-shape probes. Defaults to local-low-latency; use all to compare every encoding profile.
       --continuous-update-samples N
