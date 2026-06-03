@@ -717,15 +717,17 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// shell uses to compose share-sheet text — bypassing it would
     /// risk leaking caller-provided raw details (constitution §IV).
     public func makeDiagnosticExport() -> DiagnosticExport {
+        let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
         guard let run = diagnosticRun else {
             return DiagnosticExport(
                 run: ConnectionDiagnosticRun(
                     profileID: selectedProfileID ?? UUID(),
                     stages: []
-                )
+                ),
+                streamPerformance: streamPerformance
             )
         }
-        return DiagnosticExport(run: run)
+        return DiagnosticExport(run: run, streamPerformance: streamPerformance)
     }
 
     public func runConnectionChecks() {

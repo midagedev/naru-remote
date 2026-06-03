@@ -37,6 +37,8 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var changedPixelsPermilleTotal: Int
     public var changedPixelsPermilleMax: Int
     public var thermalState: SessionStreamThermalState
+    public var firstFrameCapturedAt: Date?
+    public var latestFrameCapturedAt: Date?
 
     public init(
         deliveredFrameCount: Int = 0,
@@ -50,7 +52,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         dirtyAreaPermilleMax: Int = 0,
         changedPixelsPermilleTotal: Int = 0,
         changedPixelsPermilleMax: Int = 0,
-        thermalState: SessionStreamThermalState = .unknown
+        thermalState: SessionStreamThermalState = .unknown,
+        firstFrameCapturedAt: Date? = nil,
+        latestFrameCapturedAt: Date? = nil
     ) {
         self.deliveredFrameCount = max(deliveredFrameCount, 0)
         self.contentFrameCount = max(contentFrameCount, 0)
@@ -64,6 +68,8 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.changedPixelsPermilleTotal = max(changedPixelsPermilleTotal, 0)
         self.changedPixelsPermilleMax = max(changedPixelsPermilleMax, 0)
         self.thermalState = thermalState
+        self.firstFrameCapturedAt = firstFrameCapturedAt
+        self.latestFrameCapturedAt = latestFrameCapturedAt
     }
 
     public var averageDirtyRectangleCount: Int? {
@@ -78,12 +84,75 @@ public struct SessionStreamStats: Equatable, Sendable {
         average(changedPixelsPermilleTotal)
     }
 
+    public var observedDuration: TimeInterval? {
+        guard deliveredFrameCount > 1,
+              let firstFrameCapturedAt,
+              let latestFrameCapturedAt
+        else {
+            return nil
+        }
+        return max(0, latestFrameCapturedAt.timeIntervalSince(firstFrameCapturedAt))
+    }
+
+    public var observedDurationBucket: DiagnosticDurationBucket {
+        DiagnosticDurationBucket.bucket(duration: observedDuration)
+    }
+
+    public var deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket {
+        DiagnosticFrameRateBucket.bucket(
+            deliveredFrameCount: deliveredFrameCount,
+            observedDurationSeconds: observedDuration
+        )
+    }
+
+    public var contentFramePermille: Int? {
+        permille(contentFrameCount, of: deliveredFrameCount)
+    }
+
+    public var emptyUpdatePermille: Int? {
+        permille(emptyUpdateCount, of: deliveredFrameCount)
+    }
+
+    public var transportIdleTimeoutPermille: Int? {
+        permille(transportIdleTimeoutCount, of: deliveredFrameCount)
+    }
+
+    public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
+        guard deliveredFrameCount > 0 else {
+            return nil
+        }
+
+        return DiagnosticStreamPerformanceReport(
+            observedDurationBucket: observedDurationBucket.rawValue,
+            deliveredFramesPerSecondBucket: deliveredFramesPerSecondBucket.rawValue,
+            deliveredFrameCount: deliveredFrameCount,
+            contentFrameCount: contentFrameCount,
+            emptyUpdateCount: emptyUpdateCount,
+            transportIdleTimeoutCount: transportIdleTimeoutCount,
+            contentFramePermille: contentFramePermille,
+            emptyUpdatePermille: emptyUpdatePermille,
+            transportIdleTimeoutPermille: transportIdleTimeoutPermille,
+            dirtyRectangleSampleCount: dirtyRectangleSampleCount,
+            averageDirtyRectangleCount: averageDirtyRectangleCount,
+            dirtyRectangleCountMax: dirtyRectangleCountMax,
+            averageDirtyAreaPermille: averageDirtyAreaPermille,
+            dirtyAreaPermilleMax: dirtyAreaPermilleMax,
+            averageChangedPixelsPermille: averageChangedPixelsPermille,
+            changedPixelsPermilleMax: changedPixelsPermilleMax,
+            thermalState: thermalState.rawValue
+        )
+    }
+
     public mutating func record(
         frame: RFBFramePumpFrame,
         thermalState: SessionStreamThermalState
     ) {
         deliveredFrameCount += 1
         self.thermalState = thermalState
+        if firstFrameCapturedAt == nil {
+            firstFrameCapturedAt = frame.capturedAt
+        }
+        latestFrameCapturedAt = frame.capturedAt
 
         if frame.transportIdleTimedOut {
             transportIdleTimeoutCount += 1
@@ -115,6 +184,13 @@ public struct SessionStreamStats: Equatable, Sendable {
             return nil
         }
         return total / dirtyRectangleSampleCount
+    }
+
+    private func permille(_ value: Int, of total: Int) -> Int? {
+        guard total > 0 else {
+            return nil
+        }
+        return Self.permille(value, of: total)
     }
 
     private static func permille(_ value: Int, of total: Int) -> Int {

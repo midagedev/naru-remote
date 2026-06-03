@@ -219,7 +219,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV2() throws {
+    func testRenderCollectionJSONIsDeterministicSchemaV3() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 2"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 3"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.schemaVersion, 3)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -286,6 +286,99 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(decoded.stageRows.first?.safeDetail, "TCP reachability stage.")
         XCTAssertEqual(decoded.stageRows.first?.recordedAt, "2024-05-01T00:00:19Z")
         XCTAssertEqual(decoded.stageRows.first?.failureCode, "network.connectionFailed")
+        XCTAssertNil(decoded.streamPerformance)
+    }
+
+    func testRenderCollectionJSONIncludesSafeStreamPerformanceSummary() throws {
+        let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let run = ConnectionDiagnosticRun(
+            profileID: profileID,
+            finishedAt: Date(timeIntervalSince1970: 1),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .firstFrame,
+                    status: .passed,
+                    safeTitle: "Streaming",
+                    safeDetail: "caller detail must not appear"
+                )
+            ]
+        )
+        let performance = DiagnosticStreamPerformanceReport(
+            observedDurationBucket: DiagnosticDurationBucket.threeToTenSeconds.rawValue,
+            deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.fifteenToTwentyFour.rawValue,
+            deliveredFrameCount: 120,
+            contentFrameCount: 90,
+            emptyUpdateCount: 25,
+            transportIdleTimeoutCount: 5,
+            contentFramePermille: 750,
+            emptyUpdatePermille: 208,
+            transportIdleTimeoutPermille: 42,
+            dirtyRectangleSampleCount: 115,
+            averageDirtyRectangleCount: 2,
+            dirtyRectangleCountMax: 8,
+            averageDirtyAreaPermille: 120,
+            dirtyAreaPermilleMax: 900,
+            averageChangedPixelsPermille: 100,
+            changedPixelsPermilleMax: 875,
+            thermalState: "serious"
+        )
+        let export = DiagnosticExport(run: run, streamPerformance: performance)
+
+        let rendered = export.renderCollectionJSON(
+            buildVersion: "0.1.0",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let decoded = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(rendered.utf8)
+        )
+
+        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(decoded.streamPerformance, performance)
+        XCTAssertTrue(rendered.contains("\"streamPerformance\""))
+        XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
+        XCTAssertFalse(rendered.contains("caller detail"))
+        XCTAssertFalse(rendered.contains(profileID.uuidString))
+    }
+
+    func testStreamPerformanceReportClampsUnsafeCatalogValues() {
+        let performance = DiagnosticStreamPerformanceReport(
+            observedDurationBucket: "duration=SECRET",
+            deliveredFramesPerSecondBucket: "fps=SECRET",
+            deliveredFrameCount: -1,
+            contentFrameCount: -2,
+            emptyUpdateCount: -3,
+            transportIdleTimeoutCount: -4,
+            contentFramePermille: 2_000,
+            emptyUpdatePermille: -10,
+            transportIdleTimeoutPermille: 42,
+            dirtyRectangleSampleCount: -5,
+            averageDirtyRectangleCount: -6,
+            dirtyRectangleCountMax: -7,
+            averageDirtyAreaPermille: 3_000,
+            dirtyAreaPermilleMax: -8,
+            averageChangedPixelsPermille: -9,
+            changedPixelsPermilleMax: 4_000,
+            thermalState: "thermal=SECRET"
+        )
+
+        XCTAssertEqual(performance.observedDurationBucket, DiagnosticDurationBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.deliveredFramesPerSecondBucket, DiagnosticFrameRateBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.deliveredFrameCount, 0)
+        XCTAssertEqual(performance.contentFrameCount, 0)
+        XCTAssertEqual(performance.emptyUpdateCount, 0)
+        XCTAssertEqual(performance.transportIdleTimeoutCount, 0)
+        XCTAssertEqual(performance.contentFramePermille, 1_000)
+        XCTAssertEqual(performance.emptyUpdatePermille, 0)
+        XCTAssertEqual(performance.transportIdleTimeoutPermille, 42)
+        XCTAssertEqual(performance.dirtyRectangleSampleCount, 0)
+        XCTAssertEqual(performance.averageDirtyRectangleCount, 0)
+        XCTAssertEqual(performance.dirtyRectangleCountMax, 0)
+        XCTAssertEqual(performance.averageDirtyAreaPermille, 1_000)
+        XCTAssertEqual(performance.dirtyAreaPermilleMax, 0)
+        XCTAssertEqual(performance.averageChangedPixelsPermille, 0)
+        XCTAssertEqual(performance.changedPixelsPermilleMax, 1_000)
+        XCTAssertEqual(performance.thermalState, "unknown")
     }
 
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
@@ -311,8 +404,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v2 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 2"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v3 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 3"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

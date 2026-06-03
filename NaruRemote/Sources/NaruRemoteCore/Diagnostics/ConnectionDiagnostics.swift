@@ -37,8 +37,16 @@ public enum DiagnosticDurationBucket: String, Codable, Equatable, Sendable {
             return .notMeasured
         }
 
-        let seconds = max(0, finishedAt.timeIntervalSince(startedAt))
-        switch seconds {
+        return bucket(duration: finishedAt.timeIntervalSince(startedAt))
+    }
+
+    public static func bucket(duration seconds: TimeInterval?) -> DiagnosticDurationBucket {
+        guard let seconds else {
+            return .notMeasured
+        }
+
+        let durationSeconds = max(0, seconds)
+        switch durationSeconds {
         case ..<1:
             return .underOneSecond
         case ..<3:
