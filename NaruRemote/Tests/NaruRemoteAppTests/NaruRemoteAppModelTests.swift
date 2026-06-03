@@ -6,6 +6,20 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
+    func testDefaultFrameStreamConfigurationCapsActiveCadence() {
+        let configuration = NaruRemoteAppModel.defaultFrameStreamConfiguration
+
+        XCTAssertEqual(configuration.requestTimeout, 8)
+        XCTAssertEqual(
+            configuration.frameInterval,
+            1.0 / 30.0,
+            accuracy: 0.0001,
+            "Default live sessions should cap active frame requests at about 30 fps."
+        )
+        XCTAssertEqual(configuration.idleFrameInterval, 0.05)
+        XCTAssertEqual(configuration.updateMode, .continuousUpdates)
+    }
+
     func testModelAddsProfileAndCreatesSessionDraft() async throws {
         let model = NaruRemoteAppModel()
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
