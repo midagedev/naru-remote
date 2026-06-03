@@ -753,14 +753,7 @@ public struct SessionViewportView: View {
     ) {
         let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
         let updatedTransform = onTrackpadGesture?(gesture, transform) ?? transform
-        if updatedTransform.zoomScale == transform.zoomScale,
-           updatedTransform.panOffset != transform.panOffset {
-            withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.88)) {
-                applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
-            }
-        } else {
-            applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
-        }
+        applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
     }
 
     private func applyViewportTransform(
@@ -866,7 +859,8 @@ public struct SessionViewportView: View {
             framebufferContent(
                 framebuffer,
                 aspectRatio: aspectRatio,
-                usesViewportFrame: fillsAvailableHeight
+                usesViewportFrame: fillsAvailableHeight,
+                minimumZoomScale: minimumZoomScale
             )
                 .frame(width: displaySize.width, height: displaySize.height)
                 // Trackpad gesture surface — a transparent layer that
@@ -927,7 +921,8 @@ public struct SessionViewportView: View {
     private func framebufferContent(
         _ framebuffer: RFBRawFramebuffer,
         aspectRatio: CGFloat,
-        usesViewportFrame: Bool
+        usesViewportFrame: Bool,
+        minimumZoomScale: CGFloat
     ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         if isPiPWatching, let pipLayerHost {
@@ -943,7 +938,8 @@ public struct SessionViewportView: View {
             metalOrSampledPreview(
                 framebuffer: framebuffer,
                 aspectRatio: aspectRatio,
-                usesViewportFrame: usesViewportFrame
+                usesViewportFrame: usesViewportFrame,
+                minimumZoomScale: minimumZoomScale
             )
         }
         #else
@@ -988,7 +984,8 @@ public struct SessionViewportView: View {
     private func metalOrSampledPreview(
         framebuffer: RFBRawFramebuffer,
         aspectRatio: CGFloat,
-        usesViewportFrame: Bool
+        usesViewportFrame: Bool,
+        minimumZoomScale: CGFloat
     ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
         if MetalFramebufferView.isSupported() {
@@ -998,6 +995,7 @@ public struct SessionViewportView: View {
                 sessionID: session?.id,
                 zoomScale: zoomScale,
                 panOffset: panOffset,
+                minimumZoomScale: minimumZoomScale,
                 onTap: onFramebufferTap,
                 onRightClick: onFramebufferRightClick,
                 onScroll: onFramebufferScroll,
@@ -1023,6 +1021,9 @@ public struct SessionViewportView: View {
             )
                 .scaleEffect(zoomScale)
                 .offset(panOffset)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
                 .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
 
             if usesViewportFrame {
@@ -1037,6 +1038,9 @@ public struct SessionViewportView: View {
             RemoteFramebufferPreview(framebuffer: framebuffer)
                 .scaleEffect(zoomScale)
                 .offset(panOffset)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
                 .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         }
@@ -1044,6 +1048,9 @@ public struct SessionViewportView: View {
         RemoteFramebufferPreview(framebuffer: framebuffer)
             .scaleEffect(zoomScale)
             .offset(panOffset)
+            .transaction { transaction in
+                transaction.animation = nil
+            }
             .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif

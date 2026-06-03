@@ -12,6 +12,8 @@ private struct PendingPointerMove {
 
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
+    private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.12
+
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?
     @Published public private(set) var session: RemoteSession?
@@ -2826,7 +2828,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let attempt = TextInjectionAdapter().send(
+        let attempt = TextInjectionAdapter(
+            pasteSettleDelay: Self.remoteClipboardPasteSettleDelay
+        ).send(
             draft: &draft,
             via: activeTextClient,
             pasteCommand: pasteCommand

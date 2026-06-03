@@ -93,6 +93,10 @@ public struct MetalFramebufferView: UIViewRepresentable {
     /// Current local pan offset, pushed down so the host stays in sync
     /// when the parent resets zoom/pan (e.g. the 1× button).
     private let panOffset: CGSize
+    /// Current local minimum zoom scale. In immersive crop-to-fill mode this
+    /// is often > 1, so the UIKit recognizer must clamp against the same
+    /// baseline the SwiftUI parent uses.
+    private let minimumZoomScale: CGFloat
 
     public init(
         framebuffer: RFBRawFramebuffer,
@@ -102,6 +106,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         accessibilityIdentifier: String = "naru.session.metalFramebuffer",
         zoomScale: CGFloat = 1,
         panOffset: CGSize = .zero,
+        minimumZoomScale: CGFloat = 1,
         onTap: MetalFramebufferTapHandler? = nil,
         onRightClick: MetalFramebufferRightClickHandler? = nil,
         onScroll: MetalFramebufferScrollHandler? = nil,
@@ -119,6 +124,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.zoomScale = zoomScale
         self.panOffset = panOffset
+        self.minimumZoomScale = minimumZoomScale
         self.onTap = onTap
         self.onRightClick = onRightClick
         self.onScroll = onScroll
@@ -153,7 +159,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.pointerUpHandler = onPointerUp
         host.panHandler = onPan
         host.zoomToggleHandler = onZoomToggle
-        host.syncZoomPan(scale: zoomScale, offset: panOffset)
+        host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         context.coordinator.prepareForSession(sessionID)
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
@@ -179,7 +185,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.pointerUpHandler = onPointerUp
         uiView.panHandler = onPan
         uiView.zoomToggleHandler = onZoomToggle
-        uiView.syncZoomPan(scale: zoomScale, offset: panOffset)
+        uiView.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         if didEnqueueFramebuffer {
             uiView.requestRedraw()
         }
@@ -316,10 +322,20 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// applies a `.scaleEffect` to the framebuffer presentation.
     private var currentZoomScale: CGFloat = 1.0
 
+    /// Dynamic lower bound for pinch zoom.  Standard aspect-fit sessions use
+    /// 1×, while immersive aspect-fill sessions may start above 1×.
+    private var currentMinimumZoomScale: CGFloat = 1.0
+
+    /// While a UIKit pinch or zoomed-pan gesture is active, SwiftUI may
+    /// still rebuild this representable for incoming VNC frames.  Do
+    /// not let those frame-driven updates overwrite the recognizer's
+    /// in-flight accumulator with a one-frame-old parent value.
+    private var isViewportTransformGestureActive = false
+
     /// Local clamp range applied to the zoom scale.  Mirrors the
     /// range applied by `SessionViewportView` so the host view's
     /// internal accumulator never drifts past the visible clamp.
-    private static let minZoomScale: CGFloat = 0.5
+    private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
 
     init(coordinator: MetalFramebufferView.Coordinator) {
@@ -435,8 +451,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Push the parent's current zoom/pan into the host so gesture
     /// handlers branch on the live scale and the pan accumulator does
     /// not drift after a parent-driven reset (the 1× button).
-    public func syncZoomPan(scale: CGFloat, offset: CGSize) {
-        currentZoomScale = min(max(scale, Self.minZoomScale), Self.maxZoomScale)
+    public func syncZoomPan(scale: CGFloat, offset: CGSize, minimumScale: CGFloat = 1) {
+        currentMinimumZoomScale = min(
+            max(minimumScale, Self.minZoomScale),
+            Self.maxZoomScale
+        )
+        guard !isViewportTransformGestureActive else {
+            return
+        }
+        currentZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = offset
     }
 
@@ -528,24 +551,45 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     @objc private func handlePinchGesture(_ recognizer: UIPinchGestureRecognizer) {
-        guard recognizer.state == .changed || recognizer.state == .began else {
+        switch recognizer.state {
+        case .began:
+            isViewportTransformGestureActive = true
+        case .changed:
+            break
+        case .ended, .cancelled, .failed:
+            isViewportTransformGestureActive = false
+            return
+        default:
             return
         }
-        let proposed = currentZoomScale * recognizer.scale
+
+        let previousZoomScale = currentZoomScale
+        let proposed = previousZoomScale * recognizer.scale
         let anchor = recognizer.location(in: self)
         recognizer.scale = 1.0
-        let clamped = min(max(proposed, Self.minZoomScale), Self.maxZoomScale)
+        let clamped = min(max(proposed, currentMinimumZoomScale), Self.maxZoomScale)
+        let proposedPan: CGSize
+        if clamped <= currentMinimumZoomScale + 0.0001 {
+            proposedPan = .zero
+        } else {
+            proposedPan = Self.anchoredPanOffset(
+                currentPanOffset,
+                previousZoomScale: previousZoomScale,
+                newZoomScale: clamped,
+                anchor: anchor,
+                boundsSize: bounds.size
+            )
+        }
         currentZoomScale = clamped
+        let nextPanOffset = clampedPan(proposedPan)
+        let panDidChange = nextPanOffset != currentPanOffset
+        currentPanOffset = nextPanOffset
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
         // handler is wired only to the SwiftUI `.scaleEffect`.
         pinchHandler?(clamped, anchor, bounds.size)
-        // Re-clamp the pan against the new scale so zooming out pulls
-        // the content back into frame (and a return to ~1× re-centers).
-        let reclamped = clampedPan(currentPanOffset)
-        if reclamped != currentPanOffset {
-            currentPanOffset = reclamped
-            panHandler?(reclamped, bounds.size)
+        if panDidChange {
+            panHandler?(nextPanOffset, bounds.size)
         }
     }
 
@@ -613,6 +657,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func handleZoomedPan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            isViewportTransformGestureActive = true
+            recognizer.setTranslation(.zero, in: self)
             // If a remote button-1 drag had started before a pinch
             // zoomed the view mid-gesture, release it cleanly so no
             // stray button stays held on the wire.
@@ -633,9 +679,33 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             )
             currentPanOffset = clampedPan(proposed)
             panHandler?(currentPanOffset, bounds.size)
+        case .ended, .cancelled, .failed:
+            isViewportTransformGestureActive = false
         default:
             break
         }
+    }
+
+    static func anchoredPanOffset(
+        _ current: CGSize,
+        previousZoomScale: CGFloat,
+        newZoomScale: CGFloat,
+        anchor: CGPoint,
+        boundsSize: CGSize
+    ) -> CGSize {
+        guard previousZoomScale > 0,
+              boundsSize.width > 0,
+              boundsSize.height > 0
+        else {
+            return current
+        }
+
+        let zoomRatio = newZoomScale / previousZoomScale
+        let center = CGPoint(x: boundsSize.width / 2, y: boundsSize.height / 2)
+        return CGSize(
+            width: anchor.x - center.x - zoomRatio * (anchor.x - center.x - current.width),
+            height: anchor.y - center.y - zoomRatio * (anchor.y - center.y - current.height)
+        )
     }
 
     // MARK: UIGestureRecognizerDelegate
