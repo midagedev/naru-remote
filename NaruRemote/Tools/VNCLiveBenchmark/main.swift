@@ -59,6 +59,13 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout
         )
+        let streamShapeProbe = measureStreamShapeProbe(
+            configuration: configuration,
+            timeout: options.timeout,
+            idleTimeout: options.idleTimeout,
+            maxSamples: options.streamShapeSamples,
+            frameInterval: options.streamShapeFrameInterval
+        )
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
             configuration: configuration,
             timeout: options.timeout,
@@ -72,8 +79,11 @@ enum VNCLiveBenchmark {
             continuousUpdateSamples: options.continuousUpdateSamples,
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
+            streamShapeSamples: options.streamShapeSamples,
+            streamShapeFrameInterval: options.streamShapeFrameInterval,
             profiles: profiles,
             idleProbe: idleProbe,
+            streamShapeProbe: streamShapeProbe,
             continuousUpdatesProbe: continuousUpdatesProbe
         )
     }
@@ -254,6 +264,111 @@ enum VNCLiveBenchmark {
         }
     }
 
+    private static func measureStreamShapeProbe(
+        configuration: LiveTargetConfiguration,
+        timeout: TimeInterval,
+        idleTimeout: TimeInterval,
+        maxSamples: Int,
+        frameInterval: TimeInterval
+    ) -> StreamShapeProbeReport {
+        guard maxSamples > 0 else {
+            return StreamShapeProbeReport(
+                requestedSamples: maxSamples,
+                firstFrameMilliseconds: nil,
+                samples: [],
+                elapsedMilliseconds: nil,
+                firstTimeoutMilliseconds: nil,
+                failureLabel: nil
+            )
+        }
+
+        let client = RFBNetworkClient(encodingPreference: .localLowLatency)
+        let pump = RFBFramePump(source: client)
+        var samples: [BenchmarkStreamShapeSample] = []
+        var firstFrameMilliseconds: Int?
+        var firstTimeoutMilliseconds: Int?
+        var elapsedMilliseconds: Int?
+        var failureLabel: String?
+
+        do {
+            _ = try client.connectSession(
+                host: configuration.host,
+                port: configuration.port,
+                credential: .vncPassword(configuration.password),
+                timeout: timeout
+            )
+
+            let firstFrameStartedAt = Date()
+            _ = try pump.nextFrame(requestTimeout: timeout)
+            firstFrameMilliseconds = milliseconds(since: firstFrameStartedAt)
+
+            let streamStartedAt = Date()
+            for _ in 0..<maxSamples {
+                let startedAt = Date()
+                do {
+                    guard let frame = try pump.nextFrame(requestTimeout: idleTimeout) else {
+                        break
+                    }
+                    samples.append(streamShapeSample(
+                        from: frame,
+                        durationMilliseconds: milliseconds(since: startedAt)
+                    ))
+                    if frameInterval > 0 {
+                        Thread.sleep(forTimeInterval: frameInterval)
+                    }
+                } catch RFBNetworkClientError.timedOut {
+                    firstTimeoutMilliseconds = milliseconds(from: idleTimeout)
+                    break
+                } catch {
+                    failureLabel = safeFailureLabel(for: error)
+                    break
+                }
+            }
+            elapsedMilliseconds = milliseconds(since: streamStartedAt)
+            pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
+            client.disconnect()
+        } catch {
+            pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
+            client.disconnect()
+            failureLabel = safeFailureLabel(for: error)
+        }
+
+        return StreamShapeProbeReport(
+            requestedSamples: maxSamples,
+            firstFrameMilliseconds: firstFrameMilliseconds,
+            samples: samples,
+            elapsedMilliseconds: elapsedMilliseconds,
+            firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+            failureLabel: failureLabel
+        )
+    }
+
+    private static func streamShapeSample(
+        from frame: RFBFramePumpFrame,
+        durationMilliseconds: Int
+    ) -> BenchmarkStreamShapeSample {
+        let framebufferArea = max(frame.framebuffer.width * frame.framebuffer.height, 1)
+        let dirtyArea = frame.dirtyRectangles.reduce(0) { total, rect in
+            total + max(rect.width, 0) * max(rect.height, 0)
+        }
+
+        return BenchmarkStreamShapeSample(
+            kind: frame.changedPixelCount == 0 ? .emptyUpdate : .contentUpdate,
+            durationMilliseconds: durationMilliseconds,
+            dirtyRectangleCount: frame.dirtyRectangles.count,
+            dirtyAreaPermille: permille(dirtyArea, of: framebufferArea),
+            changedPixelsPermille: permille(frame.changedPixelCount, of: framebufferArea)
+        )
+    }
+
+    private static func permille(_ value: Int, of total: Int) -> Int {
+        guard total > 0 else {
+            return 0
+        }
+        let rounded = Int((Double(value) / Double(total) * 1_000).rounded())
+        return value > 0 ? max(rounded, 1) : 0
+    }
+
     private static func milliseconds(since start: Date) -> Int {
         milliseconds(from: Date().timeIntervalSince(start))
     }
@@ -267,6 +382,8 @@ private struct BenchmarkOptions: Equatable {
     var attempts = 3
     var fullRefreshSamples = 1
     var continuousUpdateSamples = 1
+    var streamShapeSamples = 12
+    var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
@@ -310,6 +427,17 @@ private struct BenchmarkOptions: Equatable {
                 }
                 options.continuousUpdateSamples = samples
                 index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-samples":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let samples = Int(value), samples >= 0 else {
+                    throw UsageError("stream-shape-samples must be a non-negative integer.")
+                }
+                options.streamShapeSamples = samples
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-frame-interval":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.streamShapeFrameInterval = try nonNegativeTimeInterval(value, option: argument)
+                index = arguments.index(index, offsetBy: 2)
             case "--timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.timeout = try positiveTimeInterval(value, option: argument)
@@ -341,6 +469,13 @@ private struct BenchmarkOptions: Equatable {
     private static func positiveTimeInterval(_ value: String, option: String) throws -> TimeInterval {
         guard let interval = TimeInterval(value), interval > 0 else {
             throw UsageError("\(option) must be a positive number of seconds.")
+        }
+        return interval
+    }
+
+    private static func nonNegativeTimeInterval(_ value: String, option: String) throws -> TimeInterval {
+        guard let interval = TimeInterval(value), interval >= 0 else {
+            throw UsageError("\(option) must be a non-negative number of seconds.")
         }
         return interval
     }
@@ -474,11 +609,14 @@ private struct BenchmarkReport: Codable, Equatable {
     let attemptsPerProfile: Int
     let fullRefreshSamplesPerAttempt: Int
     let continuousUpdateSamples: Int
+    let streamShapeSamples: Int
+    let streamShapeFrameIntervalSeconds: TimeInterval
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
     let safety: [String]
     let profiles: [ProfileReport]
     let idleProbe: IdleProbeReport
+    let streamShapeProbe: StreamShapeProbeReport
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
 
     init(
@@ -487,23 +625,30 @@ private struct BenchmarkReport: Codable, Equatable {
         continuousUpdateSamples: Int,
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
+        streamShapeSamples: Int,
+        streamShapeFrameInterval: TimeInterval,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
+        streamShapeProbe: StreamShapeProbeReport,
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 5
+        self.schemaVersion = 6
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
+        self.streamShapeSamples = streamShapeSamples
+        self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.safety = [
             "host, password, server name, framebuffer dimensions, pixel payloads, byte counts, cursor pixels, and raw error descriptions are not emitted",
+            "stream-shape metrics emit aggregate counts and permille ratios only",
             "reports are written to stdout only"
         ]
         self.profiles = profiles
         self.idleProbe = idleProbe
+        self.streamShapeProbe = streamShapeProbe
         self.continuousUpdatesProbe = continuousUpdatesProbe
     }
 }
@@ -572,6 +717,29 @@ private enum IdleProbeStatus: String, Codable {
     case emptyUpdate = "empty-update"
     case contentUpdate = "content-update"
     case failed
+}
+
+private struct StreamShapeProbeReport: Codable, Equatable {
+    let firstFrameMilliseconds: Int?
+    let summary: BenchmarkStreamShapeSummary
+
+    init(
+        requestedSamples: Int,
+        firstFrameMilliseconds: Int?,
+        samples: [BenchmarkStreamShapeSample],
+        elapsedMilliseconds: Int?,
+        firstTimeoutMilliseconds: Int?,
+        failureLabel: String?
+    ) {
+        self.firstFrameMilliseconds = firstFrameMilliseconds
+        self.summary = BenchmarkStreamShapeSummary(
+            requestedSamples: requestedSamples,
+            samples: samples,
+            elapsedMilliseconds: elapsedMilliseconds,
+            firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+            failureLabel: failureLabel
+        )
+    }
 }
 
 private struct ContinuousUpdatesProbeReport: Codable, Equatable {
@@ -671,6 +839,8 @@ private func renderText(_ report: BenchmarkReport) {
     print("safety: host/password/server name/framebuffer dimensions/pixels/byte counts/cursor pixels/raw errors are not emitted")
     print("attempts per profile: \(report.attemptsPerProfile)")
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
+    print("stream-shape samples: \(report.streamShapeSamples)")
+    print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
@@ -715,6 +885,9 @@ private func renderText(_ report: BenchmarkReport) {
         print("- status: \(report.idleProbe.status.rawValue)")
     }
     print("")
+    print("stream-shape probe:")
+    renderStreamShapeProbe(report.streamShapeProbe)
+    print("")
     print("continuous updates probe:")
     let probe = report.continuousUpdatesProbe
     if let failure = probe.failureLabel {
@@ -738,6 +911,58 @@ private func renderText(_ report: BenchmarkReport) {
     }
 }
 
+private func renderStreamShapeProbe(_ probe: StreamShapeProbeReport) {
+    let summary = probe.summary
+    if let failure = summary.failureLabel {
+        print("- status: \(summary.status.rawValue), failure: \(failure)")
+        return
+    }
+
+    print("- status: \(summary.status.rawValue), received: \(summary.receivedSamples)/\(summary.requestedSamples)")
+    if let firstFrameMilliseconds = probe.firstFrameMilliseconds {
+        print("  first-frame ms: \(firstFrameMilliseconds)")
+    }
+    if let fps = summary.deliveredFramesPerSecond {
+        print("  delivered incremental fps: \(formatFramesPerSecond(fps))")
+    }
+    if let latency = summary.updateLatency {
+        print(
+            "  update ms avg/p50/p95/min/max: "
+                + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
+                + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
+                + "\(latency.maxMilliseconds)"
+        )
+    }
+    print("  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
+    if let dirtyRectangles = summary.dirtyRectangleCount {
+        print(
+            "  dirty rect count avg/p50/p95/min/max: "
+                + "\(dirtyRectangles.averageMilliseconds)/\(dirtyRectangles.p50Milliseconds)/"
+                + "\(dirtyRectangles.p95Milliseconds)/\(dirtyRectangles.minMilliseconds)/"
+                + "\(dirtyRectangles.maxMilliseconds)"
+        )
+    }
+    if let dirtyArea = summary.dirtyAreaPermille {
+        print(
+            "  dirty area permille avg/p50/p95/min/max: "
+                + "\(dirtyArea.averageMilliseconds)/\(dirtyArea.p50Milliseconds)/"
+                + "\(dirtyArea.p95Milliseconds)/\(dirtyArea.minMilliseconds)/"
+                + "\(dirtyArea.maxMilliseconds)"
+        )
+    }
+    if let changedPixels = summary.changedPixelsPermille {
+        print(
+            "  changed pixel permille avg/p50/p95/min/max: "
+                + "\(changedPixels.averageMilliseconds)/\(changedPixels.p50Milliseconds)/"
+                + "\(changedPixels.p95Milliseconds)/\(changedPixels.minMilliseconds)/"
+                + "\(changedPixels.maxMilliseconds)"
+        )
+    }
+    if let timeout = summary.firstTimeoutMilliseconds {
+        print("  first timeout ms: \(timeout)")
+    }
+}
+
 private func renderJSON(_ report: BenchmarkReport) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -750,6 +975,10 @@ private func formatSeconds(_ value: TimeInterval) -> String {
     return String(format: "%.3f", rounded)
 }
 
+private func formatFramesPerSecond(_ value: Double) -> String {
+    String(format: "%.2f", value)
+}
+
 private func formatFailureLabels(_ failures: [String: Int]) -> String {
     failures
         .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -760,10 +989,13 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
+      --stream-shape-samples N  Incremental request/response samples after a full frame using local-low-latency encoding. Defaults to 12; use 0 to disable.
+      --stream-shape-frame-interval SECONDS
+                                Delay between stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
       --continuous-update-samples N
                                 Maximum pushed updates to sample after enabling continuous updates. Defaults to 1.
       --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.
@@ -775,6 +1007,7 @@ private func printUsage() {
 
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.
+    Stream-shape metrics emit aggregate counts and permille ratios only.
     """)
 }
 
