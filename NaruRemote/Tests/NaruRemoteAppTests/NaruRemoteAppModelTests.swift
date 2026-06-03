@@ -596,6 +596,64 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats, SessionStreamStats())
     }
 
+    func testModelPublishesServerCursorFromEmptyIncrementalUpdateWithoutRepublishingFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let cursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 255, green: 255, blue: 255)]
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: [
+                .fullFrame(framebuffer: framebuffer),
+                RFBFramebufferUpdateResult(
+                    framebuffer: framebuffer,
+                    dirtyRectangles: [],
+                    changedPixelCount: 0,
+                    serverCursor: cursor
+                )
+            ]
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 0.05,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            pipWatchController: pipController
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(30))
+        model.startPiPWatch(at: Date(timeIntervalSince1970: 100))
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(model.snapshot.latestServerCursor, cursor)
+        XCTAssertEqual(
+            pipController.enqueuedFramebuffers,
+            [framebuffer],
+            "Cursor-only updates must not forward an unchanged framebuffer into PiP."
+        )
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 1)
+    }
+
     func testModelCancelsFrameStreamAndClearsFramebufferWhenProfileChanges() async throws {
         let first = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let second = try ConnectionProfile(displayName: "Laptop", host: "laptop.tailnet.ts.net")

@@ -1522,15 +1522,24 @@ public final class NaruRemoteAppModel: ObservableObject {
                     recordSessionStreamStats(for: frame, thermalState: thermalState)
 
                     // An empty incremental update (zero changed pixels)
-                    // means the connection is alive but nothing on screen
-                    // changed; the server polled empty instead of holding
-                    // the request.  Skip the framebuffer publish + GPU
-                    // upload + PiP forward entirely (republishing an
-                    // unchanged frame would churn the main actor and force
-                    // a full-frame GPU re-upload), and only note liveness.
-                    // Content frames take the full apply path.
+                    // means the connection is alive but framebuffer
+                    // pixels did not change; the server polled empty
+                    // instead of holding the request. Cursor
+                    // pseudo-encoding updates can still carry a real
+                    // server cursor shape without pixel damage, so keep
+                    // that memory-only overlay current while still
+                    // skipping framebuffer publish + GPU upload + PiP
+                    // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
-                    if isEmptyUpdate {
+                    if isEmptyUpdate, let serverCursor = frame.serverCursor {
+                        noteServerCursorUpdate(
+                            serverCursor,
+                            sessionID: pendingSession.id,
+                            profile: profile,
+                            streamID: streamID,
+                            capturedAt: frame.capturedAt
+                        )
+                    } else if isEmptyUpdate {
                         noteStreamLiveness(
                             sessionID: pendingSession.id,
                             profile: profile,
@@ -1753,6 +1762,29 @@ public final class NaruRemoteAppModel: ObservableObject {
             updatedSession.markFirstFrameReceived(at: capturedAt)
             session = updatedSession
         }
+    }
+
+    /// Memory-only update for the RFB Cursor pseudo-encoding when no
+    /// framebuffer pixels changed. This keeps trackpad mode aligned
+    /// with the server-provided cursor shape without republishing the
+    /// same framebuffer or forwarding another PiP frame.
+    private func noteServerCursorUpdate(
+        _ serverCursor: RFBServerCursor,
+        sessionID: RemoteSession.ID,
+        profile: ConnectionProfile,
+        streamID: UUID,
+        capturedAt: Date
+    ) {
+        guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
+            return
+        }
+        latestServerCursor = serverCursor
+        noteStreamLiveness(
+            sessionID: sessionID,
+            profile: profile,
+            streamID: streamID,
+            capturedAt: capturedAt
+        )
     }
 
     /// Fold one frame round-trip latency sample into the
