@@ -1,0 +1,48 @@
+import XCTest
+import NaruRemoteCore
+@testable import VNCLiveBenchmarkKit
+
+final class BenchmarkFailureLabelTests: XCTestCase {
+    func testNetworkTimeoutLabelsAreSpecific() {
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.connectTimedOut),
+            "connect-timeout"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.readTimedOut),
+            "read-timeout"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.writeTimedOut),
+            "write-timeout"
+        )
+    }
+
+    func testDecodeAndZlibLabelsStayCatalogOnly() {
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBByteReaderError.insufficientData(requested: 12, available: 4)
+            ),
+            "byte-reader-insufficient-data"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBZlibInflateStream.InflateError.inflateFailed),
+            "zlib-inflate-failed"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBTightZlibStreams.StoreError.invalidStreamIndex),
+            "tight-zlib-invalid-stream"
+        )
+    }
+
+    func testUnknownErrorsRemainCoarse() {
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: FixtureError.unknown),
+            "unexpected-error"
+        )
+    }
+}
+
+private enum FixtureError: Error {
+    case unknown
+}

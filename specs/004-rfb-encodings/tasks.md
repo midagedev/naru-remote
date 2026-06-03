@@ -139,6 +139,11 @@ iPhone) and ships as its own PR.
   leave automatic Tight/ZRLE/ContinuousUpdates renegotiation off by default
   until longer live iPhone benchmarks prove it improves sustained interaction.
   Owns: app-model guard/tests. **Done.**
+- **T316** Benchmark failure taxonomy: move live-benchmark safe failure labeling
+  into the benchmark kit, cover network timeout / byte-reader / zlib / auth
+  labels with tests, and record an 8-sample all-profile stream-shape comparison
+  before changing default encodings. Owns: benchmark kit, CLI, tests, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
