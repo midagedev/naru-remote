@@ -241,6 +241,12 @@ iPhone) and ships as its own PR.
   duration-only runs via `--stream-shape-samples 0`, and cap in-flight update
   waits/pacing sleeps to the remaining duration. Owns: CLI/report/docs, live
   smoke artifact. **Done.**
+- **T335** Sustained duration candidate evidence: run schema v17 duration-only
+  live comparisons for normal/low-power pacing, request/response vs
+  ContinuousUpdates transport, and selected encoding/adaptive profiles; record a
+  redacted artifact and keep production ContinuousUpdates/adaptive defaults
+  conservative until longer physical-device evidence exists. Owns: benchmark
+  artifact, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

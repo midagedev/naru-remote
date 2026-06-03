@@ -299,3 +299,39 @@ coordinates, pixels, byte counts, cursor pixels, or raw error descriptions.
 The duration cap also bounds each in-flight update wait and post-update pacing
 delay to the remaining duration so long thermal runs do not drift far past
 their requested wall-clock window.
+
+## D14 — Keep ContinuousUpdates opportunistic; use duration sweeps before adaptive defaults
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+
+**Decision**: do not force ContinuousUpdates or adaptive-full encoding
+renegotiation by default yet. Keep request/response as the compatibility
+baseline, keep normal-mode active content pacing at 60 Hz-class, and use the new
+duration-only benchmark to collect longer physical-device evidence before
+turning on automatic adaptive renegotiation in production.
+
+**Why**:
+- A 15 second live duration comparison on macOS Screen Sharing succeeded with
+  request/response but failed in ContinuousUpdates mode. Since IANA records
+  ContinuousUpdates/Fence as extension codes rather than the RFC baseline,
+  production should keep this path opportunistic.
+- A 20 second pacing/power comparison kept the 60 Hz-class content interval as
+  the best responsiveness default on the measured target. The 30 Hz and
+  low-power candidates lowered update pressure but also reduced delivered
+  content FPS, so Low Power Mode remains an explicit heat/battery lever rather
+  than the normal-mode default.
+- A 10 second profile sweep showed adaptive-good-full as promising, but the
+  sample is too short and local-low-latency/tight-first variance is high enough
+  that enabling automatic adaptive renegotiation by default would be premature.
+
+**Benchmark evidence**: see
+`artifacts/benchmarks/2026-06-04-sustained-duration-candidates-summary.md`.
+
+**Revisit criterion**: consider enabling adaptive-full defaults only after a
+physical iPhone duration run of at least 5 minutes shows equal-or-better content
+FPS or tail latency without worsening thermal pressure, and after the target
+server class passes the ContinuousUpdates/Fence path when that extension is part
+of the proposed default.
