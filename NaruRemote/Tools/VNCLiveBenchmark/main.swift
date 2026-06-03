@@ -68,7 +68,8 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
-            frameInterval: options.streamShapeFrameInterval
+            frameInterval: options.streamShapeFrameInterval,
+            idleFrameInterval: options.streamShapeIdleFrameInterval
         )
         let streamShapeProfileProbes = options.streamShapeProfiles.profiles.map { profile in
             if profile == .localLowLatency {
@@ -84,7 +85,8 @@ enum VNCLiveBenchmark {
                 timeout: options.timeout,
                 idleTimeout: options.idleTimeout,
                 maxSamples: options.streamShapeSamples,
-                frameInterval: options.streamShapeFrameInterval
+                frameInterval: options.streamShapeFrameInterval,
+                idleFrameInterval: options.streamShapeIdleFrameInterval
             )
         }
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
@@ -102,6 +104,7 @@ enum VNCLiveBenchmark {
             idleTimeoutSeconds: options.idleTimeout,
             streamShapeSamples: options.streamShapeSamples,
             streamShapeFrameInterval: options.streamShapeFrameInterval,
+            streamShapeIdleFrameInterval: options.streamShapeIdleFrameInterval,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             profiles: profiles,
@@ -294,7 +297,8 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
-        frameInterval: TimeInterval
+        frameInterval: TimeInterval,
+        idleFrameInterval: TimeInterval
     ) -> StreamShapeProbeReport {
         guard maxSamples > 0 else {
             return StreamShapeProbeReport(
@@ -338,8 +342,11 @@ enum VNCLiveBenchmark {
                         from: frame,
                         durationMilliseconds: milliseconds(since: startedAt)
                     ))
-                    if frameInterval > 0 {
-                        Thread.sleep(forTimeInterval: frameInterval)
+                    let pacingDelay = frame.isIncremental && frame.changedPixelCount == 0
+                        ? idleFrameInterval
+                        : frameInterval
+                    if pacingDelay > 0 {
+                        Thread.sleep(forTimeInterval: pacingDelay)
                     }
                 } catch RFBNetworkClientError.timedOut {
                     firstTimeoutMilliseconds = milliseconds(from: idleTimeout)
@@ -374,7 +381,8 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
         maxSamples: Int,
-        frameInterval: TimeInterval
+        frameInterval: TimeInterval,
+        idleFrameInterval: TimeInterval
     ) -> BenchmarkStreamShapeProfileReport {
         let probe = measureStreamShapeProbe(
             profile: profile,
@@ -382,7 +390,8 @@ enum VNCLiveBenchmark {
             timeout: timeout,
             idleTimeout: idleTimeout,
             maxSamples: maxSamples,
-            frameInterval: frameInterval
+            frameInterval: frameInterval,
+            idleFrameInterval: idleFrameInterval
         )
         return BenchmarkStreamShapeProfileReport(
             label: profile.label,
@@ -432,6 +441,7 @@ private struct BenchmarkOptions: Equatable {
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
     var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
+    var streamShapeIdleFrameInterval: TimeInterval = 0.05
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var timeout: TimeInterval = 5
@@ -487,6 +497,10 @@ private struct BenchmarkOptions: Equatable {
             case "--stream-shape-frame-interval":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeFrameInterval = try nonNegativeTimeInterval(value, option: argument)
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-idle-frame-interval":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.streamShapeIdleFrameInterval = try nonNegativeTimeInterval(value, option: argument)
                 index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -709,6 +723,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let continuousUpdateSamples: Int
     let streamShapeSamples: Int
     let streamShapeFrameIntervalSeconds: TimeInterval
+    let streamShapeIdleFrameIntervalSeconds: TimeInterval
     let firstFrameProfiles: BenchmarkFirstFrameProfileSelection
     let streamShapeProfiles: StreamShapeProfileSelection
     let timeoutSeconds: TimeInterval
@@ -728,6 +743,7 @@ private struct BenchmarkReport: Codable, Equatable {
         idleTimeoutSeconds: TimeInterval,
         streamShapeSamples: Int,
         streamShapeFrameInterval: TimeInterval,
+        streamShapeIdleFrameInterval: TimeInterval,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         profiles: [ProfileReport],
@@ -736,13 +752,14 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 8
+        self.schemaVersion = 9
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
         self.streamShapeSamples = streamShapeSamples
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
+        self.streamShapeIdleFrameIntervalSeconds = streamShapeIdleFrameInterval
         self.firstFrameProfiles = firstFrameProfiles
         self.streamShapeProfiles = streamShapeProfiles
         self.timeoutSeconds = timeoutSeconds
@@ -948,6 +965,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
     print("stream-shape samples: \(report.streamShapeSamples)")
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
+    print("stream-shape idle frame interval seconds: \(formatSeconds(report.streamShapeIdleFrameIntervalSeconds))")
     print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
     print("stream-shape profiles: \(report.streamShapeProfiles.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
@@ -1121,13 +1139,15 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 to disable.
       --stream-shape-frame-interval SECONDS
-                                Delay between stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
+                                Delay after content stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
+      --stream-shape-idle-frame-interval SECONDS
+                                Delay after empty stream-shape incremental requests. Defaults to 0.05, matching the app's idle poll backoff.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles local-low-latency|all

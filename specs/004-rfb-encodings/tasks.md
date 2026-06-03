@@ -162,6 +162,10 @@ iPhone) and ships as its own PR.
   do not also redraw the unchanged texture, and add an opt-in simulator
   benchmark for the upload-gate skip path. Owns: Metal view coordinator,
   benchmark target. **Done.**
+- **T321** Live benchmark app pacing parity: let stream-shape probes use a
+  separate empty-update idle delay so sustained live measurements can mirror
+  the app's content-frame and static-screen backpressure separately. Owns:
+  live benchmark CLI/report/docs. **Done.**
 
 ## Cross-cutting (every increment)
 

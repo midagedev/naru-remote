@@ -91,6 +91,7 @@ swift run VNCLiveBenchmark \
   --full-refresh-samples 2 \
   --stream-shape-samples 30 \
   --stream-shape-frame-interval 0.033 \
+  --stream-shape-idle-frame-interval 0.05 \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
   --continuous-update-samples 3
