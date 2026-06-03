@@ -407,6 +407,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Active-session compact compose field must be reachable"
         )
 
+        sleep(3)
+
         try saveScreen(named: "16-session-active-widescreen-\(deviceTag)-\(mode.suffix).png")
 
         compactEditor.tap()

@@ -29,6 +29,7 @@ A user connects to their Mac and the remote screen fills the available space at 
 1. **Given** an active session with a 16:9 server framebuffer, **When** the session view renders on iPhone, **Then** the remote screen is presented at 16:9 (letterboxed only by the screen's own aspect mismatch, never by a hardcoded 4:3), filling the width and as much height as the layout allows.
 2. **Given** an active session, **When** the user looks at the session view, **Then** session controls (disconnect, pointer-mode toggle, keyboard, zoom reset, connection status) are reachable from a single compact control bar that overlays or docks beside the screen without forcing the screen into a small box.
 3. **Given** no session yet (a selected profile, not connected), **When** the detail view renders, **Then** a clear connect affordance and pre-connect status is shown, and the diagnostics detail remains accessible (e.g. via a disclosure / sheet) but is not stacked permanently under the screen.
+4. **Given** an active phone session where strict aspect-fit would leave most of the live area empty, **When** the session renders, **Then** the viewport may start at a local crop-to-fill zoom baseline that preserves true aspect ratio and coordinate mapping, with panning available to inspect the cropped edges.
 
 ---
 
@@ -112,8 +113,8 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 
 ### Functional Requirements
 
-- **FR-001**: The session view MUST present the remote framebuffer at the **server's true aspect ratio**, not a hardcoded ratio, sized to be the dominant element of the view (screen-first), with chrome that does not force the screen into a fixed small box.
-- **FR-002**: Session controls (disconnect, pointer-mode toggle, keyboard/compose access, zoom reset, connection-status chip) MUST be reachable from a compact control surface that overlays or docks without permanently shrinking the remote screen. Diagnostics detail MUST remain reachable (disclosure/sheet) but MUST NOT be permanently stacked under the screen.
+- **FR-001**: The session view MUST present the remote framebuffer at the **server's true aspect ratio**, not a hardcoded ratio, sized to be the dominant element of the view (screen-first), with chrome that does not force the screen into a fixed small box. On constrained phone portrait layouts, it MAY use a local crop-to-fill zoom baseline instead of strict aspect-fit so the live stream occupies substantially more vertical space.
+- **FR-002**: Session controls (disconnect, pointer-mode toggle, keyboard/compose access, zoom reset, connection-status chip) MUST be reachable from a compact control surface that overlays or docks without permanently shrinking the remote screen. Diagnostics detail MUST remain reachable (disclosure/sheet) but MUST NOT be permanently stacked under the screen. Overlay controls SHOULD auto-hide or collapse when idle so the remote screen remains the default visual state.
 - **FR-003**: The user MUST be able to pinch-zoom the remote screen between fit scale and a max scale; zoom MUST be a local view transform and MUST NOT emit any RFB message (constitution §I).
 - **FR-004**: When zoomed beyond fit, the user MUST be able to pan the viewport with a one-finger drag (in direct-touch mode); the pan offset MUST be clamped so no out-of-bounds region is revealed.
 - **FR-005**: A double-tap MUST toggle between fit and a comfortable zoom centered on the tapped point; the animation MUST not emit any RFB message.
