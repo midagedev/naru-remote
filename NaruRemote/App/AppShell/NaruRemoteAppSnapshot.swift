@@ -47,6 +47,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var networkReadMillisecondsMax: Int
     public var clientProcessingMillisecondsTotal: Int
     public var clientProcessingMillisecondsMax: Int
+    public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
     public var latestFrameCapturedAt: Date?
@@ -78,6 +79,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         networkReadMillisecondsMax: Int = 0,
         clientProcessingMillisecondsTotal: Int = 0,
         clientProcessingMillisecondsMax: Int = 0,
+        actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
         firstFrameCapturedAt: Date? = nil,
         latestFrameCapturedAt: Date? = nil
@@ -104,6 +106,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.networkReadMillisecondsMax = max(networkReadMillisecondsMax, 0)
         self.clientProcessingMillisecondsTotal = max(clientProcessingMillisecondsTotal, 0)
         self.clientProcessingMillisecondsMax = max(clientProcessingMillisecondsMax, 0)
+        self.actualEncodingMix = actualEncodingMix
         self.thermalState = thermalState
         self.firstFrameCapturedAt = firstFrameCapturedAt
         self.latestFrameCapturedAt = latestFrameCapturedAt
@@ -227,6 +230,7 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageClientProcessingMilliseconds).rawValue,
             maxClientProcessingTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxClientProcessingMilliseconds).rawValue,
+            actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
     }
@@ -242,6 +246,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         latestFrameCapturedAt = frame.capturedAt
         recordReceiveTiming(frame.timing)
+        actualEncodingMix = actualEncodingMix.adding(frame.encodingMix)
 
         if frame.transportIdleTimedOut {
             transportIdleTimeoutCount += 1

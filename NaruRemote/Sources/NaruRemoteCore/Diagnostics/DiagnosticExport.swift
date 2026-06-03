@@ -282,6 +282,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case maxNetworkReadTimingBucket
         case averageClientProcessingTimingBucket
         case maxClientProcessingTimingBucket
+        case actualEncodingMix
         case thermalState
     }
 
@@ -314,6 +315,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let maxNetworkReadTimingBucket: String
     public let averageClientProcessingTimingBucket: String
     public let maxClientProcessingTimingBucket: String
+    public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
     public init(
@@ -346,6 +348,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         maxNetworkReadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         averageClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
         self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
@@ -387,6 +390,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             self.averageClientProcessingTimingBucket = Self.safeTimingBucket(averageClientProcessingTimingBucket)
             self.maxClientProcessingTimingBucket = Self.safeTimingBucket(maxClientProcessingTimingBucket)
         }
+        self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
     }
 
@@ -476,6 +480,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .maxClientProcessingTimingBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            actualEncodingMix: try container.decodeIfPresent(
+                RFBFramebufferEncodingMix.self,
+                forKey: .actualEncodingMix
+            ) ?? RFBFramebufferEncodingMix(),
             thermalState: try container.decode(String.self, forKey: .thermalState)
         )
     }
@@ -494,6 +502,22 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
 
     private static func safeTimingBucket(_ value: String) -> String {
         DiagnosticTimingBucket(rawValue: value)?.rawValue ?? DiagnosticTimingBucket.notMeasured.rawValue
+    }
+
+    private static func safeEncodingMix(_ value: RFBFramebufferEncodingMix) -> RFBFramebufferEncodingMix {
+        RFBFramebufferEncodingMix(
+            rawRectangles: value.rawRectangles,
+            copyRectRectangles: value.copyRectRectangles,
+            hextileRectangles: value.hextileRectangles,
+            zrleRectangles: value.zrleRectangles,
+            tightRectangles: value.tightRectangles,
+            cursorRectangles: value.cursorRectangles,
+            xCursorRectangles: value.xCursorRectangles,
+            desktopSizeRectangles: value.desktopSizeRectangles,
+            extendedDesktopSizeRectangles: value.extendedDesktopSizeRectangles,
+            lastRectRectangles: value.lastRectRectangles,
+            endOfContinuousUpdatesEvents: value.endOfContinuousUpdatesEvents
+        )
     }
 
     private static func safeThermalState(_ value: String) -> String {
@@ -538,7 +562,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 6
+    public static let currentSchemaVersion = 7
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

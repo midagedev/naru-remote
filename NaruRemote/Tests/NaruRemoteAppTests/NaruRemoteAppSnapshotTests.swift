@@ -11,7 +11,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 4)],
             changedPixelCount: 16,
             capturedAt: Date(timeIntervalSince1970: 100),
-            isIncremental: false
+            isIncremental: false,
+            encodingMix: RFBFramebufferEncodingMix(rawRectangles: 1)
         )
         let emptyFrame = RFBFramePumpFrame(
             sequence: 2,
@@ -19,7 +20,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             dirtyRectangles: [],
             changedPixelCount: 0,
             capturedAt: Date(timeIntervalSince1970: 100.5),
-            isIncremental: true
+            isIncremental: true,
+            encodingMix: RFBFramebufferEncodingMix(copyRectRectangles: 1, cursorRectangles: 1)
         )
         var stats = SessionStreamStats()
 
@@ -45,6 +47,10 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.rendererPartialUploadPermille, 0)
         XCTAssertEqual(report.rendererFullUploadPermille, 1_000)
         XCTAssertEqual(report.rendererUploadRegionCountMax, 1)
+        XCTAssertEqual(
+            report.actualEncodingMix,
+            RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)
+        )
         XCTAssertEqual(report.thermalState, SessionStreamThermalState.serious.rawValue)
     }
 

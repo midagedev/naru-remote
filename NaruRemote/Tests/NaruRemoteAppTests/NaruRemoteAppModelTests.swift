@@ -1295,7 +1295,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 6)
+        XCTAssertEqual(report.schemaVersion, 7)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1340,7 +1340,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
                     timing: RFBFramebufferUpdateTiming(
                         totalMilliseconds: 420,
                         networkReadMilliseconds: 360
-                    )
+                    ),
+                    encodingMix: RFBFramebufferEncodingMix(rawRectangles: 1, zrleRectangles: 1)
                 )
             ]
         )
@@ -1365,7 +1366,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 6)
+        XCTAssertEqual(report.schemaVersion, 7)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -1387,7 +1388,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
         XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(
+            performance.actualEncodingMix,
+            RFBFramebufferEncodingMix(rawRectangles: 1, zrleRectangles: 1)
+        )
         XCTAssertEqual(performance.thermalState, SessionStreamThermalState.fair.rawValue)
+        XCTAssertTrue(json.contains("\"actualEncodingMix\""))
+        XCTAssertTrue(json.contains("\"zrleRectangles\" : 1"))
         XCTAssertTrue(json.contains("\"averageReceiveTotalTimingBucket\" : \"stalled\""))
         XCTAssertFalse(json.contains("totalMilliseconds"))
         XCTAssertFalse(json.contains("networkReadMilliseconds"))
