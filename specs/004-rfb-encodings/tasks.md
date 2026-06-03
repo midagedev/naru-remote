@@ -114,6 +114,12 @@ iPhone) and ships as its own PR.
   inject `frameInterval: 0`; record VNC performance research and live localhost
   benchmark baseline. Owns: app model default config, app-model test, benchmark
   artifacts. **Done.**
+- **T311** Live stream-shape benchmark: extend `VNCLiveBenchmark` schema-v6 with
+  a bounded incremental request/response probe that reports delivered FPS,
+  empty/content/timeouts, update latency, dirty-rect count, dirty-area permille,
+  and changed-pixel permille without emitting target identity, dimensions,
+  pixels, byte counts, or raw errors. Owns: live benchmark CLI, benchmark-kit
+  summary/tests, benchmark docs. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -55,9 +55,16 @@ prompt.
 ```bash
 NARU_LIVE_MAC_HOST=127.0.0.1 \
 NARU_LIVE_MAC_PASSWORD='...' \
-swift run VNCLiveBenchmark --attempts 3 --full-refresh-samples 2 --continuous-update-samples 3
+swift run VNCLiveBenchmark \
+  --attempts 3 \
+  --full-refresh-samples 2 \
+  --stream-shape-samples 30 \
+  --stream-shape-frame-interval 0.033 \
+  --continuous-update-samples 3
 ```
 
 The live benchmark intentionally redacts the target identity and avoids
 emitting framebuffer dimensions, pixel payloads, byte counts, cursor
-pixels, and raw error descriptions.
+pixels, and raw error descriptions. The stream-shape probe emits
+aggregate FPS, update-latency, dirty-rectangle-count, dirty-area
+permille, and changed-pixel permille summaries only.
