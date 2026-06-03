@@ -61,6 +61,53 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertEqual(reset.panOffset, .zero)
     }
 
+    func testZoomToggleResetsToImmersiveBaseline() {
+        let baseline: CGFloat = 2.0
+        let reset = SessionViewportView.zoomToggleTransform(
+            framebufferSize: CGSize(width: 1600, height: 900),
+            viewSize: CGSize(width: 400, height: 700),
+            zoomScale: 3.1,
+            panOffset: CGSize(width: -120, height: 24),
+            anchor: CGPoint(x: 180, y: 320),
+            baselineZoomScale: baseline
+        )
+
+        XCTAssertEqual(reset.zoomScale, baseline, accuracy: 1e-6)
+        XCTAssertEqual(reset.panOffset, .zero)
+    }
+
+    func testZoomToggleZoomsAboveImmersiveBaseline() {
+        let baseline: CGFloat = 2.0
+        let zoomed = SessionViewportView.zoomToggleTransform(
+            framebufferSize: CGSize(width: 1600, height: 900),
+            viewSize: CGSize(width: 400, height: 700),
+            zoomScale: baseline,
+            panOffset: .zero,
+            anchor: CGPoint(x: 260, y: 320),
+            baselineZoomScale: baseline
+        )
+
+        XCTAssertEqual(zoomed.zoomScale, 2.7, accuracy: 1e-6)
+    }
+
+    func testAspectFillZoomScaleExpandsWidescreenIntoPortraitViewport() {
+        let scale = SessionViewportView.aspectFillZoomScale(
+            aspectRatio: 16.0 / 9.0,
+            containerSize: CGSize(width: 400, height: 800)
+        )
+
+        XCTAssertEqual(scale, 32.0 / 9.0, accuracy: 1e-6)
+    }
+
+    func testAspectFillZoomScaleStaysOneWhenAspectAlreadyMatches() {
+        let scale = SessionViewportView.aspectFillZoomScale(
+            aspectRatio: 16.0 / 9.0,
+            containerSize: CGSize(width: 1600, height: 900)
+        )
+
+        XCTAssertEqual(scale, 1, accuracy: 1e-6)
+    }
+
     func testCursorViewPointIncludesZoomAndPan() {
         let point = SessionViewportView.cursorViewPoint(
             framebufferPosition: CGPoint(x: 75, y: 50),

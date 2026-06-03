@@ -18,6 +18,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T004 [A] `MetalFramebufferHostingView` — 1-finger pan when zoomed (LOCAL, no RFB), double-tap zoom toggle, zoom/pan synced from parent. **Done** (build-green).
 - [x] T005 [A] `SessionControlBar.swift` — compact live-session overlay implemented in `SessionViewportView` with status, quality, checks, disconnect, pointer-mode, and PiP controls. **Done.**
 - [x] T006 [A][VISUAL] Screenshots saved: `artifacts/screenshots/ux-audit/16-session-active-widescreen-iphone-light.png`, `16-session-active-widescreen-iphone-dark.png`, `17-session-active-keyboard-iphone-light.png`, `17-session-active-keyboard-iphone-dark.png`. **Done.**
+- [x] T007 [A] `SessionViewportView` — active phone sessions start at a local crop-to-fill/zoom-fill baseline when strict aspect-fit would waste most of the live area, and the top live control bar auto-hides to a reveal handle. Unit-covered by `SessionViewportViewGeometryTests`; screenshot refresh pending in T030. **Done.**
 
 ## Stage B — Trackpad mode + cursor
 - [x] T010 [P][B] `TrackpadCursor` + `PointerControlMode` + `RFBPointerCommand` in Core (`PointerControl.swift`). **Done.**

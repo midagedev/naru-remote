@@ -61,8 +61,10 @@ public struct SessionViewportView: View {
     private let connectionQuality: ConnectionQuality
     /// When `true` the remote-screen container becomes the dominant
     /// full-height "hero" (GRD parity, spec 003 FR-001) instead of a
-    /// width-driven aspect-fit box; the framebuffer still fits at its
-    /// true aspect ratio and is pinned to the top of the hero surface.
+    /// width-driven aspect-fit box.  Live frames start at a local
+    /// zoom-fill baseline so phone portrait avoids wasting most of the
+    /// stream area on letterbox space while preserving true-aspect
+    /// mapping through `ViewportTransform`.
     /// The Shell sets
     /// this only during a live session so the screen fills the space above
     /// the dock and the soft keyboard merely shrinks it rather than
@@ -78,9 +80,22 @@ public struct SessionViewportView: View {
     /// update.
     @State private var zoomScale: CGFloat = 1.0
 
+    /// Live-session crop-to-fill baseline.  In immersive mode the
+    /// framebuffer starts at the smallest local zoom that fills the
+    /// viewport height, then user pinch can zoom further.  Keeping this
+    /// as state lets keyboard-driven viewport height changes preserve
+    /// explicit user zoom while still re-centering when the user was at
+    /// the baseline.
+    @State private var immersiveBaselineZoomScale: CGFloat = 1.0
+
     /// Local pan offset in view points while zoomed. Constitution I:
     /// pan is a local viewport transform and never emits an RFB message.
     @State private var panOffset: CGSize = .zero
+
+    /// Auto-hidden live controls.  The bar appears on entry / reveal,
+    /// then collapses to a tiny top handle so the remote screen is the
+    /// default visual state.
+    @State private var showsImmersiveControlBar: Bool = true
 
     /// Gesture baselines used only by the PiP display-layer path. The
     /// regular Metal path owns UIKit recognizers and reports absolute
@@ -257,13 +272,9 @@ public struct SessionViewportView: View {
             // double-letterboxed inside a hardcoded 4:3 box.  The
             // empty-state placeholder keeps 4:3 until the first frame
             // defines the real ratio (see `containerAspectRatio`).  In
-            // hero mode (`fillsAvailableHeight`) the container instead
-            // greedily fills the available height — the framebuffer still
-            // fits inside at the server's true ratio.  In hero mode
-            // (`fillsAvailableHeight`) the container greedily fills the
-            // available height and the visible framebuffer is pinned to
-            // the top so the live stream owns the upper screen instead
-            // of floating mid-column.
+            // hero mode (`fillsAvailableHeight`) the container greedily
+            // fills the available height and the visible framebuffer may
+            // crop via a local zoom-fill baseline rather than shrink.
             .modifier(
                 ViewportSizing(
                     fill: fillsAvailableHeight,
@@ -279,12 +290,30 @@ public struct SessionViewportView: View {
         viewportSurface
             .modifier(ViewportSizing(fill: true, aspectRatio: containerAspectRatio))
             .overlay(alignment: .top) {
-                immersiveControlBar
-                    .padding(.horizontal, 10)
-                    .padding(.top, 8)
+                Group {
+                    if showsImmersiveControlBar {
+                        immersiveControlBar
+                            .padding(.horizontal, 10)
+                            .padding(.top, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    } else {
+                        controlRevealHandle
+                            .padding(.top, 8)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: showsImmersiveControlBar)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
+            .task(id: showsImmersiveControlBar) {
+                guard showsImmersiveControlBar else { return }
+                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showsImmersiveControlBar = false
+                }
+            }
     }
 
     private var viewportSurface: some View {
@@ -387,6 +416,29 @@ public struct SessionViewportView: View {
         )
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
         .accessibilityIdentifier("naru.session.controlBar")
+    }
+
+    private var controlRevealHandle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showsImmersiveControlBar = true
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white.opacity(0.86))
+                .frame(width: 52, height: 24)
+                .background(Color.black.opacity(0.42))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Show session controls")
+        .accessibilityIdentifier("naru.session.controls.reveal")
     }
 
     /// iPad / regular-width path.  Mirrors the historical inline
@@ -753,12 +805,19 @@ public struct SessionViewportView: View {
         let aspectRatio = CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1))
 
         GeometryReader { proxy in
-            let displaySize = Self.aspectFitSize(
-                aspectRatio: aspectRatio,
-                containerSize: proxy.size
-            )
+            let displaySize = fillsAvailableHeight
+                ? proxy.size
+                : Self.aspectFitSize(aspectRatio: aspectRatio, containerSize: proxy.size)
+            let minimumZoomScale = fillsAvailableHeight
+                ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: proxy.size)
+                : Self.minZoomScale
+            let framebufferSizeToken = "\(framebuffer.width)x\(framebuffer.height)"
 
-            framebufferContent(framebuffer, aspectRatio: aspectRatio)
+            framebufferContent(
+                framebuffer,
+                aspectRatio: aspectRatio,
+                usesViewportFrame: fillsAvailableHeight
+            )
                 .frame(width: displaySize.width, height: displaySize.height)
                 // Trackpad gesture surface — a transparent layer that
                 // intercepts one-finger drag + tap ONLY in trackpad mode
@@ -786,12 +845,40 @@ public struct SessionViewportView: View {
                         cursorOverlay(framebuffer: framebuffer)
                     }
                 }
+                .clipped()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: framebufferAlignment)
+                .onAppear {
+                    syncImmersiveBaselineZoom(
+                        minimumZoomScale,
+                        framebuffer: framebuffer,
+                        viewSize: proxy.size
+                    )
+                }
+                .onChange(of: proxy.size) { _, newSize in
+                    syncImmersiveBaselineZoom(
+                        fillsAvailableHeight
+                            ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: newSize)
+                            : Self.minZoomScale,
+                        framebuffer: framebuffer,
+                        viewSize: newSize
+                    )
+                }
+                .onChange(of: framebufferSizeToken) { _, _ in
+                    syncImmersiveBaselineZoom(
+                        minimumZoomScale,
+                        framebuffer: framebuffer,
+                        viewSize: proxy.size
+                    )
+                }
         }
     }
 
     @ViewBuilder
-    private func framebufferContent(_ framebuffer: RFBRawFramebuffer, aspectRatio: CGFloat) -> some View {
+    private func framebufferContent(
+        _ framebuffer: RFBRawFramebuffer,
+        aspectRatio: CGFloat,
+        usesViewportFrame: Bool
+    ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         if isPiPWatching, let pipLayerHost {
             // Active system PiP — render through the shared
@@ -803,7 +890,11 @@ public struct SessionViewportView: View {
                 layerHost: pipLayerHost
             )
         } else {
-            metalOrSampledPreview(framebuffer: framebuffer, aspectRatio: aspectRatio)
+            metalOrSampledPreview(
+                framebuffer: framebuffer,
+                aspectRatio: aspectRatio,
+                usesViewportFrame: usesViewportFrame
+            )
         }
         #else
         RemoteFramebufferPreview(framebuffer: framebuffer)
@@ -846,11 +937,12 @@ public struct SessionViewportView: View {
     @ViewBuilder
     private func metalOrSampledPreview(
         framebuffer: RFBRawFramebuffer,
-        aspectRatio: CGFloat
+        aspectRatio: CGFloat,
+        usesViewportFrame: Bool
     ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
         if MetalFramebufferView.isSupported() {
-            MetalFramebufferView(
+            let preview = MetalFramebufferView(
                 framebuffer: framebuffer,
                 dirtyRectangles: frameDirtyRectangles,
                 zoomScale: zoomScale,
@@ -881,8 +973,15 @@ public struct SessionViewportView: View {
                 .scaleEffect(zoomScale)
                 .offset(panOffset)
                 .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
-                .aspectRatio(aspectRatio, contentMode: .fit)
-                .accessibilityIdentifier("naru.session.framebufferPreview")
+
+            if usesViewportFrame {
+                preview
+                    .accessibilityIdentifier("naru.session.framebufferPreview")
+            } else {
+                preview
+                    .aspectRatio(aspectRatio, contentMode: .fit)
+                    .accessibilityIdentifier("naru.session.framebufferPreview")
+            }
         } else {
             RemoteFramebufferPreview(framebuffer: framebuffer)
                 .scaleEffect(zoomScale)
@@ -931,6 +1030,60 @@ public struct SessionViewportView: View {
         return CGSize(width: width, height: width / aspectRatio)
     }
 
+    static func aspectFillZoomScale(aspectRatio: CGFloat, containerSize: CGSize) -> CGFloat {
+        guard aspectRatio.isFinite,
+              aspectRatio > 0,
+              containerSize.width > 0,
+              containerSize.height > 0
+        else {
+            return 1
+        }
+
+        let containerRatio = containerSize.width / containerSize.height
+        guard containerRatio > 0 else { return 1 }
+        return max(1, max(containerRatio / aspectRatio, aspectRatio / containerRatio))
+    }
+
+    private func minimumZoomScale(for viewSize: CGSize, framebuffer: RFBRawFramebuffer) -> CGFloat {
+        guard fillsAvailableHeight else {
+            return Self.minZoomScale
+        }
+
+        let aspectRatio = CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1))
+        let fillScale = Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: viewSize)
+        return min(max(fillScale, Self.minZoomScale), Self.maxZoomScale)
+    }
+
+    private func syncImmersiveBaselineZoom(
+        _ minimumZoomScale: CGFloat,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) {
+        guard fillsAvailableHeight,
+              viewSize.width > 0,
+              viewSize.height > 0
+        else {
+            return
+        }
+
+        let baseline = min(max(minimumZoomScale, Self.minZoomScale), Self.maxZoomScale)
+        let wasAtBaseline = abs(zoomScale - immersiveBaselineZoomScale) < 0.02
+        let shouldSnapToBaseline = wasAtBaseline || zoomScale < baseline
+        immersiveBaselineZoomScale = baseline
+
+        let targetZoom = shouldSnapToBaseline ? baseline : zoomScale
+        let targetPan = shouldSnapToBaseline ? CGSize.zero : panOffset
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            viewSize: viewSize,
+            zoomScale: targetZoom,
+            panOffset: targetPan,
+            maxZoomScale: Self.maxZoomScale
+        )
+        zoomScale = transform.zoomScale
+        panOffset = transform.panOffset
+    }
+
     private func toggleZoom(
         at point: CGPoint,
         in viewSize: CGSize,
@@ -941,7 +1094,8 @@ public struct SessionViewportView: View {
             viewSize: viewSize,
             zoomScale: zoomScale,
             panOffset: panOffset,
-            anchor: point
+            anchor: point,
+            baselineZoomScale: minimumZoomScale(for: viewSize, framebuffer: framebuffer)
         )
         applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
@@ -1036,11 +1190,21 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) {
-        let clamped = min(max(scale, Self.minZoomScale), Self.maxZoomScale)
+        let minimum = minimumZoomScale(for: viewSize, framebuffer: framebuffer)
+        let clamped = min(max(scale, minimum), Self.maxZoomScale)
         let current = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
-        let updated = clamped <= 1.0001
-            ? current.reset()
-            : current.zoomed(to: clamped, about: anchor)
+        let updated: ViewportTransform
+        if clamped <= minimum + 0.0001 {
+            updated = ViewportTransform(
+                framebufferSize: current.framebufferSize,
+                viewSize: current.viewSize,
+                zoomScale: minimum,
+                panOffset: .zero,
+                maxZoomScale: current.maxZoomScale
+            )
+        } else {
+            updated = current.zoomed(to: clamped, about: anchor)
+        }
         applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
 
@@ -1219,19 +1383,31 @@ public struct SessionViewportView: View {
         zoomScale: CGFloat,
         panOffset: CGSize,
         anchor: CGPoint,
+        baselineZoomScale: CGFloat = Self.minZoomScale,
         maxZoomScale: CGFloat = Self.maxZoomScale
     ) -> ViewportTransform {
+        let baseline = min(max(baselineZoomScale, Self.minZoomScale), maxZoomScale)
         let current = ViewportTransform(
             framebufferSize: framebufferSize,
             viewSize: viewSize,
-            zoomScale: zoomScale,
+            zoomScale: max(zoomScale, baseline),
             panOffset: panOffset,
             maxZoomScale: maxZoomScale
         )
-        guard !current.isZoomed else {
-            return current.reset()
+        guard current.zoomScale <= baseline + 0.02 else {
+            return ViewportTransform(
+                framebufferSize: framebufferSize,
+                viewSize: viewSize,
+                zoomScale: baseline,
+                panOffset: .zero,
+                maxZoomScale: maxZoomScale
+            )
         }
-        return current.zoomed(to: min(CGFloat(2.5), maxZoomScale), about: anchor)
+        let targetZoomScale = min(max(baseline * 1.35, CGFloat(2.5)), maxZoomScale)
+        guard targetZoomScale > baseline + 0.02 else {
+            return current
+        }
+        return current.zoomed(to: targetZoomScale, about: anchor)
     }
 
     /// Maps a framebuffer-pixel cursor position into the container's
