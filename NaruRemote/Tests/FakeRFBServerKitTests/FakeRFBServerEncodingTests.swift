@@ -38,6 +38,8 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         XCTAssertNotNil(hextileIndex)
         XCTAssertNotNil(copyRectIndex)
         XCTAssertFalse(encodings.contains(RFBEncoding.zrle))
+        XCTAssertTrue(encodings.contains(RFBEncoding.cursor))
+        XCTAssertTrue(encodings.contains(RFBEncoding.xCursor))
         XCTAssertEqual(tightIndex, 0, "Default app negotiation should favor benchmark-backed Tight first")
         XCTAssertLessThan(tightIndex!, rawIndex!)
         XCTAssertLessThan(hextileIndex!, rawIndex!)

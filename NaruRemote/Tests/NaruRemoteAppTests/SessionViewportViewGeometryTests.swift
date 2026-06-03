@@ -27,6 +27,52 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
+        XCTAssertEqual(
+            SessionViewportView.cursorOverlayKind(serverCursor: nil),
+            .syntheticFallback
+        )
+        XCTAssertEqual(
+            SessionViewportView.cursorOverlayKind(
+                serverCursor: RFBServerCursor(
+                    width: 0,
+                    height: 1,
+                    hotSpotX: 0,
+                    hotSpotY: 0,
+                    pixels: []
+                )
+            ),
+            .syntheticFallback
+        )
+        XCTAssertEqual(
+            SessionViewportView.cursorOverlayKind(
+                serverCursor: RFBServerCursor(
+                    width: 1,
+                    height: 0,
+                    hotSpotX: 0,
+                    hotSpotY: 0,
+                    pixels: []
+                )
+            ),
+            .syntheticFallback
+        )
+    }
+
+    func testCursorOverlayUsesServerShapeWhenAvailable() {
+        let cursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 255, green: 255, blue: 255)]
+        )
+
+        XCTAssertEqual(
+            SessionViewportView.cursorOverlayKind(serverCursor: cursor),
+            .serverShape
+        )
+    }
+
     func testZoomToggleAnchorsToTappedFramebufferPoint() {
         let framebufferSize = CGSize(width: 1600, height: 900)
         let viewSize = CGSize(width: 400, height: 400)

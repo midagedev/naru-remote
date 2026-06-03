@@ -401,3 +401,47 @@ transport mode, aggregate update latency summaries, content FPS, renderer
 full-upload permille, slow-sample counts, and received/content sample counts. It
 must not include host, server name, framebuffer dimensions, coordinates, pixels,
 byte counts, cursor pixels, raw latency samples, raw power state, or raw errors.
+
+## D17 — Request server cursor by default, keep encoding default conservative
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: keep the production `localLowLatency` real-encoding order
+Tight-first quality-8/compression-1 with Hextile/Raw fallback, but add
+Cursor/XCursor pseudo-encodings to the default request. Keep ZRLE compression 0
+as a benchmark candidate rather than the static production default. Keep
+ContinuousUpdates and adaptive-full renegotiation disabled by default.
+
+**Why**:
+- RFC 6143 makes `SetEncodings` client-preference ordered and keeps the normal
+  framebuffer stream request/response compatible. The same section defines
+  pseudo-encoding requests as extension declarations that unsupported servers
+  ignore, so Cursor/XCursor is a safer default improvement than flipping the real
+  encoding order on mixed evidence.
+- RFC 6143 says a client that requests Cursor pseudo-encoding declares it can
+  draw the pointer locally, which can significantly improve perceived performance
+  on slow links. Naru already decodes server cursor shapes and draws them in the
+  trackpad cursor overlay, with a synthetic fallback when no server cursor exists.
+- IANA records ZRLE as a registered RFB encoding, while ContinuousUpdates/Fence
+  are extension codes. The safer production move is therefore to keep the
+  request/response transport and make server cursor support the default
+  extension request.
+- TigerVNC exposes automatic encoding selection plus manual compression controls;
+  that aligns with keeping ZRLE compression 0 available in benchmarks until a
+  future server/profile-specific selector can choose it with stronger evidence.
+
+**Benchmark evidence**: one 60 second redacted localhost/macOS Screen Sharing
+run under normal pacing selected `zrle-compression-0`, but a follow-up 60 second
+pairwise run selected `tight-first` (6.47 content FPS / 104 ms average update)
+over the temporary ZRLE default (6.30 content FPS / 110 ms average update).
+Low-power pacing was also close. This is not stable enough to flip the static
+real-encoding default, but it is enough to keep ZRLE compression 0 in the
+benchmark candidate set.
+
+**Implementation rule**: this default change MUST NOT enable ZRLE,
+ContinuousUpdates/Fence, or adaptive-full renegotiation by default. Unsupported
+Cursor/XCursor pseudo-encodings must remain harmless; the UI keeps the synthetic
+cursor fallback when no server cursor arrives.
