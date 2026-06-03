@@ -296,6 +296,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
         XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
         XCTAssertEqual(model.snapshot.session?.state, .active)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
     }
 
     func testModelRenegotiatesAdaptiveEncodingsOnceQualityBucketIsKnown() async throws {
@@ -462,6 +465,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
         XCTAssertEqual(pipController.enqueuedFramebuffers, [framebuffer])
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.transportIdleTimeoutCount, 0)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.dirtyRectangleSampleCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.dirtyRectangleCountMax, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.dirtyAreaPermilleMax, 1_000)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.changedPixelsPermilleMax, 1_000)
+
+        model.disconnect()
+
+        XCTAssertEqual(model.snapshot.sessionStreamStats, SessionStreamStats())
     }
 
     func testModelCancelsFrameStreamAndClearsFramebufferWhenProfileChanges() async throws {
