@@ -919,7 +919,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 13
+        self.schemaVersion = 14
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1276,6 +1276,16 @@ private func renderStreamShapeSummary(
                 + "\(latency.maxMilliseconds)"
         )
     }
+    print(
+        "\(indentation)  tail >=\(summary.tailLatency.slowUpdateThresholdMilliseconds)ms "
+            + "samples/content/full-dirty/full-upload: "
+            + "\(summary.tailLatency.slowUpdateSamples)/"
+            + "\(summary.tailLatency.slowContentUpdateSamples)/"
+            + "\(summary.tailLatency.slowFullDirtyAreaSamples)/"
+            + "\(summary.tailLatency.slowRendererFullUploadSamples), "
+            + ">=\(summary.tailLatency.verySlowUpdateThresholdMilliseconds)ms: "
+            + "\(summary.tailLatency.verySlowUpdateSamples)"
+    )
     print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
     if let dirtyRectangles = summary.dirtyRectangleCount {
         print(

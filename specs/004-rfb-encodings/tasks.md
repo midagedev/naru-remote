@@ -208,6 +208,12 @@ iPhone) and ships as its own PR.
   on the redacted 45/60-sample live comparisons, then record a post-change
   24-sample live smoke. Owns: core encoding preference, negotiation tests,
   app-model comment, benchmark artifact. **Done.**
+- **T329** Stream-shape tail bucket diagnostics: extend benchmark schema with
+  fixed-threshold slow-frame counts (250 ms / 1000 ms) and aggregate
+  content/full-dirty/full-upload correlation, so sustained-session tail spikes
+  can be triaged without emitting target identity, dimensions, coordinates,
+  pixels, byte counts, or raw errors. Owns: benchmark summary kit, CLI output,
+  tests, benchmark docs/artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
