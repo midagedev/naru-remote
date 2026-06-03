@@ -31,7 +31,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     rendererUploadRegionCount: 2,
                     receiveTotalMilliseconds: 25,
                     networkReadMilliseconds: 20,
-                    clientProcessingMilliseconds: 5
+                    clientProcessingMilliseconds: 5,
+                    actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1)
                 ),
                 BenchmarkStreamShapeSample(
                     kind: .emptyUpdate,
@@ -41,7 +42,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     changedPixelsPermille: 0,
                     receiveTotalMilliseconds: 48,
                     networkReadMilliseconds: 47,
-                    clientProcessingMilliseconds: 1
+                    clientProcessingMilliseconds: 1,
+                    actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1)
                 )
             ],
             elapsedMilliseconds: 100,
@@ -70,6 +72,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.rendererPartialUploadPermille, 1_000)
         XCTAssertEqual(summary.rendererFullUploadPermille, 0)
         XCTAssertEqual(try XCTUnwrap(summary.rendererUploadRegionCount).maxMilliseconds, 2)
+        XCTAssertEqual(summary.actualEncodingMix.rawRectangles, 1)
+        XCTAssertEqual(summary.actualEncodingMix.tightRectangles, 1)
+        XCTAssertEqual(summary.actualEncodingMix.cursorRectangles, 1)
+        XCTAssertEqual(summary.actualEncodingMix.totalRectangles, 3)
     }
 
     func testTimeoutWithoutSamplesReportsNoUpdateBeforeTimeout() {
@@ -216,6 +222,36 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.transportMode, .continuousUpdates)
     }
 
+    func testStreamShapeDecodesLegacyPayloadWithoutActualEncodingMix() throws {
+        let sample = BenchmarkStreamShapeSample(
+            kind: .contentUpdate,
+            durationMilliseconds: 12,
+            dirtyRectangleCount: 1,
+            dirtyAreaPermille: 100,
+            changedPixelsPermille: 50,
+            rendererUploadStrategy: .partial,
+            rendererUploadRegionCount: 1,
+            actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1)
+        )
+        let legacySampleData = try Self.encodedPayloadRemovingActualEncodingMix(from: sample)
+        let decodedSample = try JSONDecoder().decode(BenchmarkStreamShapeSample.self, from: legacySampleData)
+
+        XCTAssertEqual(decodedSample.actualEncodingMix, RFBFramebufferEncodingMix())
+
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [sample],
+            elapsedMilliseconds: 12,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let legacySummaryData = try Self.encodedPayloadRemovingActualEncodingMix(from: summary)
+        let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
+
+        XCTAssertEqual(decodedSummary.actualEncodingMix, RFBFramebufferEncodingMix())
+        XCTAssertEqual(decodedSummary.receivedSamples, 1)
+    }
+
     func testRecommendationPicksLowestAverageRequestResponseLatency() throws {
         let local = BenchmarkStreamShapeProfileReport(
             label: "local-low-latency",
@@ -356,5 +392,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             rendererUploadStrategy: rendererUploadStrategy,
             rendererUploadRegionCount: rendererUploadStrategy == .none ? 0 : 1
         )
+    }
+
+    private static func encodedPayloadRemovingActualEncodingMix<T: Encodable>(from value: T) throws -> Data {
+        let encoded = try JSONEncoder().encode(value)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "actualEncodingMix")
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 }

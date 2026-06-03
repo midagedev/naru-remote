@@ -161,6 +161,28 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(clamped.clientProcessingMilliseconds, 0)
     }
 
+    func testFramebufferEncodingMixClampsAndAggregatesSafeCounts() {
+        let mix = RFBFramebufferEncodingMix(
+            rawRectangles: -1,
+            hextileRectangles: 2,
+            cursorRectangles: 1
+        )
+        let updated = mix
+            .recordingRectangle(encoding: RFBEncoding.raw)
+            .recordingRectangle(encoding: RFBEncoding.copyRect)
+            .adding(RFBFramebufferEncodingMix(endOfContinuousUpdatesEvents: 1))
+
+        XCTAssertEqual(mix.rawRectangles, 0)
+        XCTAssertEqual(mix.hextileRectangles, 2)
+        XCTAssertEqual(mix.cursorRectangles, 1)
+        XCTAssertEqual(updated.rawRectangles, 1)
+        XCTAssertEqual(updated.copyRectRectangles, 1)
+        XCTAssertEqual(updated.hextileRectangles, 2)
+        XCTAssertEqual(updated.cursorRectangles, 1)
+        XCTAssertEqual(updated.endOfContinuousUpdatesEvents, 1)
+        XCTAssertEqual(updated.totalRectangles, 5)
+    }
+
     func testFramebufferUpdateResultDecodesLegacyPayloadWithoutContinuousEndFlag() throws {
         let original = RFBFramebufferUpdateResult(
             framebuffer: RFBRawFramebuffer(width: 1, height: 1),
@@ -173,6 +195,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         object.removeValue(forKey: "endedContinuousUpdates")
         object.removeValue(forKey: "transportIdleTimedOut")
         object.removeValue(forKey: "timing")
+        object.removeValue(forKey: "encodingMix")
         let legacyPayload = try JSONSerialization.data(withJSONObject: object)
 
         let decoded = try JSONDecoder().decode(RFBFramebufferUpdateResult.self, from: legacyPayload)
@@ -180,6 +203,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertFalse(decoded.endedContinuousUpdates)
         XCTAssertFalse(decoded.transportIdleTimedOut)
         XCTAssertNil(decoded.timing)
+        XCTAssertEqual(decoded.encodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(decoded.framebuffer, original.framebuffer)
         XCTAssertEqual(decoded.dirtyRectangles, original.dirtyRectangles)
         XCTAssertEqual(decoded.changedPixelCount, original.changedPixelCount)
@@ -190,7 +214,8 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
             framebuffer: RFBRawFramebuffer(width: 1, height: 1),
             dirtyRectangles: [],
             changedPixelCount: 0,
-            endedContinuousUpdates: true
+            endedContinuousUpdates: true,
+            encodingMix: RFBFramebufferEncodingMix(endOfContinuousUpdatesEvents: 1)
         )
 
         let decoded = try JSONDecoder().decode(
@@ -199,6 +224,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         )
 
         XCTAssertTrue(decoded.endedContinuousUpdates)
+        XCTAssertEqual(decoded.encodingMix.endOfContinuousUpdatesEvents, 1)
     }
 
     func testFramebufferUpdateResultRoundTripsTransportIdleTimeoutFlag() throws {

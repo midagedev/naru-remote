@@ -109,7 +109,9 @@ dirty-rectangle-count, dirty-area permille, changed-pixel permille, and
 renderer upload strategy summaries only. Schema v19 also emits aggregate
 receive-path timing summaries (`receive total`, `network read`, and
 `client processing` ms) so hot-device investigations can separate socket wait
-from local decode/dispatch pressure without exposing raw samples. It also emits fixed-threshold tail
+from local decode/dispatch pressure without exposing raw samples. Schema v20
+adds actual safe encoding-mix counts so requested profiles can be compared with
+what the server actually sent. It also emits fixed-threshold tail
 buckets for updates at or above 250 ms / 1000 ms, including only aggregate
 slow-frame counts and whether those slow frames were content, full-dirty, or
 full-upload classified. By default

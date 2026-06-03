@@ -553,3 +553,35 @@ decode pressure, or renderer outliers before changing defaults.
 samples, host identity, framebuffer dimensions, rectangle coordinates, pixels,
 byte counts, device power state, or raw errors. Missing timing from older app
 paths decodes as `notMeasured` so older support payloads remain analyzable.
+
+## D21 — Benchmark actual server encoding mix, not just requested profile
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
+
+**Decision**: extend `VNCLiveBenchmark` schema v20 with safe actual encoding
+mix counts per stream-shape sample and per summary. Counts use fixed catalog
+labels (`raw`, `copyRect`, `hextile`, `zrle`, `tight`, cursor/desktop pseudo
+labels, and ContinuousUpdates end events) rather than raw unsupported encoding
+codes.
+
+**Why**:
+- RFC 6143 defines `SetEncodings` order as a client preference hint; servers can
+  still choose based on what they support or what is easier to produce. Profile
+  labels therefore prove what Naru requested, not what the server sent.
+- TigerVNC and TightVNC expose preferred encoding, quality, and compression
+  controls because practical VNC performance is server/link/client dependent.
+  Naru needs actual server encoding evidence before changing static defaults or
+  enabling adaptive renegotiation.
+- Recent timed receive comparisons showed close and sometimes conflicting
+  Tight-first vs ZRLE-compression-0 results. Actual encoding mix lets future
+  benchmark runs distinguish a profile's negotiated outcome from screen-content
+  repaint shape, without adding sensitive telemetry.
+
+**Privacy rule**: benchmark reports may include only aggregate counts of known
+safe encoding labels. They must not include host identity, framebuffer
+dimensions, rectangle coordinates, pixels, compressed bytes, byte counts,
+cursor pixels, unsupported raw encoding codes, raw errors, or per-rectangle
+payload details.

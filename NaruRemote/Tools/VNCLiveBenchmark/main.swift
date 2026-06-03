@@ -535,7 +535,8 @@ enum VNCLiveBenchmark {
             rendererUploadRegionCount: uploadPlan.uploadRegionCount,
             receiveTotalMilliseconds: frame.timing?.totalMilliseconds,
             networkReadMilliseconds: frame.timing?.networkReadMilliseconds,
-            clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds
+            clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds,
+            actualEncodingMix: frame.encodingMix
         )
     }
 
@@ -1047,7 +1048,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 19
+        self.schemaVersion = 20
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1453,6 +1454,7 @@ private func renderStreamShapeSummary(
             + "\(summary.tailLatency.verySlowUpdateSamples)"
     )
     print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
+    print("\(indentation)  actual encodings: \(formatEncodingMix(summary.actualEncodingMix))")
     if let dirtyRectangles = summary.dirtyRectangleCount {
         print(
             "\(indentation)  dirty rect count avg/p50/p95/min/max: "
@@ -1525,6 +1527,14 @@ private func renderStreamShapeSummary(
     if let timeout = summary.firstTimeoutMilliseconds {
         print("\(indentation)  first timeout ms: \(timeout)")
     }
+}
+
+private func formatEncodingMix(_ mix: RFBFramebufferEncodingMix) -> String {
+    "raw=\(mix.rawRectangles),copyRect=\(mix.copyRectRectangles),hextile=\(mix.hextileRectangles),"
+        + "zrle=\(mix.zrleRectangles),tight=\(mix.tightRectangles),cursor=\(mix.cursorRectangles),"
+        + "xCursor=\(mix.xCursorRectangles),desktopSize=\(mix.desktopSizeRectangles),"
+        + "extendedDesktopSize=\(mix.extendedDesktopSizeRectangles),lastRect=\(mix.lastRectRectangles),"
+        + "endCU=\(mix.endOfContinuousUpdatesEvents)"
 }
 
 private func renderJSON(_ report: BenchmarkReport) throws {

@@ -381,7 +381,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                         framebuffer: previousFramebuffer,
                         dirtyRectangles: [],
                         changedPixelCount: 0,
-                        endedContinuousUpdates: true
+                        endedContinuousUpdates: true,
+                        encodingMix: RFBFramebufferEncodingMix(endOfContinuousUpdatesEvents: 1)
                     )
                 }
                 continue

@@ -71,6 +71,7 @@ public enum RFBFramebufferDecoder {
         var didResizeDesktop = false
         var serverCursor: RFBServerCursor?
         var processed = 0
+        var encodingMix = RFBFramebufferEncodingMix()
         // A ZRLE rectangle uses the session's single persistent zlib
         // stream. If the caller did not supply one (the offline `Data`
         // shim / single-update tests), lazily create one shared across
@@ -93,6 +94,7 @@ public enum RFBFramebufferDecoder {
             let height = Int(try reader.readUInt16())
             let encoding = try reader.readInt32()
             processed += 1
+            encodingMix = encodingMix.recordingRectangle(encoding: encoding)
 
             switch encoding {
             case RFBEncoding.lastRect:
@@ -233,7 +235,8 @@ public enum RFBFramebufferDecoder {
             changedPixelCount: changedPixelCount,
             capturedAt: capturedAt,
             didResizeDesktop: didResizeDesktop,
-            serverCursor: serverCursor
+            serverCursor: serverCursor,
+            encodingMix: encodingMix
         )
     }
 
