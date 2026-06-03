@@ -304,6 +304,11 @@ iPhone) and ships as its own PR.
   the persisted viewer setting or exporting raw timing samples. Ignore
   network/server wait, empty updates, and idle timeouts as triggers. Owns: app
   pacing state, app model wiring, tests, research notes. **Done.**
+- **T344** App-model adaptive pacing branch integration test: inject a test-only
+  pacing sleeper into the app frame loop and prove that repeated lagging content
+  frames switch the actual `NaruRemoteAppModel` stream path from the configured
+  active cadence to the adaptive power-saver floor without persisting power
+  saver mode. Owns: app model seam, app-model test. **Done.**
 
 ## Cross-cutting (every increment)
 

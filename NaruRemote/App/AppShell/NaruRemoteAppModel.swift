@@ -123,6 +123,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
+    /// Test seam for observing app-level pacing decisions without
+    /// sleeping in real time. `nil` keeps production cancellation on
+    /// the direct `Task.sleep` path.
+    private let streamPacingSleepOverride: (@Sendable (TimeInterval) async throws -> Void)?
     private let allowsAdaptiveEncodingRenegotiation: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
@@ -246,6 +250,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         lowPowerModeProvider: @escaping @Sendable () -> Bool = {
             ProcessInfo.processInfo.isLowPowerModeEnabled
         },
+        streamPacingSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         allowsAdaptiveEncodingRenegotiation: Bool = false
     ) {
         // Profiles are no longer loaded synchronously from
@@ -295,6 +300,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
+        self.streamPacingSleepOverride = streamPacingSleep
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
@@ -1633,7 +1639,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                             usesPowerSaverPacing: usesPowerSaverPacing
                         )
                     if pacingDelay > 0 {
-                        try await Task.sleep(for: .seconds(pacingDelay))
+                        if let streamPacingSleepOverride {
+                            try await streamPacingSleepOverride(pacingDelay)
+                        } else {
+                            try await Task.sleep(for: .seconds(pacingDelay))
+                        }
                     }
                 }
             } catch is CancellationError {
