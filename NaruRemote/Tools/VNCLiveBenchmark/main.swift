@@ -353,6 +353,7 @@ enum VNCLiveBenchmark {
         var failureLabel: String?
         var emptyUpdateStreak = 0
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
+        var adaptiveClientPressurePacingSamples = 0
         defer {
             pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
             client.disconnect()
@@ -438,12 +439,16 @@ enum VNCLiveBenchmark {
                     sample: sample,
                     mode: pacingPolicy.clientPressureMode
                 )
+                let usesAdaptiveClientPressure = clientPressureState.usesAdaptivePowerSaverPacing
+                if usesAdaptiveClientPressure {
+                    adaptiveClientPressurePacingSamples += 1
+                }
                 let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                 emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
                 let pacingDelay = pacingPolicy.delay(
                     isEmptyUpdate: isEmptyUpdate,
                     emptyUpdateStreak: emptyUpdateStreak,
-                    usesAdaptiveClientPressure: clientPressureState.usesAdaptivePowerSaverPacing
+                    usesAdaptiveClientPressure: usesAdaptiveClientPressure
                 )
                 let cappedPacingDelay = streamShapeCappedDelay(
                     pacingDelay,
@@ -485,7 +490,8 @@ enum VNCLiveBenchmark {
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
-            failureLabel: failureLabel
+            failureLabel: failureLabel,
+            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples
         )
     }
 
@@ -1070,7 +1076,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 21
+        self.schemaVersion = 22
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1200,7 +1206,8 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
-        failureLabel: String?
+        failureLabel: String?,
+        adaptiveClientPressurePacingSamples: Int = 0
     ) {
         self.transportMode = transportMode
         self.firstFrameMilliseconds = firstFrameMilliseconds
@@ -1209,7 +1216,8 @@ private struct StreamShapeProbeReport: Codable, Equatable {
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
-            failureLabel: failureLabel
+            failureLabel: failureLabel,
+            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples
         )
     }
 }
@@ -1492,6 +1500,13 @@ private func renderStreamShapeSummary(
             + "\(summary.tailLatency.verySlowUpdateSamples)"
     )
     print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
+    if let adaptivePermille = summary.adaptiveClientPressurePacingPermille,
+       summary.adaptiveClientPressurePacingSamples > 0 {
+        print(
+            "\(indentation)  adaptive client-pressure pacing samples/permille: "
+                + "\(summary.adaptiveClientPressurePacingSamples)/\(adaptivePermille)"
+        )
+    }
     print("\(indentation)  actual encodings: \(formatEncodingMix(summary.actualEncodingMix))")
     if let dirtyRectangles = summary.dirtyRectangleCount {
         print(

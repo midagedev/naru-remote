@@ -644,7 +644,8 @@ Keep the default `off` so historical benchmark runs remain comparable.
   first, so future defaults can be based on whether adaptive pacing improves
   heat/FPS/tail-latency observations without hiding profile or server behavior.
 
-**Privacy rule**: schema v21 reports only the selected fixed mode label and the
-fixed app threshold/recovery constants. Raw timing samples, host identity,
-framebuffer dimensions, coordinates, pixels, byte counts, cursor pixels, and
-raw errors remain excluded.
+**Privacy rule**: schema v22 reports only the selected fixed mode label, fixed
+app threshold/recovery constants, and aggregate adaptive pacing sample
+count/permille. Raw timing samples, host identity, framebuffer dimensions,
+coordinates, pixels, byte counts, cursor pixels, and raw errors remain
+excluded.

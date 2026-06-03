@@ -321,6 +321,12 @@ iPhone) and ships as its own PR.
   and `VNCLiveBenchmark --stream-shape-client-pressure app` interpret sparse
   content streams consistently, while still resetting on transport idle
   timeout. Owns: app pacing state and app-model tests. **Done.**
+- **T347** Benchmark adaptive pressure activation aggregates: extend
+  `VNCLiveBenchmark` schema v22 stream-shape summaries with aggregate adaptive
+  client-pressure pacing sample count/permille so sustained heat/FPS runs can
+  tell whether `--stream-shape-client-pressure app` actually affected pacing
+  without exporting raw timing samples. Owns: benchmark summary/report/tests
+  and benchmark docs. **Done.**
 
 ## Cross-cutting (every increment)
 
