@@ -1,6 +1,11 @@
 import SwiftUI
 import NaruRemoteCore
 
+public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
+    case standard
+    case compactAccessory
+}
+
 public struct RemoteInputDockView: View {
     @State private var text: String
     /// Tracks whether the compose `TextEditor` has firstResponder.
@@ -18,6 +23,7 @@ public struct RemoteInputDockView: View {
     private let onSend: (String) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
     private let stickyModifierState: StickyModifierState
+    private let layoutStyle: RemoteInputDockLayoutStyle
     /// When `true`, the Compose-mode inline quick-key strip
     /// (Esc / Tab / ⌃C / arrows) is shown.  Gated on an active session
     /// (spec 003 FR-013) — with no live wire there is nothing to send
@@ -37,6 +43,7 @@ public struct RemoteInputDockView: View {
         onSend: @escaping (String) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
+        layoutStyle: RemoteInputDockLayoutStyle = .standard,
         showsComposeQuickKeys: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
@@ -52,6 +59,7 @@ public struct RemoteInputDockView: View {
         self.onSend = onSend
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
+        self.layoutStyle = layoutStyle
         self.showsComposeQuickKeys = showsComposeQuickKeys
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
@@ -63,6 +71,45 @@ public struct RemoteInputDockView: View {
     }
 
     public var body: some View {
+        Group {
+            switch layoutStyle {
+            case .standard:
+                standardBody
+            case .compactAccessory:
+                compactAccessoryBody
+            }
+        }
+        .accessibilityIdentifier("naru.input.dock")
+        .onChange(of: initialText) { _, newValue in
+            text = newValue
+        }
+        .onChange(of: composeFieldFocused) { _, newValue in
+            // Only meaningful when Compose is the visible mode —
+            // Direct mode swaps the editor for the soft keyboard,
+            // so its focus signal is irrelevant.  Forward an
+            // explicit `false` whenever we're not in Compose so a
+            // stale focus from a previous mode-switch never leaks
+            // into a future keyboard-aware overlay.
+            onComposeFocusChange(directKeystrokeMode.isActive ? false : newValue)
+        }
+        .onChange(of: directKeystrokeMode.isActive) { _, isDirect in
+            // Switching to Direct mode hides the editor entirely;
+            // explicitly clear the focus signal so the app shell
+            // can restore the full checklist.
+            if isDirect {
+                onComposeFocusChange(false)
+            }
+        }
+        // FR-009 — first-entry warning dialog attached at the dock
+        // level so the alert chrome sits over the dock and feels
+        // anchored to the mode picker the user just tapped.
+        .directModeEntryWarning(
+            mode: directKeystrokeMode,
+            onDismiss: onDismissDirectModeWarning
+        )
+    }
+
+    private var standardBody: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ViewThatFits(in: .horizontal) {
@@ -115,34 +162,110 @@ public struct RemoteInputDockView: View {
                 .fill(NaruColors.hairline)
                 .frame(height: 1)
         }
-        .accessibilityIdentifier("naru.input.dock")
-        .onChange(of: initialText) { _, newValue in
-            text = newValue
-        }
-        .onChange(of: composeFieldFocused) { _, newValue in
-            // Only meaningful when Compose is the visible mode —
-            // Direct mode swaps the editor for the soft keyboard,
-            // so its focus signal is irrelevant.  Forward an
-            // explicit `false` whenever we're not in Compose so a
-            // stale focus from a previous mode-switch never leaks
-            // into a future keyboard-aware overlay.
-            onComposeFocusChange(directKeystrokeMode.isActive ? false : newValue)
-        }
-        .onChange(of: directKeystrokeMode.isActive) { _, isDirect in
-            // Switching to Direct mode hides the editor entirely;
-            // explicitly clear the focus signal so the app shell
-            // can restore the full checklist.
-            if isDirect {
-                onComposeFocusChange(false)
+    }
+
+    private var compactAccessoryBody: some View {
+        VStack(spacing: 8) {
+            if directKeystrokeMode.isActive {
+                compactDirectHeader
+                directKeyboard
+            } else {
+                compactComposeRow
             }
         }
-        // FR-009 — first-entry warning dialog attached at the dock
-        // level so the alert chrome sits over the dock and feels
-        // anchored to the mode picker the user just tapped.
-        .directModeEntryWarning(
-            mode: directKeystrokeMode,
-            onDismiss: onDismissDirectModeWarning
-        )
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(NaruColors.hairline)
+                .frame(height: 1)
+        }
+    }
+
+    private var compactComposeRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                onToggleDirectMode()
+            } label: {
+                Label("Direct mode", systemImage: "keyboard")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+            .background(NaruColors.surfaceMuted)
+            .clipShape(Circle())
+            .accessibilityIdentifier("naru.input.direct-toggle")
+
+            TextField("Text to send", text: $text, axis: .vertical)
+                .focused($composeFieldFocused)
+                .font(.body)
+                .lineLimit(1...3)
+                .textFieldStyle(.plain)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .background(NaruColors.surfaceEditor)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
+                .accessibilityLabel("Remote input text")
+                .accessibilityIdentifier("naru.input.editor")
+
+            if showsComposeQuickKeys {
+                quickKeyMenu
+            }
+
+            Button {
+                onSend(text)
+            } label: {
+                Label("Send", systemImage: "paperplane.fill")
+                    .labelStyle(.iconOnly)
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 44, height: 40)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(text.isEmpty)
+            .help("Send composed text")
+            .accessibilityIdentifier("naru.input.send")
+        }
+    }
+
+    private var compactDirectHeader: some View {
+        HStack(spacing: 8) {
+            Button {
+                onToggleDirectMode()
+            } label: {
+                Label("Compose", systemImage: "text.cursor")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("naru.input.compose-toggle")
+
+            Spacer()
+
+            DirectModeBadge(
+                isVisible: directKeystrokeMode.isActive,
+                accessibilityID: "naru.direct.badge.dock"
+            )
+        }
+    }
+
+    private var quickKeyMenu: some View {
+        Menu {
+            ForEach(ComposeQuickKey.allCases, id: \.self) { key in
+                Button(key.label) {
+                    onComposeQuickKey(key)
+                }
+            }
+        } label: {
+            Label("Quick keys", systemImage: "command")
+                .labelStyle(.iconOnly)
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("naru.input.quickkeys.menu")
     }
 
     /// Segmented picker that switches between Compose and Direct

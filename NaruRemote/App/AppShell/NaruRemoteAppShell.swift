@@ -183,6 +183,7 @@ public struct NaruRemoteAppShell: View {
                 } else if isLiveSession {
                     sessionViewport(fillsAvailableHeight: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .naruLiveSessionChromeHidden()
                 } else {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -220,6 +221,8 @@ public struct NaruRemoteAppShell: View {
                             onSend: { model.sendComposedText($0) },
                             directKeystrokeMode: snapshot.directKeystrokeMode,
                             stickyModifierState: snapshot.stickyModifierState,
+                            layoutStyle: isLiveSession ? .compactAccessory : .standard,
+                            showsComposeQuickKeys: snapshot.session?.state == .active,
                             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
                             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
                             onHardwareKey: { keysym, modifiers, isDown in
@@ -231,6 +234,7 @@ public struct NaruRemoteAppShell: View {
                                     )
                                 }
                             },
+                            onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
                             onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
                             onComposeFocusChange: { focused in
                                 composeFieldFocused = focused
@@ -297,4 +301,15 @@ private struct EditingProfile: Identifiable {
     let hasExistingCredential: Bool
 
     var id: ConnectionProfile.ID { profile.id }
+}
+
+private extension View {
+    @ViewBuilder
+    func naruLiveSessionChromeHidden() -> some View {
+        #if os(iOS)
+        self.toolbar(.hidden, for: .navigationBar)
+        #else
+        self
+        #endif
+    }
 }

@@ -61,8 +61,9 @@ public struct SessionViewportView: View {
     private let connectionQuality: ConnectionQuality
     /// When `true` the remote-screen container becomes the dominant
     /// full-height "hero" (GRD parity, spec 003 FR-001) instead of a
-    /// width-driven aspect-fit box; the framebuffer still fits inside via
-    /// its own `.aspectRatio`, centering with dark bands.  The Shell sets
+    /// width-driven aspect-fit box; the framebuffer still fits at its
+    /// true aspect ratio and is pinned to the top of the hero surface.
+    /// The Shell sets
     /// this only during a live session so the screen fills the space above
     /// the dock and the soft keyboard merely shrinks it rather than
     /// crushing it.  Pure local layout — constitution §I.
@@ -219,6 +220,17 @@ public struct SessionViewportView: View {
     #endif
 
     public var body: some View {
+        Group {
+            if fillsAvailableHeight {
+                immersiveBody
+            } else {
+                standardBody
+            }
+        }
+        .accessibilityIdentifier("naru.session.viewport")
+    }
+
+    private var standardBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             if horizontalSizeClass == .compact {
                 compactHeader
@@ -238,27 +250,7 @@ public struct SessionViewportView: View {
                 }
             }
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(red: 0.08, green: 0.09, blue: 0.10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                    )
-
-                if let framebuffer {
-                    framebufferContent(framebuffer)
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "display")
-                            .font(.system(size: 32, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text(viewportText)
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                }
-            }
+            viewportSurface
             // Screen-first (spec 003 FR-001): the session container adopts
             // the server's TRUE aspect ratio once a frame exists, so a
             // 16:9 / 16:10 desktop fills the width instead of being
@@ -267,90 +259,135 @@ public struct SessionViewportView: View {
             // defines the real ratio (see `containerAspectRatio`).  In
             // hero mode (`fillsAvailableHeight`) the container instead
             // greedily fills the available height — the framebuffer still
-            // fits inside via its own `.aspectRatio`, centering with dark
-            // bands like a GRD viewport (spec 003 FR-001).
+            // fits inside at the server's true ratio.  In hero mode
+            // (`fillsAvailableHeight`) the container greedily fills the
+            // available height and the visible framebuffer is pinned to
+            // the top so the live stream owns the upper screen instead
+            // of floating mid-column.
             .modifier(
                 ViewportSizing(
                     fill: fillsAvailableHeight,
                     aspectRatio: containerAspectRatio
                 )
             )
-            // Trackpad gesture surface — a transparent layer that
-            // intercepts one-finger drag + tap ONLY in trackpad mode and
-            // forwards them as `PointerGesture`s.  Gated so direct-touch
-            // mode keeps using the existing `MetalFramebufferView`
-            // recognizers untouched.  Constitution §I: this layer never
-            // emits an RFB message itself — the model resolves cursor
-            // moves (local) vs. clicks (wire).
-            .overlay {
-                if Self.allowsTrackpadInputOverlay(
-                    isPiPWatching: isPiPWatching,
-                    pointerControlMode: pointerControlMode
-                ), let framebuffer {
-                    trackpadGestureSurface(framebuffer: framebuffer)
-                }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var immersiveBody: some View {
+        viewportSurface
+            .modifier(ViewportSizing(fill: true, aspectRatio: containerAspectRatio))
+            .overlay(alignment: .top) {
+                immersiveControlBar
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
             }
-            // Soft cursor overlay (trackpad mode only).  Drawn on top of
-            // the preview and never hit-testing so it cannot eat the
-            // gesture surface below it.
-            .overlay {
-                if Self.showsTrackpadCursor(
-                    isPiPWatching: isPiPWatching,
-                    pointerControlMode: pointerControlMode,
-                    cursor: trackpadCursor
-                ),
-                   let framebuffer {
-                    cursorOverlay(framebuffer: framebuffer)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                // UX punch-list #103: the "PiP after first frame"
-                // affordance is only meaningful once a session has been
-                // attempted — rendering it on the empty-state home
-                // screen reads as a dead UI chip.  Gate on session
-                // presence (any state, including .connecting) so the
-                // chip appears as soon as the user starts a session
-                // and disappears again on disconnect.
-                if showsPiPHudChip {
-                    Label(pipWatchStatusText, systemImage: "rectangle.on.rectangle")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.78))
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 8)
-                        .background(Color.black.opacity(0.32))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .padding(10)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if let badge = reconnectBadgeText {
-                    Label(badge, systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 8)
-                        .background(Color.blue.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .padding(10)
-                        .accessibilityIdentifier("naru.session.reconnectBadge")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+    }
+
+    private var viewportSurface: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: viewportCornerRadius)
+                .fill(Color(red: 0.08, green: 0.09, blue: 0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: viewportCornerRadius)
+                        .stroke(Color.black.opacity(fillsAvailableHeight ? 0 : 0.12), lineWidth: 1)
+                )
+
+            if let framebuffer {
+                framebufferLayer(framebuffer)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "display")
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                    Text(viewportText)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
             }
         }
-        .padding(16)
-        // In hero/fill mode the root stack must be greedy so the
-        // framebuffer container actually expands to the available height
-        // instead of hugging its ideal size and being centered in the
-        // Shell's fill-frame (which would leave a dead gap above the
-        // dock).  `.top` keeps the header pinned up top.
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: fillsAvailableHeight ? .infinity : nil,
-            alignment: .top
-        )
-        .accessibilityIdentifier("naru.session.viewport")
+        .overlay(alignment: .topTrailing) {
+            // UX punch-list #103: the "PiP after first frame"
+            // affordance is only meaningful once a session has been
+            // attempted — rendering it on the empty-state home
+            // screen reads as a dead UI chip.  In immersive mode the
+            // PiP affordance moves into the top control strip so the
+            // remote screen keeps every possible point.
+            if !fillsAvailableHeight, showsPiPHudChip {
+                Label(pipWatchStatusText, systemImage: "rectangle.on.rectangle")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .background(Color.black.opacity(0.32))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(10)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if !fillsAvailableHeight, let badge = reconnectBadgeText {
+                Label(badge, systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .background(Color.blue.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(10)
+                    .accessibilityIdentifier("naru.session.reconnectBadge")
+            }
+        }
+    }
+
+    private var viewportCornerRadius: CGFloat {
+        fillsAvailableHeight ? 0 : 8
+    }
+
+    private var previewCornerRadius: CGFloat {
+        fillsAvailableHeight ? 0 : 8
+    }
+
+    private var framebufferAlignment: Alignment {
+        fillsAvailableHeight ? .top : .center
     }
 
     // MARK: - Header layouts
+
+    private var immersiveControlBar: some View {
+        HStack(spacing: 8) {
+            statusBadge
+                .padding(.vertical, 7)
+                .padding(.horizontal, 9)
+                .background(Color.black.opacity(0.38))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            qualityChip
+
+            Spacer(minLength: 8)
+
+            checksButton(iconOnly: true)
+            if showsConnectButton {
+                connectButton
+            }
+            if showsDisconnectButton {
+                disconnectButton
+            }
+            pointerModeButton
+            pipWatchButton(iconOnly: true)
+        }
+        .padding(6)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
+        .accessibilityIdentifier("naru.session.controlBar")
+    }
 
     /// iPad / regular-width path.  Mirrors the historical inline
     /// layout: title on the left, action pills + status badge on the
@@ -712,9 +749,49 @@ public struct SessionViewportView: View {
     }
 
     @ViewBuilder
-    private func framebufferContent(_ framebuffer: RFBRawFramebuffer) -> some View {
+    private func framebufferLayer(_ framebuffer: RFBRawFramebuffer) -> some View {
         let aspectRatio = CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1))
 
+        GeometryReader { proxy in
+            let displaySize = Self.aspectFitSize(
+                aspectRatio: aspectRatio,
+                containerSize: proxy.size
+            )
+
+            framebufferContent(framebuffer, aspectRatio: aspectRatio)
+                .frame(width: displaySize.width, height: displaySize.height)
+                // Trackpad gesture surface — a transparent layer that
+                // intercepts one-finger drag + tap ONLY in trackpad mode
+                // and forwards them as `PointerGesture`s.  Keeping this
+                // overlay on the fitted framebuffer layer (not the full
+                // hero background) preserves the same geometry for hit
+                // testing, cursor drawing, and zoom/pan math.
+                .overlay {
+                    if Self.allowsTrackpadInputOverlay(
+                        isPiPWatching: isPiPWatching,
+                        pointerControlMode: pointerControlMode
+                    ) {
+                        trackpadGestureSurface(framebuffer: framebuffer)
+                    }
+                }
+                // Soft cursor overlay (trackpad mode only).  Drawn on
+                // top of the preview and never hit-testing so it cannot
+                // eat the gesture surface below it.
+                .overlay {
+                    if Self.showsTrackpadCursor(
+                        isPiPWatching: isPiPWatching,
+                        pointerControlMode: pointerControlMode,
+                        cursor: trackpadCursor
+                    ) {
+                        cursorOverlay(framebuffer: framebuffer)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: framebufferAlignment)
+        }
+    }
+
+    @ViewBuilder
+    private func framebufferContent(_ framebuffer: RFBRawFramebuffer, aspectRatio: CGFloat) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         if isPiPWatching, let pipLayerHost {
             // Active system PiP — render through the shared
@@ -730,7 +807,7 @@ public struct SessionViewportView: View {
         }
         #else
         RemoteFramebufferPreview(framebuffer: framebuffer)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif
     }
@@ -760,7 +837,7 @@ public struct SessionViewportView: View {
                     syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
                 }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
         .aspectRatio(aspectRatio, contentMode: .fit)
         .accessibilityIdentifier("naru.session.framebufferPreview")
     }
@@ -803,21 +880,21 @@ public struct SessionViewportView: View {
             )
                 .scaleEffect(zoomScale)
                 .offset(panOffset)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
                 .aspectRatio(aspectRatio, contentMode: .fit)
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         } else {
             RemoteFramebufferPreview(framebuffer: framebuffer)
                 .scaleEffect(zoomScale)
                 .offset(panOffset)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
                 .accessibilityIdentifier("naru.session.framebufferPreview")
         }
         #else
         RemoteFramebufferPreview(framebuffer: framebuffer)
             .scaleEffect(zoomScale)
             .offset(panOffset)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
             .accessibilityIdentifier("naru.session.framebufferPreview")
         #endif
     }
@@ -833,6 +910,25 @@ public struct SessionViewportView: View {
         }
         let ratio = CGFloat(framebuffer.width) / CGFloat(framebuffer.height)
         return min(max(ratio, 0.5), 2.5)
+    }
+
+    static func aspectFitSize(aspectRatio: CGFloat, containerSize: CGSize) -> CGSize {
+        guard aspectRatio.isFinite,
+              aspectRatio > 0,
+              containerSize.width > 0,
+              containerSize.height > 0
+        else {
+            return .zero
+        }
+
+        let containerRatio = containerSize.width / containerSize.height
+        if containerRatio > aspectRatio {
+            let height = containerSize.height
+            return CGSize(width: height * aspectRatio, height: height)
+        }
+
+        let width = containerSize.width
+        return CGSize(width: width, height: width / aspectRatio)
     }
 
     private func toggleZoom(
