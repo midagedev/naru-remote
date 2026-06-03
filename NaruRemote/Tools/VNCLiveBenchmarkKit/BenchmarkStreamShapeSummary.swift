@@ -133,6 +133,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCount: BenchmarkLatencySummary?
     public let actualEncodingMix: RFBFramebufferEncodingMix
+    public let adaptiveClientPressurePacingSamples: Int
+    public let adaptiveClientPressurePacingPermille: Int?
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
 
@@ -161,6 +163,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case rendererFullUploadPermille
         case rendererUploadRegionCount
         case actualEncodingMix
+        case adaptiveClientPressurePacingSamples
+        case adaptiveClientPressurePacingPermille
         case firstTimeoutMilliseconds
         case failureLabel
     }
@@ -170,11 +174,17 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
-        failureLabel: String?
+        failureLabel: String?,
+        adaptiveClientPressurePacingSamples: Int = 0
     ) {
         let requestedSamples = max(requestedSamples, 0)
+        let receivedSamples = samples.count
         let emptyUpdateSamples = samples.filter { $0.kind == .emptyUpdate }.count
         let contentUpdateSamples = samples.filter { $0.kind == .contentUpdate }.count
+        let adaptiveClientPressurePacingSamples = min(
+            max(adaptiveClientPressurePacingSamples, 0),
+            receivedSamples
+        )
         let rendererUploadSamples = samples.filter { $0.rendererUploadStrategy != .none }
         let rendererPartialUploadSamples = rendererUploadSamples.filter {
             $0.rendererUploadStrategy == .partial
@@ -191,7 +201,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             failureLabel: failureLabel
         )
         self.requestedSamples = requestedSamples
-        self.receivedSamples = samples.count
+        self.receivedSamples = receivedSamples
         self.emptyUpdateSamples = emptyUpdateSamples
         self.contentUpdateSamples = contentUpdateSamples
         self.timedOutSamples = firstTimeoutMilliseconds == nil ? 0 : 1
@@ -229,6 +239,11 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.actualEncodingMix = samples.reduce(RFBFramebufferEncodingMix()) { partial, sample in
             partial.adding(sample.actualEncodingMix)
         }
+        self.adaptiveClientPressurePacingSamples = adaptiveClientPressurePacingSamples
+        self.adaptiveClientPressurePacingPermille = Self.permille(
+            adaptiveClientPressurePacingSamples,
+            of: receivedSamples
+        )
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
         self.failureLabel = failureLabel
     }
@@ -295,6 +310,23 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             RFBFramebufferEncodingMix.self,
             forKey: .actualEncodingMix
         ) ?? RFBFramebufferEncodingMix()
+        self.adaptiveClientPressurePacingSamples = min(
+            max(
+                try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .adaptiveClientPressurePacingSamples
+                ) ?? 0,
+                0
+            ),
+            self.receivedSamples
+        )
+        self.adaptiveClientPressurePacingPermille = try container.decodeIfPresent(
+            Int.self,
+            forKey: .adaptiveClientPressurePacingPermille
+        ) ?? Self.permille(
+            self.adaptiveClientPressurePacingSamples,
+            of: self.receivedSamples
+        )
         self.firstTimeoutMilliseconds = try container.decodeIfPresent(Int.self, forKey: .firstTimeoutMilliseconds)
         self.failureLabel = try container.decodeIfPresent(String.self, forKey: .failureLabel)
     }

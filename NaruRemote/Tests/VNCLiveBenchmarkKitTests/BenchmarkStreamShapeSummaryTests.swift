@@ -48,7 +48,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             ],
             elapsedMilliseconds: 100,
             firstTimeoutMilliseconds: nil,
-            failureLabel: nil
+            failureLabel: nil,
+            adaptiveClientPressurePacingSamples: 1
         )
 
         XCTAssertEqual(summary.status, .mixedUpdates)
@@ -72,6 +73,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.rendererPartialUploadPermille, 1_000)
         XCTAssertEqual(summary.rendererFullUploadPermille, 0)
         XCTAssertEqual(try XCTUnwrap(summary.rendererUploadRegionCount).maxMilliseconds, 2)
+        XCTAssertEqual(summary.adaptiveClientPressurePacingSamples, 1)
+        XCTAssertEqual(summary.adaptiveClientPressurePacingPermille, 500)
         XCTAssertEqual(summary.actualEncodingMix.rawRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.tightRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.cursorRectangles, 1)
@@ -137,6 +140,22 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.receiveTotalMilliseconds, 0)
         XCTAssertEqual(sample.networkReadMilliseconds, 0)
         XCTAssertEqual(sample.clientProcessingMilliseconds, 0)
+    }
+
+    func testAdaptiveClientPressurePacingSamplesClampToReceivedSamples() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [
+                streamShapeSample(duration: 10)
+            ],
+            elapsedMilliseconds: 10,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            adaptiveClientPressurePacingSamples: 4
+        )
+
+        XCTAssertEqual(summary.adaptiveClientPressurePacingSamples, 1)
+        XCTAssertEqual(summary.adaptiveClientPressurePacingPermille, 1_000)
     }
 
     func testTailLatencySummaryCorrelatesSlowSamplesWithDirtyAndUploadBuckets() {
@@ -245,10 +264,19 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             firstTimeoutMilliseconds: nil,
             failureLabel: nil
         )
-        let legacySummaryData = try Self.encodedPayloadRemovingActualEncodingMix(from: summary)
+        let legacySummaryData = try Self.encodedPayload(
+            from: summary,
+            removingKeys: [
+                "actualEncodingMix",
+                "adaptiveClientPressurePacingSamples",
+                "adaptiveClientPressurePacingPermille"
+            ]
+        )
         let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
 
         XCTAssertEqual(decodedSummary.actualEncodingMix, RFBFramebufferEncodingMix())
+        XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingSamples, 0)
+        XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(decodedSummary.receivedSamples, 1)
     }
 
@@ -395,9 +423,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
     }
 
     private static func encodedPayloadRemovingActualEncodingMix<T: Encodable>(from value: T) throws -> Data {
+        try encodedPayload(from: value, removingKeys: ["actualEncodingMix"])
+    }
+
+    private static func encodedPayload<T: Encodable>(from value: T, removingKeys keys: [String]) throws -> Data {
         let encoded = try JSONEncoder().encode(value)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object.removeValue(forKey: "actualEncodingMix")
+        for key in keys {
+            object.removeValue(forKey: key)
+        }
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 }

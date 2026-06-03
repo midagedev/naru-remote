@@ -119,7 +119,11 @@ full-upload classified. Schema v21 adds
 `--stream-shape-client-pressure off|app`; `app` mirrors the runtime viewer's
 repeated lagging client-processing content-frame trigger and temporarily applies
 the same power-saver pacing floor during stream-shape probes, while reporting
-only the fixed mode label and threshold constants. By default
+only the fixed mode label and threshold constants. Schema v22 adds aggregate
+`adaptiveClientPressurePacingSamples` and
+`adaptiveClientPressurePacingPermille` fields to each stream-shape summary so
+heat/FPS comparisons can tell whether the adaptive client-pressure floor
+actually affected update pacing. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
