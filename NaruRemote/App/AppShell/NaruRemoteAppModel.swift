@@ -1493,6 +1493,9 @@ public final class NaruRemoteAppModel: ObservableObject {
 
             var completedInitialHandshake = false
             var emptyUpdateStreak = 0
+            // Scoped to this frame-stream task. Reconnect starts a new
+            // stream task, so client-pressure history never crosses sessions.
+            var streamPressurePacingState = SessionStreamPressurePacingState()
             do {
                 let serverInit = try await Task.detached {
                     try streamingClient.connectSession(
@@ -1566,9 +1569,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                         return
                     }
                     let thermalState = thermalStateProvider()
+                    recordSessionStreamStats(for: frame, thermalState: thermalState)
+                    streamPressurePacingState.record(frame: frame)
                     let usesPowerSaverPacing = lowPowerModeProvider()
                         || appSettings.streamPowerMode == .powerSaver
-                    recordSessionStreamStats(for: frame, thermalState: thermalState)
+                        || streamPressurePacingState.usesAdaptivePowerSaverPacing
 
                     // An empty incremental update (zero changed pixels)
                     // means the connection is alive but framebuffer
