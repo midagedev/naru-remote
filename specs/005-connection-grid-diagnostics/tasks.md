@@ -71,6 +71,12 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   milliseconds, raw samples, device power state, host, dimensions, coordinates,
   pixels, byte counts, and raw errors. Owns: diagnostics/app snapshot/model
   tests. **Done.**
+- **T512** Bump diagnostics to schema v7 with actual RFB encoding mix counts:
+  include only fixed-catalog rectangle/event counters for the encodings the
+  server actually sent, so support can identify Raw-heavy sessions versus
+  efficient CopyRect/Hextile/ZRLE/Tight/cursor/resize paths without payload
+  bytes, dimensions, coordinates, pixels, raw timing samples, host identity, or
+  raw errors. Owns: diagnostics/app snapshot/model/tests. **Done.**
 
 ## Cross-cutting Rules
 

@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 6"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 7"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 6)
+        XCTAssertEqual(decoded.schemaVersion, 7)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -327,6 +327,11 @@ final class DiagnosticExportTests: XCTestCase {
             rendererPartialUploadPermille: 875,
             rendererFullUploadPermille: 125,
             rendererUploadRegionCountMax: 4,
+            actualEncodingMix: RFBFramebufferEncodingMix(
+                rawRectangles: 10,
+                copyRectRectangles: 70,
+                cursorRectangles: 5
+            ),
             thermalState: "serious"
         )
         let export = DiagnosticExport(
@@ -344,10 +349,12 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 6)
+        XCTAssertEqual(decoded.schemaVersion, 7)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
+        XCTAssertTrue(rendered.contains("\"actualEncodingMix\""))
+        XCTAssertTrue(rendered.contains("\"copyRectRectangles\" : 70"))
         XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
         XCTAssertTrue(rendered.contains("\"viewerStreamPowerMode\" : \"power-saver\""))
         XCTAssertFalse(rendered.contains("caller detail"))
@@ -372,7 +379,7 @@ final class DiagnosticExportTests: XCTestCase {
 
         let payload = """
         {
-          "schemaVersion": 6,
+          "schemaVersion": 7,
           "generatedAt": "2024-05-01T00:00:00Z",
           "buildVersion": "0.1.0",
           "runID": "\(UUID().uuidString.lowercased())",
@@ -422,6 +429,12 @@ final class DiagnosticExportTests: XCTestCase {
             maxNetworkReadTimingBucket: "timing=SECRET",
             averageClientProcessingTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
             maxClientProcessingTimingBucket: "timing=SECRET",
+            actualEncodingMix: RFBFramebufferEncodingMix(
+                rawRectangles: -100,
+                copyRectRectangles: 2,
+                zrleRectangles: -3,
+                endOfContinuousUpdatesEvents: 1
+            ),
             thermalState: "thermal=SECRET"
         )
 
@@ -454,6 +467,10 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(
+            performance.actualEncodingMix,
+            RFBFramebufferEncodingMix(copyRectRectangles: 2, endOfContinuousUpdatesEvents: 1)
+        )
         XCTAssertEqual(performance.thermalState, "unknown")
     }
 
@@ -529,7 +546,55 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.actualEncodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(performance.thermalState, "fair")
+    }
+
+    func testStreamPerformanceReportSanitizesDecodedEncodingMixCounts() throws {
+        let payload = """
+        {
+          "observedDurationBucket": "threeToTenSeconds",
+          "deliveredFramesPerSecondBucket": "fiveToFifteen",
+          "deliveredFrameCount": 20,
+          "contentFrameCount": 18,
+          "emptyUpdateCount": 2,
+          "transportIdleTimeoutCount": 0,
+          "dirtyRectangleSampleCount": 18,
+          "dirtyRectangleCountMax": 2,
+          "dirtyAreaPermilleMax": 80,
+          "changedPixelsPermilleMax": 70,
+          "actualEncodingMix": {
+            "rawRectangles": -1,
+            "copyRectRectangles": 2,
+            "hextileRectangles": -3,
+            "zrleRectangles": 4,
+            "tightRectangles": -5,
+            "cursorRectangles": 6,
+            "xCursorRectangles": -7,
+            "desktopSizeRectangles": 8,
+            "extendedDesktopSizeRectangles": -9,
+            "lastRectRectangles": 10,
+            "endOfContinuousUpdatesEvents": -11
+          },
+          "thermalState": "fair"
+        }
+        """
+
+        let performance = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(
+            performance.actualEncodingMix,
+            RFBFramebufferEncodingMix(
+                copyRectRectangles: 2,
+                zrleRectangles: 4,
+                cursorRectangles: 6,
+                desktopSizeRectangles: 8,
+                lastRectRectangles: 10
+            )
+        )
     }
 
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
@@ -555,8 +620,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v6 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 6"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v7 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 7"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

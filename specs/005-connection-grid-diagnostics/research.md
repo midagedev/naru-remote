@@ -117,3 +117,23 @@ keeping raw timing telemetry out of the support payload.
 - Omit receive timing entirely. Rejected because support would still be unable
   to distinguish network/server stalls from client-processing pressure in
   hot-device reports.
+
+## Decision: Actual Encoding Mix Is Safe Diagnostic Context
+
+**Decision**: Diagnostics schema v7 includes aggregate actual RFB encoding mix
+counts from the live framebuffer update path. The export carries only
+fixed-catalog counters for Raw, CopyRect, Hextile, ZRLE, Tight, cursor,
+desktop-size, LastRect, and end-of-continuous-updates events.
+
+**Rationale**: `SetEncodings` is a client preference, not proof of what the
+server sent. The benchmark artifact now records actual encoding mix; mirroring
+that safe aggregate in user-shared diagnostics lets support distinguish
+Raw-heavy sessions from sessions where the protocol is efficient and client
+decode, upload, pacing, or device thermal behavior is the likelier bottleneck.
+
+**Alternatives considered**:
+
+- Export only the negotiated/preferred encoding list. Rejected because servers
+  may ignore client preference order or choose a different encoding per update.
+- Export per-frame encoding samples. Rejected because aggregate counters are
+  easier to collect, safer to share, and sufficient for support triage.
