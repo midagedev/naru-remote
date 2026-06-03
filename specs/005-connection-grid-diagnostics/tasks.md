@@ -55,6 +55,11 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   region-count maxima so hot-device reports can identify full-upload pressure
   without host, dimensions, coordinates, pixels, byte counts, or raw latency.
   Owns: diagnostics/app snapshot/model/tests. **Done.**
+- **T510** Bump diagnostics to schema v5 with viewer stream power mode:
+  include only the safe `balanced|power-saver` viewer setting so support can
+  compare hot-device reports against the stream pacing mode, while continuing to
+  exclude device power state, host, dimensions, coordinates, pixels, byte counts,
+  and raw latency. Owns: diagnostics/app model/tests. **Done.**
 
 ## Cross-cutting Rules
 

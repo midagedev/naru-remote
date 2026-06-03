@@ -57,3 +57,21 @@
 **Alternatives considered**:
 
 - Rely on SwiftUI system grouped backgrounds only. Rejected because the product already has brand tokens and status colors that need controlled semantics.
+
+## Decision: Viewer Stream Power Mode Is Safe Diagnostic Context
+
+**Decision**: Diagnostics schema v5 includes the viewer-selected stream power
+mode as a fixed `balanced|power-saver` field. It does not include iOS Low Power
+Mode or any raw power-management state.
+
+**Rationale**: Hot-device and low-FPS reports are hard to compare unless support
+knows whether the viewer was intentionally pacing the stream for a sustained
+session. The app setting is user-visible and non-secret, while platform power
+state remains local.
+
+**Alternatives considered**:
+
+- Infer mode from frame-rate buckets. Rejected because low FPS can come from the
+  server, link, decoder, renderer, or user-selected pacing.
+- Export iOS Low Power Mode. Rejected because support only needs the viewer
+  pacing decision, not the broader device power state.
