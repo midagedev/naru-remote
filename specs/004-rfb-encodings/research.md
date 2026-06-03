@@ -260,3 +260,8 @@ polling at 125 ms unless thermal state requires an even slower delay.
   without storing it in diagnostics.
 - Explicit zero-delay fake/test streams remain deterministic. The low-power
   floor only applies when a real configured delay exists.
+
+**Benchmark parity**: `VNCLiveBenchmark` schema v16 records
+`streamShapePowerMode` and the fixed low-power content/idle floors so live
+request/response probes can compare normal vs low-power pacing without changing
+the app or exporting device power state in diagnostics.

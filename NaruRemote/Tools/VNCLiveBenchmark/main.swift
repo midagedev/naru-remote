@@ -65,7 +65,8 @@ enum VNCLiveBenchmark {
         let streamShapePacingPolicy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: options.streamShapeFrameInterval,
             idleFrameInterval: options.streamShapeIdleFrameInterval,
-            emptyBackoffMode: options.streamShapeEmptyBackoffMode
+            emptyBackoffMode: options.streamShapeEmptyBackoffMode,
+            powerMode: options.streamShapePowerMode
         )
         let primaryStreamShapeProfile = options.streamShapeProfiles.profiles.first ?? .localLowLatency
         let primaryStreamShapeTransportMode = options.streamShapeTransportModes.modes.first ?? .requestResponse
@@ -117,6 +118,7 @@ enum VNCLiveBenchmark {
             streamShapeFrameInterval: options.streamShapeFrameInterval,
             streamShapeIdleFrameInterval: options.streamShapeIdleFrameInterval,
             streamShapeEmptyBackoffMode: options.streamShapeEmptyBackoffMode,
+            streamShapePowerMode: options.streamShapePowerMode,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
@@ -509,9 +511,10 @@ private struct BenchmarkOptions: Equatable {
     var fullRefreshSamples = 1
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
-    var streamShapeFrameInterval: TimeInterval = 1.0 / 30.0
+    var streamShapeFrameInterval: TimeInterval = 1.0 / 60.0
     var streamShapeIdleFrameInterval: TimeInterval = 0.05
     var streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode = .app
+    var streamShapePowerMode: BenchmarkStreamShapePowerMode = .normal
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
@@ -579,6 +582,13 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("stream-shape-empty-backoff must be app or none.")
                 }
                 options.streamShapeEmptyBackoffMode = mode
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-power-mode":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkStreamShapePowerMode(rawValue: value) else {
+                    throw UsageError("stream-shape-power-mode must be normal or low-power.")
+                }
+                options.streamShapePowerMode = mode
                 index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -884,6 +894,9 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeFrameIntervalSeconds: TimeInterval
     let streamShapeIdleFrameIntervalSeconds: TimeInterval
     let streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
+    let streamShapePowerMode: BenchmarkStreamShapePowerMode
+    let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
+    let streamShapeLowPowerIdleFrameIntervalSeconds: TimeInterval
     let streamShapeEmptyBackoffMediumStreakThreshold: Int
     let streamShapeEmptyBackoffLongStreakThreshold: Int
     let streamShapeEmptyBackoffMediumIdleFrameIntervalSeconds: TimeInterval
@@ -910,6 +923,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeFrameInterval: TimeInterval,
         streamShapeIdleFrameInterval: TimeInterval,
         streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode,
+        streamShapePowerMode: BenchmarkStreamShapePowerMode,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -919,7 +933,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 15
+        self.schemaVersion = 16
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -928,6 +942,11 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeFrameIntervalSeconds = streamShapeFrameInterval
         self.streamShapeIdleFrameIntervalSeconds = streamShapeIdleFrameInterval
         self.streamShapeEmptyBackoffMode = streamShapeEmptyBackoffMode
+        self.streamShapePowerMode = streamShapePowerMode
+        self.streamShapeLowPowerContentFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appLowPowerContentFrameInterval
+        self.streamShapeLowPowerIdleFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appLowPowerIdleFrameInterval
         self.streamShapeEmptyBackoffMediumStreakThreshold =
             BenchmarkStreamShapePacingPolicy.appMediumEmptyUpdateStreakThreshold
         self.streamShapeEmptyBackoffLongStreakThreshold =
@@ -1148,6 +1167,14 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape frame interval seconds: \(formatSeconds(report.streamShapeFrameIntervalSeconds))")
     print("stream-shape idle frame interval seconds: \(formatSeconds(report.streamShapeIdleFrameIntervalSeconds))")
     print("stream-shape empty backoff: \(report.streamShapeEmptyBackoffMode.rawValue)")
+    print("stream-shape power mode: \(report.streamShapePowerMode.rawValue)")
+    if report.streamShapePowerMode == .lowPower {
+        print(
+            "stream-shape low-power floors: content "
+                + "\(formatSeconds(report.streamShapeLowPowerContentFrameIntervalSeconds))s, idle "
+                + "\(formatSeconds(report.streamShapeLowPowerIdleFrameIntervalSeconds))s"
+        )
+    }
     if report.streamShapeEmptyBackoffMode == .app {
         print(
             "stream-shape empty backoff thresholds: "
@@ -1366,17 +1393,19 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 to disable.
       --stream-shape-frame-interval SECONDS
-                                Delay after content stream-shape incremental requests. Defaults to 0.033, matching the app's 30 fps cap.
+                                Delay after content stream-shape incremental requests. Defaults to 0.0167, matching the app's 60 Hz normal-mode cap.
       --stream-shape-idle-frame-interval SECONDS
                                 Delay after empty stream-shape incremental requests. Defaults to 0.05, matching the app's idle poll backoff.
       --stream-shape-empty-backoff app|none
                                 Adaptive backoff for sustained empty stream-shape replies. Defaults to app, matching the app's 8/24 empty-update thresholds.
+      --stream-shape-power-mode normal|low-power
+                                App power-mode pacing profile. Defaults to normal; low-power applies the app's 30 Hz content and 125 ms idle floors.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))

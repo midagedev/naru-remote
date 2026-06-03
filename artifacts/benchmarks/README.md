@@ -93,6 +93,7 @@ swift run VNCLiveBenchmark \
   --stream-shape-frame-interval 0.0167 \
   --stream-shape-idle-frame-interval 0.05 \
   --stream-shape-empty-backoff app \
+  --stream-shape-power-mode normal \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles all \
   --stream-shape-transport both \
@@ -121,6 +122,10 @@ fixed idle polling.
 The app's default active content-request interval is 60 Hz-class
 `1/60`, while static/empty incremental replies still use the separate
 idle delay and adaptive empty-update backoff.
+Use `--stream-shape-power-mode low-power` to mirror the app's Low Power
+Mode floors: active content requests are capped at 30 Hz and empty
+incremental polling has a 125 ms minimum unless the explicit configured
+interval is zero for a deterministic test run.
 Use `--stream-shape-transport both` when comparing request/response
 polling against the ContinuousUpdates/Fence overlay before changing the
 production transport gate.
