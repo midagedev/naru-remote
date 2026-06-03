@@ -127,3 +127,19 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         return Double(sampleCount) / (Double(elapsedMilliseconds) / 1_000)
     }
 }
+
+public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
+    public let label: String
+    public let firstFrameMilliseconds: Int?
+    public let summary: BenchmarkStreamShapeSummary
+
+    public init(
+        label: String,
+        firstFrameMilliseconds: Int?,
+        summary: BenchmarkStreamShapeSummary
+    ) {
+        self.label = label
+        self.firstFrameMilliseconds = firstFrameMilliseconds
+        self.summary = summary
+    }
+}

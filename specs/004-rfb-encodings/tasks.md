@@ -130,6 +130,11 @@ iPhone) and ships as its own PR.
   raise the minimum active/idle frame-request delay from the default 30fps path
   to fair/serious/critical tiers, while preserving explicit zero-delay fake/test
   streams. Owns: app pacing policy, app model wiring, app-model tests. **Done.**
+- **T314** Profiled stream-shape benchmark: extend `VNCLiveBenchmark` schema-v7
+  with `--stream-shape-profiles local-low-latency|all` so sustained incremental
+  FPS/latency/dirty-area aggregates can be compared across Hextile, Tight, ZRLE,
+  and adaptive profiles before changing app defaults. Owns: live benchmark CLI,
+  benchmark-kit profile report/tests, benchmark docs. **Done.**
 
 ## Cross-cutting (every increment)
 
