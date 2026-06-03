@@ -90,6 +90,7 @@ swift run VNCLiveBenchmark \
   --attempts 3 \
   --full-refresh-samples 2 \
   --stream-shape-samples 30 \
+  --stream-shape-duration-seconds 60 \
   --stream-shape-frame-interval 0.0167 \
   --stream-shape-idle-frame-interval 0.05 \
   --stream-shape-empty-backoff app \
@@ -115,6 +116,11 @@ profiles actually improve sustained interaction on the current server.
 For targeted longer runs after an all-profile sweep, pass a comma-separated
 subset such as `--stream-shape-profiles tight-first,zrle-compression-0,adaptive-good-full`
 so the benchmark spends time only on the current candidates.
+Use `--stream-shape-duration-seconds` for sustained thermal/FPS runs; pair it
+with `--stream-shape-samples 0` when the run should stop only by duration
+rather than by a sample cap. Duration-capped runs also cap each in-flight
+update wait and post-update pacing delay to the remaining duration, reducing
+tail overshoot during long thermal runs.
 The default `--stream-shape-empty-backoff app` mode mirrors the app's
 sustained empty-update backoff so static-screen benchmark pacing matches
 the runtime stream loop; use `none` only when comparing against legacy

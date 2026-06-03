@@ -235,6 +235,12 @@ iPhone) and ships as its own PR.
   record a redacted normal-vs-low-power live comparison for sustained-session
   tuning. Owns: benchmark kit policy, CLI/report/docs/tests, benchmark
   artifact. **Done.**
+- **T334** Duration-capped sustained stream-shape benchmark: extend
+  `VNCLiveBenchmark` schema v17 with `--stream-shape-duration-seconds` so
+  thermal/FPS investigations can run for a fixed wall-clock duration, including
+  duration-only runs via `--stream-shape-samples 0`, and cap in-flight update
+  waits/pacing sleeps to the remaining duration. Owns: CLI/report/docs, live
+  smoke artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
