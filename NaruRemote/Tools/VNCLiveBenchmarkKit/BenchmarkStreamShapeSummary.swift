@@ -61,6 +61,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let timedOutSamples: Int
     public let elapsedMilliseconds: Int?
     public let deliveredFramesPerSecond: Double?
+    public let contentFramesPerSecond: Double?
     public let updateLatency: BenchmarkLatencySummary?
     public let dirtyRectangleCount: BenchmarkLatencySummary?
     public let dirtyAreaPermille: BenchmarkLatencySummary?
@@ -108,6 +109,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.elapsedMilliseconds = elapsedMilliseconds
         self.deliveredFramesPerSecond = Self.framesPerSecond(
             sampleCount: samples.count,
+            elapsedMilliseconds: elapsedMilliseconds
+        )
+        self.contentFramesPerSecond = Self.framesPerSecond(
+            sampleCount: contentUpdateSamples,
             elapsedMilliseconds: elapsedMilliseconds
         )
         self.updateLatency = BenchmarkLatencySummary(samples.map(\.durationMilliseconds))

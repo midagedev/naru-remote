@@ -48,6 +48,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.emptyUpdateSamples, 1)
         XCTAssertEqual(summary.contentUpdateSamples, 1)
         XCTAssertEqual(summary.deliveredFramesPerSecond, 20)
+        XCTAssertEqual(summary.contentFramesPerSecond, 10)
         XCTAssertEqual(try XCTUnwrap(summary.updateLatency).averageMilliseconds, 40)
         XCTAssertEqual(try XCTUnwrap(summary.dirtyRectangleCount).maxMilliseconds, 2)
         XCTAssertEqual(try XCTUnwrap(summary.dirtyAreaPermille).maxMilliseconds, 120)
@@ -74,6 +75,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.status, .noUpdateBeforeTimeout)
         XCTAssertEqual(summary.timedOutSamples, 1)
         XCTAssertEqual(summary.deliveredFramesPerSecond, 0)
+        XCTAssertEqual(summary.contentFramesPerSecond, 0)
         XCTAssertEqual(summary.firstTimeoutMilliseconds, 750)
     }
 

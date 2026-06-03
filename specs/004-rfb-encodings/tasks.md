@@ -214,6 +214,10 @@ iPhone) and ships as its own PR.
   can be triaged without emitting target identity, dimensions, coordinates,
   pixels, byte counts, or raw errors. Owns: benchmark summary kit, CLI output,
   tests, benchmark docs/artifact. **Done.**
+- **T330** Content-frame FPS reporting: split stream-shape delivered FPS into
+  all-update FPS and content-update FPS so sustained-session reports reflect
+  actual visible frame cadence separately from empty update polling. Owns:
+  benchmark summary kit, CLI output, tests, benchmark docs/artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
