@@ -157,6 +157,11 @@ iPhone) and ships as its own PR.
   cursor overlay changes from re-enqueueing the identical framebuffer into the
   Metal upload path, while preserving uploads when dirty rectangles or pixel
   storage change. Owns: session viewer upload gate/tests. **Done.**
+- **T320** Same-frame Metal redraw gate: only request an `MTKView` redraw after
+  a framebuffer was actually enqueued, so cursor/control-only SwiftUI redraws
+  do not also redraw the unchanged texture, and add an opt-in simulator
+  benchmark for the upload-gate skip path. Owns: Metal view coordinator,
+  benchmark target. **Done.**
 
 ## Cross-cutting (every increment)
 

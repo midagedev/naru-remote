@@ -86,6 +86,26 @@ final class SyntheticFramePipelineBenchmarkTests: XCTestCase {
         }
     }
 
+    func testSameFramebufferUploadGateSkipBenchmark() throws {
+        let configuration = try requireBenchmarkConfiguration()
+        var uploadGate = FramebufferUploadGate()
+        let framebuffer = RFBRawFramebuffer(
+            width: configuration.width,
+            height: configuration.height,
+            fill: configuration.nextFrameColor
+        )
+
+        XCTAssertTrue(uploadGate.shouldEnqueue(framebuffer: framebuffer))
+
+        let options = measureOptions(iterations: configuration.iterations)
+        measure(
+            metrics: benchmarkMetrics,
+            options: options
+        ) {
+            XCTAssertFalse(uploadGate.shouldEnqueue(framebuffer: framebuffer))
+        }
+    }
+
     private var benchmarkMetrics: [XCTMetric] {
         [
             XCTClockMetric(),

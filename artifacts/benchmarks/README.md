@@ -40,6 +40,7 @@ The benchmark target measures:
 - framebuffer allocation plus full Metal texture upload
 - steady-state full Metal texture upload
 - steady-state small dirty-rectangle Metal texture upload
+- same-frame upload-gate skip overhead
 
 Simulator results are useful for relative comparisons across commits.
 They do not prove physical iPhone thermal behavior, battery impact, or

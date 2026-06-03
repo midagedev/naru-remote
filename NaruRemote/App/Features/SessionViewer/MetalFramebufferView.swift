@@ -166,7 +166,10 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
         context.coordinator.prepareForSession(sessionID)
-        context.coordinator.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
+        let didEnqueueFramebuffer = context.coordinator.enqueue(
+            framebuffer,
+            dirtyRectangles: dirtyRectangles
+        )
         uiView.tapHandler = onTap
         uiView.rightClickHandler = onRightClick
         uiView.scrollHandler = onScroll
@@ -177,7 +180,9 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.panHandler = onPan
         uiView.zoomToggleHandler = onZoomToggle
         uiView.syncZoomPan(scale: zoomScale, offset: panOffset)
-        uiView.requestRedraw()
+        if didEnqueueFramebuffer {
+            uiView.requestRedraw()
+        }
     }
 
     /// Coordinator owns the long-lived `MetalFramebufferRenderer` and
@@ -210,18 +215,20 @@ public struct MetalFramebufferView: UIViewRepresentable {
             uploadGate.reset()
         }
 
+        @discardableResult
         func enqueue(
             _ framebuffer: RFBRawFramebuffer,
             dirtyRectangles: [RFBFrameDamageRect]? = nil
-        ) {
+        ) -> Bool {
             guard uploadGate.shouldEnqueue(
                 framebuffer: framebuffer,
                 dirtyRectangles: dirtyRectangles
             ) else {
-                return
+                return false
             }
             renderer?.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
+            return true
         }
     }
 }
