@@ -120,6 +120,12 @@ iPhone) and ships as its own PR.
   and changed-pixel permille without emitting target identity, dimensions,
   pixels, byte counts, or raw errors. Owns: live benchmark CLI, benchmark-kit
   summary/tests, benchmark docs. **Done.**
+- **T312** In-app stream stats foundation: keep safe aggregate active-session
+  counters in `NaruRemoteAppSnapshot` for delivered/content/empty/timeout
+  frames, dirty-rect counts, dirty-area permille, changed-pixel permille, and
+  coarse thermal state. Do not export host, dimensions, coordinates, pixels,
+  byte counts, raw latency, or raw errors. Owns: app snapshot/model/tests.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

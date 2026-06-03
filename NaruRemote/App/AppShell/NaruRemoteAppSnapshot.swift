@@ -1,6 +1,131 @@
 import Foundation
 import NaruRemoteCore
 
+public enum SessionStreamThermalState: String, Equatable, Sendable {
+    case unknown
+    case nominal
+    case fair
+    case serious
+    case critical
+
+    public init(_ thermalState: ProcessInfo.ThermalState) {
+        switch thermalState {
+        case .nominal:
+            self = .nominal
+        case .fair:
+            self = .fair
+        case .serious:
+            self = .serious
+        case .critical:
+            self = .critical
+        @unknown default:
+            self = .unknown
+        }
+    }
+}
+
+public struct SessionStreamStats: Equatable, Sendable {
+    public var deliveredFrameCount: Int
+    public var contentFrameCount: Int
+    public var emptyUpdateCount: Int
+    public var transportIdleTimeoutCount: Int
+    public var dirtyRectangleSampleCount: Int
+    public var dirtyRectangleCountTotal: Int
+    public var dirtyRectangleCountMax: Int
+    public var dirtyAreaPermilleTotal: Int
+    public var dirtyAreaPermilleMax: Int
+    public var changedPixelsPermilleTotal: Int
+    public var changedPixelsPermilleMax: Int
+    public var thermalState: SessionStreamThermalState
+
+    public init(
+        deliveredFrameCount: Int = 0,
+        contentFrameCount: Int = 0,
+        emptyUpdateCount: Int = 0,
+        transportIdleTimeoutCount: Int = 0,
+        dirtyRectangleSampleCount: Int = 0,
+        dirtyRectangleCountTotal: Int = 0,
+        dirtyRectangleCountMax: Int = 0,
+        dirtyAreaPermilleTotal: Int = 0,
+        dirtyAreaPermilleMax: Int = 0,
+        changedPixelsPermilleTotal: Int = 0,
+        changedPixelsPermilleMax: Int = 0,
+        thermalState: SessionStreamThermalState = .unknown
+    ) {
+        self.deliveredFrameCount = max(deliveredFrameCount, 0)
+        self.contentFrameCount = max(contentFrameCount, 0)
+        self.emptyUpdateCount = max(emptyUpdateCount, 0)
+        self.transportIdleTimeoutCount = max(transportIdleTimeoutCount, 0)
+        self.dirtyRectangleSampleCount = max(dirtyRectangleSampleCount, 0)
+        self.dirtyRectangleCountTotal = max(dirtyRectangleCountTotal, 0)
+        self.dirtyRectangleCountMax = max(dirtyRectangleCountMax, 0)
+        self.dirtyAreaPermilleTotal = max(dirtyAreaPermilleTotal, 0)
+        self.dirtyAreaPermilleMax = max(dirtyAreaPermilleMax, 0)
+        self.changedPixelsPermilleTotal = max(changedPixelsPermilleTotal, 0)
+        self.changedPixelsPermilleMax = max(changedPixelsPermilleMax, 0)
+        self.thermalState = thermalState
+    }
+
+    public var averageDirtyRectangleCount: Int? {
+        average(dirtyRectangleCountTotal)
+    }
+
+    public var averageDirtyAreaPermille: Int? {
+        average(dirtyAreaPermilleTotal)
+    }
+
+    public var averageChangedPixelsPermille: Int? {
+        average(changedPixelsPermilleTotal)
+    }
+
+    public mutating func record(
+        frame: RFBFramePumpFrame,
+        thermalState: SessionStreamThermalState
+    ) {
+        deliveredFrameCount += 1
+        self.thermalState = thermalState
+
+        if frame.transportIdleTimedOut {
+            transportIdleTimeoutCount += 1
+            return
+        } else if frame.isIncremental, frame.changedPixelCount == 0 {
+            emptyUpdateCount += 1
+        } else {
+            contentFrameCount += 1
+        }
+
+        let framebufferArea = max(frame.framebuffer.width * frame.framebuffer.height, 1)
+        let dirtyArea = frame.dirtyRectangles.reduce(0) { total, rect in
+            total + max(rect.width, 0) * max(rect.height, 0)
+        }
+        let dirtyAreaPermille = Self.permille(dirtyArea, of: framebufferArea)
+        let changedPixelsPermille = Self.permille(frame.changedPixelCount, of: framebufferArea)
+
+        dirtyRectangleSampleCount += 1
+        dirtyRectangleCountTotal += frame.dirtyRectangles.count
+        dirtyRectangleCountMax = max(dirtyRectangleCountMax, frame.dirtyRectangles.count)
+        dirtyAreaPermilleTotal += dirtyAreaPermille
+        dirtyAreaPermilleMax = max(dirtyAreaPermilleMax, dirtyAreaPermille)
+        changedPixelsPermilleTotal += changedPixelsPermille
+        changedPixelsPermilleMax = max(changedPixelsPermilleMax, changedPixelsPermille)
+    }
+
+    private func average(_ total: Int) -> Int? {
+        guard dirtyRectangleSampleCount > 0 else {
+            return nil
+        }
+        return total / dirtyRectangleSampleCount
+    }
+
+    private static func permille(_ value: Int, of total: Int) -> Int {
+        guard total > 0 else {
+            return 0
+        }
+        let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
+        return value > 0 ? max(rounded, 1) : 0
+    }
+}
+
 public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     public var profiles: [ConnectionProfile]
     public var selectedProfileID: ConnectionProfile.ID?
@@ -16,6 +141,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// this is the right default for first frames, the fallback path,
     /// and snapshot-driven previews that have no damage history.
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    /// Safe aggregate stream counters for the active session. These
+    /// counters never include target identity, coordinates, dimensions,
+    /// pixels, byte counts, raw latency samples, or raw errors.
+    public var sessionStreamStats: SessionStreamStats
     /// Most recent server-provided cursor shape, decoded from the RFB
     /// Cursor pseudo-encoding. This is additive to the synthetic
     /// trackpad cursor and is memory-only.
@@ -55,6 +184,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        sessionStreamStats: SessionStreamStats = SessionStreamStats(),
         latestServerCursor: RFBServerCursor? = nil,
         profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
         profileReachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:],
@@ -71,6 +201,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
+        self.sessionStreamStats = sessionStreamStats
         self.latestServerCursor = latestServerCursor
         self.profilePreviews = profilePreviews
         self.profileReachability = profileReachability

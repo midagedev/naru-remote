@@ -31,7 +31,7 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
 
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
-            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 4, frameInterval: 0),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
             reconnectPolicy: Self.testPolicy,
             connectorFactory: { connector }
         )
@@ -49,6 +49,9 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         // Successful frame after reconnect → state back to .active
         // and the attempt counter has been reset.
         XCTAssertEqual(model.snapshot.session?.state, .active)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 3)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 3)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
     }
 
     func testReconnectAttemptsUseSameProfileAndCredentialRef() async throws {

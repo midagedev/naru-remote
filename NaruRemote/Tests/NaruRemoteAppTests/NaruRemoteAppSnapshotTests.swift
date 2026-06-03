@@ -3,6 +3,31 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class NaruRemoteAppSnapshotTests: XCTestCase {
+    func testSessionStreamStatsTrackTimeoutsWithoutDirtySamples() {
+        let framebuffer = RFBRawFramebuffer(width: 4, height: 4)
+        let timeoutFrame = RFBFramePumpFrame(
+            sequence: 2,
+            framebuffer: framebuffer,
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            isIncremental: true,
+            transportIdleTimedOut: true
+        )
+        var stats = SessionStreamStats()
+
+        stats.record(frame: timeoutFrame, thermalState: .serious)
+
+        XCTAssertEqual(stats.deliveredFrameCount, 1)
+        XCTAssertEqual(stats.contentFrameCount, 0)
+        XCTAssertEqual(stats.emptyUpdateCount, 0)
+        XCTAssertEqual(stats.transportIdleTimeoutCount, 1)
+        XCTAssertEqual(stats.dirtyRectangleSampleCount, 0)
+        XCTAssertNil(stats.averageDirtyRectangleCount)
+        XCTAssertNil(stats.averageDirtyAreaPermille)
+        XCTAssertNil(stats.averageChangedPixelsPermille)
+        XCTAssertEqual(stats.thermalState, .serious)
+    }
+
     func testSnapshotUsesSelectedProfileForTitleAndSubtitle() throws {
         let first = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
         let second = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net", port: 5901)
