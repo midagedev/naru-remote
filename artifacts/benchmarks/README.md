@@ -102,11 +102,11 @@ swift run VNCLiveBenchmark \
 The live benchmark intentionally redacts the target identity and avoids
 emitting framebuffer dimensions, pixel payloads, byte counts, cursor
 pixels, and raw error descriptions. The stream-shape probe emits
-aggregate FPS, update-latency, dirty-rectangle-count, dirty-area
-permille, changed-pixel permille, and renderer upload strategy
-summaries only. It also emits fixed-threshold tail buckets for updates
-at or above 250 ms / 1000 ms, including only aggregate slow-frame
-counts and whether those slow frames were content, full-dirty, or
+aggregate FPS (all updates and content updates separately), update-latency,
+dirty-rectangle-count, dirty-area permille, changed-pixel permille, and
+renderer upload strategy summaries only. It also emits fixed-threshold tail
+buckets for updates at or above 250 ms / 1000 ms, including only aggregate
+slow-frame counts and whether those slow frames were content, full-dirty, or
 full-upload classified. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive

@@ -919,7 +919,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 14
+        self.schemaVersion = 15
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1266,7 +1266,10 @@ private func renderStreamShapeSummary(
         print("\(indentation)  first-frame ms: \(firstFrameMilliseconds)")
     }
     if let fps = summary.deliveredFramesPerSecond {
-        print("\(indentation)  delivered incremental fps: \(formatFramesPerSecond(fps))")
+        print("\(indentation)  all-update fps: \(formatFramesPerSecond(fps))")
+    }
+    if let fps = summary.contentFramesPerSecond {
+        print("\(indentation)  content-frame fps: \(formatFramesPerSecond(fps))")
     }
     if let latency = summary.updateLatency {
         print(
