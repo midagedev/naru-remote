@@ -217,7 +217,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         credentialStore: ConnectionCredentialStoreProtocol? = nil,
         settingsPersistence: AppSettingsPersisting? = nil,
         frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
-            requestTimeout: 3,
+            requestTimeout: 8,
             // Uncapped active cadence: drive incremental updates as fast
             // as the round-trip + decode allow (was 0.25, a ~4 fps
             // ceiling, the biggest felt-smoothness gap vs macOS Screen
@@ -800,7 +800,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     host: trimmedHost,
                     port: portValue,
                     credential: credential,
-                    timeout: 3
+                    timeout: 8
                 )
             }.value
             // No throw → handshake completed.  When the user supplied
@@ -1136,11 +1136,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         for profileID: ConnectionProfile.ID,
         from run: ConnectionDiagnosticRun?
     ) {
+        emitDiagnosticExportForTestingIfRequested(run)
         guard let run else {
             lastDiagnosticVerdict.removeValue(forKey: profileID)
             return
         }
         lastDiagnosticVerdict[profileID] = run.verdict
+    }
+
+    private func emitDiagnosticExportForTestingIfRequested(_ run: ConnectionDiagnosticRun?) {
+        guard ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1",
+              let run,
+              run.finishedAt != nil
+        else {
+            return
+        }
+
+        let payload = DiagnosticExport(run: run).renderCollectionJSON(
+            buildVersion: "test-device",
+            now: Date()
+        )
+        print("NARU_DIAGNOSTIC_EXPORT_BEGIN")
+        print(payload)
+        print("NARU_DIAGNOSTIC_EXPORT_END")
     }
 
     private func connectionCredential(for profile: ConnectionProfile) async throws -> RFBConnectionCredential {
@@ -1261,6 +1279,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        let requestTimeout = frameStreamConfiguration.requestTimeout
         Task {
             do {
                 let connectionResult = try await Task.detached {
@@ -1269,7 +1288,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         host: profile.host,
                         port: UInt16(profile.port),
                         credential: credential,
-                        timeout: 3
+                        timeout: requestTimeout
                     )
                 }.value
 
@@ -1304,7 +1323,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     context: Self.diagnosticContext(
                         for: profile,
                         trigger: .connect,
-                        timeout: 3
+                        timeout: requestTimeout
                     ),
                     stages: [
                         DiagnosticStageResult(
@@ -1362,7 +1381,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     context: Self.diagnosticContext(
                         for: profile,
                         trigger: .connect,
-                        timeout: 3
+                        timeout: requestTimeout
                     ),
                     stages: [
                         DiagnosticStageResult(
@@ -1408,6 +1427,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }
             }
 
+            var completedInitialHandshake = false
             do {
                 let serverInit = try await Task.detached {
                     try streamingClient.connectSession(
@@ -1417,6 +1437,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         timeout: configuration.requestTimeout
                     )
                 }.value
+                completedInitialHandshake = true
 
                 guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
                     return
@@ -1525,7 +1546,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                     profile: profile,
                     sessionID: pendingSession.id,
                     streamID: streamID,
-                    error: error
+                    error: error,
+                    completedInitialHandshake: completedInitialHandshake
                 )
             }
         }
@@ -1793,7 +1815,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         profile: ConnectionProfile,
         sessionID: RemoteSession.ID,
         streamID: UUID,
-        error: Error
+        error: Error,
+        completedInitialHandshake: Bool = false
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
             return
@@ -1887,7 +1910,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         // their own actionable catalog message instead of a hardcoded
         // "VNC handshake failed" / "Connection failed" pair
         // (constitution §IV).
-        let failedStage = Self.stage(for: error)
+        let failedStage = completedInitialHandshake ? .firstFrame : Self.stage(for: error)
         let failure = DiagnosticMessageCatalog.failure(
             for: failedStage,
             metadata: Self.diagnosticFailureMetadata(for: error)

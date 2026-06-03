@@ -59,6 +59,42 @@ enum UXAuditFixtures {
         }
     }
 
+    /// XCUITest E2E hook — seed one live-test profile directly from
+    /// the target app's launch environment.  This avoids cross-sandbox
+    /// file sharing on physical devices while keeping secrets out of
+    /// source: only the credential reference is stored on the profile;
+    /// the password still flows through `NARU_TEST_INJECT_KEYCHAIN_*`.
+    static func loadSeedProfileSnapshot() -> NaruRemoteAppSnapshot? {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["NARU_TEST_SEED_PROFILE_HOST"]?.trimmedNonEmpty else {
+            return nil
+        }
+
+        let id = env["NARU_TEST_SEED_PROFILE_ID"].flatMap(UUID.init(uuidString:))
+            ?? UUID(uuidString: "00000000-0000-0000-0000-00000000E2E0")!
+        let displayName = env["NARU_TEST_SEED_PROFILE_NAME"]?.trimmedNonEmpty ?? "Physical E2E Mac"
+        let port = env["NARU_TEST_SEED_PROFILE_PORT"].flatMap(Int.init) ?? 5900
+        let hostKind = env["NARU_TEST_SEED_PROFILE_HOST_KIND"]
+            .flatMap(ConnectionProfile.HostKind.init(rawValue:)) ?? .privateAddress
+        let credentialRef = env["NARU_TEST_SEED_PROFILE_CREDENTIAL_REF"]?.trimmedNonEmpty
+
+        guard let profile = try? ConnectionProfile(
+            id: id,
+            displayName: displayName,
+            host: host,
+            port: port,
+            credentialRef: credentialRef,
+            hostKind: hostKind
+        ) else {
+            return nil
+        }
+
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id
+        )
+    }
+
     /// Some screen states (notably the incoming-clipboard banner)
     /// live on the model directly rather than on
     /// `NaruRemoteAppSnapshot`.  Apply those after the model is
@@ -337,5 +373,12 @@ enum UXAuditFixtures {
 
     private static func lerp(_ start: UInt8, _ end: UInt8, _ blend: Double) -> UInt8 {
         UInt8((Double(start) + (Double(end) - Double(start)) * blend).rounded())
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }

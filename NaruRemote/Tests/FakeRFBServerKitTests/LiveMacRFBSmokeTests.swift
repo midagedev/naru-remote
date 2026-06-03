@@ -84,11 +84,9 @@ final class LiveMacRFBSmokeTests: XCTestCase {
             return XCTFail("RFBNetworkClient should conform to RFBStreamingClient")
         }
 
-        // Mirror the model's default `frameStreamConfiguration` —
-        // `requestTimeout: 3` for both connectSession and per-frame
-        // pump.nextFrame calls.  This is the tight budget the iOS
-        // Connect button actually runs under.
-        let modelTimeout: TimeInterval = 3
+        // Mirror the model's default `frameStreamConfiguration` for
+        // both connectSession and per-frame pump.nextFrame calls.
+        let modelTimeout: TimeInterval = 8
         let connectStart = Date()
         do {
             _ = try streamingClient.connectSession(
@@ -139,15 +137,15 @@ final class LiveMacRFBSmokeTests: XCTestCase {
 
     /// Repeat the model-default-timeout streaming attempt several
     /// times to capture firstFrame timing variance.  If even one
-    /// attempt slips past 3s, the simulator/iPhone failure mode is
-    /// explained — the model's default `requestTimeout: 3` is too
-    /// tight for a 3024x1964 retina framebuffer over typical Wi-Fi.
+    /// attempt slips past the model timeout, the simulator/iPhone
+    /// failure mode is explained — the default request budget is too
+    /// tight for a large retina framebuffer over the current link.
     func testStreamingFirstFrameTimingVariance() throws {
         guard let host, let password else {
             throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
         }
 
-        let modelTimeout: TimeInterval = 3
+        let modelTimeout: TimeInterval = 8
         let attempts = 5
         var connectMs: [Double] = []
         var frameMs: [Double] = []
