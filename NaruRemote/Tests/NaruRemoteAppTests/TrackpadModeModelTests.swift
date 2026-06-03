@@ -125,7 +125,7 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(events[1].y, 50)
     }
 
-    func testTrackpadDragMovesCursorLocallyWithoutWireEvents() async throws {
+    func testTrackpadDragMovesRemotePointerWithoutButtonPress() async throws {
         let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
         let model = try makeModel(connector: connector)
         try await connect(model)
@@ -140,12 +140,13 @@ final class TrackpadModeModelTests: XCTestCase {
             ),
             viewSize: CGSize(width: 200, height: 100)
         )
-        try await Task.sleep(for: .milliseconds(50))
+        try await waitForPointerEvents(connector, count: 1)
 
-        // Cursor moved (local transform) but no RFB PointerEvent emitted
-        // (constitution §I — cursor moves are local).
         XCTAssertNotEqual(model.trackpadCursor.position, start)
-        XCTAssertTrue(connector.recordedPointerEvents.isEmpty)
+        let event = try XCTUnwrap(connector.recordedPointerEvents.first)
+        XCTAssertEqual(event.mask, 0x00)
+        XCTAssertEqual(event.x, 120)
+        XCTAssertEqual(event.y, 60)
     }
 
     func testTrackpadDragUsesZoomedTransformAndReturnsAutoPan() async throws {
@@ -176,7 +177,11 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(updated.zoomScale, 2, accuracy: 1e-6)
         XCTAssertEqual(updated.panOffset.width, -48, accuracy: 1e-6)
         XCTAssertEqual(updated.panOffset.height, 0, accuracy: 1e-6)
-        XCTAssertTrue(connector.recordedPointerEvents.isEmpty)
+        try await waitForPointerEvents(connector, count: 1)
+        let event = try XCTUnwrap(connector.recordedPointerEvents.first)
+        XCTAssertEqual(event.mask, 0x00)
+        XCTAssertEqual(event.x, 150)
+        XCTAssertEqual(event.y, 50)
     }
 
     private func waitForPointerEvents(

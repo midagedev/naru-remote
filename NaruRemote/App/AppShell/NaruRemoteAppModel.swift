@@ -38,7 +38,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
     /// Most recent server-provided cursor shape from the RFB Cursor
     /// pseudo-encoding. Cleared with framebuffer/session state and never
-    /// persisted or exported; the view may use it to draw the local soft
+    /// persisted or exported; the view may use it to draw the trackpad
     /// cursor with server fidelity.
     @Published public private(set) var latestServerCursor: RFBServerCursor?
     @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
@@ -91,8 +91,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// only — no RFB PointerEvent is emitted by the toggle itself.
     @Published public private(set) var pointerControlMode: PointerControlMode = .productDefault
 
-    /// Soft cursor for trackpad mode, positioned in remote framebuffer
-    /// pixels.  Hidden in direct-touch mode and reset on every
+    /// Cursor position for trackpad mode, in remote framebuffer pixels.
+    /// Hidden in direct-touch mode and reset on every
     /// disconnect / fresh connect / profile change.  Constitution §IV:
     /// the cursor position is published for the overlay but never
     /// logged, persisted, or exported.
@@ -1788,7 +1788,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         connectionQuality = .unknown
     }
 
-    /// Reset pointer-control mode + soft cursor to the product
+    /// Reset pointer-control mode + trackpad cursor to the product
     /// default.  Called alongside `resetConnectionQuality()` /
     /// `activePointerClient = nil` on every disconnect / fresh connect /
     /// profile change so the trackpad mode and cursor position never
@@ -2237,7 +2237,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     // MARK: - Pointer control mode
 
     /// Current framebuffer size in pixels, or a sensible default when
-    /// no frame has arrived yet.  Used to center the soft cursor on a
+    /// no frame has arrived yet.  Used to center the trackpad cursor on a
     /// mode switch and to clamp relative cursor moves.
     private var currentFramebufferSize: CGSize {
         guard let framebuffer = latestFramebuffer else {
@@ -2249,8 +2249,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Flip between direct-touch and trackpad pointer control.
     /// Constitution §I: switching modes is a LOCAL transform only — no
     /// RFB PointerEvent is emitted here.  Entering trackpad mode centers
-    /// the soft cursor on the live framebuffer (or a default when no
-    /// frame has arrived); leaving it hides the cursor.
+    /// the cursor on the live framebuffer (or a default when no frame
+    /// has arrived); leaving it hides the cursor.
     public func togglePointerControlMode() {
         switch pointerControlMode {
         case .directTouch:
@@ -2263,13 +2263,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     /// Resolve a trackpad-mode gesture sampled from the viewport view
-    /// into a moved soft cursor and any RFB pointer commands, then
+    /// into a moved cursor and any RFB pointer commands, then
     /// dispatch the commands on the wire.  No-op when there is no live
-    /// framebuffer or pointer client.  Cursor moves and pans are LOCAL
-    /// (constitution §I) — only the click commands returned by the
-    /// resolver reach the wire, through the same stream-gated dispatch
-    /// as `sendTapAt`.  Constitution §IV: the cursor position / deltas
-    /// are consumed here and never logged or persisted.
+    /// framebuffer or pointer client.  Viewport auto-pan remains LOCAL
+    /// (constitution §I), while trackpad cursor movement reaches the
+    /// remote OS as coalesced buttonless pointer moves. Constitution
+    /// §IV: the cursor position / deltas are consumed here and never
+    /// logged or persisted.
     ///
     public func handleTrackpadGesture(_ gesture: PointerGesture, viewSize: CGSize) {
         guard let framebuffer = latestFramebuffer, let session else {
@@ -2318,6 +2318,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         let streamID = activeFrameStreamID
         let sessionID = session.id
         let profileID = selectedProfileID
+        if case .dragChanged(_, _) = gesture,
+           let command = Self.singleButtonlessPointerMove(outcome.commands) {
+            enqueueCoalescedPointerMove(
+                command,
+                pointerClient: pointerClient,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+            return outcome.transform
+        }
+
         flushPendingPointerMove()
         enqueuePointerCommands(
             outcome.commands,
@@ -2699,6 +2711,16 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
         pointerEventTail = task
+    }
+
+    private static func singleButtonlessPointerMove(_ commands: [RFBPointerCommand]) -> RFBPointerCommand? {
+        guard commands.count == 1,
+              let command = commands.first,
+              command.buttonMask == RFBPointerCommand.released
+        else {
+            return nil
+        }
+        return command
     }
 
     private func enqueueCoalescedPointerMove(

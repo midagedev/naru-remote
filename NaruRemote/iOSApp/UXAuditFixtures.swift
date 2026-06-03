@@ -27,6 +27,9 @@ enum UXAuditFixtureToken: String {
     /// confirm the remote screen renders at the server's true aspect
     /// ratio instead of a hardcoded 4:3 box.
     case sessionActiveWidescreen = "session-active-widescreen"
+    /// Active session in trackpad mode with a server-provided cursor
+    /// shape so screenshots cover the "real remote cursor" overlay path.
+    case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
 
     static func current() -> UXAuditFixtureToken? {
         guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_FIXTURE_SNAPSHOT"],
@@ -56,6 +59,8 @@ enum UXAuditFixtures {
             return sidebarWithVerdictsSnapshot()
         case .sessionActiveWidescreen:
             return sessionActiveWidescreenSnapshot()
+        case .sessionActiveTrackpadCursor:
+            return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
         }
     }
 
@@ -117,6 +122,12 @@ enum UXAuditFixtures {
             // chip renders in the capture — the production estimator is
             // fed by a live latency stream the fixture can't drive.
             model.seedConnectionQualityForTesting(.good)
+        case .sessionActiveTrackpadCursor:
+            // Same active-session surface, but start in trackpad mode so
+            // the cursor overlay uses the server cursor shape seeded on
+            // the snapshot.
+            model.seedConnectionQualityForTesting(.good)
+            model.togglePointerControlMode()
         case .diagnosticsPopulated,
              .diagnosticErrorDNS,
              .sidebarWithVerdicts:
@@ -292,7 +303,9 @@ enum UXAuditFixtures {
     /// framebuffer is a solid fill (the public `RFBRawFramebuffer`
     /// init only takes one color) — the point of the fixture is the
     /// container *shape*, which a solid wide rectangle makes obvious.
-    private static func sessionActiveWidescreenSnapshot() -> NaruRemoteAppSnapshot {
+    private static func sessionActiveWidescreenSnapshot(
+        serverCursor: RFBServerCursor? = nil
+    ) -> NaruRemoteAppSnapshot {
         let profile = sampleProfile()
         let session = RemoteSession(
             profileID: profile.id,
@@ -310,7 +323,51 @@ enum UXAuditFixtures {
             profiles: [profile],
             selectedProfileID: profile.id,
             session: session,
-            latestFramebuffer: framebuffer
+            latestFramebuffer: framebuffer,
+            latestServerCursor: serverCursor
+        )
+    }
+
+    private static func serverCursorArrow() -> RFBServerCursor {
+        let width = 24
+        let height = 32
+        let transparent = RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
+        let white = RFBColor(red: 255, green: 255, blue: 255)
+        let black = RFBColor(red: 0, green: 0, blue: 0)
+        var pixels = Array(repeating: transparent, count: width * height)
+
+        func paint(_ x: Int, _ y: Int, _ color: RFBColor) {
+            guard x >= 0, x < width, y >= 0, y < height else {
+                return
+            }
+            pixels[y * width + x] = color
+        }
+
+        for y in 0..<22 {
+            for x in 0...min(y, 13) {
+                let border = x == 0 || x == min(y, 13) || y == 21
+                paint(x, y, border ? black : white)
+            }
+        }
+        for y in 17..<31 {
+            for x in 8..<14 {
+                let border = x == 8 || x == 13 || y == 30
+                paint(x, y, border ? black : white)
+            }
+        }
+        for y in 24..<31 {
+            for x in 14..<21 {
+                let border = y == 24 || y == 30 || x == 20
+                paint(x, y, border ? black : white)
+            }
+        }
+
+        return RFBServerCursor(
+            width: width,
+            height: height,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: pixels
         )
     }
 

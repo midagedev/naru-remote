@@ -390,6 +390,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSessionActiveWidescreen(mode: .dark, deviceTag: "iphone")
     }
 
+    func testSessionActiveTrackpadCursor_light() throws {
+        try runSessionActiveTrackpadCursor(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSessionActiveTrackpadCursor_dark() throws {
+        try runSessionActiveTrackpadCursor(mode: .dark, deviceTag: "iphone")
+    }
+
     private func runSessionActiveWidescreen(mode: ColorMode, deviceTag: String) throws {
         // Screen-first hero viewport (spec 003 FR-001): an `.active`
         // session carrying a real 16:9 framebuffer.  Confirms the remote
@@ -420,6 +428,19 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
 
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
+    }
+
+    private func runSessionActiveTrackpadCursor(mode: ColorMode, deviceTag: String) throws {
+        let app = launchAppWithFixture(.sessionActiveTrackpadCursor, mode: mode)
+
+        XCTAssertTrue(
+            app.textFields["Remote input text"].waitForExistence(timeout: 8),
+            "Active-session compact compose field must be reachable"
+        )
+
+        sleep(3)
+
+        try saveScreen(named: "18-session-active-trackpad-cursor-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPhone — sidebar with multiple profiles
@@ -648,6 +669,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         case incomingClipboard = "incoming-clipboard"
         case sidebarWithVerdicts = "sidebar-with-verdicts"
         case sessionActiveWidescreen = "session-active-widescreen"
+        case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
     }
 
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
