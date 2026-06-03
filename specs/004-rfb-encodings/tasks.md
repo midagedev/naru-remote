@@ -218,6 +218,12 @@ iPhone) and ships as its own PR.
   all-update FPS and content-update FPS so sustained-session reports reflect
   actual visible frame cadence separately from empty update polling. Owns:
   benchmark summary kit, CLI output, tests, benchmark docs/artifact. **Done.**
+- **T331** Benchmark-backed fast content pacing: compare 33 ms, 16.7 ms, and
+  0 ms request/response content-frame intervals with redacted live stream-shape
+  probes, then raise the production active request cap from 30 Hz to 60 Hz
+  while preserving separate idle empty-update backoff and thermal floors.
+  Owns: app model default, app-model test, benchmark docs/artifact, research
+  notes. **Done.**
 
 ## Cross-cutting (every increment)
 

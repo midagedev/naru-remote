@@ -208,3 +208,33 @@ Fence/ContinuousUpdates pseudo-encoding overlay to the selected encoding profile
 runs the same stream-shape summary pipeline. Reports emit only the transport label plus
 existing aggregate latency/FPS/dirty-area/renderer-upload summaries; they still omit host,
 dimensions, coordinates, pixels, byte counts, cursor pixels, and raw errors.
+
+## D11 — Active request pacing should be benchmark-backed, not fixed at 30 Hz
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC release notes: https://www.tightvnc.com/whatsnew.php
+
+**Decision**: use a 60 Hz-class `1/60` active content-request delay as the
+production default, with the separate idle interval/backoff still governing
+empty incremental replies.
+
+**Why**:
+- RFC 6143 explicitly allows a fast client to regulate incremental
+  `FramebufferUpdateRequest` traffic. The right value is therefore a pacing
+  policy, not an RFB wire requirement.
+- TigerVNC's viewer auto-selects encoding/pixel format from link speed and
+  exposes manual `PreferredEncoding`, `QualityLevel`, and `CompressLevel`
+  controls; this reinforces that responsiveness vs CPU/network trade-offs must
+  stay measurable per server/link.
+- Tight encoding and cursor-shape support are both documented as practical
+  performance wins: lower compression levels reduce CPU cost, and server cursor
+  shape updates avoid framebuffer churn for mouse movement. Naru's default
+  should keep those wins while avoiding an unnecessary 30 Hz client-side sleep.
+
+**Live benchmark evidence**: local redacted request/response stream-shape runs
+on 2026-06-04 compared content-frame intervals of about 33 ms, 16.7 ms, and
+0 ms under the same Tight-first profile. Both faster candidates improved
+content-frame FPS over 33 ms; `1/60` keeps a display-rate cap and thermal
+headroom while removing most of the avoidable client-side delay.

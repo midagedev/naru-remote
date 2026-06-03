@@ -204,11 +204,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     internal private(set) var explicitlyDisconnected: Bool = false
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewSaveMinimumInterval: TimeInterval = 5
-    public static let defaultActiveFrameInterval: TimeInterval = 1.0 / 30.0
+    public static let defaultActiveFrameInterval: TimeInterval = 1.0 / 60.0
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
     public static let defaultFrameStreamConfiguration = RFBFramePumpConfiguration(
         requestTimeout: 8,
-        // RFB is demand-driven, so this is the app's default backpressure.
+        // RFB is demand-driven, so this is the app's default active
+        // request backpressure. Thermal floors can still raise it.
         frameInterval: defaultActiveFrameInterval,
         // Static screens should not busy-loop empty incremental requests.
         idleFrameInterval: defaultIdleFrameInterval,
