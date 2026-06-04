@@ -111,6 +111,28 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testSkipsDuplicateLocalComposeTextPropagation() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느낌",
+                isDirectModeActive: false,
+                hasMarkedText: false
+            )
+        )
+    }
+
+    func testPropagatesCommittedComposeTextOnceItDiffersFromLastPropagation() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느",
+                isDirectModeActive: false,
+                hasMarkedText: false
+            )
+        )
+    }
+
     func testDoesNotPropagateHiddenComposeTextWhileDirectModeIsActive() {
         XCTAssertFalse(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(

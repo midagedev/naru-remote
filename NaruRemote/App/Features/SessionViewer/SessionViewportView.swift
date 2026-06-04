@@ -1050,6 +1050,13 @@ public struct SessionViewportView: View {
                 onZoomToggle: { point, viewSize in
                     toggleZoom(at: point, in: viewSize, framebuffer: framebuffer)
                 },
+                onViewportTransform: { transform in
+                    applyViewportTransform(
+                        transform,
+                        framebuffer: framebuffer,
+                        viewSize: transform.viewSize
+                    )
+                },
                 pointerControlMode: pointerControlMode,
                 trackpadCursor: trackpadCursor,
                 serverCursor: serverCursor,
