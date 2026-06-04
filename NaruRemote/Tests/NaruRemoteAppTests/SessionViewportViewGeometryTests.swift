@@ -58,6 +58,33 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testTrackpadHotDragKeepsImmediateCursorOverPublishedSnapshot() {
+        XCTAssertFalse(
+            TrackpadCursorSnapshotPolicy.shouldAdoptPublishedCursor(
+                pointerControlMode: .trackpad,
+                didChangePointerControlMode: false,
+                isTrackpadDragActive: true
+            )
+        )
+    }
+
+    func testTrackpadCursorSnapshotAppliesOnModeChangeAndAfterDrag() {
+        XCTAssertTrue(
+            TrackpadCursorSnapshotPolicy.shouldAdoptPublishedCursor(
+                pointerControlMode: .trackpad,
+                didChangePointerControlMode: true,
+                isTrackpadDragActive: true
+            )
+        )
+        XCTAssertTrue(
+            TrackpadCursorSnapshotPolicy.shouldAdoptPublishedCursor(
+                pointerControlMode: .trackpad,
+                didChangePointerControlMode: false,
+                isTrackpadDragActive: false
+            )
+        )
+    }
+
     func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
         XCTAssertEqual(
             SessionViewportView.cursorOverlayKind(serverCursor: nil),

@@ -16,6 +16,7 @@ public struct RemoteInputDockView: View {
 
     @State private var text: String
     @State private var lastAppliedInitialText: String
+    @State private var lastPropagatedComposeText: String
     #if os(iOS) && canImport(UIKit)
     @StateObject private var composeCommitController = ComposeTextCommitController()
     @State private var isPreparingComposeSend = false
@@ -72,6 +73,7 @@ public struct RemoteInputDockView: View {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
         self._lastAppliedInitialText = State(initialValue: initialText)
+        self._lastPropagatedComposeText = State(initialValue: initialText)
         self.statusText = statusText
         self.onSend = onSend
         self.onTextChange = onTextChange
@@ -107,13 +109,11 @@ public struct RemoteInputDockView: View {
             guard text != newValue else {
                 return
             }
+            lastPropagatedComposeText = newValue
             text = newValue
         }
         .onChange(of: text) { _, newValue in
-            guard shouldPropagateLocalComposeTextToModel() else {
-                return
-            }
-            onTextChange(newValue)
+            propagateComposeTextToModelIfNeeded(newValue)
         }
         .onChange(of: composeFieldFocused) { _, newValue in
             // Only meaningful when Compose is the visible mode —
@@ -480,7 +480,7 @@ public struct RemoteInputDockView: View {
         if text != committedText {
             text = committedText
         }
-        onTextChange(committedText)
+        propagateComposeTextToModelIfNeeded(committedText)
     }
 
     private func focusComposeEditor() {
@@ -496,8 +496,8 @@ public struct RemoteInputDockView: View {
         let immediateText = composeCommitController.commitMarkedTextAndRead(fallback: text)
         if immediateText != text {
             text = immediateText
-            onTextChange(immediateText)
         }
+        propagateComposeTextToModelIfNeeded(immediateText)
         Task { @MainActor in
             let finalText = await composeCommitController.readStabilizedCurrentText(
                 fallback: immediateText,
@@ -506,8 +506,8 @@ public struct RemoteInputDockView: View {
             )
             if finalText != text {
                 text = finalText
-                onTextChange(finalText)
             }
+            propagateComposeTextToModelIfNeeded(finalText)
             isPreparingComposeSend = false
             guard !finalText.isEmpty else { return }
             onSend(finalText)
@@ -547,11 +547,46 @@ public struct RemoteInputDockView: View {
         )
     }
 
+    private func shouldPropagateLocalComposeTextToModel(_ newValue: String) -> Bool {
+        #if os(iOS) && canImport(UIKit)
+        let hasMarkedText = composeCommitController.hasMarkedText
+        #else
+        let hasMarkedText = false
+        #endif
+
+        return Self.shouldPropagateLocalComposeTextToModel(
+            newValue: newValue,
+            lastPropagatedText: lastPropagatedComposeText,
+            isDirectModeActive: directKeystrokeMode.isActive,
+            hasMarkedText: hasMarkedText
+        )
+    }
+
+    private func propagateComposeTextToModelIfNeeded(_ newValue: String) {
+        guard shouldPropagateLocalComposeTextToModel(newValue) else {
+            return
+        }
+        lastPropagatedComposeText = newValue
+        onTextChange(newValue)
+    }
+
     nonisolated static func shouldPropagateLocalComposeTextToModel(
         isDirectModeActive: Bool,
         hasMarkedText: Bool
     ) -> Bool {
         !isDirectModeActive && !hasMarkedText
+    }
+
+    nonisolated static func shouldPropagateLocalComposeTextToModel(
+        newValue: String,
+        lastPropagatedText: String,
+        isDirectModeActive: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        shouldPropagateLocalComposeTextToModel(
+            isDirectModeActive: isDirectModeActive,
+            hasMarkedText: hasMarkedText
+        ) && newValue != lastPropagatedText
     }
 
     nonisolated static func didCommitMarkedComposeText(

@@ -70,6 +70,9 @@ public typealias MetalFramebufferPanHandler = @MainActor @Sendable (_ offset: CG
 /// scale and a comfortable zoom centered on the tapped point — a LOCAL
 /// view transform per constitution §I, never an RFB message.
 public typealias MetalFramebufferZoomToggleHandler = @MainActor @Sendable (_ point: CGPoint, _ viewSize: CGSize) -> Void
+public typealias MetalFramebufferViewportTransformHandler = @MainActor @Sendable (
+    _ transform: ViewportTransform
+) -> Void
 
 /// Closure invoked for trackpad-mode gestures hosted directly by the
 /// UIKit/Metal surface.  Returning the updated transform lets the host
@@ -109,6 +112,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onPointerUp: MetalFramebufferPointerUpHandler?
     private let onPan: MetalFramebufferPanHandler?
     private let onZoomToggle: MetalFramebufferZoomToggleHandler?
+    private let onViewportTransform: MetalFramebufferViewportTransformHandler?
     private let pointerControlMode: PointerControlMode
     private let trackpadCursor: TrackpadCursor
     private let serverCursor: RFBServerCursor?
@@ -147,6 +151,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onPointerUp: MetalFramebufferPointerUpHandler? = nil,
         onPan: MetalFramebufferPanHandler? = nil,
         onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
+        onViewportTransform: MetalFramebufferViewportTransformHandler? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
         trackpadCursor: TrackpadCursor = TrackpadCursor(),
         serverCursor: RFBServerCursor? = nil,
@@ -172,6 +177,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onPointerUp = onPointerUp
         self.onPan = onPan
         self.onZoomToggle = onZoomToggle
+        self.onViewportTransform = onViewportTransform
         self.pointerControlMode = pointerControlMode
         self.trackpadCursor = trackpadCursor
         self.serverCursor = serverCursor
@@ -205,6 +211,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.pointerUpHandler = onPointerUp
         host.panHandler = onPan
         host.zoomToggleHandler = onZoomToggle
+        host.viewportTransformHandler = onViewportTransform
         host.trackpadGestureHandler = onTrackpadGesture
         host.viewportInteractionHandler = onViewportInteractionChange
         host.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
@@ -242,6 +249,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.pointerUpHandler = onPointerUp
         uiView.panHandler = onPan
         uiView.zoomToggleHandler = onZoomToggle
+        uiView.viewportTransformHandler = onViewportTransform
         uiView.trackpadGestureHandler = onTrackpadGesture
         uiView.viewportInteractionHandler = onViewportInteractionChange
         uiView.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
@@ -380,6 +388,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Closure invoked on a double-tap to toggle zoom.  LOCAL transform
     /// — never an RFB message (constitution §I).
     public var zoomToggleHandler: MetalFramebufferZoomToggleHandler?
+    public var viewportTransformHandler: MetalFramebufferViewportTransformHandler?
 
     /// Closure invoked for trackpad-mode gestures.  The model resolves
     /// cursor movement + remote pointer commands and returns any local
@@ -435,6 +444,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Trackpad drag state for deriving per-callback deltas from
     /// UIKit's cumulative pan translation.
     private var trackpadDragLastTranslation: CGSize = .zero
+    private var isTrackpadDragActive = false
     private var trackpadDragMoved: Bool = false
     private var trackpadDragOwnsViewportInteraction: Bool = false
 
@@ -669,8 +679,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         serverCursor: RFBServerCursor?,
         framebufferSize: CGSize
     ) {
+        let didChangePointerControlMode = self.pointerControlMode != pointerControlMode
         self.pointerControlMode = pointerControlMode
-        currentTrackpadCursor = trackpadCursor
+        if TrackpadCursorSnapshotPolicy.shouldAdoptPublishedCursor(
+            pointerControlMode: pointerControlMode,
+            didChangePointerControlMode: didChangePointerControlMode,
+            isTrackpadDragActive: isTrackpadDragActive
+        ) {
+            currentTrackpadCursor = trackpadCursor
+        }
         if currentServerCursor != serverCursor {
             currentServerCursor = serverCursor
             currentServerCursorImage = serverCursor.flatMap(Self.cursorImage(_:))
@@ -1066,6 +1083,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         switch recognizer.state {
         case .began:
             stopViewportDeceleration()
+            isTrackpadDragActive = true
             trackpadDragOwnsViewportInteraction = canPanViewport
             if trackpadDragOwnsViewportInteraction {
                 beginViewportTransformGesture()
@@ -1100,6 +1118,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 finishViewportTransformGesture()
             }
             trackpadDragOwnsViewportInteraction = false
+            isTrackpadDragActive = false
         default:
             break
         }
@@ -1388,6 +1407,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         pendingViewportState = nil
+
+        if let viewportTransformHandler {
+            // The Metal host owns the final gesture transform, so prefer
+            // this atomic sync path over replaying legacy zoom and pan
+            // callbacks separately at gesture end.
+            viewportTransformHandler(
+                ViewportTransform(
+                    framebufferSize: currentFramebufferSize,
+                    viewSize: pending.viewSize,
+                    zoomScale: pending.zoomScale,
+                    panOffset: pending.panOffset,
+                    maxZoomScale: Self.maxZoomScale
+                )
+            )
+            return
+        }
 
         if pending.shouldPublishZoom {
             pinchHandler?(pending.zoomScale, pending.anchor, pending.viewSize)
