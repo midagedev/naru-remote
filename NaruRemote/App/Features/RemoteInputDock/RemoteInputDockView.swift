@@ -1,6 +1,10 @@
 import SwiftUI
 import NaruRemoteCore
 
+#if os(iOS) && canImport(UIKit)
+import UIKit
+#endif
+
 public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
     case standard
     case compactAccessory
@@ -228,7 +232,7 @@ public struct RemoteInputDockView: View {
             }
 
             Button {
-                onSend(text)
+                sendCurrentComposeText()
             } label: {
                 Label("Send", systemImage: "paperplane.fill")
                     .labelStyle(.iconOnly)
@@ -370,7 +374,7 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.input.editor")
 
             Button {
-                onSend(text)
+                sendCurrentComposeText()
             } label: {
                 Label("Send", systemImage: "paperplane.fill")
             }
@@ -409,6 +413,19 @@ public struct RemoteInputDockView: View {
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
     }
+
+    private func sendCurrentComposeText() {
+        #if os(iOS) && canImport(UIKit)
+        NotificationCenter.default.post(name: .naruCommitComposeMarkedText, object: nil)
+        Task { @MainActor in
+            await Task.yield()
+            guard !text.isEmpty else { return }
+            onSend(text)
+        }
+        #else
+        onSend(text)
+        #endif
+    }
 }
 
 private struct ComposeTextEditingView: View {
@@ -430,6 +447,10 @@ private struct ComposeTextEditingView: View {
 }
 
 #if os(iOS) && canImport(UIKit)
+private extension Notification.Name {
+    static let naruCommitComposeMarkedText = Notification.Name("naruCommitComposeMarkedText")
+}
+
 private struct MultilingualComposeTextView: UIViewRepresentable {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
@@ -450,6 +471,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        context.coordinator.attach(textView)
         return textView
     }
 
@@ -466,11 +488,32 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
     }
 
+    @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MultilingualComposeTextView
+        private weak var textView: UITextView?
+        private var observesCommitNotification = false
 
         init(parent: MultilingualComposeTextView) {
             self.parent = parent
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func attach(_ textView: UITextView) {
+            self.textView = textView
+            guard !observesCommitNotification else {
+                return
+            }
+            observesCommitNotification = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(commitMarkedTextNotification(_:)),
+                name: .naruCommitComposeMarkedText,
+                object: nil
+            )
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -483,6 +526,25 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             parent.onFocusChange(false)
+        }
+
+        @objc
+        private func commitMarkedTextNotification(_ notification: Notification) {
+            commitMarkedTextIfNeeded()
+        }
+
+        private func commitMarkedTextIfNeeded() {
+            guard let textView,
+                  textView.isFirstResponder
+            else {
+                return
+            }
+            if textView.markedTextRange != nil {
+                textView.unmarkText()
+            }
+            if parent.text != textView.text {
+                parent.text = textView.text
+            }
         }
     }
 }
