@@ -256,7 +256,9 @@ public struct PointerGestureResolver: Sendable {
         guard shortestSide.isFinite, shortestSide > 0 else {
             return autoPanMargin
         }
-        return max(autoPanMargin, shortestSide * 0.34)
+        let viewportRelativeMargin = shortestSide * 0.22
+        let cappedResponsiveMargin = min(viewportRelativeMargin, autoPanMargin * 2)
+        return max(autoPanMargin, cappedResponsiveMargin)
     }
 
     private func smoothedAutoPanTransform(

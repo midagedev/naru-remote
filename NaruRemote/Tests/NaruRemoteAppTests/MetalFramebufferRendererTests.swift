@@ -101,6 +101,38 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertNil(renderer.currentTextureSize)
     }
 
+    func testSuspendedRendererAllowsOneThrottledUploadBypass() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        renderer.setPendingFramebufferUploadSuspended(true)
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+
+        XCTAssertFalse(
+            renderer.uploadPendingFramebufferRespectingSuspensionForTesting(),
+            "Gesture suspension should hold pending frames unless the viewport host grants a throttled bypass."
+        )
+        XCTAssertNil(renderer.currentTextureSize)
+
+        renderer.allowNextPendingFramebufferUploadWhileSuspended()
+        XCTAssertTrue(renderer.uploadPendingFramebufferRespectingSuspensionForTesting())
+        XCTAssertEqual(renderer.currentTextureSize?.width, 4)
+
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 8, height: 4, fill: RFBColor(red: 0, green: 20, blue: 0))
+        )
+        XCTAssertFalse(
+            renderer.uploadPendingFramebufferRespectingSuspensionForTesting(),
+            "The bypass is single-use so active gestures cannot accidentally upload every incoming frame."
+        )
+        XCTAssertEqual(renderer.currentTextureSize?.width, 4)
+
+        renderer.setPendingFramebufferUploadSuspended(false)
+        XCTAssertTrue(renderer.uploadPendingFramebufferRespectingSuspensionForTesting())
+        XCTAssertEqual(renderer.currentTextureSize?.width, 8)
+    }
+
     // MARK: - Dirty-rect partial uploads
 
     func testFullUploadCountsAsSingleRegion() throws {

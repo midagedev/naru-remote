@@ -680,12 +680,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
         if isViewportTransformGestureActive {
-            deferredFramebufferRedrawDuringViewportGesture = true
-            pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
-            _ = viewportGestureRedrawThrottle.recordIncomingFrame(
+            switch viewportGestureRedrawThrottle.recordIncomingFrame(
                 isGestureActive: true,
                 now: now
-            )
+            ) {
+            case .requestNow:
+                coordinator?.renderer?.allowNextPendingFramebufferUploadWhileSuspended()
+                requestRedraw()
+            case .deferRedraw:
+                deferredFramebufferRedrawDuringViewportGesture = true
+                pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
+            }
             return
         }
 
