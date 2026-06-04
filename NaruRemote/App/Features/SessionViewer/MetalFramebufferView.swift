@@ -661,15 +661,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
         if isViewportTransformGestureActive {
             deferredFramebufferRedrawDuringViewportGesture = true
-            switch viewportGestureRedrawThrottle.recordIncomingFrame(
+            _ = viewportGestureRedrawThrottle.recordIncomingFrame(
                 isGestureActive: true,
                 now: now
-            ) {
-            case .requestNow:
-                requestRedraw()
-            case .deferRedraw:
-                break
-            }
+            )
             return
         }
 
@@ -1022,11 +1017,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             target: self,
             selector: #selector(displayLinkFlushViewportRedraw(_:))
         )
-        displayLink.preferredFrameRateRange = CAFrameRateRange(
-            minimum: 30,
-            maximum: 60,
-            preferred: 60
-        )
+        configureViewportDisplayLink(displayLink)
         displayLink.add(to: .main, forMode: .common)
         viewportRedrawDisplayLink = displayLink
     }
@@ -1096,9 +1087,21 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             target: self,
             selector: #selector(handleViewportDecelerationFrame(_:))
         )
+        configureViewportDisplayLink(displayLink)
         displayLink.add(to: .main, forMode: .common)
         viewportDecelerationDisplayLink = displayLink
         return true
+    }
+
+    private func configureViewportDisplayLink(_ displayLink: CADisplayLink) {
+        let screenMaximum = window?.screen.maximumFramesPerSecond
+            ?? UIScreen.main.maximumFramesPerSecond
+        let maximum = Float(max(60, screenMaximum))
+        displayLink.preferredFrameRateRange = CAFrameRateRange(
+            minimum: min(60, maximum),
+            maximum: maximum,
+            preferred: maximum
+        )
     }
 
     @MainActor

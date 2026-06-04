@@ -510,6 +510,28 @@ public struct RemoteInputDockView: View {
 
         return !isComposeFieldFocused || currentText.isEmpty
     }
+
+    nonisolated static func resolvedCommittedComposeText(
+        committedText: String?,
+        markedTextBeforeCommit: String?,
+        currentTextBeforeCommit: String
+    ) -> String {
+        if let committedText {
+            if !committedText.isEmpty {
+                return committedText
+            }
+            if let markedTextBeforeCommit, !markedTextBeforeCommit.isEmpty {
+                return markedTextBeforeCommit
+            }
+            return ""
+        }
+
+        if let markedTextBeforeCommit, !markedTextBeforeCommit.isEmpty {
+            return markedTextBeforeCommit
+        }
+
+        return currentTextBeforeCommit
+    }
 }
 
 private struct ComposeTextEditingView: View {
@@ -568,12 +590,18 @@ final class ComposeTextCommitController: ObservableObject {
         guard let textView else {
             return currentText.isEmpty ? fallback : currentText
         }
-        let fallbackText = currentText.isEmpty ? fallback : currentText
-        if textView.markedTextRange != nil {
+        let markedTextBeforeCommit = textView.markedTextRange.flatMap { range in
+            textView.text(in: range)
+        }
+        if markedTextBeforeCommit != nil {
             textView.unmarkText()
         }
         textView.layoutIfNeeded()
-        let committedText = textView.text ?? fallbackText
+        let committedText = RemoteInputDockView.resolvedCommittedComposeText(
+            committedText: textView.text,
+            markedTextBeforeCommit: markedTextBeforeCommit,
+            currentTextBeforeCommit: currentText.isEmpty ? fallback : currentText
+        )
         currentText = committedText
         return committedText
     }
