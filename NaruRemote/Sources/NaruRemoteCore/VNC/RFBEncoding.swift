@@ -212,6 +212,18 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         compressionLevel: 1
     )
 
+    /// Power-saver/sustained-session profile. It keeps the
+    /// request/response transport and server-cursor pseudo-encodings,
+    /// but asks compatible servers to prefer ZRLE with compression
+    /// level 0. Redacted macOS Screen Sharing benchmarks showed this
+    /// candidate completing low-power runs where the low-latency
+    /// default timed out, while avoiding a global default flip.
+    public static let powerSaverSustained = RFBEncodingPreference(
+        zrle: true,
+        cursor: true,
+        compressionLevel: 0
+    )
+
     /// Adaptive profile for spec 004 FR-012/FR-013. This is deliberately
     /// pure: supported decoders, requested pseudo-encodings, and the
     /// coarse quality bucket fully determine the `SetEncodings` list.

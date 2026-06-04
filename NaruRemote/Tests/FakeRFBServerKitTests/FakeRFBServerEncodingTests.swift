@@ -102,6 +102,39 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         XCTAssertTrue(encodings.contains(RFBEncoding.tightCompressionLevel(8)))
     }
 
+    func testClientCanRenegotiatePowerSaverSustainedEncodingsAfterSessionConnect() throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        defer { client.disconnect() }
+        _ = try recorder.waitForControlMessages(1)
+
+        let preference = RFBEncodingPreference.powerSaverSustained
+        try client.renegotiateEncodings(preference)
+
+        let expected = RFBClientMessageEncoder.setEncodings(preference.encodingList())
+        let recorded = try recorder.waitForByteCount(expected.count)
+        XCTAssertEqual(Data(recorded.prefix(expected.count)), expected)
+
+        let encodings = try Self.decodeSetEncodings([UInt8](recorded.prefix(expected.count)))
+        XCTAssertEqual(encodings.first, RFBEncoding.zrle)
+        XCTAssertTrue(encodings.contains(RFBEncoding.cursor))
+        XCTAssertTrue(encodings.contains(RFBEncoding.xCursor))
+        XCTAssertTrue(encodings.contains(RFBEncoding.tightCompressionLevel(0)))
+        XCTAssertFalse(encodings.contains(RFBEncoding.tight))
+        XCTAssertFalse(encodings.contains(RFBEncoding.fence))
+        XCTAssertFalse(encodings.contains(RFBEncoding.continuousUpdates))
+    }
+
     func testClientSendsContinuousUpdatesAndFenceControlFramesAfterSessionConnect() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()

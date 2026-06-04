@@ -1539,6 +1539,10 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activeKeyEventClient = streamingClient
                 keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
                 lastEmittedDragCoord = nil
+                await renegotiatePowerSaverSustainedEncodingsIfNeeded(
+                    transportControl: streamingClient as? any RFBTransportControlClient,
+                    requestTimeout: configuration.requestTimeout
+                )
                 // Constitution §I: outgoing compose-and-send is the
                 // primary text path; incoming server clipboard is
                 // secondary.  Disabled until the RFB reader is
@@ -1928,6 +1932,30 @@ public final class NaruRemoteAppModel: ObservableObject {
                 requestTimeout: requestTimeout
             )
         }
+    }
+
+    private func renegotiatePowerSaverSustainedEncodingsIfNeeded(
+        transportControl: (any RFBTransportControlClient)?,
+        requestTimeout: TimeInterval
+    ) async {
+        guard appSettings.streamPowerMode == .powerSaver || lowPowerModeProvider(),
+              let transportControl
+        else {
+            return
+        }
+
+        let timeout = min(max(requestTimeout, 0.1), 2)
+        // `RFBTransportControlClient` is `Sendable`; production
+        // `RFBNetworkClient` protects its mutable connection lifecycle
+        // with its client lock. The write is synchronous and bounded by
+        // `timeout`, so keep it off the MainActor and treat failure as
+        // a non-fatal optimization miss.
+        try? await Task.detached(priority: .utility) {
+            try transportControl.renegotiateEncodings(
+                .powerSaverSustained,
+                timeout: timeout
+            )
+        }.value
     }
 
     /// Optional spec-004 adaptive re-advertisement. Connection-quality
