@@ -392,7 +392,16 @@ iPhone) and ships as its own PR.
   zoomed-pan, and trackpad auto-pan layer-transform applications onto one
   display-link tick while preserving immediate parent sync/layout updates and
   flushing the final transform at gesture end. Owns: Metal viewport host,
-  coalescer state, tests, research note. **Done.**
+  coalescer state, tests, research note. **Done; superseded by T358 after
+  device feedback showed visible transform deferral felt sticky.**
+- **T358** Restore immediate visible viewport transforms and harden Compose
+  marked-text commit: keep pinch, zoomed-pan, and trackpad auto-pan layer
+  transforms synchronous on the UIKit/Core Animation hot path while preserving
+  gesture-end SwiftUI/PiP state publication; reconstruct pre-commit Compose text
+  from view text, marked text, controller text, and fallback before `unmarkText`
+  so a short UIKit commit snapshot cannot drop the final Korean/CJK candidate.
+  Owns: Metal viewport host, RemoteInputDock commit policy, tests, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

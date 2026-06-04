@@ -861,3 +861,35 @@ the model.
 **Privacy rule**: this change only changes local transform scheduling. It must
 not log or export gesture coordinates, framebuffer dimensions, pixels, cursor
 pixels, raw timestamps, raw timing samples, host identity, or raw errors.
+
+## D30 — Visible viewport transforms should stay immediate under touch
+
+References:
+- Apple Metal frame-rate guidance: https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FrameRate.html
+- Apple `CADisplayLink.preferredFrameRateRange`: https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: supersede the visible-transform part of D29. Keep pinch,
+zoomed-pan, and trackpad auto-pan layer transforms immediate on the
+UIKit/Core Animation hot path so the framebuffer tracks the user's finger.
+Continue to defer SwiftUI/PiP viewport-state publication until gesture end and
+keep incoming framebuffer upload suspension/redraw throttling during viewport
+gestures.
+
+**Why**:
+- Physical-device feedback after the display-link transform experiment showed
+  the viewport felt sticky and stepped during zoom/pan. For photo-viewer-like
+  navigation, input-to-visible-transform latency is more important than
+  coalescing a cheap layer matrix write.
+- The expensive work is not the affine transform itself; it is SwiftUI state
+  invalidation, PiP focus sync, framebuffer upload, and redraw churn. Those
+  paths remain deferred/throttled by the existing gesture interaction guard.
+- Apple frame-rate guidance still supports stable pacing for rendering work,
+  but this path is a compositor transform over the current texture. TigerVNC's
+  pointer-event interval remains useful for wire traffic, not for delaying
+  local content under the active touch point.
+
+**Privacy rule**: this change must not log or export gesture coordinates,
+framebuffer dimensions, pixels, cursor pixels, raw timestamps, raw timing
+samples, host identity, or raw errors. Compose commit hardening must not log or
+export draft text.
