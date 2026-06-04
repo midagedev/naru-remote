@@ -84,6 +84,12 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   key did not send" without composed text, clipboard text, safe-message bodies,
   host identity, coordinates, pixels, raw timing, or raw errors. Owns:
   diagnostics/app model/input tests. **Done.**
+- **T514** Bump diagnostics to schema v10 with safe Compose payload encoding:
+  include only `ascii|latin1|utf8ExtensionRequired` so physical-device reports
+  can identify VNC clipboard compatibility risk for multilingual drafts without
+  composed text, clipboard text, byte counts, safe-message bodies, host
+  identity, coordinates, pixels, raw timing, or raw errors. Owns:
+  diagnostics/app model/input tests. **Done.**
 
 ## Cross-cutting Rules
 

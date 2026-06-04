@@ -1435,10 +1435,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.pasteCommands, [.controlV])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommand, .controlV)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
+        XCTAssertEqual(
+            model.snapshot.composeDraft?.lastStatusMessage,
+            "Paste command sent; remote app confirmation unavailable. This text requires UTF-8 clipboard support from the VNC server."
+        )
 
         let json = model.makeDiagnosticExport().renderCollectionJSON(
             buildVersion: "test",
@@ -1451,6 +1456,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(report.input?.hasComposeDraftText, true)
         XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
+        XCTAssertEqual(
+            report.input?.latestInjectionPayloadEncoding,
+            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
         XCTAssertEqual(report.input?.latestInjectionClipboardSetStatus, TextInjectionStepStatus.succeeded.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommandStatus, TextInjectionStepStatus.succeeded.rawValue)
         XCTAssertFalse(json.contains("한글과 English"))
@@ -1690,7 +1699,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 9)
+        XCTAssertEqual(report.schemaVersion, 10)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1761,7 +1770,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 9)
+        XCTAssertEqual(report.schemaVersion, 10)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

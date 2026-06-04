@@ -574,6 +574,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case latestInjectionPath
         case latestInjectionStatus
         case latestInjectionPasteCommand
+        case latestInjectionPayloadEncoding
         case latestInjectionClipboardSetStatus
         case latestInjectionPasteCommandStatus
         case latestInjectionRemoteClipboardRestore
@@ -586,6 +587,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let latestInjectionPath: String?
     public let latestInjectionStatus: String?
     public let latestInjectionPasteCommand: String?
+    public let latestInjectionPayloadEncoding: String?
     public let latestInjectionClipboardSetStatus: String?
     public let latestInjectionPasteCommandStatus: String?
     public let latestInjectionRemoteClipboardRestore: String?
@@ -598,6 +600,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         latestInjectionPath: String? = nil,
         latestInjectionStatus: String? = nil,
         latestInjectionPasteCommand: String? = nil,
+        latestInjectionPayloadEncoding: String? = nil,
         latestInjectionClipboardSetStatus: String? = nil,
         latestInjectionPasteCommandStatus: String? = nil,
         latestInjectionRemoteClipboardRestore: String? = nil,
@@ -609,6 +612,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.latestInjectionPath = Self.safeInjectionPath(latestInjectionPath)
         self.latestInjectionStatus = Self.safeInjectionStatus(latestInjectionStatus)
         self.latestInjectionPasteCommand = Self.safePasteCommand(latestInjectionPasteCommand)
+        self.latestInjectionPayloadEncoding = Self.safePayloadEncoding(latestInjectionPayloadEncoding)
         self.latestInjectionClipboardSetStatus = Self.safeInjectionStepStatus(latestInjectionClipboardSetStatus)
         self.latestInjectionPasteCommandStatus = Self.safeInjectionStepStatus(latestInjectionPasteCommandStatus)
         self.latestInjectionRemoteClipboardRestore = Self.safeRemoteClipboardRestore(
@@ -629,6 +633,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionPath: latestInjectionAttempt?.path.rawValue,
             latestInjectionStatus: latestInjectionAttempt?.status.rawValue,
             latestInjectionPasteCommand: latestInjectionAttempt?.pasteCommand?.rawValue,
+            latestInjectionPayloadEncoding: latestInjectionAttempt?.payloadEncoding?.rawValue,
             latestInjectionClipboardSetStatus: latestInjectionAttempt?.clipboardSetStatus.rawValue,
             latestInjectionPasteCommandStatus: latestInjectionAttempt?.pasteCommandStatus.rawValue,
             latestInjectionRemoteClipboardRestore: latestInjectionAttempt?.remoteClipboardRestore.rawValue,
@@ -655,6 +660,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionPasteCommand: try container.decodeIfPresent(
                 String.self,
                 forKey: .latestInjectionPasteCommand
+            ),
+            latestInjectionPayloadEncoding: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionPayloadEncoding
             ),
             latestInjectionClipboardSetStatus: try container.decodeIfPresent(
                 String.self,
@@ -689,6 +698,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safePasteCommand(_ value: String?) -> String? {
         safe(value, allowed: Set(PasteCommand.allCases.map(\.rawValue)))
+    }
+
+    private static func safePayloadEncoding(_ value: String?) -> String? {
+        safe(value, allowed: Set(TextInjectionPayloadEncoding.allCases.map(\.rawValue)))
     }
 
     private static func safeInjectionStepStatus(_ value: String?) -> String? {
@@ -747,7 +760,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 9
+    public static let currentSchemaVersion = 10
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

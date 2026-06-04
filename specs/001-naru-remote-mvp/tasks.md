@@ -261,6 +261,12 @@ the expected UTF-8 clipboard payload and paste command path.
 - [x] T154 [US5] Add tests for PiP controller prepare/start/enqueue, unsupported-device handling, render failure handling, and streaming-frame forwarding
 - [x] T155 Sync product spec, MVP spec, plan, data model, contract, research, quickstart, and roadmap with system PiP controller wiring status
 
+## Phase 29: Compose Clipboard Compatibility Diagnostics
+
+- [x] T156 [US3] Classify composed text payloads as `ascii`, `latin1`, or `utf8ExtensionRequired` without exposing the draft text
+- [x] T157 [US3] Surface UTF-8-extension-required compose sends in safe status/diagnostic state so physical-device logs can distinguish VNC clipboard compatibility risk from local IME failure
+- [x] T158 [US3] Verify text-injection, diagnostic redaction, and app-model compose send tests after the payload-encoding diagnostic addition
+
 ## Parallel Notes
 
 - T029 still requires physical iPhone/iPad access and cannot be delegated to a
