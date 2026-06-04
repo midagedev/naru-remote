@@ -107,6 +107,9 @@ public struct RemoteInputDockView: View {
             text = newValue
         }
         .onChange(of: text) { _, newValue in
+            guard shouldPropagateLocalComposeTextToModel() else {
+                return
+            }
             onTextChange(newValue)
         }
         .onChange(of: composeFieldFocused) { _, newValue in
@@ -518,6 +521,26 @@ public struct RemoteInputDockView: View {
         )
     }
 
+    private func shouldPropagateLocalComposeTextToModel() -> Bool {
+        #if os(iOS) && canImport(UIKit)
+        let hasMarkedText = composeCommitController.hasMarkedText
+        #else
+        let hasMarkedText = false
+        #endif
+
+        return Self.shouldPropagateLocalComposeTextToModel(
+            isDirectModeActive: directKeystrokeMode.isActive,
+            hasMarkedText: hasMarkedText
+        )
+    }
+
+    nonisolated static func shouldPropagateLocalComposeTextToModel(
+        isDirectModeActive: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        !isDirectModeActive && !hasMarkedText
+    }
+
     nonisolated static func shouldApplyExternalComposeText(
         newValue: String,
         lastAppliedInitialText: String,
@@ -768,6 +791,9 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.commitController.updateCurrentText(from: textView)
+            guard textView.markedTextRange == nil else {
+                return
+            }
             parent.text = textView.text
         }
 

@@ -157,7 +157,7 @@ final class PointerGestureResolverTests: XCTestCase {
         XCTAssertNotEqual(outcome.transform.panOffset, zoomed.panOffset, "Auto-pan should move the viewport")
         let snapped = zoomed.panToReveal(
             framebufferPoint: outcome.cursor.position,
-            margin: 280
+            margin: 96
         )
         XCTAssertGreaterThan(
             outcome.transform.panOffset.width,
@@ -190,7 +190,7 @@ final class PointerGestureResolverTests: XCTestCase {
         ])
     }
 
-    func testTrackpadFollowZoneStartsBeforeCursorReachesEdgeWhenZoomed() {
+    func testTrackpadFollowZoneDoesNotPanForCentralMotionWhenZoomed() {
         let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
         let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
         let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
@@ -201,13 +201,35 @@ final class PointerGestureResolverTests: XCTestCase {
             cursor: cursor
         )
 
-        XCTAssertLessThan(
+        XCTAssertEqual(
             outcome.transform.panOffset.width,
             zoomed.panOffset.width,
-            "Zoomed trackpad pan should begin while the cursor is still well inside the viewport"
+            accuracy: 1e-6,
+            "Zoomed trackpad auto-pan should not drag the viewport while the cursor is still central."
         )
         XCTAssertEqual(outcome.commands, [
             RFBPointerCommand(buttonMask: 0x00, x: 625, y: 500)
+        ])
+    }
+
+    func testTrackpadFollowZoneStartsNearViewportEdgeWhenZoomed() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 650, y: 500), isVisible: true)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 200, height: 0)),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertLessThan(
+            outcome.transform.panOffset.width,
+            zoomed.panOffset.width,
+            "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
+        )
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 750, y: 500)
         ])
     }
 
@@ -224,12 +246,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(
             outcome.transform.panOffset.width,
-            -150,
+            -70,
             "Trackpad auto-pan should move with the cursor instead of lagging at the edge."
         )
         XCTAssertGreaterThan(
             outcome.transform.panOffset.width,
-            -340,
+            -160,
             "Auto-pan should still damp the full reveal delta rather than snapping."
         )
     }

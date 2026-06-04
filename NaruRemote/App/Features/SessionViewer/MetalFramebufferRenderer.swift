@@ -46,6 +46,7 @@ public final class MetalFramebufferRenderer: NSObject {
     private var viewportPanOffset: CGSize = .zero
     private var viewportMaxZoomScale: CGFloat = defaultMaximumViewportZoomScale
     private var isPendingFramebufferUploadSuspended = false
+    private var pendingFramebufferUploadSuspensionBypassCount = 0
 
     private struct ViewportRenderUniforms {
         var left: Float
@@ -130,6 +131,17 @@ public final class MetalFramebufferRenderer: NSObject {
     /// pending and are uploaded when the gesture settles.
     public func setPendingFramebufferUploadSuspended(_ suspended: Bool) {
         isPendingFramebufferUploadSuspended = suspended
+        if !suspended {
+            pendingFramebufferUploadSuspensionBypassCount = 0
+        }
+    }
+
+    /// Allows one pending framebuffer upload to pass through even while
+    /// gesture-time upload suspension is active. The viewport host uses this
+    /// with its redraw throttle so a long pinch/pan can still sample fresh
+    /// VNC frames occasionally instead of freezing until the user lifts.
+    public func allowNextPendingFramebufferUploadWhileSuspended() {
+        pendingFramebufferUploadSuspensionBypassCount += 1
     }
 
     /// Test/inspection helper.  Reflects the current texture dimensions
@@ -145,6 +157,11 @@ public final class MetalFramebufferRenderer: NSObject {
     @discardableResult
     public func uploadPendingFramebufferForTesting() -> Bool {
         applyPendingFramebuffer()
+    }
+
+    @discardableResult
+    public func uploadPendingFramebufferRespectingSuspensionForTesting() -> Bool {
+        applyPendingFramebufferIfAllowed()
     }
 
     /// Read-back of texture pixels for unit tests.  The buffer is
@@ -281,9 +298,7 @@ public final class MetalFramebufferRenderer: NSObject {
     }
 
     fileprivate func draw(in view: MTKView) {
-        if !isPendingFramebufferUploadSuspended {
-            applyPendingFramebuffer()
-        }
+        applyPendingFramebufferIfAllowed()
 
         guard let texture,
               let drawable = view.currentDrawable,
@@ -327,6 +342,18 @@ public final class MetalFramebufferRenderer: NSObject {
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    @discardableResult
+    private func applyPendingFramebufferIfAllowed() -> Bool {
+        if isPendingFramebufferUploadSuspended {
+            guard pendingFramebufferUploadSuspensionBypassCount > 0 else {
+                lastUploadMilliseconds = nil
+                return false
+            }
+            pendingFramebufferUploadSuspensionBypassCount -= 1
+        }
+        return applyPendingFramebuffer()
     }
 
     static func aspectFitViewport(
