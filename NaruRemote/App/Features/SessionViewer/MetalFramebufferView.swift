@@ -104,6 +104,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let pointerControlMode: PointerControlMode
     private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
     private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
+    private let onUploadTiming: MetalFramebufferUploadTimingHandler?
     /// Current local zoom scale, owned by the SwiftUI parent and pushed
     /// down so the host's gesture handlers know whether a one-finger
     /// drag is a pan (zoomed) or a remote drag (fit), and so the pan
@@ -137,7 +138,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
         onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
-        onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil
+        onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil,
+        onUploadTiming: MetalFramebufferUploadTimingHandler? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -159,6 +161,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.pointerControlMode = pointerControlMode
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
+        self.onUploadTiming = onUploadTiming
     }
 
     public static func isSupported() -> Bool {
@@ -171,6 +174,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> MetalFramebufferHostingView {
         let host = MetalFramebufferHostingView(coordinator: context.coordinator)
+        context.coordinator.updateUploadTimingHandler(onUploadTiming)
         host.accessibilityIdentifier = accessibilityIdentifier
         host.isAccessibilityElement = true
         host.accessibilityLabel = "Remote framebuffer rendered with Metal"
@@ -204,6 +208,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
         context.coordinator.prepareForSession(sessionID)
+        context.coordinator.updateUploadTimingHandler(onUploadTiming)
         let didEnqueueFramebuffer = context.coordinator.enqueue(
             framebuffer,
             dirtyRectangles: dirtyRectangles
@@ -257,6 +262,10 @@ public struct MetalFramebufferView: UIViewRepresentable {
             sessionID = nextSessionID
             lastFramebufferDimensions = nil
             uploadGate.reset()
+        }
+
+        func updateUploadTimingHandler(_ handler: MetalFramebufferUploadTimingHandler?) {
+            renderer?.uploadTimingHandler = handler
         }
 
         @discardableResult
@@ -389,6 +398,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// UIKit's cumulative pan translation.
     private var trackpadDragLastTranslation: CGSize = .zero
     private var trackpadDragMoved: Bool = false
+    private var trackpadDragOwnsViewportInteraction: Bool = false
 
     /// Current local zoom scale, owned by the host view so the
     /// recognizer can clamp incrementally between callbacks.  The
@@ -438,7 +448,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 30.0
 
     private enum ViewportStatePublishCadence {
         case nextDisplayLink
@@ -603,6 +613,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
 
+    private var canPanViewport: Bool {
+        viewportTransform(zoomScale: currentZoomScale, panOffset: currentPanOffset).isPannable
+    }
+
     /// Clamp against the actual aspect-fit framebuffer content, not
     /// the MTKView rectangle. The remote frame is first aspect-fit by
     /// the renderer, then locally zoomed/panned by this host; wide
@@ -687,6 +701,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationLastTimestamp = nil
         viewportGestureRedrawThrottle.reset()
         deferredFramebufferRedrawDuringViewportGesture = false
+        trackpadDragOwnsViewportInteraction = false
         finishViewportTransformGesture()
     }
 
@@ -945,7 +960,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         switch recognizer.state {
         case .began:
             stopViewportDeceleration()
-            beginViewportTransformGesture()
+            trackpadDragOwnsViewportInteraction = canPanViewport
+            if trackpadDragOwnsViewportInteraction {
+                beginViewportTransformGesture()
+            }
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
             dispatchTrackpadGesture(.dragBegan(viewPoint: recognizer.location(in: self)))
@@ -969,7 +987,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             }
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
-            finishViewportTransformGesture()
+            if trackpadDragOwnsViewportInteraction {
+                finishViewportTransformGesture()
+            }
+            trackpadDragOwnsViewportInteraction = false
         default:
             break
         }

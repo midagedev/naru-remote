@@ -281,6 +281,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case rendererPartialUploadPermille
         case rendererFullUploadPermille
         case rendererUploadRegionCountMax
+        case rendererUploadTimingSampleCount
+        case averageRendererUploadTimingBucket
+        case maxRendererUploadTimingBucket
         case receiveTimingSampleCount
         case averageReceiveTotalTimingBucket
         case maxReceiveTotalTimingBucket
@@ -319,6 +322,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let rendererPartialUploadPermille: Int?
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCountMax: Int
+    public let rendererUploadTimingSampleCount: Int
+    public let averageRendererUploadTimingBucket: String
+    public let maxRendererUploadTimingBucket: String
     public let receiveTimingSampleCount: Int
     public let averageReceiveTotalTimingBucket: String
     public let maxReceiveTotalTimingBucket: String
@@ -357,6 +363,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         rendererPartialUploadPermille: Int? = nil,
         rendererFullUploadPermille: Int? = nil,
         rendererUploadRegionCountMax: Int = 0,
+        rendererUploadTimingSampleCount: Int = 0,
+        averageRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         receiveTimingSampleCount: Int = 0,
         averageReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
@@ -406,6 +415,15 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         self.rendererPartialUploadPermille = Self.clampPermille(rendererPartialUploadPermille)
         self.rendererFullUploadPermille = Self.clampPermille(rendererFullUploadPermille)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        let rendererUploadTimingSampleCount = max(rendererUploadTimingSampleCount, 0)
+        self.rendererUploadTimingSampleCount = rendererUploadTimingSampleCount
+        if rendererUploadTimingSampleCount == 0 {
+            self.averageRendererUploadTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxRendererUploadTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageRendererUploadTimingBucket = Self.safeTimingBucket(averageRendererUploadTimingBucket)
+            self.maxRendererUploadTimingBucket = Self.safeTimingBucket(maxRendererUploadTimingBucket)
+        }
         let receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
         self.receiveTimingSampleCount = receiveTimingSampleCount
         if receiveTimingSampleCount == 0 {
@@ -502,6 +520,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .rendererUploadRegionCountMax
             ) ?? 0,
+            rendererUploadTimingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .rendererUploadTimingSampleCount
+            ) ?? 0,
+            averageRendererUploadTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageRendererUploadTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxRendererUploadTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxRendererUploadTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             receiveTimingSampleCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .receiveTimingSampleCount
@@ -791,7 +821,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 11
+    public static let currentSchemaVersion = 12
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

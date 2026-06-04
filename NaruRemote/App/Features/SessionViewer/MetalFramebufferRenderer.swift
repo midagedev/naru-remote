@@ -5,6 +5,8 @@ import NaruRemoteCore
 import Metal
 import MetalKit
 
+public typealias MetalFramebufferUploadTimingHandler = @MainActor @Sendable (_ milliseconds: Int) -> Void
+
 /// GPU-backed renderer for `RFBRawFramebuffer` pixels.
 ///
 /// Maintains a single `MTLTexture` whose dimensions track the most
@@ -58,6 +60,14 @@ public final class MetalFramebufferRenderer: NSObject {
     /// every upload attempt so tests can assert per-frame upload
     /// arithmetic without keeping their own running tally.
     public private(set) var lastUploadRegionCount: Int = 0
+
+    /// Test/inspection helper.  Captures the elapsed wall-clock time
+    /// around the most recent successful texture allocation/upload
+    /// path, rounded to milliseconds.  Raw timing never leaves memory;
+    /// callers export only coarse timing buckets.
+    public private(set) var lastUploadMilliseconds: Int?
+
+    var uploadTimingHandler: MetalFramebufferUploadTimingHandler?
 
     /// Creates a renderer bound to the given device.  Returns `nil`
     /// when the system cannot supply a `MTLCommandQueue` or fails to
@@ -159,12 +169,15 @@ public final class MetalFramebufferRenderer: NSObject {
     @discardableResult
     fileprivate func applyPendingFramebuffer() -> Bool {
         guard let framebuffer = pendingFramebuffer else {
+            lastUploadMilliseconds = nil
             return false
         }
+        let uploadStart = DispatchTime.now().uptimeNanoseconds
         let dirtyRectangles = pendingDirtyRectangles
         pendingFramebuffer = nil
         pendingDirtyRectangles = nil
         lastUploadRegionCount = 0
+        lastUploadMilliseconds = nil
 
         // Recreate the texture when dimensions change to avoid a
         // partial-overwrite of a stale-sized texture.  A recreate
@@ -250,7 +263,19 @@ public final class MetalFramebufferRenderer: NSObject {
                 lastUploadRegionCount = 1
             }
         }
+        recordSuccessfulUploadTiming(startedAt: uploadStart)
         return true
+    }
+
+    private func recordSuccessfulUploadTiming(startedAt start: UInt64) {
+        let end = DispatchTime.now().uptimeNanoseconds
+        let elapsedNanoseconds = end >= start ? end - start : 0
+        let milliseconds = max(
+            0,
+            Int((Double(elapsedNanoseconds) / 1_000_000.0).rounded())
+        )
+        lastUploadMilliseconds = milliseconds
+        uploadTimingHandler?(milliseconds)
     }
 
     fileprivate func draw(in view: MTKView) {

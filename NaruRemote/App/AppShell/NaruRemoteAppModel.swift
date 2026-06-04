@@ -1812,6 +1812,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    public func recordRendererUploadTiming(milliseconds: Int) {
+        sessionStreamStats.recordRendererUploadTiming(milliseconds: milliseconds)
+    }
+
     public func setViewportInteractionActive(_ isActive: Bool) {
         if isActive {
             isViewportInteractionActive = true

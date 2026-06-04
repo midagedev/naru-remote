@@ -45,6 +45,38 @@ final class ViewportTransformTests: XCTestCase {
         XCTAssertEqual(transform.panOffset.height, 0, accuracy: 1e-6)
     }
 
+    func testPannableIsFalseWhenFitContentStaysInsideViewport() {
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 1000, height: 500),
+            viewSize: CGSize(width: 1000, height: 500)
+        )
+
+        XCTAssertFalse(transform.isPannable)
+    }
+
+    func testPannableIsTrueWhenZoomedContentExceedsViewport() {
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 1000, height: 500),
+            viewSize: CGSize(width: 1000, height: 500),
+            zoomScale: 2
+        )
+
+        XCTAssertTrue(transform.isPannable)
+    }
+
+    func testPannableIsTrueForCropFillScaleInPortrait() {
+        let fit = ViewportTransform(framebufferSize: fb, viewSize: portrait)
+        let fillZoom = portrait.height / fit.contentSize.height
+        let transform = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: portrait,
+            zoomScale: fillZoom
+        )
+
+        XCTAssertTrue(transform.isPannable)
+        XCTAssertGreaterThan(transform.contentSize.width, portrait.width)
+    }
+
     func testPanClampedToContentBoundsWhenZoomed() {
         let base = ViewportTransform(framebufferSize: fb, viewSize: portrait)
         let zoomed = base.zoomed(to: 2, about: CGPoint(x: 195, y: 422))

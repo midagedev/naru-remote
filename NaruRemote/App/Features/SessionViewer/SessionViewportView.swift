@@ -15,6 +15,7 @@ public typealias SessionFramebufferScrollHandler = @MainActor @Sendable (
 public typealias SessionFramebufferPointerDownHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 public typealias SessionFramebufferPointerMoveHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 public typealias SessionFramebufferPointerUpHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
+public typealias SessionRendererUploadTimingHandler = @MainActor @Sendable (_ milliseconds: Int) -> Void
 
 public struct SessionViewportView: View {
     private let title: String
@@ -55,6 +56,10 @@ public struct SessionViewportView: View {
     /// so it can coalesce incoming streaming frames while the Metal
     /// view redraws the current texture locally.
     private let onViewportInteractionChange: ((Bool) -> Void)?
+    /// Reports actual Metal texture upload timing back to the app
+    /// model. Raw milliseconds stay memory-only; diagnostics export
+    /// only coarse timing buckets.
+    private let onRendererUploadTiming: SessionRendererUploadTimingHandler?
     /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
     /// toggle.
     private let onTogglePointerMode: (() -> Void)?
@@ -158,6 +163,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onViewportInteractionChange: ((Bool) -> Void)? = nil,
+        onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
@@ -188,6 +194,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
+        self.onRendererUploadTiming = onRendererUploadTiming
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
@@ -219,6 +226,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
         onViewportInteractionChange: ((Bool) -> Void)? = nil,
+        onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
@@ -248,6 +256,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
+        self.onRendererUploadTiming = onRendererUploadTiming
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
@@ -1035,7 +1044,8 @@ public struct SessionViewportView: View {
                     // iPhone drags fight the fast UIKit path.
                     onTrackpadGesture?(gesture, transform) ?? transform
                 },
-                onViewportInteractionChange: onViewportInteractionChange
+                onViewportInteractionChange: onViewportInteractionChange,
+                onUploadTiming: onRendererUploadTiming
             )
                 // The Metal path applies zoom/pan directly inside
                 // `MetalFramebufferHostingView` so UIKit recognizers
