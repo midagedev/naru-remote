@@ -16,12 +16,17 @@ public enum ViewportGestureRedrawDecision: Equatable, Sendable {
 /// any deferred latest frame is flushed once.
 public struct ViewportGestureRedrawThrottle: Equatable, Sendable {
     public let minimumInterval: TimeInterval
+    public let allowsFirstRedrawDuringGesture: Bool
 
     private var lastRequestAt: TimeInterval?
     private var hasDeferredRedraw: Bool
 
-    public init(minimumInterval: TimeInterval = 1.0 / 15.0) {
+    public init(
+        minimumInterval: TimeInterval = 1.0 / 15.0,
+        allowsFirstRedrawDuringGesture: Bool = true
+    ) {
         self.minimumInterval = max(0, minimumInterval)
+        self.allowsFirstRedrawDuringGesture = allowsFirstRedrawDuringGesture
         self.lastRequestAt = nil
         self.hasDeferredRedraw = false
     }
@@ -45,7 +50,11 @@ public struct ViewportGestureRedrawThrottle: Equatable, Sendable {
 
         guard let lastRequestAt else {
             self.lastRequestAt = now
-            return .requestNow
+            if allowsFirstRedrawDuringGesture {
+                return .requestNow
+            }
+            hasDeferredRedraw = true
+            return .deferRedraw
         }
 
         guard now - lastRequestAt >= minimumInterval else {

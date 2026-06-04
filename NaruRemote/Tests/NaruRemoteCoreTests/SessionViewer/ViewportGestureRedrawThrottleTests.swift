@@ -21,6 +21,19 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 1.10), .requestNow)
     }
 
+    func testStrictGestureModeDefersEveryFrameUntilGestureEnd() {
+        var throttle = ViewportGestureRedrawThrottle(
+            minimumInterval: .infinity,
+            allowsFirstRedrawDuringGesture: false
+        )
+
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 1.0), .deferRedraw)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 1.5), .deferRedraw)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 2.0), .deferRedraw)
+        XCTAssertTrue(throttle.flushAfterGesture())
+        XCTAssertFalse(throttle.flushAfterGesture())
+    }
+
     func testGestureEndFlushesOnlyWhenAFrameWasDeferred() {
         var throttle = ViewportGestureRedrawThrottle(minimumInterval: 0.1)
 
