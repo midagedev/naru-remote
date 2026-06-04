@@ -144,7 +144,10 @@ The app's default active content-request interval is 60 Hz-class
 idle delay and adaptive empty-update backoff.
 Use `--stream-shape-client-pressure app` for sustained heat/FPS comparisons
 after a baseline run with the default `off` mode, especially when receive timing
-shows client-processing tails rather than mostly network/server wait.
+shows client-processing tails rather than mostly network/server wait. App mode
+mirrors the runtime severe 80 ms / 3 content-frame trigger and the sustained
+moderate 34 ms / 8 content-frame trigger before temporarily applying the
+power-saver pacing floor.
 Use `--stream-shape-power-mode low-power` to mirror the app's Low Power
 Mode floors: active content requests are capped at 30 Hz and empty
 incremental polling has a 125 ms minimum unless the explicit configured

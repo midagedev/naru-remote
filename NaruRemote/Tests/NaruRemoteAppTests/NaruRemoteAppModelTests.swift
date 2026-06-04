@@ -219,6 +219,60 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterSustainedModerateClientProcessing() {
+        var state = SessionStreamPressurePacingState()
+        let moderateFrame = pressureTestFrame(
+            totalMilliseconds: 55,
+            networkReadMilliseconds: 15
+        )
+
+        for _ in 0..<(SessionStreamPressurePacingState.consecutiveSustainedLaggingContentFrameThreshold - 1) {
+            state.record(frame: moderateFrame)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(frame: moderateFrame)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateActivatesAfterSustainedModerateAppApply() {
+        var state = SessionStreamPressurePacingState()
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        for _ in 0..<(SessionStreamPressurePacingState.consecutiveSustainedLaggingContentFrameThreshold - 1) {
+            state.record(frame: fastFrame, appFrameApplyMilliseconds: 40)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(frame: fastFrame, appFrameApplyMilliseconds: 40)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateBreaksModerateStreakOnHealthyContentFrame() {
+        var state = SessionStreamPressurePacingState()
+        let moderateFrame = pressureTestFrame(
+            totalMilliseconds: 55,
+            networkReadMilliseconds: 15
+        )
+        let healthyFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        for _ in 0..<(SessionStreamPressurePacingState.consecutiveSustainedLaggingContentFrameThreshold - 1) {
+            state.record(frame: moderateFrame)
+        }
+        state.record(frame: healthyFrame)
+        state.record(frame: moderateFrame)
+
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testSessionStreamPressurePacingStateIgnoresNetworkWaitAndEmptyUpdates() {
         var state = SessionStreamPressurePacingState()
         let networkWaitFrame = pressureTestFrame(

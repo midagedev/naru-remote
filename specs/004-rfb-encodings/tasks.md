@@ -368,6 +368,13 @@ iPhone) and ships as its own PR.
   pressure without exporting coordinates, pixels, device model, raw timestamps,
   or user content. Owns: Metal view wiring, app stats/export, tests, benchmark
   artifact. **Done.**
+- **T354** Moderate adaptive pressure pacing: keep the severe 80 ms / 3 content
+  frame adaptive trigger, but also activate the same temporary power-saver
+  pacing floor after sustained moderate local work at 34 ms / 8 content frames.
+  Mirror the trigger in `VNCLiveBenchmark --stream-shape-client-pressure app`
+  so heat/FPS runs can reproduce runtime behavior without exporting raw timing
+  samples. Owns: app pacing state, benchmark pacing state, tests, research note,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
