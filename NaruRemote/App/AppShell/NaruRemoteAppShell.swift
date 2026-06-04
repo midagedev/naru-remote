@@ -23,13 +23,23 @@ public struct NaruRemoteAppShell: View {
     /// previews / tests pass `nil` and the formatter renders "n/a".
     private let buildVersion: String?
 
-    public init(snapshot: NaruRemoteAppSnapshot, buildVersion: String? = nil) {
+    public init(
+        snapshot: NaruRemoteAppSnapshot,
+        buildVersion: String? = nil,
+        startsOnSelectedProfileDetail: Bool = false
+    ) {
         self._model = StateObject(wrappedValue: NaruRemoteAppModel(snapshot: snapshot))
+        self._showsSelectedProfileDetail = State(initialValue: startsOnSelectedProfileDetail)
         self.buildVersion = buildVersion
     }
 
-    public init(model: NaruRemoteAppModel, buildVersion: String? = nil) {
+    public init(
+        model: NaruRemoteAppModel,
+        buildVersion: String? = nil,
+        startsOnSelectedProfileDetail: Bool = false
+    ) {
         self._model = StateObject(wrappedValue: model)
+        self._showsSelectedProfileDetail = State(initialValue: startsOnSelectedProfileDetail)
         self.buildVersion = buildVersion
     }
 

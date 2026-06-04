@@ -8,7 +8,11 @@ struct NaruRemoteApplication: App {
 
     var body: some Scene {
         WindowGroup {
-            NaruRemoteAppShell(model: model, buildVersion: Self.bundleBuildVersion())
+            NaruRemoteAppShell(
+                model: model,
+                buildVersion: Self.bundleBuildVersion(),
+                startsOnSelectedProfileDetail: Self.testStartsOnSelectedProfileDetail()
+            )
                 .accessibilityIdentifier("naru.app.shell")
                 .preferredColorScheme(Self.testOverrideColorScheme())
         }
@@ -41,6 +45,16 @@ struct NaruRemoteApplication: App {
     /// `DiagnosticExport.renderShareText` renders that as `n/a`.
     private static func bundleBuildVersion() -> String? {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    /// XCUITest hook — production launches saved profiles into the
+    /// connection grid, but focused input-dock tests need to start on the
+    /// selected profile detail without tapping through the launcher.
+    private static func testStartsOnSelectedProfileDetail() -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_START_PROFILE_DETAIL"],
+              !raw.isEmpty
+        else { return false }
+        return raw != "0" && raw.lowercased() != "false"
     }
 
     private static func makeModel() -> NaruRemoteAppModel {

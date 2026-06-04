@@ -157,6 +157,8 @@ final class DirectKeystrokeFR010UITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = "studio.tailnet.ts.net"
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         // FR-010 verification only — suppress the FR-009 first-entry
         // warning so the dialog doesn't cover the badges and confuse
         // the count-based assertions.  FR-009 has its own dedicated

@@ -140,6 +140,9 @@ final class TrackpadModeModelTests: XCTestCase {
             ),
             viewSize: CGSize(width: 200, height: 100)
         )
+        try await waitForTrackpadCursor(model) { cursor in
+            cursor.position != start
+        }
         try await waitForPointerEvents(connector, count: 1)
 
         XCTAssertNotEqual(model.trackpadCursor.position, start)
@@ -171,6 +174,10 @@ final class TrackpadModeModelTests: XCTestCase {
                 transform: zoomed
             )
         )
+        try await waitForTrackpadCursor(model) { cursor in
+            abs(cursor.position.x - 150) < 0.0001
+                && abs(cursor.position.y - 50) < 0.0001
+        }
 
         XCTAssertEqual(model.trackpadCursor.position.x, 150, accuracy: 1e-6)
         XCTAssertEqual(model.trackpadCursor.position.y, 50, accuracy: 1e-6)
@@ -197,6 +204,21 @@ final class TrackpadModeModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(count) pointer events; got \(connector.recordedPointerEvents.count)")
+    }
+
+    private func waitForTrackpadCursor(
+        _ model: NaruRemoteAppModel,
+        timeout: TimeInterval = 2,
+        predicate: (TrackpadCursor) -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate(model.trackpadCursor) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for trackpad cursor publish; got \(model.trackpadCursor)")
     }
 }
 

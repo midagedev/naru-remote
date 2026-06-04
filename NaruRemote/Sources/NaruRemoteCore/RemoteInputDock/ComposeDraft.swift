@@ -79,10 +79,21 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
         self.lastStatusMessage = reason
     }
 
-    public mutating func markUnknown(message: String, at date: Date = Date()) {
+    public mutating func markUnknown(
+        message: String,
+        clearAfterSend: Bool = false,
+        at date: Date = Date()
+    ) {
         self.sendState = .unknown
         self.updatedAt = date
         self.lastFailureReason = nil
         self.lastStatusMessage = message
+        if clearAfterSend {
+            self.text = ""
+        }
+    }
+
+    public mutating func markPasteDispatched(message: String, at date: Date = Date()) {
+        markUnknown(message: message, clearAfterSend: true, at: date)
     }
 }

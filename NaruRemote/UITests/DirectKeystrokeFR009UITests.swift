@@ -116,6 +116,8 @@ final class DirectKeystrokeFR009UITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = "studio.tailnet.ts.net"
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         // CRITICAL: do NOT set NARU_TEST_SUPPRESS_DIRECT_WARNING here.
         // FR-009's contract is that the warning DOES fire on first
         // entry; the suppression hook would defeat the test.

@@ -86,6 +86,8 @@ final class DirectKeystrokeBadgeAndWarningScreenshotsUITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = "studio.tailnet.ts.net"
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         app.launch()
         return app
     }
