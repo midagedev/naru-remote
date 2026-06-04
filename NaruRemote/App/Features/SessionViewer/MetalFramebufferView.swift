@@ -495,6 +495,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case gestureEnd
     }
 
+    private static let interactiveViewportStatePublishCadence: ViewportStatePublishCadence =
+        .gestureEnd
+
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
         super.init(frame: .zero)
@@ -904,7 +907,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: true,
-            shouldPublishPan: panDidChange
+            shouldPublishPan: panDidChange,
+            cadence: Self.interactiveViewportStatePublishCadence
         )
     }
 
@@ -1046,7 +1050,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true
+            shouldPublishPan: true,
+            cadence: Self.interactiveViewportStatePublishCadence
         )
     }
 
@@ -1224,7 +1229,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: CGPoint(x: bounds.midX, y: bounds.midY),
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true
+            shouldPublishPan: true,
+            cadence: Self.interactiveViewportStatePublishCadence
         )
 
         if !movedX {
@@ -1426,7 +1432,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 anchor: viewportAnchor(for: gesture),
                 viewSize: bounds.size,
                 shouldPublishZoom: zoomDidChange,
-                shouldPublishPan: panDidChange
+                shouldPublishPan: panDidChange,
+                cadence: Self.interactiveViewportStatePublishCadence
             )
         }
         updateHotCursorOverlay()

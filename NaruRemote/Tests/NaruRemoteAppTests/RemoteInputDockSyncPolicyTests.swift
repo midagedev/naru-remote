@@ -93,8 +93,8 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
-    func testDoesNotPropagateLocalComposeTextWhileMarkedTextIsActive() {
-        XCTAssertFalse(
+    func testPropagatesLocalComposeTextWhileMarkedTextIsActive() {
+        XCTAssertTrue(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
                 isDirectModeActive: false,
                 hasMarkedText: true
