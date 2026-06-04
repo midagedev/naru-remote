@@ -245,6 +245,24 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedMarkedCommitKeepsFallbackSuffixWhenUIKitCommitSnapshotIsShort() {
+        let beforeCommit = RemoteInputDockView.resolvedCurrentComposeText(
+            viewText: "입력느",
+            markedText: "낌",
+            controllerText: "입력느",
+            fallback: "입력느"
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "입력느",
+                markedTextBeforeCommit: "낌",
+                currentTextBeforeCommit: beforeCommit
+            ),
+            "입력느낌"
+        )
+    }
+
     func testResolvedStabilizedComposeTextKeepsImmediateWhenNextSnapshotDropsSuffix() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedStabilizedComposeText(

@@ -769,6 +769,12 @@ final class ComposeTextCommitController: ObservableObject {
             return currentText.isEmpty ? fallback : currentText
         }
         let markedTextBeforeCommit = markedText(in: textView)
+        let currentTextBeforeCommit = RemoteInputDockView.resolvedCurrentComposeText(
+            viewText: textView.text,
+            markedText: markedTextBeforeCommit,
+            controllerText: currentText,
+            fallback: fallback
+        )
         if markedTextBeforeCommit != nil {
             textView.unmarkText()
         }
@@ -776,7 +782,7 @@ final class ComposeTextCommitController: ObservableObject {
         let committedText = RemoteInputDockView.resolvedCommittedComposeText(
             committedText: textView.text,
             markedTextBeforeCommit: markedTextBeforeCommit,
-            currentTextBeforeCommit: currentText.isEmpty ? fallback : currentText
+            currentTextBeforeCommit: currentTextBeforeCommit
         )
         currentText = committedText
         return committedText
