@@ -90,6 +90,14 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   composed text, clipboard text, byte counts, safe-message bodies, host
   identity, coordinates, pixels, raw timing, or raw errors. Owns:
   diagnostics/app model/input tests. **Done.**
+- **T515** Bump diagnostics to schema v11 with app frame-apply timing buckets:
+  include only sample count plus coarse average/max
+  `notMeasured|subFrame|interactive|lagging|stalled` buckets for MainActor
+  frame-apply work so hot/low-FPS physical-device reports can distinguish
+  receive/decode pressure from app-state/render-handoff pressure without raw
+  milliseconds, dimensions, coordinates, pixels, byte counts, target identity,
+  power state, or raw errors. Owns: diagnostics/app snapshot/model tests.
+  **Done.**
 
 ## Cross-cutting Rules
 

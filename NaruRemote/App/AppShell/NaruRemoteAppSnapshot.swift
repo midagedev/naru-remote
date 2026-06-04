@@ -47,6 +47,9 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var networkReadMillisecondsMax: Int
     public var clientProcessingMillisecondsTotal: Int
     public var clientProcessingMillisecondsMax: Int
+    public var appFrameApplyTimingSampleCount: Int
+    public var appFrameApplyMillisecondsTotal: Int
+    public var appFrameApplyMillisecondsMax: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
@@ -80,6 +83,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         networkReadMillisecondsMax: Int = 0,
         clientProcessingMillisecondsTotal: Int = 0,
         clientProcessingMillisecondsMax: Int = 0,
+        appFrameApplyTimingSampleCount: Int = 0,
+        appFrameApplyMillisecondsTotal: Int = 0,
+        appFrameApplyMillisecondsMax: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
@@ -108,6 +114,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.networkReadMillisecondsMax = max(networkReadMillisecondsMax, 0)
         self.clientProcessingMillisecondsTotal = max(clientProcessingMillisecondsTotal, 0)
         self.clientProcessingMillisecondsMax = max(clientProcessingMillisecondsMax, 0)
+        self.appFrameApplyTimingSampleCount = max(appFrameApplyTimingSampleCount, 0)
+        self.appFrameApplyMillisecondsTotal = max(appFrameApplyMillisecondsTotal, 0)
+        self.appFrameApplyMillisecondsMax = max(appFrameApplyMillisecondsMax, 0)
         self.adaptiveClientPressurePacingSampleCount = min(
             max(adaptiveClientPressurePacingSampleCount, 0),
             self.deliveredFrameCount
@@ -199,6 +208,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         timingMax(clientProcessingMillisecondsMax)
     }
 
+    public var averageAppFrameApplyMilliseconds: Int? {
+        averageAppFrameApplyTiming(appFrameApplyMillisecondsTotal)
+    }
+
+    public var maxAppFrameApplyMilliseconds: Int? {
+        appFrameApplyTimingMax(appFrameApplyMillisecondsMax)
+    }
+
     public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
         guard deliveredFrameCount > 0 else {
             return nil
@@ -242,6 +259,11 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageClientProcessingMilliseconds).rawValue,
             maxClientProcessingTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxClientProcessingMilliseconds).rawValue,
+            appFrameApplyTimingSampleCount: appFrameApplyTimingSampleCount,
+            averageAppFrameApplyTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageAppFrameApplyMilliseconds).rawValue,
+            maxAppFrameApplyTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxAppFrameApplyMilliseconds).rawValue,
             actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
@@ -250,7 +272,8 @@ public struct SessionStreamStats: Equatable, Sendable {
     public mutating func record(
         frame: RFBFramePumpFrame,
         thermalState: SessionStreamThermalState,
-        usesAdaptiveClientPressurePacing: Bool = false
+        usesAdaptiveClientPressurePacing: Bool = false,
+        appFrameApplyMilliseconds: Int? = nil
     ) {
         deliveredFrameCount += 1
         if usesAdaptiveClientPressurePacing {
@@ -262,6 +285,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         latestFrameCapturedAt = frame.capturedAt
         recordReceiveTiming(frame.timing)
+        recordAppFrameApplyTiming(appFrameApplyMilliseconds)
         actualEncodingMix = actualEncodingMix.adding(frame.encodingMix)
 
         if frame.transportIdleTimedOut {
@@ -308,6 +332,17 @@ public struct SessionStreamStats: Equatable, Sendable {
             clientProcessingMillisecondsMax,
             timing.clientProcessingMilliseconds
         )
+    }
+
+    private mutating func recordAppFrameApplyTiming(_ milliseconds: Int?) {
+        guard let milliseconds else {
+            return
+        }
+
+        let clampedMilliseconds = max(milliseconds, 0)
+        appFrameApplyTimingSampleCount += 1
+        appFrameApplyMillisecondsTotal += clampedMilliseconds
+        appFrameApplyMillisecondsMax = max(appFrameApplyMillisecondsMax, clampedMilliseconds)
     }
 
     private mutating func recordRendererUploadPlan(for frame: RFBFramePumpFrame) {
@@ -357,8 +392,22 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / receiveTimingSampleCount
     }
 
+    private func averageAppFrameApplyTiming(_ total: Int) -> Int? {
+        guard appFrameApplyTimingSampleCount > 0 else {
+            return nil
+        }
+        return total / appFrameApplyTimingSampleCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func appFrameApplyTimingMax(_ value: Int) -> Int? {
+        guard appFrameApplyTimingSampleCount > 0 else {
             return nil
         }
         return value

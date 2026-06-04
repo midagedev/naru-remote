@@ -346,6 +346,12 @@ iPhone) and ships as its own PR.
   compression-0/server-cursor request used for sustained sessions. Keep
   ContinuousUpdates/adaptive renegotiation off by default. Owns: encoding
   preference, tests, benchmark artifact, research notes. **Done.**
+- **T351** App frame-apply pressure diagnostics: measure safe aggregate
+  MainActor frame-apply timing buckets after each delivered frame, export them
+  in diagnostic schema v11, and let repeated lagging app-apply content frames
+  trigger the same temporary adaptive power-saver pacing floor as lagging
+  client-processing frames. Owns: app model, session stats, diagnostics export,
+  tests, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

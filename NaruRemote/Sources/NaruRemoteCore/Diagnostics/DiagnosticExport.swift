@@ -288,6 +288,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case maxNetworkReadTimingBucket
         case averageClientProcessingTimingBucket
         case maxClientProcessingTimingBucket
+        case appFrameApplyTimingSampleCount
+        case averageAppFrameApplyTimingBucket
+        case maxAppFrameApplyTimingBucket
         case actualEncodingMix
         case thermalState
     }
@@ -323,6 +326,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let maxNetworkReadTimingBucket: String
     public let averageClientProcessingTimingBucket: String
     public let maxClientProcessingTimingBucket: String
+    public let appFrameApplyTimingSampleCount: Int
+    public let averageAppFrameApplyTimingBucket: String
+    public let maxAppFrameApplyTimingBucket: String
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -358,6 +364,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         maxNetworkReadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         averageClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxClientProcessingTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        appFrameApplyTimingSampleCount: Int = 0,
+        averageAppFrameApplyTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxAppFrameApplyTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -413,6 +422,15 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             self.maxNetworkReadTimingBucket = Self.safeTimingBucket(maxNetworkReadTimingBucket)
             self.averageClientProcessingTimingBucket = Self.safeTimingBucket(averageClientProcessingTimingBucket)
             self.maxClientProcessingTimingBucket = Self.safeTimingBucket(maxClientProcessingTimingBucket)
+        }
+        let appFrameApplyTimingSampleCount = max(appFrameApplyTimingSampleCount, 0)
+        self.appFrameApplyTimingSampleCount = appFrameApplyTimingSampleCount
+        if appFrameApplyTimingSampleCount == 0 {
+            self.averageAppFrameApplyTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxAppFrameApplyTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageAppFrameApplyTimingBucket = Self.safeTimingBucket(averageAppFrameApplyTimingBucket)
+            self.maxAppFrameApplyTimingBucket = Self.safeTimingBucket(maxAppFrameApplyTimingBucket)
         }
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
@@ -511,6 +529,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             maxClientProcessingTimingBucket: try container.decodeIfPresent(
                 String.self,
                 forKey: .maxClientProcessingTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            appFrameApplyTimingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .appFrameApplyTimingSampleCount
+            ) ?? 0,
+            averageAppFrameApplyTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageAppFrameApplyTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxAppFrameApplyTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxAppFrameApplyTimingBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
@@ -761,7 +791,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 10
+    public static let currentSchemaVersion = 11
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

@@ -25,11 +25,16 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         )
         var stats = SessionStreamStats()
 
-        stats.record(frame: firstFrame, thermalState: .nominal)
+        stats.record(
+            frame: firstFrame,
+            thermalState: .nominal,
+            appFrameApplyMilliseconds: 12
+        )
         stats.record(
             frame: emptyFrame,
             thermalState: .serious,
-            usesAdaptiveClientPressurePacing: true
+            usesAdaptiveClientPressurePacing: true,
+            appFrameApplyMilliseconds: 95
         )
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
@@ -53,6 +58,9 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.rendererPartialUploadPermille, 0)
         XCTAssertEqual(report.rendererFullUploadPermille, 1_000)
         XCTAssertEqual(report.rendererUploadRegionCountMax, 1)
+        XCTAssertEqual(report.appFrameApplyTimingSampleCount, 2)
+        XCTAssertEqual(report.averageAppFrameApplyTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(report.maxAppFrameApplyTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
         XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)
@@ -83,6 +91,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertNil(stats.averageDirtyRectangleCount)
         XCTAssertNil(stats.averageDirtyAreaPermille)
         XCTAssertNil(stats.averageChangedPixelsPermille)
+        XCTAssertEqual(stats.appFrameApplyTimingSampleCount, 0)
         XCTAssertEqual(stats.thermalState, .serious)
     }
 

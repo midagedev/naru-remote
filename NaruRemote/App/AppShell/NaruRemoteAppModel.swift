@@ -1614,18 +1614,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
-                    streamPressurePacingState.record(frame: frame)
-                    let usesAdaptiveClientPressurePacing = streamPressurePacingState
-                        .usesAdaptivePowerSaverPacing
                     let thermalState = thermalStateProvider()
-                    recordSessionStreamStats(
-                        for: frame,
-                        thermalState: thermalState,
-                        usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing
-                    )
-                    let usesPowerSaverPacing = lowPowerModeProvider()
-                        || appSettings.streamPowerMode == .powerSaver
-                        || usesAdaptiveClientPressurePacing
 
                     // An empty incremental update (zero changed pixels)
                     // means the connection is alive but framebuffer
@@ -1638,6 +1627,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                     emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
+                    let appFrameApplyStart = Date()
                     if isEmptyUpdate, let serverCursor = frame.serverCursor {
                         noteServerCursorUpdate(
                             serverCursor,
@@ -1662,13 +1652,30 @@ public final class NaruRemoteAppModel: ObservableObject {
                             streamID: streamID
                         )
                     }
+                    let appFrameApplyMilliseconds = Self.elapsedMilliseconds(since: appFrameApplyStart)
+
+                    streamPressurePacingState.record(
+                        frame: frame,
+                        appFrameApplyMilliseconds: appFrameApplyMilliseconds
+                    )
+                    let usesAdaptiveClientPressurePacing = streamPressurePacingState
+                        .usesAdaptivePowerSaverPacing
+                    recordSessionStreamStats(
+                        for: frame,
+                        thermalState: thermalState,
+                        usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
+                        appFrameApplyMilliseconds: appFrameApplyMilliseconds
+                    )
+                    let usesPowerSaverPacing = lowPowerModeProvider()
+                        || appSettings.streamPowerMode == .powerSaver
+                        || usesAdaptiveClientPressurePacing
 
                     // Adaptive pacing: request the next content frame as
-                    // fast as the round-trip allows (frameInterval, default
-                    // 0 means fluid); back off only on empty/idle polls
-                    // (idleFrameInterval) so a static screen never
-                    // busy-loops the request path. Sustained empty
-                    // updates add a small extra backoff, but content
+                    // fast as the configured active cap allows
+                    // (60 Hz-class in production); back off only on
+                    // empty/idle polls (idleFrameInterval) so a static
+                    // screen never busy-loops the request path. Sustained
+                    // empty updates add a small extra backoff, but content
                     // frames reset the streak immediately.
                     let pacingDelay = isEmptyUpdate
                         ? SessionStreamPacingPolicy.delay(
@@ -1769,6 +1776,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         return pump.deliveredFrameCount < maxFrames
     }
 
+    private static func elapsedMilliseconds(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
+    }
+
     private func resetSessionStreamStats() {
         sessionStreamStats = SessionStreamStats()
     }
@@ -1780,12 +1791,14 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func recordSessionStreamStats(
         for frame: RFBFramePumpFrame,
         thermalState: SessionStreamThermalState,
-        usesAdaptiveClientPressurePacing: Bool
+        usesAdaptiveClientPressurePacing: Bool,
+        appFrameApplyMilliseconds: Int?
     ) {
         sessionStreamStats.record(
             frame: frame,
             thermalState: thermalState,
-            usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing
+            usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
+            appFrameApplyMilliseconds: appFrameApplyMilliseconds
         )
     }
 

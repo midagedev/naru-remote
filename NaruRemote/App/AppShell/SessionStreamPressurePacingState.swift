@@ -13,7 +13,10 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         adaptiveRecoveryUpdatesRemaining > 0
     }
 
-    mutating func record(frame: RFBFramePumpFrame) {
+    mutating func record(
+        frame: RFBFramePumpFrame,
+        appFrameApplyMilliseconds: Int? = nil
+    ) {
         // Recovery is bounded by update decisions, not content frames,
         // so a static screen does not keep adaptive pacing enabled forever.
         if adaptiveRecoveryUpdatesRemaining > 0 {
@@ -29,12 +32,18 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             return
         }
 
-        guard let timing = frame.timing else {
+        let clientProcessingMilliseconds = frame.timing?.clientProcessingMilliseconds
+        let appFrameApplyMilliseconds = appFrameApplyMilliseconds.map { max($0, 0) }
+        guard clientProcessingMilliseconds != nil || appFrameApplyMilliseconds != nil else {
             consecutiveLaggingContentFrames = 0
             return
         }
 
-        if timing.clientProcessingMilliseconds >= Self.laggingClientProcessingThresholdMilliseconds {
+        let hasLaggingLocalWork =
+            clientProcessingMilliseconds.map { $0 >= Self.laggingClientProcessingThresholdMilliseconds } ?? false
+            || appFrameApplyMilliseconds.map { $0 >= Self.laggingClientProcessingThresholdMilliseconds } ?? false
+
+        if hasLaggingLocalWork {
             consecutiveLaggingContentFrames += 1
         } else {
             consecutiveLaggingContentFrames = 0
