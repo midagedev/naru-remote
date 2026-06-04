@@ -29,6 +29,31 @@ public enum TextInjectionStepStatus: String, Codable, Equatable, CaseIterable, S
     case failed
 }
 
+public enum TextInjectionPayloadEncoding: String, Codable, Equatable, CaseIterable, Sendable {
+    case ascii
+    case latin1
+    case utf8ExtensionRequired
+
+    public static func classify(_ text: String) -> TextInjectionPayloadEncoding {
+        guard text.unicodeScalars.allSatisfy({ $0.value <= 0x7f }) else {
+            if text.unicodeScalars.allSatisfy({ $0.value <= 0xff }) {
+                return .latin1
+            }
+            return .utf8ExtensionRequired
+        }
+        return .ascii
+    }
+
+    public var unconfirmedPasteMessage: String {
+        switch self {
+        case .ascii, .latin1:
+            "Paste command sent; remote app confirmation unavailable."
+        case .utf8ExtensionRequired:
+            "Paste command sent; remote app confirmation unavailable. This text requires UTF-8 clipboard support from the VNC server."
+        }
+    }
+}
+
 public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -36,6 +61,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         case sessionID
         case path
         case pasteCommand
+        case payloadEncoding
         case startedAt
         case finishedAt
         case status
@@ -50,6 +76,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     public let sessionID: UUID
     public let path: TextInjectionPath
     public var pasteCommand: PasteCommand?
+    public var payloadEncoding: TextInjectionPayloadEncoding?
     public let startedAt: Date
     public var finishedAt: Date?
     public var status: TextInjectionStatus
@@ -64,6 +91,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         sessionID: UUID,
         path: TextInjectionPath,
         pasteCommand: PasteCommand? = nil,
+        payloadEncoding: TextInjectionPayloadEncoding? = nil,
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
         status: TextInjectionStatus = .unknown,
@@ -77,6 +105,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         self.sessionID = sessionID
         self.path = path
         self.pasteCommand = pasteCommand
+        self.payloadEncoding = payloadEncoding
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.status = status
@@ -94,6 +123,10 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
             sessionID: try container.decode(UUID.self, forKey: .sessionID),
             path: try container.decode(TextInjectionPath.self, forKey: .path),
             pasteCommand: try container.decodeIfPresent(PasteCommand.self, forKey: .pasteCommand),
+            payloadEncoding: try container.decodeIfPresent(
+                TextInjectionPayloadEncoding.self,
+                forKey: .payloadEncoding
+            ),
             startedAt: try container.decode(Date.self, forKey: .startedAt),
             finishedAt: try container.decodeIfPresent(Date.self, forKey: .finishedAt),
             status: try container.decode(TextInjectionStatus.self, forKey: .status),
@@ -198,6 +231,7 @@ public struct TextInjectionAdapter {
             sessionID: draft.sessionID,
             path: .vncClipboardPaste,
             pasteCommand: pasteCommand,
+            payloadEncoding: TextInjectionPayloadEncoding.classify(draft.text),
             startedAt: now,
             remoteClipboardRestore: .unsupported
         )
@@ -232,7 +266,8 @@ public struct TextInjectionAdapter {
             return attempt
         }
 
-        let message = "Paste command sent; remote app confirmation unavailable."
+        let message = attempt.payloadEncoding?.unconfirmedPasteMessage
+            ?? "Paste command sent; remote app confirmation unavailable."
         draft.markUnknown(message: message, at: now)
         attempt.finishedAt = now
         attempt.status = .unknown

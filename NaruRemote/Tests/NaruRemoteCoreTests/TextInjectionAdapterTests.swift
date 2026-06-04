@@ -2,6 +2,12 @@ import XCTest
 @testable import NaruRemoteCore
 
 final class TextInjectionAdapterTests: XCTestCase {
+    func testPayloadEncodingClassificationDoesNotExposeDraftText() {
+        XCTAssertEqual(TextInjectionPayloadEncoding.classify("plain ASCII"), .ascii)
+        XCTAssertEqual(TextInjectionPayloadEncoding.classify("café"), .latin1)
+        XCTAssertEqual(TextInjectionPayloadEncoding.classify("한글과 😊"), .utf8ExtensionRequired)
+    }
+
     func testAdapterReportsUnknownWhenPasteCannotBeConfirmed() {
         let client = FakeClipboardClient()
         let adapter = TextInjectionAdapter()
@@ -20,13 +26,17 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(attempt.status, .unknown)
         XCTAssertEqual(attempt.path, .vncClipboardPaste)
         XCTAssertEqual(attempt.pasteCommand, .commandV)
+        XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
         XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
         XCTAssertEqual(attempt.remoteClipboardRestore, .unsupported)
         XCTAssertEqual(draft.text, "한글과 English 😊를 같이 입력합니다")
         XCTAssertEqual(draft.sendState, .unknown)
         XCTAssertNil(draft.lastFailureReason)
-        XCTAssertEqual(draft.lastStatusMessage, "Paste command sent; remote app confirmation unavailable.")
+        XCTAssertEqual(
+            draft.lastStatusMessage,
+            "Paste command sent; remote app confirmation unavailable. This text requires UTF-8 clipboard support from the VNC server."
+        )
     }
 
     func testAdapterWaitsForClipboardSettleBeforePasteCommand() {
@@ -47,6 +57,7 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(sleeps, [0.12])
         XCTAssertEqual(client.events, [.clipboard("Paste after settle"), .paste(.commandV)])
         XCTAssertEqual(attempt.status, .unknown)
+        XCTAssertEqual(attempt.payloadEncoding, .ascii)
         XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
         XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
     }

@@ -2911,6 +2911,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         draft.updateText(text)
         let now = Date()
+        let payloadEncoding = TextInjectionPayloadEncoding.classify(draft.text)
 
         guard !draft.text.isEmpty else {
             let message = TextInjectionError.emptyDraft.localizedDescription
@@ -2921,6 +2922,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 sessionID: draft.sessionID,
                 path: .vncClipboardPaste,
                 pasteCommand: pasteCommand,
+                payloadEncoding: payloadEncoding,
                 startedAt: now,
                 finishedAt: now,
                 status: .failed,
@@ -2940,6 +2942,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 sessionID: draft.sessionID,
                 path: .vncClipboardPaste,
                 pasteCommand: pasteCommand,
+                payloadEncoding: payloadEncoding,
                 startedAt: now,
                 finishedAt: now,
                 status: .failed,
@@ -2956,6 +2959,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: draft.sessionID,
             path: .vncClipboardPaste,
             pasteCommand: pasteCommand,
+            payloadEncoding: payloadEncoding,
             startedAt: now,
             status: .unknown,
             remoteClipboardRestore: .unsupported,
@@ -2974,6 +2978,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 sessionID: sendingDraft.sessionID,
                 path: .vncClipboardPaste,
                 pasteCommand: pasteCommand,
+                payloadEncoding: TextInjectionPayloadEncoding.classify(sendingDraft.text),
                 startedAt: now,
                 remoteClipboardRestore: .unsupported
             )
@@ -3056,7 +3061,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
 
-            let message = "Paste command sent; remote app confirmation unavailable."
+            let message = attempt.payloadEncoding?.unconfirmedPasteMessage
+                ?? "Paste command sent; remote app confirmation unavailable."
             sendingDraft.markPasteDispatched(message: message, at: now)
             attempt.finishedAt = now
             attempt.status = .unknown

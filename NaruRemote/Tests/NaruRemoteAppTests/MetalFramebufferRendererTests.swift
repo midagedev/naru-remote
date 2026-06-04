@@ -464,5 +464,42 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(viewport.width, 0)
         XCTAssertEqual(viewport.height, 0)
     }
+
+    func testTransformedViewportMatchesAspectFitAtIdentity() {
+        let viewport = MetalFramebufferRenderer.transformedViewport(
+            drawableSize: CGSize(width: 1200, height: 900),
+            viewSize: CGSize(width: 400, height: 300),
+            textureWidth: 1600,
+            textureHeight: 900,
+            zoomScale: 1,
+            panOffset: .zero
+        )
+        let aspectFit = MetalFramebufferRenderer.aspectFitViewport(
+            drawableSize: CGSize(width: 1200, height: 900),
+            textureWidth: 1600,
+            textureHeight: 900
+        )
+
+        XCTAssertEqual(viewport.originX, aspectFit.originX, accuracy: 0.001)
+        XCTAssertEqual(viewport.originY, aspectFit.originY, accuracy: 0.001)
+        XCTAssertEqual(viewport.width, aspectFit.width, accuracy: 0.001)
+        XCTAssertEqual(viewport.height, aspectFit.height, accuracy: 0.001)
+    }
+
+    func testTransformedViewportScalesAndPansInDrawablePixels() {
+        let viewport = MetalFramebufferRenderer.transformedViewport(
+            drawableSize: CGSize(width: 1200, height: 900),
+            viewSize: CGSize(width: 400, height: 300),
+            textureWidth: 200,
+            textureHeight: 100,
+            zoomScale: 2,
+            panOffset: CGSize(width: 40, height: -20)
+        )
+
+        XCTAssertEqual(viewport.originX, -480, accuracy: 0.001)
+        XCTAssertEqual(viewport.originY, -210, accuracy: 0.001)
+        XCTAssertEqual(viewport.width, 2400, accuracy: 0.001)
+        XCTAssertEqual(viewport.height, 1200, accuracy: 0.001)
+    }
 }
 #endif

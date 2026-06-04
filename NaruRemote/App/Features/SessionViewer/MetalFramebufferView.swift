@@ -188,6 +188,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         // damage rects.  Pass nil here so the renderer takes the
         // full-frame path regardless of what the pump reported.
         context.coordinator.enqueue(framebuffer, dirtyRectangles: nil)
+        host.requestRedrawForIncomingFrame()
         return host
     }
 
@@ -338,7 +339,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     /// Closure invoked for trackpad-mode gestures.  The model resolves
     /// cursor movement + remote pointer commands and returns any local
-    /// auto-pan transform, which this host applies immediately.
+    /// auto-pan transform, which this host applies through the Metal
+    /// renderer immediately.
     public var trackpadGestureHandler: MetalFramebufferTrackpadGestureHandler?
 
     /// Current one-finger input mode.  Direct-touch keeps the existing
@@ -374,9 +376,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Current local zoom scale, owned by the host view so the
     /// recognizer can clamp incrementally between callbacks.  The
     /// SwiftUI parent mirrors the value through `pinchHandler`, while
-    /// the host applies the visible transform directly to the MTKView
-    /// so streaming-driven SwiftUI diffs do not sit in the gesture's
-    /// critical path.
+    /// the host pushes the visible transform directly into the Metal
+    /// renderer so streaming-driven SwiftUI diffs do not sit in the
+    /// gesture's critical path.
     private var currentZoomScale: CGFloat = 1.0
 
     /// Dynamic lower bound for pinch zoom.  Standard aspect-fit sessions use
@@ -401,9 +403,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
 
-    /// Coalesces or defers SwiftUI/PiP state mirroring while UIKit
-    /// applies the visible Metal transform immediately. This keeps
-    /// frame-driven SwiftUI work out of the per-touch critical path.
+    /// Coalesces or defers SwiftUI/PiP state mirroring while the Metal
+    /// renderer applies the visible viewport transform immediately.
+    /// This keeps frame-driven SwiftUI work out of the per-touch
+    /// critical path.
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
     private var deferredViewportStateRequiresFlush = false
@@ -413,6 +416,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval
     )
+    private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
     private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
@@ -556,9 +560,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         guard !isViewportTransformGestureActive else {
             return
         }
-        currentZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
-        currentPanOffset = clampedPan(offset)
-        applyViewportTransformToMetalView()
+        let nextZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
+        let nextPanOffset = viewportTransform(
+            zoomScale: nextZoomScale,
+            panOffset: offset
+        ).panOffset
+        let didChange = abs(nextZoomScale - currentZoomScale) > 0.0001
+            || nextPanOffset != currentPanOffset
+        currentZoomScale = nextZoomScale
+        currentPanOffset = nextPanOffset
+        if didChange {
+            applyViewportTransformToMetalView()
+        }
     }
 
     public func syncInputState(pointerControlMode: PointerControlMode, framebufferSize: CGSize) {
@@ -606,11 +619,23 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         metalView?.setNeedsDisplay()
     }
 
+    private func requestImmediateViewportRedraw() {
+        metalView?.draw()
+    }
+
     /// Request a redraw for a newly arrived remote frame, giving touch
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
+        guard !isViewportTransformGestureActive else {
+            deferredFramebufferRedrawDuringViewportGesture = true
+            _ = viewportGestureRedrawThrottle.recordIncomingFrame(
+                isGestureActive: true,
+                now: now
+            )
+            return
+        }
         switch viewportGestureRedrawThrottle.recordIncomingFrame(
-            isGestureActive: isViewportTransformGestureActive,
+            isGestureActive: false,
             now: now
         ) {
         case .requestNow:
@@ -633,6 +658,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
         viewportGestureRedrawThrottle.reset()
+        deferredFramebufferRedrawDuringViewportGesture = false
         finishViewportTransformGesture()
     }
 
@@ -718,7 +744,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         switch recognizer.state {
         case .began:
             stopViewportDeceleration()
-            isViewportTransformGestureActive = true
+            beginViewportTransformGesture()
             isPinchGestureActive = true
         case .changed:
             break
@@ -752,9 +778,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         applyViewportTransformToMetalView()
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
-        // The MTKView has already moved on this callback. SwiftUI
-        // overlays and PiP focus catch up when the gesture settles so
-        // frame-stream diffs do not fight pinch tracking.
+        // The renderer has already redrawn the local transform on this
+        // callback. SwiftUI overlays and PiP focus catch up when the
+        // gesture settles so frame-stream diffs do not fight pinch
+        // tracking.
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: nextPanOffset,
@@ -836,7 +863,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         switch recognizer.state {
         case .began:
             stopViewportDeceleration()
-            isViewportTransformGestureActive = true
+            beginViewportTransformGesture()
             recognizer.setTranslation(.zero, in: self)
             // If a remote button-1 drag had started before a pinch
             // zoomed the view mid-gesture, release it cleanly so no
@@ -882,14 +909,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     /// One-finger drag in trackpad mode: move the local cursor
     /// relatively and let the model send buttonless pointer moves.
-    /// Auto-pan returned by the model is applied to the MTKView here,
-    /// avoiding a SwiftUI overlay/state round trip in the hot path.
+    /// Auto-pan returned by the model is applied through the Metal
+    /// renderer here, avoiding a SwiftUI overlay/state round trip in
+    /// the hot path.
     @MainActor
     private func handleTrackpadDrag(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
             stopViewportDeceleration()
-            isViewportTransformGestureActive = true
+            beginViewportTransformGesture()
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
             dispatchTrackpadGesture(.dragBegan(viewPoint: recognizer.location(in: self)))
@@ -920,20 +948,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     private func applyViewportTransformToMetalView() {
-        let transform = CGAffineTransform(
-            a: currentZoomScale,
-            b: 0,
-            c: 0,
-            d: currentZoomScale,
-            tx: currentPanOffset.width,
-            ty: currentPanOffset.height
+        coordinator?.renderer?.updateViewportTransform(
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset,
+            maxZoomScale: Self.maxZoomScale
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            metalView?.transform = transform
+            metalView?.transform = .identity
         }
         CATransaction.commit()
+        requestImmediateViewportRedraw()
     }
 
     @MainActor
@@ -964,7 +990,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
         viewportDecelerationVelocity = velocity
         viewportDecelerationLastTimestamp = CACurrentMediaTime()
-        isViewportTransformGestureActive = true
+        beginViewportTransformGesture()
 
         let displayLink = CADisplayLink(
             target: self,
@@ -1052,13 +1078,25 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @MainActor
     private func finishViewportTransformGesture() {
         isViewportTransformGestureActive = false
+        coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
         let shouldFlushRedraw = viewportGestureRedrawThrottle.flushAfterGesture()
+            || deferredFramebufferRedrawDuringViewportGesture
+        deferredFramebufferRedrawDuringViewportGesture = false
         if deferredViewportStateRequiresFlush || pendingViewportState != nil {
             flushPendingViewportState()
         }
         if shouldFlushRedraw {
             requestRedraw()
         }
+    }
+
+    @MainActor
+    private func beginViewportTransformGesture() {
+        if !isViewportTransformGestureActive {
+            deferredFramebufferRedrawDuringViewportGesture = false
+        }
+        isViewportTransformGestureActive = true
+        coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
     }
 
     @MainActor
@@ -1146,8 +1184,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let panDidChange = updated.panOffset != currentPanOffset
         currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = clampedPan(updated.panOffset)
-        applyViewportTransformToMetalView()
         if zoomDidChange || panDidChange {
+            applyViewportTransformToMetalView()
             queueViewportStatePublish(
                 zoomScale: currentZoomScale,
                 panOffset: currentPanOffset,

@@ -31,6 +31,7 @@ import MetalKit
 public final class MetalFramebufferRenderer: NSObject {
     static let maximumPartialUploadRegionCount = FramebufferUploadPlan.maximumPartialUploadRegionCount
     static let maximumPartialUploadAreaFraction = FramebufferUploadPlan.maximumPartialUploadAreaFraction
+    public static let defaultMaximumViewportZoomScale: CGFloat = 4
 
     public let device: MTLDevice
 
@@ -39,6 +40,17 @@ public final class MetalFramebufferRenderer: NSObject {
     private var texture: MTLTexture?
     private var pendingFramebuffer: RFBRawFramebuffer?
     private var pendingDirtyRectangles: [RFBFrameDamageRect]?
+    private var viewportZoomScale: CGFloat = 1
+    private var viewportPanOffset: CGSize = .zero
+    private var viewportMaxZoomScale: CGFloat = defaultMaximumViewportZoomScale
+    private var isPendingFramebufferUploadSuspended = false
+
+    private struct ViewportRenderUniforms {
+        var left: Float
+        var right: Float
+        var top: Float
+        var bottom: Float
+    }
 
     /// Test/inspection helper.  Counts the number of `replaceRegion`
     /// calls (full or partial) issued during the most recent
@@ -86,6 +98,26 @@ public final class MetalFramebufferRenderer: NSObject {
         }
         pendingFramebuffer = framebuffer
         pendingDirtyRectangles = dirtyRectangles
+    }
+
+    /// Updates the local viewport transform used for drawing the
+    /// current texture. Gesture handlers can change this at touch
+    /// cadence without reallocating or re-uploading framebuffer bytes.
+    public func updateViewportTransform(
+        zoomScale: CGFloat,
+        panOffset: CGSize,
+        maxZoomScale: CGFloat = defaultMaximumViewportZoomScale
+    ) {
+        viewportZoomScale = min(max(zoomScale, 1), max(maxZoomScale, 1))
+        viewportMaxZoomScale = max(maxZoomScale, 1)
+        viewportPanOffset = panOffset
+    }
+
+    /// While the user is pinching or panning, redraws should reproject
+    /// the already-uploaded texture only. New incoming VNC frames stay
+    /// pending and are uploaded when the gesture settles.
+    public func setPendingFramebufferUploadSuspended(_ suspended: Bool) {
+        isPendingFramebufferUploadSuspended = suspended
     }
 
     /// Test/inspection helper.  Reflects the current texture dimensions
@@ -222,7 +254,9 @@ public final class MetalFramebufferRenderer: NSObject {
     }
 
     fileprivate func draw(in view: MTKView) {
-        applyPendingFramebuffer()
+        if !isPendingFramebufferUploadSuspended {
+            applyPendingFramebuffer()
+        }
 
         guard let texture,
               let drawable = view.currentDrawable,
@@ -233,15 +267,36 @@ public final class MetalFramebufferRenderer: NSObject {
             return
         }
 
-        let viewport = Self.aspectFitViewport(
-            drawableSize: view.drawableSize,
-            textureWidth: texture.width,
-            textureHeight: texture.height
+        let fullViewport = MTLViewport(
+            originX: 0,
+            originY: 0,
+            width: view.drawableSize.width,
+            height: view.drawableSize.height,
+            znear: 0,
+            zfar: 1
         )
-        encoder.setViewport(viewport)
+        let contentViewport = Self.transformedViewport(
+            drawableSize: view.drawableSize,
+            viewSize: view.bounds.size,
+            textureWidth: texture.width,
+            textureHeight: texture.height,
+            zoomScale: viewportZoomScale,
+            panOffset: viewportPanOffset,
+            maxZoomScale: viewportMaxZoomScale
+        )
+        var uniforms = Self.renderUniforms(
+            contentViewport: contentViewport,
+            drawableSize: view.drawableSize
+        )
+        encoder.setViewport(fullViewport)
         encoder.setRenderPipelineState(pipelineState)
+        encoder.setVertexBytes(
+            &uniforms,
+            length: MemoryLayout<ViewportRenderUniforms>.stride,
+            index: 0
+        )
         encoder.setFragmentTexture(texture, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
@@ -285,6 +340,70 @@ public final class MetalFramebufferRenderer: NSObject {
         )
     }
 
+    static func transformedViewport(
+        drawableSize: CGSize,
+        viewSize: CGSize,
+        textureWidth: Int,
+        textureHeight: Int,
+        zoomScale: CGFloat,
+        panOffset: CGSize,
+        maxZoomScale: CGFloat = defaultMaximumViewportZoomScale
+    ) -> MTLViewport {
+        guard drawableSize.width > 0,
+              drawableSize.height > 0,
+              viewSize.width > 0,
+              viewSize.height > 0,
+              textureWidth > 0,
+              textureHeight > 0
+        else {
+            return MTLViewport(originX: 0, originY: 0, width: 0, height: 0, znear: 0, zfar: 1)
+        }
+
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: textureWidth, height: textureHeight),
+            viewSize: viewSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: maxZoomScale
+        )
+        let scaleX = drawableSize.width / viewSize.width
+        let scaleY = drawableSize.height / viewSize.height
+        let origin = transform.contentOrigin
+        let size = transform.contentSize
+        return MTLViewport(
+            originX: origin.x * scaleX,
+            originY: origin.y * scaleY,
+            width: size.width * scaleX,
+            height: size.height * scaleY,
+            znear: 0,
+            zfar: 1
+        )
+    }
+
+    private static func renderUniforms(
+        contentViewport: MTLViewport,
+        drawableSize: CGSize
+    ) -> ViewportRenderUniforms {
+        guard drawableSize.width > 0,
+              drawableSize.height > 0,
+              contentViewport.width > 0,
+              contentViewport.height > 0
+        else {
+            return ViewportRenderUniforms(left: 0, right: 0, top: 0, bottom: 0)
+        }
+
+        let left = (contentViewport.originX / drawableSize.width) * 2 - 1
+        let right = ((contentViewport.originX + contentViewport.width) / drawableSize.width) * 2 - 1
+        let top = 1 - (contentViewport.originY / drawableSize.height) * 2
+        let bottom = 1 - ((contentViewport.originY + contentViewport.height) / drawableSize.height) * 2
+        return ViewportRenderUniforms(
+            left: Float(left),
+            right: Float(right),
+            top: Float(top),
+            bottom: Float(bottom)
+        )
+    }
+
     private static func makePipelineState(device: MTLDevice) throws -> MTLRenderPipelineState {
         let library = try device.makeLibrary(source: shaderSource, options: nil)
 
@@ -312,26 +431,42 @@ public final class MetalFramebufferRenderer: NSObject {
     #include <metal_stdlib>
     using namespace metal;
 
+    struct ViewportUniforms {
+        float left;
+        float right;
+        float top;
+        float bottom;
+    };
+
     struct VertexOut {
         float4 position [[position]];
         float2 uv;
     };
 
-    vertex VertexOut naruRemoteFullscreenVertex(uint vertexId [[vertex_id]]) {
-        // Oversized triangle covering the [-1,1] clip volume.
-        const float2 positions[3] = {
-            float2(-1.0, -1.0),
-            float2( 3.0, -1.0),
-            float2(-1.0,  3.0)
+    vertex VertexOut naruRemoteFullscreenVertex(
+        uint vertexId [[vertex_id]],
+        constant ViewportUniforms& viewport [[buffer(0)]]
+    ) {
+        const ushort corners[6] = {
+            0, 2, 1,
+            1, 2, 3
         };
-        const float2 uvs[3] = {
+        const ushort corner = corners[vertexId];
+        const float2 positions[4] = {
+            float2(viewport.left,  viewport.top),
+            float2(viewport.right, viewport.top),
+            float2(viewport.left,  viewport.bottom),
+            float2(viewport.right, viewport.bottom)
+        };
+        const float2 uvs[4] = {
+            float2(0.0, 0.0),
+            float2(1.0, 0.0),
             float2(0.0, 1.0),
-            float2(2.0, 1.0),
-            float2(0.0, -1.0)
+            float2(1.0, 1.0)
         };
         VertexOut out;
-        out.position = float4(positions[vertexId], 0.0, 1.0);
-        out.uv = uvs[vertexId];
+        out.position = float4(positions[corner], 0.0, 1.0);
+        out.uv = uvs[corner];
         return out;
     }
 
