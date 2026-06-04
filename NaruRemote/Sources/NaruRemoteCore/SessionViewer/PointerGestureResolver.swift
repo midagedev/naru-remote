@@ -69,7 +69,7 @@ public struct PointerGestureResolver: Sendable {
         mode: PointerControlMode,
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
-        autoPanDamping: CGFloat = 0.35
+        autoPanDamping: CGFloat = 0.55
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
@@ -281,7 +281,7 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        let maximumStep = max(8, min(64, touchDistance * 1.6 + 6))
+        let maximumStep = max(18, min(120, touchDistance * 3.5 + 12))
         let limited = limit(damped, maximumLength: maximumStep)
         return transform.panned(by: limited)
     }

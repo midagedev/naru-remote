@@ -119,6 +119,9 @@ public struct NaruRemoteAppShell: View {
             onViewportInteractionChange: { isActive in
                 model.setViewportInteractionActive(isActive)
             },
+            onRendererUploadTiming: { milliseconds in
+                model.recordRendererUploadTiming(milliseconds: milliseconds)
+            },
             onTogglePointerMode: {
                 model.togglePointerControlMode()
             },

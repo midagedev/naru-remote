@@ -36,6 +36,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             usesAdaptiveClientPressurePacing: true,
             appFrameApplyMilliseconds: 95
         )
+        stats.recordRendererUploadTiming(milliseconds: 4)
+        stats.recordRendererUploadTiming(milliseconds: 92)
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -58,6 +60,9 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.rendererPartialUploadPermille, 0)
         XCTAssertEqual(report.rendererFullUploadPermille, 1_000)
         XCTAssertEqual(report.rendererUploadRegionCountMax, 1)
+        XCTAssertEqual(report.rendererUploadTimingSampleCount, 2)
+        XCTAssertEqual(report.averageRendererUploadTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(report.maxRendererUploadTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
         XCTAssertEqual(report.appFrameApplyTimingSampleCount, 2)
         XCTAssertEqual(report.averageAppFrameApplyTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.maxAppFrameApplyTimingBucket, DiagnosticTimingBucket.lagging.rawValue)

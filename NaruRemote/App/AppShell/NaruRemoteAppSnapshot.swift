@@ -40,6 +40,9 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var rendererPartialUploadCount: Int
     public var rendererFullUploadCount: Int
     public var rendererUploadRegionCountMax: Int
+    public var rendererUploadTimingSampleCount: Int
+    public var rendererUploadMillisecondsTotal: Int
+    public var rendererUploadMillisecondsMax: Int
     public var receiveTimingSampleCount: Int
     public var receiveTotalMillisecondsTotal: Int
     public var receiveTotalMillisecondsMax: Int
@@ -76,6 +79,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererPartialUploadCount: Int = 0,
         rendererFullUploadCount: Int = 0,
         rendererUploadRegionCountMax: Int = 0,
+        rendererUploadTimingSampleCount: Int = 0,
+        rendererUploadMillisecondsTotal: Int = 0,
+        rendererUploadMillisecondsMax: Int = 0,
         receiveTimingSampleCount: Int = 0,
         receiveTotalMillisecondsTotal: Int = 0,
         receiveTotalMillisecondsMax: Int = 0,
@@ -107,6 +113,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.rendererPartialUploadCount = max(rendererPartialUploadCount, 0)
         self.rendererFullUploadCount = max(rendererFullUploadCount, 0)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        self.rendererUploadTimingSampleCount = max(rendererUploadTimingSampleCount, 0)
+        self.rendererUploadMillisecondsTotal = max(rendererUploadMillisecondsTotal, 0)
+        self.rendererUploadMillisecondsMax = max(rendererUploadMillisecondsMax, 0)
         self.receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
         self.receiveTotalMillisecondsTotal = max(receiveTotalMillisecondsTotal, 0)
         self.receiveTotalMillisecondsMax = max(receiveTotalMillisecondsMax, 0)
@@ -184,6 +193,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         permille(rendererFullUploadCount, of: rendererUploadSampleCount)
     }
 
+    public var averageRendererUploadMilliseconds: Int? {
+        averageRendererUploadTiming(rendererUploadMillisecondsTotal)
+    }
+
+    public var maxRendererUploadMilliseconds: Int? {
+        rendererUploadTimingMax(rendererUploadMillisecondsMax)
+    }
+
     public var averageReceiveTotalMilliseconds: Int? {
         averageTiming(receiveTotalMillisecondsTotal)
     }
@@ -246,6 +263,11 @@ public struct SessionStreamStats: Equatable, Sendable {
             rendererPartialUploadPermille: rendererPartialUploadPermille,
             rendererFullUploadPermille: rendererFullUploadPermille,
             rendererUploadRegionCountMax: rendererUploadRegionCountMax,
+            rendererUploadTimingSampleCount: rendererUploadTimingSampleCount,
+            averageRendererUploadTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageRendererUploadMilliseconds).rawValue,
+            maxRendererUploadTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxRendererUploadMilliseconds).rawValue,
             receiveTimingSampleCount: receiveTimingSampleCount,
             averageReceiveTotalTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: averageReceiveTotalMilliseconds).rawValue,
@@ -315,6 +337,16 @@ public struct SessionStreamStats: Equatable, Sendable {
         recordRendererUploadPlan(for: frame)
         lastFramebufferWidth = frame.framebuffer.width
         lastFramebufferHeight = frame.framebuffer.height
+    }
+
+    public mutating func recordRendererUploadTiming(milliseconds: Int) {
+        let clampedMilliseconds = max(milliseconds, 0)
+        rendererUploadTimingSampleCount += 1
+        rendererUploadMillisecondsTotal += clampedMilliseconds
+        rendererUploadMillisecondsMax = max(
+            rendererUploadMillisecondsMax,
+            clampedMilliseconds
+        )
     }
 
     private mutating func recordReceiveTiming(_ timing: RFBFramebufferUpdateTiming?) {
@@ -399,6 +431,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / appFrameApplyTimingSampleCount
     }
 
+    private func averageRendererUploadTiming(_ total: Int) -> Int? {
+        guard rendererUploadTimingSampleCount > 0 else {
+            return nil
+        }
+        return total / rendererUploadTimingSampleCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
             return nil
@@ -408,6 +447,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     private func appFrameApplyTimingMax(_ value: Int) -> Int? {
         guard appFrameApplyTimingSampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func rendererUploadTimingMax(_ value: Int) -> Int? {
+        guard rendererUploadTimingSampleCount > 0 else {
             return nil
         }
         return value

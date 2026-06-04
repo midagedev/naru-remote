@@ -117,6 +117,24 @@ final class MetalFramebufferRendererTests: XCTestCase {
         )
     }
 
+    func testSuccessfulUploadReportsTimingSample() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        var samples: [Int] = []
+        renderer.uploadTimingHandler = { milliseconds in
+            samples.append(milliseconds)
+        }
+
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 8, height: 4, fill: RFBColor(red: 5, green: 5, blue: 5))
+        )
+
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(renderer.lastUploadMilliseconds, samples.first)
+        XCTAssertGreaterThanOrEqual(samples[0], 0)
+    }
+
     func testTwoNonOverlappingDirtyRectsIssueTwoPartialUploads() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))

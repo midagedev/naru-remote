@@ -426,7 +426,7 @@ public struct RemoteInputDockView: View {
 
     private var isComposeSendDisabled: Bool {
         #if os(iOS) && canImport(UIKit)
-        composeCommitController.currentText.isEmpty && text.isEmpty
+        composeCommitController.readCurrentText(fallback: text).isEmpty
         #else
         text.isEmpty
         #endif
@@ -557,15 +557,23 @@ final class ComposeTextCommitController: ObservableObject {
         textView?.markedTextRange != nil
     }
 
+    func readCurrentText(fallback: String) -> String {
+        guard let textView else {
+            return currentText.isEmpty ? fallback : currentText
+        }
+        return textView.text ?? (currentText.isEmpty ? fallback : currentText)
+    }
+
     func commitMarkedTextAndRead(fallback: String) -> String {
         guard let textView else {
-            return fallback
+            return currentText.isEmpty ? fallback : currentText
         }
+        let fallbackText = currentText.isEmpty ? fallback : currentText
         if textView.markedTextRange != nil {
             textView.unmarkText()
         }
         textView.layoutIfNeeded()
-        let committedText = textView.text ?? fallback
+        let committedText = textView.text ?? fallbackText
         currentText = committedText
         return committedText
     }

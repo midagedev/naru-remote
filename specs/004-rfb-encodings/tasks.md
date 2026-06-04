@@ -352,6 +352,14 @@ iPhone) and ships as its own PR.
   trigger the same temporary adaptive power-saver pacing floor as lagging
   client-processing frames. Owns: app model, session stats, diagnostics export,
   tests, research notes. **Done.**
+- **T352** Actual renderer upload timing diagnostics: measure successful Metal
+  texture-upload elapsed time in the renderer, aggregate sample count plus
+  average/max timing buckets in active-session diagnostics schema v12, and keep
+  raw milliseconds memory-only so hot-device reports can distinguish app-apply
+  pressure from renderer-upload pressure without exporting dimensions,
+  coordinates, pixels, byte counts, power state, or raw timing samples. Owns:
+  Metal renderer/view wiring, app stats/export, tests, research notes.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
