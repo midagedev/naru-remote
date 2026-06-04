@@ -339,6 +339,13 @@ iPhone) and ships as its own PR.
   ZRLE compression-0 profile with server cursor pseudo-encodings before the
   frame loop, using fixed catalog codes only. Owns: encoding preference, app
   model wiring, tests, research notes. **Done.**
+- **T350** Benchmark-backed balanced ZRLE default: after schema v20+ actual
+  encoding-mix duration runs showed the current balanced Tight-first default was
+  served as Raw while ZRLE compression-0 negotiated actual ZRLE with much lower
+  client-processing tails, switch `localLowLatency` to the same ZRLE
+  compression-0/server-cursor request used for sustained sessions. Keep
+  ContinuousUpdates/adaptive renegotiation off by default. Owns: encoding
+  preference, tests, benchmark artifact, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

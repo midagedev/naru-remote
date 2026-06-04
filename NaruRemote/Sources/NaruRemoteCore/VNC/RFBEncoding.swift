@@ -217,27 +217,23 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// ahead of Hextile in the preference order.
     public static let increment2 = RFBEncodingPreference(zrle: true)
 
-    /// Default for sustained private-network control: Tight first with
-    /// Hextile/Raw fallback and server-cursor pseudo-encodings. Longer
-    /// macOS Screen Sharing request/response benchmarks showed that
-    /// ZRLE compression 0 and Tight-first trade the lead across screen
-    /// states, so production keeps the established Tight-first default
-    /// while requesting real server cursor shapes for trackpad fidelity.
-    /// ContinuousUpdates remains disabled by default.
+    /// Default for sustained private-network control: request/response
+    /// ZRLE with compression level 0, Hextile/Raw fallback, and
+    /// server-cursor pseudo-encodings. Redacted macOS Screen Sharing
+    /// duration benchmarks showed Tight-first being served as Raw on
+    /// this target, while ZRLE compression 0 negotiated actual ZRLE and
+    /// kept client-processing tails much lower. ContinuousUpdates
+    /// remains disabled by default.
     public static let localLowLatency = RFBEncodingPreference(
-        tight: true,
+        zrle: true,
         cursor: true,
         extendedClipboard: true,
-        tightQualityLevel: 8,
-        compressionLevel: 1
+        compressionLevel: 0
     )
 
-    /// Power-saver/sustained-session profile. It keeps the
-    /// request/response transport and server-cursor pseudo-encodings,
-    /// but asks compatible servers to prefer ZRLE with compression
-    /// level 0. Redacted macOS Screen Sharing benchmarks showed this
-    /// candidate completing low-power runs where the low-latency
-    /// default timed out, while avoiding a global default flip.
+    /// Power-saver/sustained-session profile. This intentionally
+    /// matches the balanced real-encoding order; the difference is the
+    /// app-side pacing floor applied by the viewer power policy.
     public static let powerSaverSustained = RFBEncodingPreference(
         zrle: true,
         cursor: true,
