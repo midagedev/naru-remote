@@ -231,6 +231,10 @@ public struct RemoteInputDockView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(NaruColors.hairline, lineWidth: 1)
                 )
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .simultaneousGesture(TapGesture().onEnded {
+                    focusComposeEditor()
+                })
                 .accessibilityLabel("Remote input text")
                 .accessibilityIdentifier("naru.input.editor")
 
@@ -374,6 +378,10 @@ public struct RemoteInputDockView: View {
                         .stroke(Color.black.opacity(0.10), lineWidth: 1)
                 )
                 .padding(.trailing, 4)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .simultaneousGesture(TapGesture().onEnded {
+                    focusComposeEditor()
+                })
                 .accessibilityLabel("Remote input text")
                 .accessibilityIdentifier("naru.input.editor")
 
@@ -438,6 +446,12 @@ public struct RemoteInputDockView: View {
             text: $text,
             onFocusChange: updateComposeFocus(_:)
         )
+        #endif
+    }
+
+    private func focusComposeEditor() {
+        #if os(iOS) && canImport(UIKit)
+        composeCommitController.focus()
         #endif
     }
 
@@ -533,6 +547,10 @@ final class ComposeTextCommitController: ObservableObject {
         currentText = textView.text ?? ""
     }
 
+    func focus() {
+        textView?.becomeFirstResponder()
+    }
+
     func updateCurrentText(from textView: UITextView) {
         currentText = textView.text ?? ""
     }
@@ -574,6 +592,9 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         textView.keyboardDismissMode = .interactive
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
+        textView.accessibilityLabel = "Remote input text"
+        textView.accessibilityIdentifier = "naru.input.editor"
+        textView.isAccessibilityElement = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         context.coordinator.attach(textView)
@@ -584,6 +605,9 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         context.coordinator.parent = self
         textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.backgroundColor = .clear
+        textView.accessibilityLabel = "Remote input text"
+        textView.accessibilityIdentifier = "naru.input.editor"
+        textView.isAccessibilityElement = true
 
         // Do not overwrite UIKit's in-flight marked text. Korean/CJK
         // composition keeps intermediate state inside UITextView; setting

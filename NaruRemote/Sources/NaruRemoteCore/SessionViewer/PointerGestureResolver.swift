@@ -60,15 +60,21 @@ public struct PointerGestureResolver: Sendable {
     /// phone-sized screens so the view moves with the cursor before it
     /// feels stuck to the edge.
     public let autoPanMargin: CGFloat
+    /// Fraction of the ideal follow-pan delta applied per touch sample.
+    /// Keeping this below 1 avoids the "snap to follow zone" jump that
+    /// feels unlike native photo/map panning on a small phone viewport.
+    public let autoPanDamping: CGFloat
 
     public init(
         mode: PointerControlMode,
         trackpadSensitivity: CGFloat = 1.0,
-        autoPanMargin: CGFloat = 48
+        autoPanMargin: CGFloat = 48,
+        autoPanDamping: CGFloat = 0.35
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
         self.autoPanMargin = autoPanMargin
+        self.autoPanDamping = min(max(autoPanDamping, 0.05), 1)
     }
 
     public func resolve(
@@ -152,9 +158,10 @@ public struct PointerGestureResolver: Sendable {
                 sensitivity: trackpadSensitivity,
                 framebufferSize: transform.framebufferSize
             )
-            let pannedTransform = transform.panToReveal(
-                framebufferPoint: movedCursor.position,
-                margin: followPanMargin(for: transform)
+            let pannedTransform = smoothedAutoPanTransform(
+                transform,
+                revealing: movedCursor.position,
+                touchTranslation: translation
             )
             return PointerGestureOutcome(
                 transform: pannedTransform,
@@ -179,9 +186,10 @@ public struct PointerGestureResolver: Sendable {
                 sensitivity: trackpadSensitivity,
                 framebufferSize: transform.framebufferSize
             )
-            let pannedTransform = transform.panToReveal(
-                framebufferPoint: movedCursor.position,
-                margin: followPanMargin(for: transform)
+            let pannedTransform = smoothedAutoPanTransform(
+                transform,
+                revealing: movedCursor.position,
+                touchTranslation: translation
             )
             let x = RFBPointerCommand.clamp(movedCursor.position.x)
             let y = RFBPointerCommand.clamp(movedCursor.position.y)
@@ -248,6 +256,45 @@ public struct PointerGestureResolver: Sendable {
         guard shortestSide.isFinite, shortestSide > 0 else {
             return autoPanMargin
         }
-        return max(autoPanMargin, shortestSide * 0.44)
+        return max(autoPanMargin, shortestSide * 0.28)
+    }
+
+    private func smoothedAutoPanTransform(
+        _ transform: ViewportTransform,
+        revealing framebufferPoint: CGPoint,
+        touchTranslation: CGSize
+    ) -> ViewportTransform {
+        let target = transform.panToReveal(
+            framebufferPoint: framebufferPoint,
+            margin: followPanMargin(for: transform)
+        )
+        let delta = CGSize(
+            width: target.panOffset.width - transform.panOffset.width,
+            height: target.panOffset.height - transform.panOffset.height
+        )
+        guard delta != .zero else {
+            return transform
+        }
+
+        let damped = CGSize(
+            width: delta.width * autoPanDamping,
+            height: delta.height * autoPanDamping
+        )
+        let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
+        let maximumStep = max(8, min(64, touchDistance * 1.6 + 6))
+        let limited = limit(damped, maximumLength: maximumStep)
+        return transform.panned(by: limited)
+    }
+
+    private func limit(_ delta: CGSize, maximumLength: CGFloat) -> CGSize {
+        let length = hypot(delta.width, delta.height)
+        guard length.isFinite,
+              length > maximumLength,
+              maximumLength > 0
+        else {
+            return delta
+        }
+        let scale = maximumLength / length
+        return CGSize(width: delta.width * scale, height: delta.height * scale)
     }
 }

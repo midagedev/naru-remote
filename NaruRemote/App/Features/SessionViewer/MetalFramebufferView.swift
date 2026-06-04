@@ -1001,6 +1001,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             target: self,
             selector: #selector(displayLinkFlushViewportRedraw(_:))
         )
+        displayLink.preferredFrameRateRange = CAFrameRateRange(
+            minimum: 30,
+            maximum: 60,
+            preferred: 60
+        )
         displayLink.add(to: .main, forMode: .common)
         viewportRedrawDisplayLink = displayLink
     }
@@ -1013,14 +1018,26 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     private func flushPendingViewportRedrawIfNeeded() {
-        viewportRedrawDisplayLink?.invalidate()
-        viewportRedrawDisplayLink = nil
         guard viewportRedrawRequested else {
+            stopViewportRedrawDisplayLinkIfIdle()
             return
         }
 
         viewportRedrawRequested = false
         requestImmediateViewportRedraw()
+        stopViewportRedrawDisplayLinkIfIdle()
+    }
+
+    @MainActor
+    private func stopViewportRedrawDisplayLinkIfIdle() {
+        guard !isViewportTransformGestureActive,
+              viewportDecelerationDisplayLink == nil,
+              !viewportRedrawRequested
+        else {
+            return
+        }
+        viewportRedrawDisplayLink?.invalidate()
+        viewportRedrawDisplayLink = nil
     }
 
     @MainActor
