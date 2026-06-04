@@ -251,6 +251,26 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedStabilizedComposeTextUsesMostCompleteDelayedSnapshot() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느",
+                stabilizedSnapshots: ["", "입력느", "입력느낌"]
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedStabilizedComposeTextDoesNotReplaceCompleteTextWithDelayedPrefix() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느낌",
+                stabilizedSnapshots: ["입력느", ""]
+            ),
+            "입력느낌"
+        )
+    }
+
     func testCompactStatusHidesDefaultReadyCopy() {
         XCTAssertFalse(
             RemoteInputDockView.shouldShowCompactStatusText(
