@@ -204,6 +204,21 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterRepeatedLaggingAppApply() {
+        var state = SessionStreamPressurePacingState()
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        state.record(frame: fastFrame, appFrameApplyMilliseconds: 95)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        state.record(frame: fastFrame, appFrameApplyMilliseconds: 95)
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        state.record(frame: fastFrame, appFrameApplyMilliseconds: 95)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testSessionStreamPressurePacingStateIgnoresNetworkWaitAndEmptyUpdates() {
         var state = SessionStreamPressurePacingState()
         let networkWaitFrame = pressureTestFrame(
@@ -1122,6 +1137,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 2)
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 500)
+        XCTAssertEqual(performance.appFrameApplyTimingSampleCount, 4)
         model.disconnect()
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -1699,7 +1715,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 10)
+        XCTAssertEqual(report.schemaVersion, 11)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1770,7 +1786,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 10)
+        XCTAssertEqual(report.schemaVersion, 11)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -1794,6 +1810,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.maxNetworkReadTimingBucket, DiagnosticTimingBucket.stalled.rawValue)
         XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(performance.appFrameApplyTimingSampleCount, 2)
         XCTAssertEqual(
             performance.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, zrleRectangles: 1)

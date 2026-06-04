@@ -728,3 +728,38 @@ pseudo-encoding codes and aggregate safe labels. They must not log or export
 host identity, framebuffer dimensions, coordinates, pixels, byte counts,
 compressed payloads, raw timing samples, raw power state, cursor pixels, or raw
 errors.
+
+## D26 — App frame-apply timing should be measured separately from receive timing
+
+References:
+- Apple Metal frame-rate guidance: https://developer-mdn.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FrameRate.html
+- Apple power notifications: https://developer.apple.com/documentation/xcode/responding-to-power-notifications
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: add a coarse app-frame-apply timing signal to active-session
+diagnostics and the adaptive client-pressure trigger. This measures the
+MainActor work after a frame has been received and decoded: session state
+publication, preview throttling, framebuffer forwarding, cursor/liveness
+bookkeeping, and PiP/renderer handoff. It is intentionally separate from the
+RFB receive timing split, which covers socket wait plus decoder/client
+processing before the frame enters the app model.
+
+**Why**:
+- A hot or stuttery physical iPhone session can be caused by local app apply /
+  render-handoff pressure even when RFB network-read and decode timing look
+  healthy. Prior diagnostics could not distinguish that case.
+- Apple frame-rate guidance emphasizes staying within the display frame budget;
+  a repeated app-apply bucket above the interactive threshold is therefore a
+  local pressure signal, not a server/network wait signal.
+- RFC 6143 keeps normal framebuffer updates demand-driven by the client. When
+  local apply work repeatedly lags, applying the existing temporary
+  power-saver pacing floor to subsequent requests is a compatible way to reduce
+  sustained client pressure without changing persisted settings or
+  renegotiating encodings.
+
+**Privacy rule**: diagnostics export only sample count plus fixed
+`notMeasured|subFrame|interactive|lagging|stalled` buckets for average/max app
+frame apply timing. They must not export raw milliseconds, raw samples,
+dimensions, coordinates, pixels, byte counts, power state, target identity, or
+raw errors. The adaptive trigger may use raw timing in memory only while the
+stream is alive.
