@@ -67,6 +67,19 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testDefersExternalClearWhileFocusedLocalDraftIsAheadOfModel() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldApplyExternalComposeText(
+                newValue: "",
+                lastAppliedInitialText: "",
+                currentText: "입력느낌",
+                isDirectModeActive: false,
+                isComposeFieldFocused: true,
+                hasMarkedText: false
+            )
+        )
+    }
+
     func testAppliesExternalTextWhenEditorIsNotFocused() {
         XCTAssertTrue(
             RemoteInputDockView.shouldApplyExternalComposeText(
@@ -193,14 +206,38 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
-    func testAllowsExternalUIKitBindingWriteWhenModelTextChanges() {
-        XCTAssertFalse(
+    func testDefersExternalUIKitBindingClearWhileFocusedEditorHasLocalText() {
+        XCTAssertTrue(
             RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
                 hasMarkedText: false,
                 isFirstResponder: true,
                 proposedText: "",
                 lastAppliedBindingText: "입력느",
                 currentUIKitText: "입력느낌"
+            )
+        )
+    }
+
+    func testDefersExternalUIKitBindingPrefixWhileFocusedEditorHasSuffix() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: false,
+                isFirstResponder: true,
+                proposedText: "입력느",
+                lastAppliedBindingText: "입력느",
+                currentUIKitText: "입력느낌"
+            )
+        )
+    }
+
+    func testAllowsUIKitBindingWriteWhenFocusedEditorAlreadyMatchesShorterText() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: false,
+                isFirstResponder: true,
+                proposedText: "입력느",
+                lastAppliedBindingText: "입력느낌",
+                currentUIKitText: "입력느"
             )
         )
     }

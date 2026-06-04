@@ -152,6 +152,52 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(event.y, 60)
     }
 
+    func testTrackpadDragCoalescesWireMovesToLatestSample() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+
+        _ = model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 120, y: 60),
+                translation: CGSize(width: 20, height: 10)
+            ),
+            transform: transform
+        )
+        _ = model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 130, y: 60),
+                translation: CGSize(width: 10, height: 0)
+            ),
+            transform: transform
+        )
+        _ = model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 140, y: 60),
+                translation: CGSize(width: 10, height: 0)
+            ),
+            transform: transform
+        )
+
+        try await waitForPointerEvents(connector, count: 1)
+        try await Task.sleep(for: .milliseconds(80))
+
+        let events = connector.recordedPointerEvents
+        XCTAssertEqual(events.count, 1)
+        let event = try XCTUnwrap(events.first)
+        XCTAssertEqual(event.mask, 0x00)
+        XCTAssertEqual(event.x, 140)
+        XCTAssertEqual(event.y, 60)
+    }
+
     func testTrackpadDragUsesZoomedTransformAndReturnsAutoPan() async throws {
         let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
         let model = try makeModel(connector: connector)

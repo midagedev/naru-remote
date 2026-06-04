@@ -971,7 +971,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
-            connectorFactory: { connector }
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
         )
 
         await model.connectSelectedProfile()
@@ -1006,14 +1007,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
-            connectorFactory: { connector }
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
         )
 
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(120))
 
         XCTAssertEqual(model.connectionQuality, .good)
-        XCTAssertTrue(connector.renegotiatedPreferences.isEmpty)
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
     func testModelRenegotiatesAdaptiveEncodingsWhenOptedInOnceQualityBucketIsKnown() async throws {
