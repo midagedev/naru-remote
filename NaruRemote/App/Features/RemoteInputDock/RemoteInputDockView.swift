@@ -11,8 +11,8 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
-    private static let composeSendStabilizationSnapshotCount = 8
-    private static let composeSendStabilizationDelayNanoseconds: UInt64 = 8_000_000
+    nonisolated static let composeSendStabilizationSnapshotCount = 12
+    nonisolated static let composeSendStabilizationDelayNanoseconds: UInt64 = 12_000_000
 
     @State private var text: String
     @State private var lastAppliedInitialText: String
