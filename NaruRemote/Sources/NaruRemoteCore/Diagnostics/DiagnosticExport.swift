@@ -262,6 +262,8 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case contentFramePermille
         case emptyUpdatePermille
         case transportIdleTimeoutPermille
+        case adaptiveClientPressurePacingSampleCount
+        case adaptiveClientPressurePacingPermille
         case dirtyRectangleSampleCount
         case averageDirtyRectangleCount
         case dirtyRectangleCountMax
@@ -295,6 +297,8 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let contentFramePermille: Int?
     public let emptyUpdatePermille: Int?
     public let transportIdleTimeoutPermille: Int?
+    public let adaptiveClientPressurePacingSampleCount: Int
+    public let adaptiveClientPressurePacingPermille: Int
     public let dirtyRectangleSampleCount: Int
     public let averageDirtyRectangleCount: Int?
     public let dirtyRectangleCountMax: Int
@@ -328,6 +332,8 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         contentFramePermille: Int? = nil,
         emptyUpdatePermille: Int? = nil,
         transportIdleTimeoutPermille: Int? = nil,
+        adaptiveClientPressurePacingSampleCount: Int = 0,
+        adaptiveClientPressurePacingPermille: Int? = nil,
         dirtyRectangleSampleCount: Int,
         averageDirtyRectangleCount: Int? = nil,
         dirtyRectangleCountMax: Int,
@@ -353,13 +359,27 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     ) {
         self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
         self.deliveredFramesPerSecondBucket = Self.safeFrameRateBucket(deliveredFramesPerSecondBucket)
-        self.deliveredFrameCount = max(deliveredFrameCount, 0)
+        let deliveredFrameCount = max(deliveredFrameCount, 0)
+        self.deliveredFrameCount = deliveredFrameCount
         self.contentFrameCount = max(contentFrameCount, 0)
         self.emptyUpdateCount = max(emptyUpdateCount, 0)
         self.transportIdleTimeoutCount = max(transportIdleTimeoutCount, 0)
         self.contentFramePermille = Self.clampPermille(contentFramePermille)
         self.emptyUpdatePermille = Self.clampPermille(emptyUpdatePermille)
         self.transportIdleTimeoutPermille = Self.clampPermille(transportIdleTimeoutPermille)
+        let adaptiveClientPressurePacingSampleCount = min(
+            max(adaptiveClientPressurePacingSampleCount, 0),
+            deliveredFrameCount
+        )
+        self.adaptiveClientPressurePacingSampleCount = adaptiveClientPressurePacingSampleCount
+        if deliveredFrameCount == 0 {
+            self.adaptiveClientPressurePacingPermille = 0
+        } else {
+            self.adaptiveClientPressurePacingPermille = Self.clampPermille(
+                adaptiveClientPressurePacingPermille
+                    ?? Self.permille(adaptiveClientPressurePacingSampleCount, of: deliveredFrameCount)
+            ) ?? 0
+        }
         self.dirtyRectangleSampleCount = max(dirtyRectangleSampleCount, 0)
         self.averageDirtyRectangleCount = averageDirtyRectangleCount.map { max($0, 0) }
         self.dirtyRectangleCountMax = max(dirtyRectangleCountMax, 0)
@@ -411,6 +431,14 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             transportIdleTimeoutPermille: try container.decodeIfPresent(
                 Int.self,
                 forKey: .transportIdleTimeoutPermille
+            ),
+            adaptiveClientPressurePacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .adaptiveClientPressurePacingSampleCount
+            ) ?? 0,
+            adaptiveClientPressurePacingPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .adaptiveClientPressurePacingPermille
             ),
             dirtyRectangleSampleCount: try container.decode(Int.self, forKey: .dirtyRectangleSampleCount),
             averageDirtyRectangleCount: try container.decodeIfPresent(
@@ -492,6 +520,14 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         value.map { min(max($0, 0), 1_000) }
     }
 
+    private static func permille(_ value: Int, of total: Int) -> Int {
+        guard total > 0 else {
+            return 0
+        }
+        let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
+        return value > 0 ? max(rounded, 1) : 0
+    }
+
     private static func safeDurationBucket(_ value: String) -> String {
         DiagnosticDurationBucket(rawValue: value)?.rawValue ?? DiagnosticDurationBucket.notMeasured.rawValue
     }
@@ -562,7 +598,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 7
+    public static let currentSchemaVersion = 8
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

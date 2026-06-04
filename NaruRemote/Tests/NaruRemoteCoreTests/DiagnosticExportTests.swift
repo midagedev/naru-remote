@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 7"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 8"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 7)
+        XCTAssertEqual(decoded.schemaVersion, 8)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -314,6 +314,8 @@ final class DiagnosticExportTests: XCTestCase {
             contentFramePermille: 750,
             emptyUpdatePermille: 208,
             transportIdleTimeoutPermille: 42,
+            adaptiveClientPressurePacingSampleCount: 9,
+            adaptiveClientPressurePacingPermille: 75,
             dirtyRectangleSampleCount: 115,
             averageDirtyRectangleCount: 2,
             dirtyRectangleCountMax: 8,
@@ -349,11 +351,12 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 7)
+        XCTAssertEqual(decoded.schemaVersion, 8)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
         XCTAssertTrue(rendered.contains("\"actualEncodingMix\""))
+        XCTAssertTrue(rendered.contains("\"adaptiveClientPressurePacingPermille\" : 75"))
         XCTAssertTrue(rendered.contains("\"copyRectRectangles\" : 70"))
         XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
         XCTAssertTrue(rendered.contains("\"viewerStreamPowerMode\" : \"power-saver\""))
@@ -409,6 +412,8 @@ final class DiagnosticExportTests: XCTestCase {
             contentFramePermille: 2_000,
             emptyUpdatePermille: -10,
             transportIdleTimeoutPermille: 42,
+            adaptiveClientPressurePacingSampleCount: 50,
+            adaptiveClientPressurePacingPermille: 2_000,
             dirtyRectangleSampleCount: -5,
             averageDirtyRectangleCount: -6,
             dirtyRectangleCountMax: -7,
@@ -447,6 +452,8 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.contentFramePermille, 1_000)
         XCTAssertEqual(performance.emptyUpdatePermille, 0)
         XCTAssertEqual(performance.transportIdleTimeoutPermille, 42)
+        XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 0)
+        XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(performance.dirtyRectangleSampleCount, 0)
         XCTAssertEqual(performance.averageDirtyRectangleCount, 0)
         XCTAssertEqual(performance.dirtyRectangleCountMax, 0)
@@ -539,6 +546,8 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(performance.rendererPartialUploadPermille)
         XCTAssertNil(performance.rendererFullUploadPermille)
         XCTAssertEqual(performance.rendererUploadRegionCountMax, 0)
+        XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 0)
+        XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(performance.receiveTimingSampleCount, 0)
         XCTAssertEqual(performance.averageReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.maxReceiveTotalTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
@@ -620,8 +629,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v7 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 7"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v8 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 8"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }
