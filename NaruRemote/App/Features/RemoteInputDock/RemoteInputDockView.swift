@@ -485,11 +485,8 @@ public struct RemoteInputDockView: View {
             onTextChange(immediateText)
         }
         Task { @MainActor in
-            await Task.yield()
-            let stabilizedText = composeCommitController.readCurrentText(fallback: immediateText)
-            let finalText = Self.resolvedStabilizedComposeText(
-                immediateText: immediateText,
-                stabilizedText: stabilizedText
+            let finalText = await composeCommitController.readStabilizedCurrentText(
+                fallback: immediateText
             )
             if finalText != text {
                 text = finalText
@@ -618,6 +615,18 @@ public struct RemoteInputDockView: View {
         return stabilizedText
     }
 
+    nonisolated static func resolvedStabilizedComposeText(
+        immediateText: String,
+        stabilizedSnapshots: [String]
+    ) -> String {
+        stabilizedSnapshots.reduce(immediateText) { resolved, snapshot in
+            resolvedStabilizedComposeText(
+                immediateText: resolved,
+                stabilizedText: snapshot
+            )
+        }
+    }
+
     nonisolated static func shouldShowCompactStatusText(
         hasStatus: Bool,
         statusText: String
@@ -703,6 +712,20 @@ final class ComposeTextCommitController: ObservableObject {
             controllerText: currentText,
             fallback: fallback
         )
+    }
+
+    @MainActor
+    func readStabilizedCurrentText(fallback: String, snapshotCount: Int = 3) async -> String {
+        var resolved = fallback
+        for _ in 0..<max(1, snapshotCount) {
+            await Task.yield()
+            let next = readCurrentText(fallback: resolved)
+            resolved = RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: resolved,
+                stabilizedSnapshots: [next]
+            )
+        }
+        return resolved
     }
 
     func commitMarkedTextAndRead(fallback: String) -> String {

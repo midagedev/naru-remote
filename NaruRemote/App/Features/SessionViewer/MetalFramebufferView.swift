@@ -848,7 +848,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         applyViewportTransformToMetalView()
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
-        // The renderer has already accepted the local transform on this
+        // renderer has already accepted the local transform on this
         // callback. SwiftUI overlays and PiP focus catch up on the next
         // display-link tick so they stay visually close without adding
         // per-touch state work.
@@ -858,8 +858,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: true,
-            shouldPublishPan: panDidChange,
-            cadence: .gestureEnd
+            shouldPublishPan: panDidChange
         )
     }
 
@@ -1001,8 +1000,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true,
-            cadence: .gestureEnd
+            shouldPublishPan: true
         )
     }
 
@@ -1179,8 +1177,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: CGPoint(x: bounds.midX, y: bounds.midY),
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true,
-            cadence: .gestureEnd
+            shouldPublishPan: true
         )
 
         if !movedX {
@@ -1317,6 +1314,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         let displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFlushPendingViewportState(_:)))
+        configureViewportDisplayLink(displayLink)
         displayLink.add(to: .main, forMode: .common)
         viewportStateDisplayLink = displayLink
     }
