@@ -401,16 +401,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
 
-    /// Coalesces SwiftUI/PiP state mirroring while UIKit applies the
-    /// visible Metal transform immediately.  This keeps frame-driven
-    /// SwiftUI work out of the per-touch critical path.
+    /// Coalesces or defers SwiftUI/PiP state mirroring while UIKit
+    /// applies the visible Metal transform immediately. This keeps
+    /// frame-driven SwiftUI work out of the per-touch critical path.
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
+    private var deferredViewportStateRequiresFlush = false
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
+
+    private enum ViewportStatePublishCadence {
+        case nextDisplayLink
+        case gestureEnd
+    }
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -608,8 +614,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
-        isViewportTransformGestureActive = false
-        flushPendingViewportState()
+        finishViewportTransformGesture()
     }
 
     @MainActor
@@ -699,9 +704,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case .changed:
             break
         case .ended, .cancelled, .failed:
-            isViewportTransformGestureActive = false
             isPinchGestureActive = false
-            flushPendingViewportState()
+            finishViewportTransformGesture()
             return
         default:
             return
@@ -729,15 +733,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         applyViewportTransformToMetalView()
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
-        // handler mirrors state into SwiftUI overlays and PiP focus;
-        // the MTKView has already moved on this callback.
+        // The MTKView has already moved on this callback. SwiftUI
+        // overlays and PiP focus catch up when the gesture settles so
+        // frame-stream diffs do not fight pinch tracking.
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: nextPanOffset,
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: true,
-            shouldPublishPan: panDidChange
+            shouldPublishPan: panDidChange,
+            cadence: .gestureEnd
         )
     }
 
@@ -839,18 +845,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 anchor: recognizer.location(in: self),
                 viewSize: bounds.size,
                 shouldPublishZoom: false,
-                shouldPublishPan: true
+                shouldPublishPan: true,
+                cadence: .gestureEnd
             )
         case .ended:
             let velocity = recognizer.velocity(in: self)
             if startViewportDecelerationIfNeeded(velocity: velocity) {
                 return
             }
-            isViewportTransformGestureActive = false
-            flushPendingViewportState()
+            finishViewportTransformGesture()
         case .cancelled, .failed:
-            isViewportTransformGestureActive = false
-            flushPendingViewportState()
+            finishViewportTransformGesture()
         default:
             break
         }
@@ -889,8 +894,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             }
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
-            isViewportTransformGestureActive = false
-            flushPendingViewportState()
+            finishViewportTransformGesture()
         default:
             break
         }
@@ -984,7 +988,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: CGPoint(x: bounds.midX, y: bounds.midY),
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true
+            shouldPublishPan: true,
+            cadence: .gestureEnd
         )
 
         if !movedX {
@@ -1010,8 +1015,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
-        isViewportTransformGestureActive = false
-        flushPendingViewportState()
+        finishViewportTransformGesture()
     }
 
     @MainActor
@@ -1023,7 +1027,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
+        finishViewportTransformGesture()
+    }
+
+    @MainActor
+    private func finishViewportTransformGesture() {
         isViewportTransformGestureActive = false
+        guard deferredViewportStateRequiresFlush || pendingViewportState != nil else {
+            return
+        }
         flushPendingViewportState()
     }
 
@@ -1034,7 +1046,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         anchor: CGPoint,
         viewSize: CGSize,
         shouldPublishZoom: Bool,
-        shouldPublishPan: Bool
+        shouldPublishPan: Bool,
+        cadence: ViewportStatePublishCadence = .nextDisplayLink
     ) {
         let existing = pendingViewportState
         pendingViewportState = PendingViewportState(
@@ -1045,6 +1058,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             shouldPublishZoom: (existing?.shouldPublishZoom ?? false) || shouldPublishZoom,
             shouldPublishPan: (existing?.shouldPublishPan ?? false) || shouldPublishPan
         )
+
+        guard cadence == .nextDisplayLink else {
+            deferredViewportStateRequiresFlush = true
+            viewportStateDisplayLink?.invalidate()
+            viewportStateDisplayLink = nil
+            return
+        }
 
         guard viewportStateDisplayLink == nil else {
             return
@@ -1064,6 +1084,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func flushPendingViewportState() {
         viewportStateDisplayLink?.invalidate()
         viewportStateDisplayLink = nil
+        deferredViewportStateRequiresFlush = false
         guard let pending = pendingViewportState else {
             return
         }
