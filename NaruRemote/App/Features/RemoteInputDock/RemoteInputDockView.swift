@@ -11,6 +11,9 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
+    private static let composeSendStabilizationSnapshotCount = 5
+    private static let composeSendStabilizationDelayNanoseconds: UInt64 = 8_000_000
+
     @State private var text: String
     @State private var lastAppliedInitialText: String
     #if os(iOS) && canImport(UIKit)
@@ -486,7 +489,9 @@ public struct RemoteInputDockView: View {
         }
         Task { @MainActor in
             let finalText = await composeCommitController.readStabilizedCurrentText(
-                fallback: immediateText
+                fallback: immediateText,
+                snapshotCount: Self.composeSendStabilizationSnapshotCount,
+                snapshotDelayNanoseconds: Self.composeSendStabilizationDelayNanoseconds
             )
             if finalText != text {
                 text = finalText
@@ -641,12 +646,35 @@ public struct RemoteInputDockView: View {
         controllerText: String,
         fallback: String
     ) -> String {
-        if let viewText, !viewText.isEmpty {
-            return viewText
+        if let markedText, !markedText.isEmpty {
+            if let viewText, !viewText.isEmpty {
+                if viewText.contains(markedText) {
+                    return viewText
+                }
+                if !controllerText.isEmpty,
+                   controllerText.contains(markedText),
+                   controllerText.count > viewText.count {
+                    return controllerText
+                }
+                if !fallback.isEmpty,
+                   !fallback.contains(markedText),
+                   viewText.hasPrefix(fallback) || fallback.hasPrefix(viewText) {
+                    return fallback + markedText
+                }
+                return viewText
+            }
+
+            if !controllerText.isEmpty {
+                return controllerText
+            }
+            if !fallback.isEmpty, !fallback.contains(markedText) {
+                return fallback + markedText
+            }
+            return markedText
         }
 
-        if let markedText, !markedText.isEmpty {
-            return markedText
+        if let viewText, !viewText.isEmpty {
+            return viewText
         }
 
         if !controllerText.isEmpty {
@@ -715,10 +743,18 @@ final class ComposeTextCommitController: ObservableObject {
     }
 
     @MainActor
-    func readStabilizedCurrentText(fallback: String, snapshotCount: Int = 3) async -> String {
+    func readStabilizedCurrentText(
+        fallback: String,
+        snapshotCount: Int = 3,
+        snapshotDelayNanoseconds: UInt64 = 0
+    ) async -> String {
         var resolved = fallback
         for _ in 0..<max(1, snapshotCount) {
-            await Task.yield()
+            if snapshotDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: snapshotDelayNanoseconds)
+            } else {
+                await Task.yield()
+            }
             let next = readCurrentText(fallback: resolved)
             resolved = RemoteInputDockView.resolvedStabilizedComposeText(
                 immediateText: resolved,

@@ -114,7 +114,7 @@ public struct NaruRemoteAppShell: View {
                 Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
             },
             onTrackpadGesture: { gesture, transform in
-                model.handleTrackpadGesture(gesture, transform: transform) ?? transform
+                model.handleTrackpadGesture(gesture, transform: transform)
             },
             onViewportInteractionChange: { isActive in
                 model.setViewportInteractionActive(isActive)
