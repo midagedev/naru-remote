@@ -1454,7 +1454,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
         XCTAssertEqual(
             model.snapshot.composeDraft?.lastStatusMessage,
@@ -1469,7 +1469,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(json.utf8)
         )
-        XCTAssertEqual(report.input?.hasComposeDraftText, false)
+        XCTAssertEqual(report.input?.hasComposeDraftText, true)
         XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
         XCTAssertEqual(
