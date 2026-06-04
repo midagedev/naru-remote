@@ -458,6 +458,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
+    private var viewportGestureLastSampleTimestamp: CFTimeInterval?
     private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval
@@ -466,6 +467,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
     private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 30.0
+    private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {
         case nextDisplayLink
@@ -814,6 +816,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
 
         let previousZoomScale = currentZoomScale
+        recordViewportGestureSample()
         let proposed = previousZoomScale * recognizer.scale
         let anchor = recognizer.location(in: self)
         let previousAnchor = pinchLastAnchor ?? anchor
@@ -939,6 +942,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 pointerUpHandler?(endPoint, size)
             }
         case .changed:
+            recordViewportGestureSample()
             let translation = recognizer.translation(in: self)
             recognizer.setTranslation(.zero, in: self)
             let proposed = CGSize(
@@ -997,6 +1001,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 return
             }
             trackpadDragMoved = true
+            if trackpadDragOwnsViewportInteraction {
+                recordViewportGestureSample()
+            }
             dispatchTrackpadGesture(
                 .dragChanged(viewPoint: recognizer.location(in: self), translation: delta)
             )
@@ -1016,16 +1023,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     private func applyViewportTransformToMetalView() {
-        // Keep the renderer drawing the latest texture at the stable
-        // aspect-fit baseline and let Core Animation move the MTKView
-        // layer for local viewport navigation. This keeps pinch/pan on
-        // the compositor path instead of requiring a Metal redraw for
-        // every touch callback.
-        coordinator?.renderer?.updateViewportTransform(
-            zoomScale: Self.minZoomScale,
-            panOffset: .zero,
-            maxZoomScale: Self.maxZoomScale
-        )
+        // Keep local viewport navigation on Core Animation's compositor
+        // path. The renderer already draws the latest texture at its
+        // stable aspect-fit baseline, so the hot path should not mutate
+        // renderer state for every touch callback.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -1172,6 +1173,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
+        viewportGestureLastSampleTimestamp = nil
         finishViewportTransformGesture()
     }
 
@@ -1184,6 +1186,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
+        viewportGestureLastSampleTimestamp = nil
         finishViewportTransformGesture()
     }
 
@@ -1191,6 +1194,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func finishViewportTransformGesture() {
         let wasActive = isViewportTransformGestureActive
         isViewportTransformGestureActive = false
+        viewportGestureLastSampleTimestamp = nil
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
         let shouldFlushRedraw = viewportGestureRedrawThrottle.flushAfterGesture()
             || deferredFramebufferRedrawDuringViewportGesture
@@ -1216,10 +1220,27 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         isViewportTransformGestureActive = true
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
         if wasInactive {
+            viewportGestureLastSampleTimestamp = nil
             pendingViewportRedrawDiagnostics.interactionCount += 1
             recordViewportDisplayRefreshRate()
             viewportInteractionHandler?(true)
         }
+    }
+
+    private func recordViewportGestureSample(now: CFTimeInterval = CACurrentMediaTime()) {
+        pendingViewportRedrawDiagnostics.gestureSampleCount += 1
+        if let previous = viewportGestureLastSampleTimestamp {
+            let interval = max(0, now - previous)
+            let milliseconds = Int((interval * 1_000).rounded())
+            pendingViewportRedrawDiagnostics.gestureMaxIntervalMilliseconds = max(
+                pendingViewportRedrawDiagnostics.gestureMaxIntervalMilliseconds,
+                milliseconds
+            )
+            if interval > Self.viewportGestureLongFrameInterval {
+                pendingViewportRedrawDiagnostics.gestureLongFrameCount += 1
+            }
+        }
+        viewportGestureLastSampleTimestamp = now
     }
 
     @MainActor

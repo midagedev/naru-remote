@@ -182,4 +182,22 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
             "입력느낌"
         )
     }
+
+    func testCompactStatusHidesDefaultReadyCopy() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowCompactStatusText(
+                hasStatus: false,
+                statusText: "Ready to compose locally"
+            )
+        )
+    }
+
+    func testCompactStatusShowsActionableSendState() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactStatusText(
+                hasStatus: true,
+                statusText: "Paste command sent; remote app confirmation unavailable."
+            )
+        )
+    }
 }

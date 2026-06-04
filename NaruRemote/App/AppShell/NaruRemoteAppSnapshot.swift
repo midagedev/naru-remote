@@ -44,6 +44,9 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var rendererUploadMillisecondsTotal: Int
     public var rendererUploadMillisecondsMax: Int
     public var viewportInteractionCount: Int
+    public var viewportGestureSampleCount: Int
+    public var viewportGestureLongFrameCount: Int
+    public var viewportGestureMaxIntervalMilliseconds: Int
     public var viewportIncomingFrameDeferredCount: Int
     public var viewportRedrawRequestCount: Int
     public var viewportRedrawFlushCount: Int
@@ -89,6 +92,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererUploadMillisecondsTotal: Int = 0,
         rendererUploadMillisecondsMax: Int = 0,
         viewportInteractionCount: Int = 0,
+        viewportGestureSampleCount: Int = 0,
+        viewportGestureLongFrameCount: Int = 0,
+        viewportGestureMaxIntervalMilliseconds: Int = 0,
         viewportIncomingFrameDeferredCount: Int = 0,
         viewportRedrawRequestCount: Int = 0,
         viewportRedrawFlushCount: Int = 0,
@@ -129,6 +135,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.rendererUploadMillisecondsTotal = max(rendererUploadMillisecondsTotal, 0)
         self.rendererUploadMillisecondsMax = max(rendererUploadMillisecondsMax, 0)
         self.viewportInteractionCount = max(viewportInteractionCount, 0)
+        self.viewportGestureSampleCount = max(viewportGestureSampleCount, 0)
+        self.viewportGestureLongFrameCount = max(viewportGestureLongFrameCount, 0)
+        self.viewportGestureMaxIntervalMilliseconds = max(viewportGestureMaxIntervalMilliseconds, 0)
         self.viewportIncomingFrameDeferredCount = max(viewportIncomingFrameDeferredCount, 0)
         self.viewportRedrawRequestCount = max(viewportRedrawRequestCount, 0)
         self.viewportRedrawFlushCount = max(viewportRedrawFlushCount, 0)
@@ -299,6 +308,15 @@ public struct SessionStreamStats: Equatable, Sendable {
             maxRendererUploadTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxRendererUploadMilliseconds).rawValue,
             viewportInteractionCount: viewportInteractionCount,
+            viewportGestureSampleCount: viewportGestureSampleCount,
+            viewportGestureLongFrameCount: viewportGestureLongFrameCount,
+            viewportGestureMaxIntervalBucket: DiagnosticTimingBucket
+                .bucket(
+                    milliseconds: viewportGestureMaxIntervalMilliseconds > 0
+                        ? viewportGestureMaxIntervalMilliseconds
+                        : nil
+                )
+                .rawValue,
             viewportIncomingFrameDeferredCount: viewportIncomingFrameDeferredCount,
             viewportRedrawRequestCount: viewportRedrawRequestCount,
             viewportRedrawFlushCount: viewportRedrawFlushCount,
@@ -387,6 +405,12 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
         viewportInteractionCount += max(diagnostics.interactionCount, 0)
+        viewportGestureSampleCount += max(diagnostics.gestureSampleCount, 0)
+        viewportGestureLongFrameCount += max(diagnostics.gestureLongFrameCount, 0)
+        viewportGestureMaxIntervalMilliseconds = max(
+            viewportGestureMaxIntervalMilliseconds,
+            diagnostics.gestureMaxIntervalMilliseconds
+        )
         viewportIncomingFrameDeferredCount += max(diagnostics.incomingFrameDeferredCount, 0)
         viewportRedrawRequestCount += max(diagnostics.redrawRequestCount, 0)
         viewportRedrawFlushCount += max(diagnostics.redrawFlushCount, 0)

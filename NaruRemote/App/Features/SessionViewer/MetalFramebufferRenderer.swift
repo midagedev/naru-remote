@@ -111,8 +111,10 @@ public final class MetalFramebufferRenderer: NSObject {
     }
 
     /// Updates the local viewport transform used for drawing the
-    /// current texture. Gesture handlers can change this at touch
-    /// cadence without reallocating or re-uploading framebuffer bytes.
+    /// current texture. The main iPhone host keeps this at the stable
+    /// aspect-fit baseline and applies touch navigation with a layer
+    /// transform, but the renderer path remains available for tests and
+    /// fallback projection.
     public func updateViewportTransform(
         zoomScale: CGFloat,
         panOffset: CGSize,

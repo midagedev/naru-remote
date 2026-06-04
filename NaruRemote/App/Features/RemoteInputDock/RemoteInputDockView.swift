@@ -33,6 +33,7 @@ public struct RemoteInputDockView: View {
     private let directKeystrokeMode: DirectKeystrokeMode
     private let stickyModifierState: StickyModifierState
     private let layoutStyle: RemoteInputDockLayoutStyle
+    private let showsCompactStatusText: Bool
     /// When `true`, the Compose-mode inline quick-key strip
     /// (Esc / Tab / ⌃C / arrows) is shown.  Gated on an active session
     /// (spec 003 FR-013) — with no live wire there is nothing to send
@@ -54,6 +55,7 @@ public struct RemoteInputDockView: View {
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         layoutStyle: RemoteInputDockLayoutStyle = .standard,
+        showsCompactStatusText: Bool = false,
         showsComposeQuickKeys: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
@@ -72,6 +74,7 @@ public struct RemoteInputDockView: View {
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.layoutStyle = layoutStyle
+        self.showsCompactStatusText = showsCompactStatusText
         self.showsComposeQuickKeys = showsComposeQuickKeys
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
@@ -194,6 +197,12 @@ public struct RemoteInputDockView: View {
                 directKeyboard
             } else {
                 compactComposeRow
+                if Self.shouldShowCompactStatusText(
+                    hasStatus: showsCompactStatusText,
+                    statusText: statusText
+                ) {
+                    compactStatusLine
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -273,6 +282,15 @@ public struct RemoteInputDockView: View {
                 accessibilityID: "naru.direct.badge.dock"
             )
         }
+    }
+
+    private var compactStatusLine: some View {
+        Text(statusText)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("naru.input.compact-status")
     }
 
     private var quickKeyMenu: some View {
@@ -537,6 +555,14 @@ public struct RemoteInputDockView: View {
         }
 
         return currentTextBeforeCommit
+    }
+
+    nonisolated static func shouldShowCompactStatusText(
+        hasStatus: Bool,
+        statusText: String
+    ) -> Bool {
+        let trimmed = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return hasStatus && !trimmed.isEmpty
     }
 
     nonisolated static func resolvedCurrentComposeText(
