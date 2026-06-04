@@ -741,6 +741,7 @@ public enum DiagnosticFailureCodeCatalog {
         "rfb.insufficientData",
         "rfb.invalidProtocolVersion",
         "rfb.invalidServerCutTextEncoding",
+        "rfb.malformedExtendedServerCutText",
         "rfb.securityFailed",
         "rfb.truncatedServerCutText",
         "rfb.unexpectedMessageType",

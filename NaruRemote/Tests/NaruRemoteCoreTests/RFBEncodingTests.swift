@@ -40,6 +40,7 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertFalse(list.contains(RFBEncoding.tight))
         XCTAssertFalse(list.contains(RFBEncoding.cursor))
         XCTAssertFalse(list.contains(RFBEncoding.xCursor))
+        XCTAssertFalse(list.contains(RFBEncoding.extendedClipboard))
     }
 
     func testFullPreferenceOrdersZrleAndTightFirst() {
@@ -59,6 +60,7 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(list.contains(RFBEncoding.xCursor))
         XCTAssertTrue(list.contains(RFBEncoding.tightQualityLevel(8)))
         XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(1)))
+        XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
     }
 
@@ -72,6 +74,7 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(list.contains(RFBEncoding.cursor))
         XCTAssertTrue(list.contains(RFBEncoding.xCursor))
         XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
+        XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
     }
 
@@ -123,6 +126,8 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(good.contains(RFBEncoding.xCursor))
         XCTAssertTrue(poor.contains(RFBEncoding.cursor))
         XCTAssertTrue(poor.contains(RFBEncoding.xCursor))
+        XCTAssertTrue(good.contains(RFBEncoding.extendedClipboard))
+        XCTAssertTrue(poor.contains(RFBEncoding.extendedClipboard))
     }
 
     func testAdaptivePreferenceDoesNotAdvertiseUnsupportedHintsOrCursor() {
@@ -140,6 +145,17 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertFalse(list.contains(RFBEncoding.tightCompressionLevel(8)))
         XCTAssertTrue(list.contains(RFBEncoding.hextile))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
+        XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
+    }
+
+    func testAdaptivePreferenceSkipsExtendedClipboardWhenSupportDisablesIt() {
+        let list = RFBEncodingPreference.adaptive(
+            supported: RFBEncodingSupport(extendedClipboard: false),
+            requestedPseudoEncodings: .withServerCursor,
+            connectionQuality: .good
+        ).encodingList()
+
+        XCTAssertFalse(list.contains(RFBEncoding.extendedClipboard))
     }
 
     func testAdaptivePreferenceUsesLatencyOrderingForGoodAndBandwidthOrderingForPoor() {

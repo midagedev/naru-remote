@@ -410,6 +410,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
     private var deferredViewportStateRequiresFlush = false
+    private var viewportRedrawDisplayLink: CADisplayLink?
+    private var viewportRedrawRequested = false
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
@@ -518,12 +520,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         pinchRecognizer.cancelsTouchesInView = false
         pinchRecognizer.delegate = self
 
-        // Single-finger pan is the drag-to-move recognizer.  It must
-        // lose to a long-press (so press-and-hold becomes a button-3
-        // click instead of starting a drag) and is configured to
-        // coexist with the tap recognizer through the
+        // Single-finger pan is the drag-to-move recognizer. It coexists
+        // with long-press and tap so zoomed panning can begin as soon as
+        // UIKit has classified movement, instead of waiting for the
+        // long-press timeout before the viewport follows the finger. Tap
+        // and long-press precedence is preserved by the
         // `gestureRecognizer(_:shouldRecognizeSimultaneouslyWith:)`
-        // delegate hook.  Tap precedence is preserved by deferring
+        // delegate hook and by deferring
         // the actual `pointerDownHandler` invocation until the FIRST
         // `.changed` callback — a touch that never moves past the
         // recognizer's tap-slop never enters `.changed`, so the tap
@@ -537,7 +540,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         dragRecognizer.maximumNumberOfTouches = 1
         dragRecognizer.cancelsTouchesInView = false
         dragRecognizer.delegate = self
-        dragRecognizer.require(toFail: longPressRecognizer)
 
         addGestureRecognizer(tapRecognizer)
         addGestureRecognizer(doubleTapRecognizer)
@@ -653,6 +655,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         viewportStateDisplayLink?.invalidate()
         viewportStateDisplayLink = nil
+        viewportRedrawDisplayLink?.invalidate()
+        viewportRedrawDisplayLink = nil
+        viewportRedrawRequested = false
         viewportDecelerationDisplayLink?.invalidate()
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
@@ -778,18 +783,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         applyViewportTransformToMetalView()
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The
-        // The renderer has already redrawn the local transform on this
-        // callback. SwiftUI overlays and PiP focus catch up when the
-        // gesture settles so frame-stream diffs do not fight pinch
-        // tracking.
+        // The renderer has already accepted the local transform on this
+        // callback. SwiftUI overlays and PiP focus catch up on the next
+        // display-link tick so they stay visually close without adding
+        // per-touch state work.
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: nextPanOffset,
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: true,
-            shouldPublishPan: panDidChange,
-            cadence: .gestureEnd
+            shouldPublishPan: panDidChange
         )
     }
 
@@ -891,8 +895,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 anchor: recognizer.location(in: self),
                 viewSize: bounds.size,
                 shouldPublishZoom: false,
-                shouldPublishPan: true,
-                cadence: .gestureEnd
+                shouldPublishPan: true
             )
         case .ended:
             let velocity = recognizer.velocity(in: self)
@@ -959,6 +962,39 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             metalView?.transform = .identity
         }
         CATransaction.commit()
+        requestCoalescedViewportRedraw()
+    }
+
+    @MainActor
+    private func requestCoalescedViewportRedraw() {
+        viewportRedrawRequested = true
+        guard viewportRedrawDisplayLink == nil else {
+            return
+        }
+
+        let displayLink = CADisplayLink(
+            target: self,
+            selector: #selector(displayLinkFlushViewportRedraw(_:))
+        )
+        displayLink.add(to: .main, forMode: .common)
+        viewportRedrawDisplayLink = displayLink
+    }
+
+    @MainActor
+    @objc
+    private func displayLinkFlushViewportRedraw(_ displayLink: CADisplayLink) {
+        flushPendingViewportRedrawIfNeeded()
+    }
+
+    @MainActor
+    private func flushPendingViewportRedrawIfNeeded() {
+        viewportRedrawDisplayLink?.invalidate()
+        viewportRedrawDisplayLink = nil
+        guard viewportRedrawRequested else {
+            return
+        }
+
+        viewportRedrawRequested = false
         requestImmediateViewportRedraw()
     }
 
@@ -1033,8 +1069,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: CGPoint(x: bounds.midX, y: bounds.midY),
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true,
-            cadence: .gestureEnd
+            shouldPublishPan: true
         )
 
         if !movedX {
@@ -1085,6 +1120,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         if deferredViewportStateRequiresFlush || pendingViewportState != nil {
             flushPendingViewportState()
         }
+        flushPendingViewportRedrawIfNeeded()
         if shouldFlushRedraw {
             requestRedraw()
         }

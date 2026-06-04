@@ -84,6 +84,63 @@ final class RFBProtocolDecoderTests: XCTestCase {
         XCTAssertEqual(try RFBProtocolDecoder.parseServerCutText(message), "")
     }
 
+    func testParsesExtendedClipboardCapsMessage() throws {
+        let message = Self.serverCutTextMessage(
+            fromClientCutText: try RFBClientMessageEncoder.extendedClipboardCaps(textMaximumBytes: 8192)
+        )
+
+        guard case .extendedClipboard(let decoded) = try RFBProtocolDecoder.parseServerCutTextMessage(message) else {
+            XCTFail("Expected extended clipboard caps")
+            return
+        }
+
+        XCTAssertTrue(decoded.flags.contains(.caps))
+        XCTAssertTrue(decoded.flags.contains(.text))
+        XCTAssertTrue(decoded.confirmsUTF8TextProvide)
+        XCTAssertEqual(decoded.textMaximumBytes, 8192)
+        XCTAssertEqual(try RFBProtocolDecoder.parseServerCutText(message), "")
+    }
+
+    func testParsesExtendedClipboardProvideTextMessage() throws {
+        let message = Self.serverCutTextMessage(
+            fromClientCutText: try RFBClientMessageEncoder.extendedClipboardProvideText("안녕\r\n클립보드 😊")
+        )
+
+        guard case .extendedClipboard(let decoded) = try RFBProtocolDecoder.parseServerCutTextMessage(message) else {
+            XCTFail("Expected extended clipboard provide")
+            return
+        }
+
+        XCTAssertTrue(decoded.flags.contains(.provide))
+        XCTAssertTrue(decoded.flags.contains(.text))
+        XCTAssertEqual(decoded.text, "안녕\n클립보드 😊")
+        XCTAssertEqual(try RFBProtocolDecoder.parseServerCutText(message), "안녕\n클립보드 😊")
+    }
+
+    func testParsesExtendedClipboardProvideTextFromStandardZlibFixture() throws {
+        // Ground truth from Python `zlib.compress` over:
+        // [u32 text length = 6]["hello"][NUL].
+        let compressed = Data([
+            0x78, 0x9c,
+            0x63, 0x60, 0x60, 0x60, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x67, 0x00, 0x00,
+            0x08, 0x6f, 0x02, 0x1b
+        ])
+        let flags: RFBExtendedClipboardFlags = [.text, .provide]
+        var body = Data(Self.uint32Bytes(flags.rawValue))
+        body.append(compressed)
+        var message = Data([3, 0, 0, 0])
+        message.append(contentsOf: Self.uint32Bytes(UInt32(bitPattern: Int32(-body.count))))
+        message.append(body)
+
+        guard case .extendedClipboard(let decoded) = try RFBProtocolDecoder.parseServerCutTextMessage(message) else {
+            XCTFail("Expected extended clipboard provide")
+            return
+        }
+
+        XCTAssertEqual(decoded.text, "hello")
+        XCTAssertEqual(try RFBProtocolDecoder.parseServerCutText(message), "hello")
+    }
+
     func testRejectsTruncatedServerCutTextPayloadWithTypedError() {
         // Header declares a 19-byte payload but only 5 payload bytes are present.
         var message = Data([3, 0, 0, 0])
@@ -124,6 +181,12 @@ final class RFBProtocolDecoderTests: XCTestCase {
             UInt8((value >> 8) & 0xff),
             UInt8(value & 0xff)
         ]
+    }
+
+    private static func serverCutTextMessage(fromClientCutText message: Data) -> Data {
+        var serverMessage = message
+        serverMessage[serverMessage.startIndex] = 3
+        return serverMessage
     }
 
     private static func loadHexFixture(_ name: String) throws -> Data {

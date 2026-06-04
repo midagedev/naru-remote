@@ -717,12 +717,17 @@ public final class FakeRFBClientMessageRecorder: @unchecked Sendable {
                     pointerScanCursor = cursor
                     return
                 }
-                let length =
+                let rawLength =
                     UInt32(recordedBytes[cursor + 4]) << 24 |
                     UInt32(recordedBytes[cursor + 5]) << 16 |
                     UInt32(recordedBytes[cursor + 6]) << 8 |
                     UInt32(recordedBytes[cursor + 7])
-                frameLength = 8 + Int(length)
+                let signedLength = Int32(bitPattern: rawLength)
+                guard signedLength != Int32.min else {
+                    pointerScanCursor = cursor
+                    return
+                }
+                frameLength = 8 + Int(abs(signedLength))
             case 150:
                 // EnableContinuousUpdates: 1 type + 1 enable + rect u16 fields.
                 frameLength = 10

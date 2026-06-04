@@ -17,8 +17,10 @@ session.
 1. User focuses a target field in the remote session.
 2. User composes text locally in Remote Input Dock.
 3. User taps Send.
-4. Naru Remote sends text through RFB `ClientCutText` using the local UTF-8
-   byte payload for the MVP fake-server path.
+4. Naru Remote sends text through Extended Clipboard UTF-8 `provide` when the
+   server has confirmed text+provide support through an extended `ServerCutText`
+   caps message. If no confirmation has arrived, Naru falls back to legacy RFB
+   `ClientCutText` using the local UTF-8 byte payload.
 5. Naru Remote sends the remote paste shortcut as RFB key events.
 6. Naru Remote displays the actual path and result.
 
@@ -34,9 +36,11 @@ The MVP VNC clipboard path should report `unknown` after clipboard set and paste
 command success unless a future adapter can confirm that the focused remote app
 received the text.
 
-Current automated coverage verifies outgoing `ClientCutText` and paste key
+Current automated coverage verifies outgoing legacy `ClientCutText`, Extended
+Clipboard caps/provide negotiation, zlib-wrapped UTF-8 payloads, and paste key
 events against the fake RFB server. It does not yet prove that every real VNC
-server accepts UTF-8 text through legacy clipboard messages.
+server accepts Unicode clipboard text or inserts it into every focused remote
+application.
 
 ## Clipboard Restore
 

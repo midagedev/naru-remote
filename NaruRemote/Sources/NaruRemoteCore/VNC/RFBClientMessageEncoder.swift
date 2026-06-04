@@ -1,4 +1,25 @@
 import Foundation
+import Compression
+
+public struct RFBExtendedClipboardFlags: OptionSet, Equatable, Sendable {
+    public let rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public static let text = RFBExtendedClipboardFlags(rawValue: 1 << 0)
+    public static let rtf = RFBExtendedClipboardFlags(rawValue: 1 << 1)
+    public static let html = RFBExtendedClipboardFlags(rawValue: 1 << 2)
+    public static let dib = RFBExtendedClipboardFlags(rawValue: 1 << 3)
+    public static let files = RFBExtendedClipboardFlags(rawValue: 1 << 4)
+
+    public static let caps = RFBExtendedClipboardFlags(rawValue: 1 << 24)
+    public static let request = RFBExtendedClipboardFlags(rawValue: 1 << 25)
+    public static let peek = RFBExtendedClipboardFlags(rawValue: 1 << 26)
+    public static let notify = RFBExtendedClipboardFlags(rawValue: 1 << 27)
+    public static let provide = RFBExtendedClipboardFlags(rawValue: 1 << 28)
+}
 
 public struct RFBFenceFlags: OptionSet, Equatable, Sendable {
     public let rawValue: UInt32
@@ -23,6 +44,8 @@ public struct RFBFenceFlags: OptionSet, Equatable, Sendable {
 public enum RFBClientMessageEncodingError: Error, Equatable {
     case unsupportedFenceFlags(UInt32)
     case fencePayloadTooLarge(maximum: Int, actual: Int)
+    case extendedClipboardPayloadTooLarge(maximum: Int, actual: Int)
+    case zlibCompressionFailed
 }
 
 public enum RFBClientMessageEncoder {
@@ -36,6 +59,41 @@ public enum RFBClientMessageEncoder {
         var bytes: [UInt8] = [6, 0, 0, 0]
         bytes.append(contentsOf: uint32Bytes(UInt32(payload.count)))
         return Data(bytes) + payload
+    }
+
+    /// Encodes the client capability response for the Extended Clipboard
+    /// pseudo-encoding. The single size entry corresponds to the `text`
+    /// format bit and tells the server the largest unsolicited UTF-8 text
+    /// payload Naru is willing to receive.
+    public static func extendedClipboardCaps(
+        textMaximumBytes: UInt32 = 20 * 1024 * 1024
+    ) throws -> Data {
+        let flags: RFBExtendedClipboardFlags = [
+            .text,
+            .caps,
+            .request,
+            .notify,
+            .provide
+        ]
+        var body = Data(uint32Bytes(flags.rawValue))
+        body.append(contentsOf: uint32Bytes(textMaximumBytes))
+        return try extendedClientCutText(body: body)
+    }
+
+    /// Encodes a UTF-8 text clipboard update using the Extended Clipboard
+    /// `provide` action. This is the VNC path required for Korean/CJK/emoji
+    /// text on servers that confirmed support through a caps message.
+    public static func extendedClipboardProvideText(_ text: String) throws -> Data {
+        var textPayload = Data(extendedClipboardTextPayload(for: text).utf8)
+        textPayload.append(0)
+
+        var uncompressed = Data(uint32Bytes(UInt32(textPayload.count)))
+        uncompressed.append(textPayload)
+        let compressed = try RFBZlibDeflate.deflateZlibWrapped([UInt8](uncompressed))
+
+        var body = Data(uint32Bytes((RFBExtendedClipboardFlags.text.union(.provide)).rawValue))
+        body.append(contentsOf: compressed)
+        return try extendedClientCutText(body: body)
     }
 
     /// Encodes a `SetEncodings` message (RFC 6143 §7.5.2, message
@@ -179,6 +237,119 @@ public enum RFBClientMessageEncoder {
             UInt8((value >> 16) & 0x000000ff),
             UInt8((value >> 8) & 0x000000ff),
             UInt8(value & 0x000000ff)
+        ]
+    }
+
+    private static func extendedClientCutText(body: Data) throws -> Data {
+        guard body.count <= Int(Int32.max) else {
+            throw RFBClientMessageEncodingError.extendedClipboardPayloadTooLarge(
+                maximum: Int(Int32.max),
+                actual: body.count
+            )
+        }
+
+        let signedLength = Int32(-body.count)
+        var bytes: [UInt8] = [6, 0, 0, 0]
+        bytes.append(contentsOf: uint32Bytes(UInt32(bitPattern: signedLength)))
+        return Data(bytes) + body
+    }
+
+    private static func extendedClipboardTextPayload(for text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\n", with: "\r\n")
+    }
+}
+
+private enum RFBZlibDeflate {
+    private static let outputChunkSize = 64 * 1024
+
+    static func deflateZlibWrapped(_ input: [UInt8]) throws -> [UInt8] {
+        let rawDeflate = try deflateRaw(input)
+        var wrapped: [UInt8] = [0x78, 0x9c]
+        wrapped.append(contentsOf: rawDeflate)
+        wrapped.append(contentsOf: adler32Bytes(for: input))
+        return wrapped
+    }
+
+    private static func deflateRaw(_ input: [UInt8]) throws -> [UInt8] {
+        guard !input.isEmpty else {
+            return []
+        }
+
+        // Apple's `COMPRESSION_ZLIB` encoder emits raw DEFLATE bytes here.
+        // Extended Clipboard needs an RFC 1950 zlib wrapper, so the caller
+        // adds exactly one header/trailer around this payload.
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        var initialized = false
+        defer {
+            if initialized {
+                compression_stream_destroy(stream)
+            }
+            stream.deallocate()
+        }
+
+        guard compression_stream_init(stream, COMPRESSION_STREAM_ENCODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw RFBClientMessageEncodingError.zlibCompressionFailed
+        }
+        initialized = true
+
+        var output: [UInt8] = []
+        var failure = false
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: outputChunkSize)
+        defer { destination.deallocate() }
+
+        input.withUnsafeBufferPointer { source in
+            guard let baseAddress = source.baseAddress else {
+                return
+            }
+            stream.pointee.src_ptr = baseAddress
+            stream.pointee.src_size = source.count
+
+            while true {
+                stream.pointee.dst_ptr = destination
+                stream.pointee.dst_size = outputChunkSize
+                let status = compression_stream_process(
+                    stream,
+                    Int32(COMPRESSION_STREAM_FINALIZE.rawValue)
+                )
+                let produced = outputChunkSize - stream.pointee.dst_size
+                if produced > 0 {
+                    output.append(contentsOf: UnsafeBufferPointer(start: destination, count: produced))
+                }
+
+                switch status {
+                case COMPRESSION_STATUS_OK:
+                    continue
+                case COMPRESSION_STATUS_END:
+                    return
+                default:
+                    failure = true
+                    return
+                }
+            }
+        }
+
+        if failure {
+            throw RFBClientMessageEncodingError.zlibCompressionFailed
+        }
+        return output
+    }
+
+    private static func adler32Bytes(for input: [UInt8]) -> [UInt8] {
+        var a: UInt32 = 1
+        var b: UInt32 = 0
+        for byte in input {
+            a = (a + UInt32(byte)) % 65_521
+            b = (b + a) % 65_521
+        }
+        let checksum = (b << 16) | a
+        return [
+            UInt8((checksum >> 24) & 0xff),
+            UInt8((checksum >> 16) & 0xff),
+            UInt8((checksum >> 8) & 0xff),
+            UInt8(checksum & 0xff)
         ]
     }
 }

@@ -16,6 +16,59 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         XCTAssertEqual(message.suffix(payload.count), payload)
     }
 
+    func testExtendedClipboardCapsUsesNegativeLengthAndTextCapability() throws {
+        let message = try RFBClientMessageEncoder.extendedClipboardCaps(textMaximumBytes: 4096)
+        let expectedFlags: RFBExtendedClipboardFlags = [
+            .text,
+            .caps,
+            .request,
+            .notify,
+            .provide
+        ]
+
+        XCTAssertEqual(message.count, 16)
+        XCTAssertEqual(message.prefix(4), Data([6, 0, 0, 0]))
+        XCTAssertEqual(Self.int32(message, at: 4), -8)
+        XCTAssertEqual(Self.uint32(message, at: 8), expectedFlags.rawValue)
+        XCTAssertEqual(Self.uint32(message, at: 12), 4096)
+    }
+
+    func testExtendedClipboardProvideTextCarriesUTF8Payload() throws {
+        let message = try RFBClientMessageEncoder.extendedClipboardProvideText("첫줄\n둘째 😊")
+        let expectedFlags: RFBExtendedClipboardFlags = [.text, .provide]
+        var serverMessage = message
+        serverMessage[serverMessage.startIndex] = 3
+
+        XCTAssertEqual(message.prefix(4), Data([6, 0, 0, 0]))
+        XCTAssertLessThan(Self.int32(message, at: 4), 0)
+        XCTAssertEqual(Self.uint32(message, at: 8), expectedFlags.rawValue)
+
+        guard case .extendedClipboard(let decoded) = try RFBProtocolDecoder.parseServerCutTextMessage(serverMessage) else {
+            XCTFail("Expected extended clipboard message")
+            return
+        }
+        XCTAssertTrue(decoded.flags.contains(.text))
+        XCTAssertTrue(decoded.flags.contains(.provide))
+        XCTAssertEqual(decoded.text, "첫줄\n둘째 😊")
+    }
+
+    func testExtendedClipboardProvideTextUsesSingleRFC1950ZlibWrapper() throws {
+        let message = try RFBClientMessageEncoder.extendedClipboardProvideText("hello")
+
+        // Ground truth from Python `zlib.compress` over:
+        // [u32 text length = 6]["hello"][NUL].
+        let expectedCompressed = Data([
+            0x78, 0x9c,
+            0x63, 0x60, 0x60, 0x60, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x67, 0x00, 0x00,
+            0x08, 0x6f, 0x02, 0x1b
+        ])
+        let compressed = message.subdata(in: 12..<message.count)
+
+        XCTAssertEqual(compressed, expectedCompressed)
+        XCTAssertEqual(compressed.prefix(2), Data([0x78, 0x9c]))
+        XCTAssertNotEqual(compressed.dropFirst(2).prefix(2), Data([0x78, 0x9c]))
+    }
+
     func testPasteCommandEmitsModifierAndVKeyEvents() {
         let command = RFBClientMessageEncoder.pasteCommand(.controlV)
 
@@ -184,5 +237,17 @@ final class RFBClientMessageEncoderTests: XCTestCase {
                 XCTAssertEqual(message[3], 0, "padding byte 3 not zero for keysym \(keysym)")
             }
         }
+    }
+
+    private static func uint32(_ data: Data, at offset: Int) -> UInt32 {
+        let bytes = [UInt8](data)
+        return UInt32(bytes[offset]) << 24 |
+            UInt32(bytes[offset + 1]) << 16 |
+            UInt32(bytes[offset + 2]) << 8 |
+            UInt32(bytes[offset + 3])
+    }
+
+    private static func int32(_ data: Data, at offset: Int) -> Int32 {
+        Int32(bitPattern: uint32(data, at: offset))
     }
 }

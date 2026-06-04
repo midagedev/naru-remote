@@ -30,6 +30,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     /// Per-session Tight zlib streams (four independent streams, reset
     /// by Tight rectangle control bits).
     private var clientTightZlibStreams: RFBTightZlibStreams?
+    /// Set after the server confirms Extended Clipboard support with a
+    /// caps message that includes UTF-8 text + provide. Until then the
+    /// client must keep using legacy `ClientCutText`; non-supporting
+    /// servers would treat a negative extended length as a huge legacy
+    /// payload.
+    private var clientExtendedClipboardTextProvideSupported = false
     private var activeConnection: RFBNetworkConnection?
 
     public convenience init() {
@@ -104,13 +110,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 Self.framebufferUpdateRequest(width: serverInit.width, height: serverInit.height),
                 timeout: timeout
             )
-            let updatePrefix = try connection.readExactly(byteCount: 4, timeout: timeout)
-            let rectangleCount = Int(Self.uint16(Array(updatePrefix), at: 2))
-            let updateData = try updatePrefix + connection.readExactly(
-                byteCount: rectangleCount * 12,
+            try receiveFramebufferUpdateHeader(
+                connection: connection,
+                reader: ConnectionByteReader(connection: connection, timeout: timeout),
                 timeout: timeout
             )
-            _ = try RFBProtocolDecoder.parseFramebufferUpdateHeader(updateData)
 
             let zlibStream = try RFBZlibInflateStream()
             let tightZlibStreams = RFBTightZlibStreams()
@@ -142,6 +146,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
+            clientExtendedClipboardTextProvideSupported = false
             clientLastFrame = nil
             clientState = .disconnected
             return connection
@@ -194,6 +199,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientFramebuffer = nil
                 clientZlibStream = zlibStream
                 clientTightZlibStreams = tightZlibStreams
+                clientExtendedClipboardTextProvideSupported = false
                 clientLastFrame = nil
                 clientState = .authenticated
             }
@@ -369,6 +375,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 // Bell has no payload. It can legally arrive between
                 // framebuffer updates; keep waiting for the next frame.
                 continue
+            case 3:
+                try handleServerCutText(
+                    reader: reader,
+                    connection: connection,
+                    timeout: timeout
+                )
+                continue
             case 150:
                 // EndOfContinuousUpdates is a one-byte TigerVNC server
                 // control message. It is also the server's support
@@ -385,6 +398,45 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                         encodingMix: RFBFramebufferEncodingMix(endOfContinuousUpdatesEvents: 1)
                     )
                 }
+                continue
+            case 248:
+                try handleServerFence(
+                    reader: reader,
+                    connection: connection,
+                    timeout: timeout
+                )
+                continue
+            default:
+                throw RFBProtocolDecoderError.unexpectedMessageType(messageType)
+            }
+        }
+    }
+
+    private func receiveFramebufferUpdateHeader(
+        connection: RFBNetworkConnection,
+        reader: RFBByteReader,
+        timeout: TimeInterval
+    ) throws {
+        while true {
+            let messageType = try reader.readUInt8()
+            switch messageType {
+            case 0:
+                let updateRemainder = try reader.readBytes(3)
+                let updatePrefix = Data([messageType] + updateRemainder)
+                let rectangleCount = Int(Self.uint16(Array(updatePrefix), at: 2))
+                let updateData = try updatePrefix + Data(reader.readBytes(rectangleCount * 12))
+                _ = try RFBProtocolDecoder.parseFramebufferUpdateHeader(updateData)
+                return
+            case 2:
+                continue
+            case 3:
+                try handleServerCutText(
+                    reader: reader,
+                    connection: connection,
+                    timeout: timeout
+                )
+                continue
+            case 150:
                 continue
             case 248:
                 try handleServerFence(
@@ -434,14 +486,59 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    private func handleServerCutText(
+        reader: RFBByteReader,
+        connection: RFBNetworkConnection,
+        timeout: TimeInterval
+    ) throws {
+        let headerRemainder = try reader.readBytes(7)
+        let header = Data([3] + headerRemainder)
+        let length = Self.int32([UInt8](header), at: 4)
+        guard length != Int32.min else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+
+        let payloadLength = length < 0 ? Int(-length) : Int(length)
+        let payload = payloadLength > 0 ? Data(try reader.readBytes(payloadLength)) : Data()
+        let message = try RFBProtocolDecoder.parseServerCutTextMessage(header + payload)
+
+        guard case .extendedClipboard(let extended) = message,
+              extended.flags.contains(.caps)
+        else {
+            return
+        }
+
+        let supportsTextProvide = extended.confirmsUTF8TextProvide
+        lock.withRFBClientLock {
+            if activeConnection == nil || activeConnection === connection {
+                clientExtendedClipboardTextProvideSupported = supportsTextProvide
+            }
+        }
+
+        guard supportsTextProvide else {
+            return
+        }
+
+        try connection.write(
+            RFBClientMessageEncoder.extendedClipboardCaps(),
+            timeout: timeout
+        )
+    }
+
     public func setClipboardText(_ text: String) throws {
-        guard let connection = currentActiveConnection() else {
+        let context = lock.withRFBClientLock {
+            (activeConnection, clientExtendedClipboardTextProvideSupported)
+        }
+        guard let connection = context.0 else {
             throw TextInjectionError.clipboardUnavailable(
                 "No active RFB connection is available for text clipboard transfer."
             )
         }
+        let message = context.1
+            ? try RFBClientMessageEncoder.extendedClipboardProvideText(text)
+            : RFBClientMessageEncoder.clientCutText(text)
         try writeActiveConnection(
-            RFBClientMessageEncoder.clientCutText(text),
+            message,
             to: connection,
             timeout: 2
         )
@@ -599,7 +696,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             throw RFBProtocolDecoderError.unexpectedMessageType(headerBytes[0])
         }
 
-        let payloadLength = Int(Self.uint32(headerBytes, at: 4))
+        let signedLength = Self.int32(headerBytes, at: 4)
+        guard signedLength != Int32.min else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+        let payloadLength = signedLength < 0 ? Int(-signedLength) : Int(signedLength)
         let payload: Data
         if payloadLength > 0 {
             payload = try connection.readExactly(byteCount: payloadLength, timeout: timeout)
@@ -647,6 +748,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientFramebuffer = nil
                 clientZlibStream = zlibStream
                 clientTightZlibStreams = tightZlibStreams
+                clientExtendedClipboardTextProvideSupported = false
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
             }
@@ -667,6 +769,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
+            clientExtendedClipboardTextProvideSupported = false
             clientLastFrame = nil
             clientState = .connecting
             return connection
@@ -694,6 +797,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientEncodingPreference = initialEncodingPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
+            clientExtendedClipboardTextProvideSupported = false
             clientLastFrame = nil
             clientState = .failed
             return connection
@@ -849,6 +953,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             UInt32(bytes[offset + 1]) << 16 |
             UInt32(bytes[offset + 2]) << 8 |
             UInt32(bytes[offset + 3])
+    }
+
+    private static func int32(_ bytes: [UInt8], at offset: Int) -> Int32 {
+        Int32(bitPattern: uint32(bytes, at: offset))
     }
 
     private static func milliseconds(since start: UInt64) -> Int {
