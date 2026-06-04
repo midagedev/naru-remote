@@ -155,6 +155,15 @@ final class PointerGestureResolverTests: XCTestCase {
             cursor: cursor
         )
         XCTAssertNotEqual(outcome.transform.panOffset, zoomed.panOffset, "Auto-pan should move the viewport")
+        let snapped = zoomed.panToReveal(
+            framebufferPoint: outcome.cursor.position,
+            margin: 280
+        )
+        XCTAssertGreaterThan(
+            outcome.transform.panOffset.width,
+            snapped.panOffset.width,
+            "Auto-pan should follow smoothly instead of snapping to the full reveal delta"
+        )
         XCTAssertEqual(outcome.commands, [
             RFBPointerCommand(buttonMask: 0x00, x: 999, y: 500)
         ])
@@ -187,7 +196,7 @@ final class PointerGestureResolverTests: XCTestCase {
         let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
 
         let outcome = resolver.resolve(
-            .dragChanged(viewPoint: .zero, translation: CGSize(width: 150, height: 0)),
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 250, height: 0)),
             transform: zoomed,
             cursor: cursor
         )
@@ -198,7 +207,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin while the cursor is still well inside the viewport"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 575, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 625, y: 500)
         ])
     }
 }

@@ -409,9 +409,9 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Remote Desktop.
         let app = launchAppWithFixture(.sessionActiveWidescreen, mode: mode)
 
-        let compactEditor = app.textFields["Remote input text"]
+        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 8)
         XCTAssertTrue(
-            compactEditor.waitForExistence(timeout: 8),
+            compactEditor.exists,
             "Active-session compact compose field must be reachable"
         )
 
@@ -434,7 +434,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let app = launchAppWithFixture(.sessionActiveTrackpadCursor, mode: mode)
 
         XCTAssertTrue(
-            app.textFields["Remote input text"].waitForExistence(timeout: 8),
+            waitForRemoteInputEditor(in: app, timeout: 8).exists,
             "Active-session compact compose field must be reachable"
         )
 
@@ -817,6 +817,19 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private func findChecksButton(in app: XCUIApplication) -> XCUIElement {
         let predicate = NSPredicate(format: "label == 'Checks'")
         return app.buttons.matching(predicate).firstMatch
+    }
+
+    private func waitForRemoteInputEditor(
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement {
+        let textView = app.textViews["Remote input text"]
+        if textView.waitForExistence(timeout: timeout) {
+            return textView
+        }
+        let textField = app.textFields["Remote input text"]
+        _ = textField.waitForExistence(timeout: 1)
+        return textField
     }
 
     // MARK: - Helpers — saving
