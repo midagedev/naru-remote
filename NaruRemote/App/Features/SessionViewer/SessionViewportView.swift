@@ -1021,13 +1021,11 @@ public struct SessionViewportView: View {
                 },
                 pointerControlMode: pointerControlMode,
                 onTrackpadGesture: { gesture, transform in
-                    let updatedTransform = onTrackpadGesture?(gesture, transform) ?? transform
-                    applyViewportTransform(
-                        updatedTransform,
-                        framebuffer: framebuffer,
-                        viewSize: transform.viewSize
-                    )
-                    return updatedTransform
+                    // The Metal host applies returned auto-pan immediately and
+                    // mirrors viewport state on display-link ticks. Updating
+                    // SwiftUI state on every pointer sample makes physical
+                    // iPhone drags fight the fast UIKit path.
+                    onTrackpadGesture?(gesture, transform) ?? transform
                 }
             )
                 // The Metal path applies zoom/pan directly inside
