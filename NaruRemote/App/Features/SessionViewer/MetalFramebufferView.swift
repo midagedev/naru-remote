@@ -213,7 +213,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         )
         uiView.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         if didEnqueueFramebuffer {
-            uiView.requestRedraw()
+            uiView.requestRedrawForIncomingFrame()
         }
     }
 
@@ -410,8 +410,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
+    private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
+        minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval
+    )
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
 
     private enum ViewportStatePublishCadence {
         case nextDisplayLink
@@ -602,6 +606,20 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         metalView?.setNeedsDisplay()
     }
 
+    /// Request a redraw for a newly arrived remote frame, giving touch
+    /// tracking priority while the local viewport is being manipulated.
+    public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
+        switch viewportGestureRedrawThrottle.recordIncomingFrame(
+            isGestureActive: isViewportTransformGestureActive,
+            now: now
+        ) {
+        case .requestNow:
+            requestRedraw()
+        case .deferRedraw:
+            break
+        }
+    }
+
     @MainActor
     public override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
@@ -614,6 +632,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
         viewportDecelerationLastTimestamp = nil
+        viewportGestureRedrawThrottle.reset()
         finishViewportTransformGesture()
     }
 
@@ -1033,10 +1052,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @MainActor
     private func finishViewportTransformGesture() {
         isViewportTransformGestureActive = false
-        guard deferredViewportStateRequiresFlush || pendingViewportState != nil else {
-            return
+        let shouldFlushRedraw = viewportGestureRedrawThrottle.flushAfterGesture()
+        if deferredViewportStateRequiresFlush || pendingViewportState != nil {
+            flushPendingViewportState()
         }
-        flushPendingViewportState()
+        if shouldFlushRedraw {
+            requestRedraw()
+        }
     }
 
     @MainActor

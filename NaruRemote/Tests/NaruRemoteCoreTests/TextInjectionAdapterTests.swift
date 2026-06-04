@@ -19,6 +19,9 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(client.pasteCommands, [.commandV])
         XCTAssertEqual(attempt.status, .unknown)
         XCTAssertEqual(attempt.path, .vncClipboardPaste)
+        XCTAssertEqual(attempt.pasteCommand, .commandV)
+        XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
         XCTAssertEqual(attempt.remoteClipboardRestore, .unsupported)
         XCTAssertEqual(draft.text, "한글과 English 😊를 같이 입력합니다")
         XCTAssertEqual(draft.sendState, .unknown)
@@ -44,6 +47,8 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(sleeps, [0.12])
         XCTAssertEqual(client.events, [.clipboard("Paste after settle"), .paste(.commandV)])
         XCTAssertEqual(attempt.status, .unknown)
+        XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
     }
 
     func testAdapterRetainsDraftWhenClipboardFails() {
@@ -59,6 +64,8 @@ final class TextInjectionAdapterTests: XCTestCase {
         )
 
         XCTAssertEqual(attempt.status, .failed)
+        XCTAssertEqual(attempt.clipboardSetStatus, .failed)
+        XCTAssertEqual(attempt.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(draft.text, "원격에 보내려던 문장")
         XCTAssertEqual(draft.sendState, .failed)
         XCTAssertEqual(draft.lastFailureReason, "Text clipboard unavailable: Remote clipboard did not accept text.")
@@ -80,6 +87,8 @@ final class TextInjectionAdapterTests: XCTestCase {
 
         XCTAssertEqual(client.clipboardPayloads, ["Paste me"])
         XCTAssertEqual(attempt.status, .failed)
+        XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(attempt.pasteCommandStatus, .failed)
         XCTAssertEqual(draft.text, "Paste me")
         XCTAssertEqual(draft.sendState, .failed)
         XCTAssertEqual(draft.lastFailureReason, "Paste command failed: Remote paste command could not be delivered.")

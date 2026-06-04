@@ -787,6 +787,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func makeDiagnosticExport() -> DiagnosticExport {
         let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
         let viewerStreamPowerMode = appSettings.streamPowerMode
+        let input = DiagnosticInputReport(
+            composeDraft: composeDraft,
+            latestInjectionAttempt: latestInjectionAttempt,
+            directKeystrokeModeActive: directKeystrokeMode.isActive
+        )
         guard let run = diagnosticRun else {
             return DiagnosticExport(
                 run: ConnectionDiagnosticRun(
@@ -794,13 +799,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                     stages: []
                 ),
                 streamPerformance: streamPerformance,
-                viewerStreamPowerMode: viewerStreamPowerMode
+                viewerStreamPowerMode: viewerStreamPowerMode,
+                input: input
             )
         }
         return DiagnosticExport(
             run: run,
             streamPerformance: streamPerformance,
-            viewerStreamPowerMode: viewerStreamPowerMode
+            viewerStreamPowerMode: viewerStreamPowerMode,
+            input: input
         )
     }
 
@@ -2913,6 +2920,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 draftID: draft.id,
                 sessionID: draft.sessionID,
                 path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
                 startedAt: now,
                 finishedAt: now,
                 status: .failed,
@@ -2931,6 +2939,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 draftID: draft.id,
                 sessionID: draft.sessionID,
                 path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
                 startedAt: now,
                 finishedAt: now,
                 status: .failed,
@@ -2946,6 +2955,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             draftID: draft.id,
             sessionID: draft.sessionID,
             path: .vncClipboardPaste,
+            pasteCommand: pasteCommand,
             startedAt: now,
             status: .unknown,
             remoteClipboardRestore: .unsupported,
@@ -2963,6 +2973,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 draftID: sendingDraft.id,
                 sessionID: sendingDraft.sessionID,
                 path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
                 startedAt: now,
                 remoteClipboardRestore: .unsupported
             )
@@ -2986,11 +2997,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
             do {
                 try clientBox.client.setClipboardText(sendingDraft.text)
+                attempt.clipboardSetStatus = .succeeded
             } catch {
                 let message = Self.safeClipboardFailureMessage(from: error)
                 sendingDraft.markFailed(reason: message, at: now)
                 attempt.finishedAt = now
                 attempt.status = .failed
+                attempt.clipboardSetStatus = .failed
                 attempt.safeMessage = message
                 await Self.finishTextInjection(
                     self,
@@ -3025,11 +3038,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
             do {
                 try clientBox.client.sendPasteCommand(pasteCommand)
+                attempt.pasteCommandStatus = .succeeded
             } catch {
                 let message = Self.safePasteFailureMessage(from: error)
                 sendingDraft.markFailed(reason: message, at: now)
                 attempt.finishedAt = now
                 attempt.status = .failed
+                attempt.pasteCommandStatus = .failed
                 attempt.safeMessage = message
                 await Self.finishTextInjection(
                     self,

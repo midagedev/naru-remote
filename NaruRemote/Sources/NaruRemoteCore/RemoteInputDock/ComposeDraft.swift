@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ComposeSendState: String, Codable, Equatable, Sendable {
+public enum ComposeSendState: String, Codable, Equatable, CaseIterable, Sendable {
     case idle
     case ready
     case sending
@@ -94,6 +94,6 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
     }
 
     public mutating func markPasteDispatched(message: String, at date: Date = Date()) {
-        markUnknown(message: message, clearAfterSend: true, at: date)
+        markUnknown(message: message, clearAfterSend: false, at: date)
     }
 }
