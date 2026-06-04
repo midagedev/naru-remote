@@ -614,9 +614,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
 
     private var canPanViewport: Bool {
-        let transform = viewportTransform(zoomScale: currentZoomScale, panOffset: currentPanOffset)
-        return transform.contentSize.width > bounds.width + 0.5
-            || transform.contentSize.height > bounds.height + 0.5
+        viewportTransform(zoomScale: currentZoomScale, panOffset: currentPanOffset).isPannable
     }
 
     /// Clamp against the actual aspect-fit framebuffer content, not

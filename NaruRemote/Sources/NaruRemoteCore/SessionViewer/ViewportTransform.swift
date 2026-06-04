@@ -84,6 +84,12 @@ public struct ViewportTransform: Equatable, Sendable {
     /// `true` once the user has zoomed past the fit scale.
     public var isZoomed: Bool { zoomScale > 1.0001 }
 
+    /// `true` when local pan can reveal off-screen framebuffer content.
+    public var isPannable: Bool {
+        contentSize.width > viewSize.width + 0.5
+            || contentSize.height > viewSize.height + 0.5
+    }
+
     /// Map a view-space point (points) to a framebuffer pixel.
     /// Returns `nil` when the point falls in a letterbox band (outside
     /// the content rect). Callers treat `nil` as a no-op — no clamped
