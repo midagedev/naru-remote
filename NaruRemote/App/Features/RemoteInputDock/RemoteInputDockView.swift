@@ -12,6 +12,7 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 
 public struct RemoteInputDockView: View {
     @State private var text: String
+    @State private var lastAppliedInitialText: String
     #if os(iOS) && canImport(UIKit)
     @StateObject private var composeCommitController = ComposeTextCommitController()
     #endif
@@ -64,6 +65,7 @@ public struct RemoteInputDockView: View {
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
+        self._lastAppliedInitialText = State(initialValue: initialText)
         self.statusText = statusText
         self.onSend = onSend
         self.onTextChange = onTextChange
@@ -91,9 +93,14 @@ public struct RemoteInputDockView: View {
         }
         .accessibilityIdentifier("naru.input.dock")
         .onChange(of: initialText) { _, newValue in
-            if text != newValue {
-                text = newValue
+            guard shouldApplyExternalComposeText(newValue) else {
+                return
             }
+            lastAppliedInitialText = newValue
+            guard text != newValue else {
+                return
+            }
+            text = newValue
         }
         .onChange(of: text) { _, newValue in
             onTextChange(newValue)
@@ -439,6 +446,50 @@ public struct RemoteInputDockView: View {
         onSend(text)
         #endif
     }
+
+    private func shouldApplyExternalComposeText(_ newValue: String) -> Bool {
+        #if os(iOS) && canImport(UIKit)
+        let hasMarkedText = composeCommitController.hasMarkedText
+        #else
+        let hasMarkedText = false
+        #endif
+
+        return Self.shouldApplyExternalComposeText(
+            newValue: newValue,
+            lastAppliedInitialText: lastAppliedInitialText,
+            currentText: text,
+            isDirectModeActive: directKeystrokeMode.isActive,
+            isComposeFieldFocused: composeFieldFocused,
+            hasMarkedText: hasMarkedText
+        )
+    }
+
+    nonisolated static func shouldApplyExternalComposeText(
+        newValue: String,
+        lastAppliedInitialText: String,
+        currentText: String,
+        isDirectModeActive: Bool,
+        isComposeFieldFocused: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        guard newValue != lastAppliedInitialText || newValue != currentText else {
+            return true
+        }
+
+        if isDirectModeActive {
+            return true
+        }
+
+        if hasMarkedText {
+            return false
+        }
+
+        if newValue.isEmpty {
+            return true
+        }
+
+        return !isComposeFieldFocused || currentText.isEmpty
+    }
 }
 
 private struct ComposeTextEditingView: View {
@@ -470,6 +521,10 @@ final class ComposeTextCommitController: ObservableObject {
 
     func attach(_ textView: UITextView) {
         self.textView = textView
+    }
+
+    var hasMarkedText: Bool {
+        textView?.markedTextRange != nil
     }
 
     func commitMarkedTextAndRead(fallback: String) -> String {

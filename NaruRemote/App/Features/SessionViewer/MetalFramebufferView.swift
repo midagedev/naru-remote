@@ -628,14 +628,20 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Request a redraw for a newly arrived remote frame, giving touch
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
-        guard !isViewportTransformGestureActive else {
+        if isViewportTransformGestureActive {
             deferredFramebufferRedrawDuringViewportGesture = true
-            _ = viewportGestureRedrawThrottle.recordIncomingFrame(
+            switch viewportGestureRedrawThrottle.recordIncomingFrame(
                 isGestureActive: true,
                 now: now
-            )
+            ) {
+            case .requestNow:
+                requestRedraw()
+            case .deferRedraw:
+                break
+            }
             return
         }
+
         switch viewportGestureRedrawThrottle.recordIncomingFrame(
             isGestureActive: false,
             now: now
@@ -793,7 +799,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: anchor,
             viewSize: bounds.size,
             shouldPublishZoom: true,
-            shouldPublishPan: panDidChange
+            shouldPublishPan: panDidChange,
+            cadence: .gestureEnd
         )
     }
 
@@ -895,7 +902,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 anchor: recognizer.location(in: self),
                 viewSize: bounds.size,
                 shouldPublishZoom: false,
-                shouldPublishPan: true
+                shouldPublishPan: true,
+                cadence: .gestureEnd
             )
         case .ended:
             let velocity = recognizer.velocity(in: self)
@@ -1010,7 +1018,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 anchor: CGPoint(x: bounds.midX, y: bounds.midY),
                 viewSize: bounds.size,
                 shouldPublishZoom: false,
-                shouldPublishPan: true
+                shouldPublishPan: true,
+                cadence: .gestureEnd
             )
             return false
         }
@@ -1069,7 +1078,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             anchor: CGPoint(x: bounds.midX, y: bounds.midY),
             viewSize: bounds.size,
             shouldPublishZoom: false,
-            shouldPublishPan: true
+            shouldPublishPan: true,
+            cadence: .gestureEnd
         )
 
         if !movedX {
