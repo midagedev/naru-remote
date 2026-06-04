@@ -406,6 +406,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// SwiftUI work out of the per-touch critical path.
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
+    private var viewportDecelerationDisplayLink: CADisplayLink?
+    private var viewportDecelerationVelocity: CGPoint = .zero
+    private var viewportDecelerationLastTimestamp: CFTimeInterval?
+    private static let minimumDecelerationVelocity: CGFloat = 18
+    private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -592,6 +597,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     @MainActor
+    public override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        guard newWindow == nil else {
+            return
+        }
+        viewportStateDisplayLink?.invalidate()
+        viewportStateDisplayLink = nil
+        viewportDecelerationDisplayLink?.invalidate()
+        viewportDecelerationDisplayLink = nil
+        viewportDecelerationVelocity = .zero
+        viewportDecelerationLastTimestamp = nil
+        isViewportTransformGestureActive = false
+        flushPendingViewportState()
+    }
+
+    @MainActor
     @objc private func handleTapGesture(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
             return
@@ -621,6 +642,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         else {
             return
         }
+        stopViewportDeceleration()
         let point = recognizer.location(in: self)
         handler(point, bounds.size)
     }
@@ -671,6 +693,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @objc private func handlePinchGesture(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            stopViewportDeceleration()
             isViewportTransformGestureActive = true
             isPinchGestureActive = true
         case .changed:
@@ -787,6 +810,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func handleZoomedPan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            stopViewportDeceleration()
             isViewportTransformGestureActive = true
             recognizer.setTranslation(.zero, in: self)
             // If a remote button-1 drag had started before a pinch
@@ -817,7 +841,14 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 shouldPublishZoom: false,
                 shouldPublishPan: true
             )
-        case .ended, .cancelled, .failed:
+        case .ended:
+            let velocity = recognizer.velocity(in: self)
+            if startViewportDecelerationIfNeeded(velocity: velocity) {
+                return
+            }
+            isViewportTransformGestureActive = false
+            flushPendingViewportState()
+        case .cancelled, .failed:
             isViewportTransformGestureActive = false
             flushPendingViewportState()
         default:
@@ -833,6 +864,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func handleTrackpadDrag(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            stopViewportDeceleration()
             isViewportTransformGestureActive = true
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
@@ -879,6 +911,120 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             metalView?.transform = transform
         }
         CATransaction.commit()
+    }
+
+    @MainActor
+    private func startViewportDecelerationIfNeeded(velocity: CGPoint) -> Bool {
+        let clampedStart = clampedPan(currentPanOffset)
+        guard clampedStart == currentPanOffset else {
+            currentPanOffset = clampedStart
+            applyViewportTransformToMetalView()
+            queueViewportStatePublish(
+                zoomScale: currentZoomScale,
+                panOffset: currentPanOffset,
+                anchor: CGPoint(x: bounds.midX, y: bounds.midY),
+                viewSize: bounds.size,
+                shouldPublishZoom: false,
+                shouldPublishPan: true
+            )
+            return false
+        }
+
+        let speed = hypot(velocity.x, velocity.y)
+        guard isZoomed,
+              speed >= Self.minimumDecelerationVelocity,
+              bounds.width > 0,
+              bounds.height > 0
+        else {
+            return false
+        }
+
+        viewportDecelerationVelocity = velocity
+        viewportDecelerationLastTimestamp = CACurrentMediaTime()
+        isViewportTransformGestureActive = true
+
+        let displayLink = CADisplayLink(
+            target: self,
+            selector: #selector(handleViewportDecelerationFrame(_:))
+        )
+        displayLink.add(to: .main, forMode: .common)
+        viewportDecelerationDisplayLink = displayLink
+        return true
+    }
+
+    @MainActor
+    @objc
+    private func handleViewportDecelerationFrame(_ displayLink: CADisplayLink) {
+        guard isZoomed else {
+            finishViewportDeceleration()
+            return
+        }
+
+        let timestamp = displayLink.timestamp
+        let previousTimestamp = viewportDecelerationLastTimestamp ?? timestamp
+        viewportDecelerationLastTimestamp = timestamp
+        let deltaTime = min(max(timestamp - previousTimestamp, 1.0 / 120.0), 1.0 / 30.0)
+        guard deltaTime.isFinite, deltaTime > 0 else {
+            return
+        }
+
+        let proposed = CGSize(
+            width: currentPanOffset.width + viewportDecelerationVelocity.x * deltaTime,
+            height: currentPanOffset.height + viewportDecelerationVelocity.y * deltaTime
+        )
+        let nextPanOffset = clampedPan(proposed)
+        let movedX = abs(nextPanOffset.width - currentPanOffset.width) > 0.01
+        let movedY = abs(nextPanOffset.height - currentPanOffset.height) > 0.01
+
+        currentPanOffset = nextPanOffset
+        applyViewportTransformToMetalView()
+        queueViewportStatePublish(
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset,
+            anchor: CGPoint(x: bounds.midX, y: bounds.midY),
+            viewSize: bounds.size,
+            shouldPublishZoom: false,
+            shouldPublishPan: true
+        )
+
+        if !movedX {
+            viewportDecelerationVelocity.x = 0
+        }
+        if !movedY {
+            viewportDecelerationVelocity.y = 0
+        }
+
+        let decay = pow(Self.decelerationVelocityDecayPerSecond, CGFloat(deltaTime))
+        viewportDecelerationVelocity.x *= decay
+        viewportDecelerationVelocity.y *= decay
+
+        let speed = hypot(viewportDecelerationVelocity.x, viewportDecelerationVelocity.y)
+        if speed < Self.minimumDecelerationVelocity || (!movedX && !movedY) {
+            finishViewportDeceleration()
+        }
+    }
+
+    @MainActor
+    private func finishViewportDeceleration() {
+        viewportDecelerationDisplayLink?.invalidate()
+        viewportDecelerationDisplayLink = nil
+        viewportDecelerationVelocity = .zero
+        viewportDecelerationLastTimestamp = nil
+        isViewportTransformGestureActive = false
+        flushPendingViewportState()
+    }
+
+    @MainActor
+    private func stopViewportDeceleration() {
+        guard viewportDecelerationDisplayLink != nil else {
+            return
+        }
+        viewportDecelerationDisplayLink?.invalidate()
+        viewportDecelerationDisplayLink = nil
+        viewportDecelerationVelocity = .zero
+        viewportDecelerationLastTimestamp = nil
+        isViewportTransformGestureActive = false
+        flushPendingViewportState()
     }
 
     @MainActor

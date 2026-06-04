@@ -1434,7 +1434,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
         XCTAssertEqual(connector.pasteCommands, [.controlV])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
     }
 
     func testModelUpdatesComposeDraftAsUserTypes() throws {

@@ -84,6 +84,8 @@ final class DirectKeystrokeKeyboardScreenshotsUITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = "studio.tailnet.ts.net"
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         // Phase 7 added a one-time-per-session warning dialog on
         // Direct-mode entry.  Suppress it here so the existing
         // QWERTY / special-page screenshots stay clean.

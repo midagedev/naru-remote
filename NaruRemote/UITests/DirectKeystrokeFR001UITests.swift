@@ -77,6 +77,8 @@ final class DirectKeystrokeFR001UITests: XCTestCase {
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = "studio.tailnet.ts.net"
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         // Suppress the first-entry warning dialog — this test is
         // about FR-001 (custom keyboard / iOS keyboard absence), not
         // FR-009 (warning dialog), and the dialog would block the

@@ -180,11 +180,20 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// edges remain strictly ordered.
     private var pendingPointerMove: PendingPointerMove?
     private var pointerMoveFlushTask: Task<Void, Never>?
+    /// Latest visual trackpad cursor waiting for a frame-sized publish
+    /// window. The Metal host applies cursor/auto-pan feedback
+    /// immediately; this coalesces SwiftUI overlay state so touch
+    /// samples do not rebuild the app chrome faster than the display can
+    /// show it.
+    private var pendingTrackpadCursor: TrackpadCursor?
+    private var trackpadCursorPublishTask: Task<Void, Never>?
+    private var resolvedTrackpadCursor: TrackpadCursor = TrackpadCursor()
     /// One 60 Hz display frame. Remote dragging does not benefit from
     /// queuing pointer moves faster than the screen can plausibly
     /// repaint, and a frame-sized window keeps high-refresh touch
     /// streams from building stale VNC write backlog.
     private static let pointerMoveCoalescingDelay: Duration = .milliseconds(16)
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
@@ -2017,7 +2026,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// cursor position is dropped here, never logged or persisted.
     private func resetPointerControl() {
         pointerControlMode = .productDefault
-        trackpadCursor = TrackpadCursor()
+        publishTrackpadCursor(TrackpadCursor(), immediately: true)
     }
 
     /// Test/fixture seam: publish a connection-quality bucket directly,
@@ -2479,10 +2488,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch pointerControlMode {
         case .directTouch:
             pointerControlMode = .trackpad
-            trackpadCursor = .centered(in: currentFramebufferSize)
+            publishTrackpadCursor(.centered(in: currentFramebufferSize), immediately: true)
         case .trackpad:
             pointerControlMode = .directTouch
-            trackpadCursor.isVisible = false
+            var hiddenCursor = resolvedTrackpadCursor
+            hiddenCursor.isVisible = false
+            publishTrackpadCursor(hiddenCursor, immediately: true)
         }
     }
 
@@ -2530,8 +2541,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         session: RemoteSession
     ) -> ViewportTransform {
         let resolver = PointerGestureResolver(mode: .trackpad)
-        let outcome = resolver.resolve(gesture, transform: transform, cursor: trackpadCursor)
-        trackpadCursor = outcome.cursor
+        let outcome = resolver.resolve(gesture, transform: transform, cursor: resolvedTrackpadCursor)
+        let isContinuousDrag: Bool
+        if case .dragChanged = gesture {
+            isContinuousDrag = true
+        } else if case .pressDragChanged = gesture {
+            isContinuousDrag = true
+        } else {
+            isContinuousDrag = false
+        }
+        publishTrackpadCursor(outcome.cursor, immediately: !isContinuousDrag)
 
         guard !outcome.commands.isEmpty,
               let pointerClient = activePointerClient
@@ -3023,7 +3042,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
 
             let message = "Paste command sent; remote app confirmation unavailable."
-            sendingDraft.markUnknown(message: message, at: now)
+            sendingDraft.markPasteDispatched(message: message, at: now)
             attempt.finishedAt = now
             attempt.status = .unknown
             attempt.safeMessage = message
@@ -3227,6 +3246,46 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: pendingMove.sessionID,
             profileID: pendingMove.profileID
         )
+    }
+
+    private func publishTrackpadCursor(_ cursor: TrackpadCursor, immediately: Bool = false) {
+        if immediately {
+            trackpadCursorPublishTask?.cancel()
+            trackpadCursorPublishTask = nil
+            pendingTrackpadCursor = nil
+            resolvedTrackpadCursor = cursor
+            trackpadCursor = cursor
+            return
+        }
+
+        resolvedTrackpadCursor = cursor
+        pendingTrackpadCursor = cursor
+        guard trackpadCursorPublishTask == nil else {
+            return
+        }
+
+        let delay = Self.trackpadCursorPublishDelay
+        trackpadCursorPublishTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            self?.flushPendingTrackpadCursor(cancelScheduledTask: false)
+        }
+    }
+
+    private func flushPendingTrackpadCursor(cancelScheduledTask: Bool = true) {
+        if cancelScheduledTask {
+            trackpadCursorPublishTask?.cancel()
+        }
+        trackpadCursorPublishTask = nil
+
+        guard let cursor = pendingTrackpadCursor else {
+            return
+        }
+        pendingTrackpadCursor = nil
+        trackpadCursor = cursor
     }
 
     /// Translate a tap in the framebuffer view's coordinate space into a
