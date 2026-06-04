@@ -67,7 +67,8 @@ enum VNCLiveBenchmark {
             idleFrameInterval: options.streamShapeIdleFrameInterval,
             emptyBackoffMode: options.streamShapeEmptyBackoffMode,
             powerMode: options.streamShapePowerMode,
-            clientPressureMode: options.streamShapeClientPressureMode
+            clientPressureMode: options.streamShapeClientPressureMode,
+            viewportInteractionMode: options.streamShapeViewportInteractionMode
         )
         let primaryStreamShapeProfile = options.streamShapeProfiles.profiles.first ?? .localLowLatency
         let primaryStreamShapeTransportMode = options.streamShapeTransportModes.modes.first ?? .requestResponse
@@ -124,6 +125,7 @@ enum VNCLiveBenchmark {
             streamShapeEmptyBackoffMode: options.streamShapeEmptyBackoffMode,
             streamShapePowerMode: options.streamShapePowerMode,
             streamShapeClientPressureMode: options.streamShapeClientPressureMode,
+            streamShapeViewportInteractionMode: options.streamShapeViewportInteractionMode,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
@@ -354,6 +356,7 @@ enum VNCLiveBenchmark {
         var emptyUpdateStreak = 0
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
         var adaptiveClientPressurePacingSamples = 0
+        var viewportInteractionPacingSamples = 0
         defer {
             pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
             client.disconnect()
@@ -445,13 +448,16 @@ enum VNCLiveBenchmark {
                 }
                 let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                 emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
-                let pacingDelay = pacingPolicy.delay(
+                let pacingDecision = pacingPolicy.decision(
                     isEmptyUpdate: isEmptyUpdate,
                     emptyUpdateStreak: emptyUpdateStreak,
                     usesAdaptiveClientPressure: usesAdaptiveClientPressure
                 )
+                if pacingDecision.usesViewportInteractionPacing {
+                    viewportInteractionPacingSamples += 1
+                }
                 let cappedPacingDelay = streamShapeCappedDelay(
-                    pacingDelay,
+                    pacingDecision.delay,
                     durationLimit: durationLimit,
                     streamStartedAt: streamStartedAt
                 )
@@ -491,7 +497,8 @@ enum VNCLiveBenchmark {
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
             failureLabel: failureLabel,
-            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples
+            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples,
+            viewportInteractionPacingSamples: viewportInteractionPacingSamples
         )
     }
 
@@ -640,6 +647,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode = .app
     var streamShapePowerMode: BenchmarkStreamShapePowerMode = .normal
     var streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode = .off
+    var streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode = .off
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
@@ -725,6 +733,13 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("stream-shape-client-pressure must be off or app.")
                 }
                 options.streamShapeClientPressureMode = mode
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-viewport-interaction":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkStreamShapeViewportInteractionMode(rawValue: value) else {
+                    throw UsageError("stream-shape-viewport-interaction must be off or app.")
+                }
+                options.streamShapeViewportInteractionMode = mode
                 index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -1033,8 +1048,11 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
     let streamShapePowerMode: BenchmarkStreamShapePowerMode
     let streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode
+    let streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode
     let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
     let streamShapeLowPowerIdleFrameIntervalSeconds: TimeInterval
+    let streamShapeViewportInteractionContentFrameIntervalSeconds: TimeInterval
+    let streamShapeViewportInteractionIdleFrameIntervalSeconds: TimeInterval
     let streamShapeClientPressureLaggingThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveContentFrameThreshold: Int
     let streamShapeClientPressureSustainedLaggingThresholdMilliseconds: Int
@@ -1071,6 +1089,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode,
         streamShapePowerMode: BenchmarkStreamShapePowerMode,
         streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode,
+        streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -1080,7 +1099,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 24
+        self.schemaVersion = 25
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1092,10 +1111,15 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeEmptyBackoffMode = streamShapeEmptyBackoffMode
         self.streamShapePowerMode = streamShapePowerMode
         self.streamShapeClientPressureMode = streamShapeClientPressureMode
+        self.streamShapeViewportInteractionMode = streamShapeViewportInteractionMode
         self.streamShapeLowPowerContentFrameIntervalSeconds =
             BenchmarkStreamShapePacingPolicy.appLowPowerContentFrameInterval
         self.streamShapeLowPowerIdleFrameIntervalSeconds =
             BenchmarkStreamShapePacingPolicy.appLowPowerIdleFrameInterval
+        self.streamShapeViewportInteractionContentFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval
+        self.streamShapeViewportInteractionIdleFrameIntervalSeconds =
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval
         self.streamShapeClientPressureLaggingThresholdMilliseconds =
             BenchmarkStreamShapePacingPolicy.appLaggingClientProcessingThresholdMilliseconds
         self.streamShapeClientPressureConsecutiveContentFrameThreshold =
@@ -1126,6 +1150,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape metrics emit aggregate counts and permille ratios only",
             "renderer upload metrics emit aggregate strategy counts only",
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
+            "viewport-interaction pacing metrics emit only fixed mode labels, fixed pacing floors, counts, and permille ratios",
             "reports are written to stdout only"
         ]
         self.profiles = profiles
@@ -1217,7 +1242,8 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
         failureLabel: String?,
-        adaptiveClientPressurePacingSamples: Int = 0
+        adaptiveClientPressurePacingSamples: Int = 0,
+        viewportInteractionPacingSamples: Int = 0
     ) {
         self.transportMode = transportMode
         self.firstFrameMilliseconds = firstFrameMilliseconds
@@ -1227,7 +1253,8 @@ private struct StreamShapeProbeReport: Codable, Equatable {
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
             failureLabel: failureLabel,
-            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples
+            adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples,
+            viewportInteractionPacingSamples: viewportInteractionPacingSamples
         )
     }
 }
@@ -1338,6 +1365,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape empty backoff: \(report.streamShapeEmptyBackoffMode.rawValue)")
     print("stream-shape power mode: \(report.streamShapePowerMode.rawValue)")
     print("stream-shape client pressure: \(report.streamShapeClientPressureMode.rawValue)")
+    print("stream-shape viewport interaction: \(report.streamShapeViewportInteractionMode.rawValue)")
     if report.streamShapePowerMode == .lowPower {
         print(
             "stream-shape low-power floors: content "
@@ -1356,6 +1384,13 @@ private func renderText(_ report: BenchmarkReport) {
                 + "or full renderer uploads for "
                 + "\(report.streamShapeClientPressureConsecutiveFullUploadFrameThreshold) content frames, "
                 + "recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"
+            )
+    }
+    if report.streamShapeViewportInteractionMode == .app {
+        print(
+            "stream-shape viewport-interaction floors: content "
+                + "\(formatSeconds(report.streamShapeViewportInteractionContentFrameIntervalSeconds))s, idle "
+                + "\(formatSeconds(report.streamShapeViewportInteractionIdleFrameIntervalSeconds))s"
         )
     }
     if report.streamShapeEmptyBackoffMode == .app {
@@ -1522,6 +1557,13 @@ private func renderStreamShapeSummary(
                 + "\(summary.adaptiveClientPressurePacingSamples)/\(adaptivePermille)"
         )
     }
+    if let viewportPermille = summary.viewportInteractionPacingPermille,
+       summary.viewportInteractionPacingSamples > 0 {
+        print(
+            "\(indentation)  viewport-interaction pacing samples/permille: "
+                + "\(summary.viewportInteractionPacingSamples)/\(viewportPermille)"
+        )
+    }
     print("\(indentation)  actual encodings: \(formatEncodingMix(summary.actualEncodingMix))")
     if let dirtyRectangles = summary.dirtyRectangleCount {
         print(
@@ -1631,7 +1673,7 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
@@ -1648,6 +1690,8 @@ private func printUsage() {
                                 App power-mode pacing profile. Defaults to normal; low-power applies the app's 30 Hz content and 125 ms idle floors.
       --stream-shape-client-pressure off|app
                                 Adaptive client-processing pressure pacing. Defaults to off; app mirrors the app's repeated lagging content-frame trigger.
+      --stream-shape-viewport-interaction off|app
+                                Viewport-interaction pacing parity. Defaults to off; app mirrors the app's temporary 15 Hz content and 125 ms idle floors used during zoom/pan interaction.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))

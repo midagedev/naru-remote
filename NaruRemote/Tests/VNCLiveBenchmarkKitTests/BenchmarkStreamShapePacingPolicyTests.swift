@@ -86,6 +86,87 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertEqual(policy.delay(isEmptyUpdate: true, emptyUpdateStreak: 24), 0, accuracy: 0.0001)
     }
 
+    func testViewportInteractionModeAppliesAppFloorsWhenConfiguredDelayIsNonZero() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 1.0 / 60.0,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app,
+            viewportInteractionMode: .app
+        )
+
+        let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
+        XCTAssertEqual(
+            contentDecision.delay,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
+
+        let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 1)
+        XCTAssertEqual(
+            idleDecision.delay,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(idleDecision.usesViewportInteractionPacing)
+    }
+
+    func testViewportInteractionModePreservesExplicitZeroDelayRuns() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 0,
+            idleFrameInterval: 0,
+            emptyBackoffMode: .app,
+            viewportInteractionMode: .app
+        )
+
+        let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
+        let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 24)
+
+        XCTAssertEqual(contentDecision.delay, 0, accuracy: 0.0001)
+        XCTAssertFalse(contentDecision.usesViewportInteractionPacing)
+        XCTAssertEqual(idleDecision.delay, 0, accuracy: 0.0001)
+        XCTAssertFalse(idleDecision.usesViewportInteractionPacing)
+    }
+
+    func testViewportInteractionModeReportsTiedAppFloorAsActive() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 1.0 / 15.0,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app,
+            viewportInteractionMode: .app
+        )
+
+        let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
+        let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 24)
+
+        XCTAssertEqual(
+            contentDecision.delay,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
+        XCTAssertEqual(
+            idleDecision.delay,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(idleDecision.usesViewportInteractionPacing)
+    }
+
+    func testViewportInteractionModeToleratesRoundedFloorValues() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 0.066667,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app,
+            viewportInteractionMode: .app
+        )
+
+        let decision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
+
+        XCTAssertEqual(decision.delay, 0.066667, accuracy: 0.0001)
+        XCTAssertTrue(decision.usesViewportInteractionPacing)
+    }
+
     func testClientPressureStateActivatesAppFloorAfterRepeatedLaggingContentSamples() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,
