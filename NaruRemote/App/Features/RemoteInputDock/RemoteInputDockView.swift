@@ -561,6 +561,22 @@ public struct RemoteInputDockView: View {
         previouslyHadMarkedText && !hasMarkedText
     }
 
+    nonisolated static func shouldDeferUIKitComposeBindingWrite(
+        hasMarkedText: Bool,
+        isFirstResponder: Bool,
+        proposedText: String,
+        lastAppliedBindingText: String,
+        currentUIKitText: String
+    ) -> Bool {
+        if hasMarkedText {
+            return true
+        }
+
+        return isFirstResponder
+            && proposedText == lastAppliedBindingText
+            && currentUIKitText != proposedText
+    }
+
     nonisolated static func shouldApplyExternalComposeText(
         newValue: String,
         lastAppliedInitialText: String,
@@ -855,10 +871,19 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         // Do not overwrite UIKit's in-flight marked text. Korean/CJK
         // composition keeps intermediate state inside UITextView; setting
         // `text` during that window can collapse or reorder the candidate.
-        if textView.markedTextRange == nil, textView.text != text {
+        if context.coordinator.shouldDeferBindingWrite(
+            proposedText: text,
+            textView: textView
+        ) {
+            context.coordinator.parent.commitController.updateCurrentText(from: textView)
+            return
+        }
+
+        if textView.text != text {
             textView.text = text
             context.coordinator.parent.commitController.updateCurrentText(from: textView)
         }
+        context.coordinator.markBindingTextApplied(text)
     }
 
     @MainActor
@@ -867,6 +892,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         private weak var textView: UITextView?
         private var previouslyHadMarkedText = false
         private var lastCommittedTextNotification: String?
+        private var lastAppliedBindingText = ""
 
         init(parent: MultilingualComposeTextView) {
             self.parent = parent
@@ -877,12 +903,13 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             parent.commitController.attach(textView)
             previouslyHadMarkedText = textView.markedTextRange != nil
             lastCommittedTextNotification = textView.text ?? ""
+            lastAppliedBindingText = parent.text
         }
 
         func textViewDidChange(_ textView: UITextView) {
             parent.commitController.updateCurrentText(from: textView)
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
-            if parent.text != resolvedText {
+            if textView.markedTextRange == nil, parent.text != resolvedText {
                 parent.text = resolvedText
             }
             notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
@@ -906,6 +933,23 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             parent.onFocusChange(false)
+        }
+
+        func shouldDeferBindingWrite(
+            proposedText: String,
+            textView: UITextView
+        ) -> Bool {
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: textView.markedTextRange != nil,
+                isFirstResponder: textView.isFirstResponder,
+                proposedText: proposedText,
+                lastAppliedBindingText: lastAppliedBindingText,
+                currentUIKitText: textView.text ?? ""
+            )
+        }
+
+        func markBindingTextApplied(_ text: String) {
+            lastAppliedBindingText = text
         }
 
         private func notifyIfMarkedTextCommitted(

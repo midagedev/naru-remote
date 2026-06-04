@@ -320,6 +320,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case thermalPacingSampleCount
         case powerSaverPacingSampleCount
         case emptyBackoffPacingSampleCount
+        case viewportInteractionPacingSampleCount
         case actualEncodingMix
         case thermalState
     }
@@ -376,6 +377,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let thermalPacingSampleCount: Int
     public let powerSaverPacingSampleCount: Int
     public let emptyBackoffPacingSampleCount: Int
+    public let viewportInteractionPacingSampleCount: Int
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -432,6 +434,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         thermalPacingSampleCount: Int = 0,
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
+        viewportInteractionPacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -536,6 +539,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         )
         self.emptyBackoffPacingSampleCount = min(
             max(emptyBackoffPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
+        self.viewportInteractionPacingSampleCount = min(
+            max(viewportInteractionPacingSampleCount, 0),
             streamPacingDelaySampleCount
         )
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
@@ -719,6 +726,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             emptyBackoffPacingSampleCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .emptyBackoffPacingSampleCount
+            ) ?? 0,
+            viewportInteractionPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionPacingSampleCount
             ) ?? 0,
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
@@ -969,7 +980,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 15
+    public static let currentSchemaVersion = 16
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

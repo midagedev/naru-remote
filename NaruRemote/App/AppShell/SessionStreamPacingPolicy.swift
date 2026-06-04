@@ -10,6 +10,7 @@ struct SessionStreamPacingDecision: Equatable, Sendable {
     var usesThermalPacing: Bool
     var usesPowerSaverPacing: Bool
     var usesEmptyBackoffPacing: Bool
+    var usesViewportInteractionPacing: Bool = false
 }
 
 struct SessionStreamPacingPolicy: Equatable, Sendable {
@@ -23,6 +24,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
+        usesViewportInteractionPacing: Bool = false,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
         decision(
@@ -30,6 +32,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             configuredDelay: configuredDelay,
             thermalState: thermalState,
             usesPowerSaverPacing: usesPowerSaverPacing,
+            usesViewportInteractionPacing: usesViewportInteractionPacing,
             emptyUpdateStreak: emptyUpdateStreak
         ).delay
     }
@@ -39,6 +42,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
+        usesViewportInteractionPacing: Bool = false,
         emptyUpdateStreak: Int = 1
     ) -> SessionStreamPacingDecision {
         let configuredDelay = max(configuredDelay, 0)
@@ -49,7 +53,8 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
                 delay: 0,
                 usesThermalPacing: false,
                 usesPowerSaverPacing: false,
-                usesEmptyBackoffPacing: false
+                usesEmptyBackoffPacing: false,
+                usesViewportInteractionPacing: false
             )
         }
 
@@ -63,13 +68,24 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             for: event,
             usesPowerSaverPacing: usesPowerSaverPacing
         )
-        let effectiveDelay = max(configuredDelayWithBackoff, thermalMinimum, powerSaverMinimum)
+        let viewportInteractionMinimum = minimumDelayForViewportInteraction(
+            for: event,
+            usesViewportInteractionPacing: usesViewportInteractionPacing
+        )
+        let effectiveDelay = max(
+            configuredDelayWithBackoff,
+            thermalMinimum,
+            powerSaverMinimum,
+            viewportInteractionMinimum
+        )
         return SessionStreamPacingDecision(
             delay: effectiveDelay,
             usesThermalPacing: thermalMinimum > 0 && thermalMinimum == effectiveDelay,
             usesPowerSaverPacing: powerSaverMinimum > 0 && powerSaverMinimum == effectiveDelay,
             usesEmptyBackoffPacing: configuredDelayWithBackoff > configuredDelay
-                && configuredDelayWithBackoff == effectiveDelay
+                && configuredDelayWithBackoff == effectiveDelay,
+            usesViewportInteractionPacing: viewportInteractionMinimum > 0
+                && viewportInteractionMinimum == effectiveDelay
         )
     }
 
@@ -145,6 +161,22 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         switch event {
         case .contentFrame:
             return 1.0 / 30.0
+        case .emptyUpdate:
+            return 0.125
+        }
+    }
+
+    private static func minimumDelayForViewportInteraction(
+        for event: SessionStreamPacingEvent,
+        usesViewportInteractionPacing: Bool
+    ) -> TimeInterval {
+        guard usesViewportInteractionPacing else {
+            return 0
+        }
+
+        switch event {
+        case .contentFrame:
+            return 1.0 / 15.0
         case .emptyUpdate:
             return 0.125
         }

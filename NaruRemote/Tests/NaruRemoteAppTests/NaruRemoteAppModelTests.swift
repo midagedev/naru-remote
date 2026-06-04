@@ -180,6 +180,42 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testSessionStreamPacingPolicyBacksOffForViewportInteraction() {
+        let contentDecision = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: 1.0 / 60.0,
+            thermalState: .nominal,
+            usesViewportInteractionPacing: true
+        )
+        XCTAssertEqual(contentDecision.delay, 1.0 / 15.0, accuracy: 0.0001)
+        XCTAssertFalse(contentDecision.usesThermalPacing)
+        XCTAssertFalse(contentDecision.usesPowerSaverPacing)
+        XCTAssertFalse(contentDecision.usesEmptyBackoffPacing)
+        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
+
+        let emptyDecision = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .nominal,
+            usesViewportInteractionPacing: true,
+            emptyUpdateStreak: 1
+        )
+        XCTAssertEqual(emptyDecision.delay, 0.125, accuracy: 0.0001)
+        XCTAssertTrue(emptyDecision.usesViewportInteractionPacing)
+
+        XCTAssertEqual(
+            SessionStreamPacingPolicy.delay(
+                for: .contentFrame,
+                configuredDelay: 0,
+                thermalState: .nominal,
+                usesViewportInteractionPacing: true
+            ),
+            0,
+            accuracy: 0.0001,
+            "Opt-in fake/test streams that remove pacing should stay deterministic."
+        )
+    }
+
     func testSessionStreamPacingDecisionClassifiesActiveFloor() {
         let thermal = SessionStreamPacingPolicy.decision(
             for: .contentFrame,
@@ -190,6 +226,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(thermal.usesThermalPacing)
         XCTAssertFalse(thermal.usesPowerSaverPacing)
         XCTAssertFalse(thermal.usesEmptyBackoffPacing)
+        XCTAssertFalse(thermal.usesViewportInteractionPacing)
 
         let powerSaver = SessionStreamPacingPolicy.decision(
             for: .emptyUpdate,
@@ -202,6 +239,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(powerSaver.usesThermalPacing)
         XCTAssertTrue(powerSaver.usesPowerSaverPacing)
         XCTAssertFalse(powerSaver.usesEmptyBackoffPacing)
+        XCTAssertFalse(powerSaver.usesViewportInteractionPacing)
 
         let emptyBackoff = SessionStreamPacingPolicy.decision(
             for: .emptyUpdate,
@@ -213,6 +251,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(emptyBackoff.usesThermalPacing)
         XCTAssertFalse(emptyBackoff.usesPowerSaverPacing)
         XCTAssertTrue(emptyBackoff.usesEmptyBackoffPacing)
+        XCTAssertFalse(emptyBackoff.usesViewportInteractionPacing)
 
         let tiedFloors = SessionStreamPacingPolicy.decision(
             for: .emptyUpdate,
@@ -225,6 +264,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(tiedFloors.usesThermalPacing)
         XCTAssertTrue(tiedFloors.usesPowerSaverPacing)
         XCTAssertFalse(tiedFloors.usesEmptyBackoffPacing)
+        XCTAssertFalse(tiedFloors.usesViewportInteractionPacing)
 
         let overriddenBackoff = SessionStreamPacingPolicy.decision(
             for: .emptyUpdate,
@@ -236,6 +276,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(overriddenBackoff.usesThermalPacing)
         XCTAssertFalse(overriddenBackoff.usesPowerSaverPacing)
         XCTAssertFalse(overriddenBackoff.usesEmptyBackoffPacing)
+        XCTAssertFalse(overriddenBackoff.usesViewportInteractionPacing)
     }
 
     func testSessionStreamPressurePacingStateActivatesAfterRepeatedLaggingClientProcessing() {
@@ -1281,6 +1322,67 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(10))
     }
 
+    func testModelAppliesViewportInteractionPacingInFrameLoop() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let updates = (0..<3).map { _ in
+            RFBFramebufferUpdateResult(
+                framebuffer: framebuffer,
+                dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                changedPixelCount: 1
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            updateResults: updates
+        )
+        let pacingSleepRecorder = PacingSleepRecorder()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 3,
+                frameInterval: 1.0 / 60.0,
+                idleFrameInterval: 0.05
+            ),
+            connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                pacingSleepRecorder.record(delay)
+                try await Task.sleep(for: .milliseconds(40))
+            }
+        )
+
+        await model.connectSelectedProfile()
+        _ = try await waitForRecordedPacingDelays(
+            1,
+            in: pacingSleepRecorder
+        )
+        model.setViewportInteractionActive(true)
+
+        let delays = try await waitForRecordedPacingDelays(
+            3,
+            in: pacingSleepRecorder
+        )
+        XCTAssertEqual(delays[0], 1.0 / 60.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[1], 1.0 / 15.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[2], 1.0 / 15.0, accuracy: 0.0001)
+        let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
+        XCTAssertEqual(performance.streamPacingDelaySampleCount, 3)
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 2)
+        XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
+        XCTAssertEqual(performance.thermalPacingSampleCount, 0)
+        model.setViewportInteractionActive(false)
+        model.disconnect()
+        try await Task.sleep(for: .milliseconds(10))
+    }
+
     func testModelKeepsBalancedEncodingProfileWithoutPowerSaverSignal() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
@@ -1901,7 +2003,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 15)
+        XCTAssertEqual(report.schemaVersion, 16)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1972,7 +2074,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 15)
+        XCTAssertEqual(report.schemaVersion, 16)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

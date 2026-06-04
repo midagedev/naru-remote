@@ -1680,6 +1680,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     let usesPowerSaverPacing = lowPowerModeProvider()
                         || appSettings.streamPowerMode == .powerSaver
                         || usesAdaptiveClientPressurePacing
+                    let usesViewportInteractionPacing = isViewportInteractionActive
 
                     // Adaptive pacing: request the next content frame as
                     // fast as the configured active cap allows
@@ -1694,13 +1695,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                             configuredDelay: configuration.idleFrameInterval,
                             thermalState: thermalState,
                             usesPowerSaverPacing: usesPowerSaverPacing,
+                            usesViewportInteractionPacing: usesViewportInteractionPacing,
                             emptyUpdateStreak: emptyUpdateStreak
                         )
                         : SessionStreamPacingPolicy.decision(
                             for: .contentFrame,
                             configuredDelay: configuration.frameInterval,
                             thermalState: thermalState,
-                            usesPowerSaverPacing: usesPowerSaverPacing
+                            usesPowerSaverPacing: usesPowerSaverPacing,
+                            usesViewportInteractionPacing: usesViewportInteractionPacing
                         )
                     recordSessionStreamPacingDecision(pacingDecision)
                     let pacingDelay = pacingDecision.delay

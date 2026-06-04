@@ -147,6 +147,54 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testDefersUIKitBindingWriteWhileMarkedTextIsActive() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: true,
+                isFirstResponder: true,
+                proposedText: "입력느",
+                lastAppliedBindingText: "입력느",
+                currentUIKitText: "입력느낌"
+            )
+        )
+    }
+
+    func testDefersStaleUIKitBindingWriteAfterMarkedTextCommit() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: false,
+                isFirstResponder: true,
+                proposedText: "입력느",
+                lastAppliedBindingText: "입력느",
+                currentUIKitText: "입력느낌"
+            )
+        )
+    }
+
+    func testAllowsExternalUIKitBindingWriteWhenModelTextChanges() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: false,
+                isFirstResponder: true,
+                proposedText: "",
+                lastAppliedBindingText: "입력느",
+                currentUIKitText: "입력느낌"
+            )
+        )
+    }
+
+    func testAllowsPlainUIKitBindingWriteWhenTextViewMatchesModel() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(
+                hasMarkedText: false,
+                isFirstResponder: true,
+                proposedText: "hello",
+                lastAppliedBindingText: "hello",
+                currentUIKitText: "hello"
+            )
+        )
+    }
+
     func testResolvedCommittedComposeTextPrefersCommittedText() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedCommittedComposeText(
