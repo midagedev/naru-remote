@@ -517,6 +517,12 @@ public struct RemoteInputDockView: View {
         currentTextBeforeCommit: String
     ) -> String {
         if let committedText {
+            if let markedTextBeforeCommit,
+               !markedTextBeforeCommit.isEmpty,
+               !committedText.contains(markedTextBeforeCommit),
+               currentTextBeforeCommit.contains(markedTextBeforeCommit) {
+                return currentTextBeforeCommit
+            }
             if !committedText.isEmpty {
                 return committedText
             }
@@ -531,6 +537,27 @@ public struct RemoteInputDockView: View {
         }
 
         return currentTextBeforeCommit
+    }
+
+    nonisolated static func resolvedCurrentComposeText(
+        viewText: String?,
+        markedText: String?,
+        controllerText: String,
+        fallback: String
+    ) -> String {
+        if let viewText, !viewText.isEmpty {
+            return viewText
+        }
+
+        if let markedText, !markedText.isEmpty {
+            return markedText
+        }
+
+        if !controllerText.isEmpty {
+            return controllerText
+        }
+
+        return fallback
     }
 }
 
@@ -583,16 +610,19 @@ final class ComposeTextCommitController: ObservableObject {
         guard let textView else {
             return currentText.isEmpty ? fallback : currentText
         }
-        return textView.text ?? (currentText.isEmpty ? fallback : currentText)
+        return RemoteInputDockView.resolvedCurrentComposeText(
+            viewText: textView.text,
+            markedText: markedText(in: textView),
+            controllerText: currentText,
+            fallback: fallback
+        )
     }
 
     func commitMarkedTextAndRead(fallback: String) -> String {
         guard let textView else {
             return currentText.isEmpty ? fallback : currentText
         }
-        let markedTextBeforeCommit = textView.markedTextRange.flatMap { range in
-            textView.text(in: range)
-        }
+        let markedTextBeforeCommit = markedText(in: textView)
         if markedTextBeforeCommit != nil {
             textView.unmarkText()
         }
@@ -604,6 +634,12 @@ final class ComposeTextCommitController: ObservableObject {
         )
         currentText = committedText
         return committedText
+    }
+
+    private func markedText(in textView: UITextView) -> String? {
+        textView.markedTextRange.flatMap { range in
+            textView.text(in: range)
+        }
     }
 }
 

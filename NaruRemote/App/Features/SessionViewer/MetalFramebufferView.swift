@@ -440,6 +440,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// recognizer's translation is local gesture drift, not remote
     /// scroll intent.
     private var isPinchGestureActive = false
+    private var pinchLastAnchor: CGPoint?
 
     /// Local clamp range applied to the zoom scale.  Mirrors the
     /// range applied by `SessionViewportView` so the host view's
@@ -800,10 +801,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             stopViewportDeceleration()
             beginViewportTransformGesture()
             isPinchGestureActive = true
+            pinchLastAnchor = recognizer.location(in: self)
         case .changed:
             break
         case .ended, .cancelled, .failed:
             isPinchGestureActive = false
+            pinchLastAnchor = nil
             finishViewportTransformGesture()
             return
         default:
@@ -813,18 +816,23 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let previousZoomScale = currentZoomScale
         let proposed = previousZoomScale * recognizer.scale
         let anchor = recognizer.location(in: self)
+        let previousAnchor = pinchLastAnchor ?? anchor
+        let anchorDelta = CGSize(
+            width: anchor.x - previousAnchor.x,
+            height: anchor.y - previousAnchor.y
+        )
+        pinchLastAnchor = anchor
         recognizer.scale = 1.0
-        let clamped = min(max(proposed, currentMinimumZoomScale), Self.maxZoomScale)
-        let nextTransform: ViewportTransform
-        if clamped <= currentMinimumZoomScale + 0.0001 {
-            nextTransform = viewportTransform(zoomScale: clamped, panOffset: .zero)
-        } else {
-            nextTransform = viewportTransform(
-                zoomScale: previousZoomScale,
-                panOffset: currentPanOffset
-            )
-            .zoomed(to: clamped, about: anchor)
-        }
+        let nextTransform = viewportTransform(
+            zoomScale: previousZoomScale,
+            panOffset: currentPanOffset
+        )
+        .pinched(
+            to: proposed,
+            about: anchor,
+            anchorDelta: anchorDelta,
+            minimumZoomScale: currentMinimumZoomScale
+        )
         currentZoomScale = nextTransform.zoomScale
         let nextPanOffset = nextTransform.panOffset
         let panDidChange = nextPanOffset != currentPanOffset

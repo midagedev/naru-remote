@@ -115,6 +115,28 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedCommittedComposeTextUsesCurrentTextWhenCommittedSnapshotDropsMarkedText() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "입력느",
+                markedTextBeforeCommit: "낌",
+                currentTextBeforeCommit: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedCommittedComposeTextKeepsCommittedTextWhenMarkedTextIsPresent() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "입력느낌",
+                markedTextBeforeCommit: "낌",
+                currentTextBeforeCommit: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
     func testResolvedCommittedComposeTextKeepsEmptyEditorEmpty() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedCommittedComposeText(
@@ -134,6 +156,30 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
                 currentTextBeforeCommit: "컨트롤러 값"
             ),
             "컨트롤러 값"
+        )
+    }
+
+    func testResolvedCurrentComposeTextFallsBackToMarkedTextWhenViewSnapshotIsEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCurrentComposeText(
+                viewText: "",
+                markedText: "한",
+                controllerText: "",
+                fallback: ""
+            ),
+            "한"
+        )
+    }
+
+    func testResolvedCurrentComposeTextPrefersViewTextWhenAvailable() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCurrentComposeText(
+                viewText: "입력느낌",
+                markedText: "낌",
+                controllerText: "입력느",
+                fallback: ""
+            ),
+            "입력느낌"
         )
     }
 }

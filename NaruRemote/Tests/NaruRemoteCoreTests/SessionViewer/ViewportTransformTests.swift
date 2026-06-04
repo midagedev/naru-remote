@@ -97,6 +97,66 @@ final class ViewportTransformTests: XCTestCase {
         XCTAssertEqual(before?.y ?? -1, after?.y ?? -2, accuracy: 0.5)
     }
 
+    func testPinchCentroidTranslationPansWithFingers() {
+        let base = ViewportTransform(framebufferSize: fb, viewSize: sixteenByNine)
+            .zoomed(to: 2, about: CGPoint(x: 160, y: 90))
+
+        let moved = base.pinched(
+            to: 2,
+            about: CGPoint(x: 180, y: 90),
+            anchorDelta: CGSize(width: 20, height: 0)
+        )
+
+        XCTAssertEqual(
+            moved.panOffset.width,
+            base.panOffset.width + 20,
+            accuracy: 1e-6
+        )
+        XCTAssertEqual(moved.panOffset.height, base.panOffset.height, accuracy: 1e-6)
+    }
+
+    func testPinchCentroidTranslationAppliesWhenStartingAtFitScale() {
+        let base = ViewportTransform(framebufferSize: fb, viewSize: sixteenByNine)
+        let previousAnchor = CGPoint(x: 150, y: 80)
+        let anchor = CGPoint(x: 170, y: 80)
+        let fingerPixel = base.framebufferPoint(fromViewPoint: previousAnchor)
+
+        let moved = base.pinched(
+            to: 2,
+            about: anchor,
+            anchorDelta: CGSize(width: 20, height: 0)
+        )
+        let viewPoint = moved.viewPoint(fromFramebufferPoint: fingerPixel ?? .zero)
+
+        XCTAssertEqual(viewPoint.x, anchor.x, accuracy: 0.5)
+        XCTAssertEqual(viewPoint.y, anchor.y, accuracy: 0.5)
+    }
+
+    func testPinchAtCropFillMinimumKeepsPannableOffset() {
+        let fit = ViewportTransform(framebufferSize: fb, viewSize: portrait)
+        let fillZoom = portrait.height / fit.contentSize.height
+        let baseline = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: portrait,
+            zoomScale: fillZoom,
+            panOffset: CGSize(width: -120, height: 0)
+        )
+
+        let moved = baseline.pinched(
+            to: fillZoom * 0.8,
+            about: CGPoint(x: portrait.width / 2, y: portrait.height / 2),
+            anchorDelta: CGSize(width: -24, height: 0),
+            minimumZoomScale: fillZoom
+        )
+
+        XCTAssertEqual(moved.zoomScale, fillZoom, accuracy: 1e-6)
+        XCTAssertLessThan(
+            moved.panOffset.width,
+            baseline.panOffset.width,
+            "Crop-fill baseline is still pannable; pinching at the floor must not snap pan to zero."
+        )
+    }
+
     func testZoomClampedToMax() {
         let transform = ViewportTransform(framebufferSize: fb, viewSize: portrait, maxZoomScale: 4)
         let zoomed = transform.zoomed(to: 99, about: CGPoint(x: 195, y: 422))
