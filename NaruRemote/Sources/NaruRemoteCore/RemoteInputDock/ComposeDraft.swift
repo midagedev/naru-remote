@@ -94,6 +94,6 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
     }
 
     public mutating func markPasteDispatched(message: String, at date: Date = Date()) {
-        markUnknown(message: message, clearAfterSend: false, at: date)
+        markUnknown(message: message, clearAfterSend: true, at: date)
     }
 }

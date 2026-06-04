@@ -80,6 +80,12 @@ public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
     _ transform: ViewportTransform
 ) -> ViewportTransform?
 
+/// Closure invoked when the user starts or finishes a local viewport
+/// manipulation (pinch, zoomed pan, trackpad cursor drag). The app
+/// model uses this signal to defer SwiftUI framebuffer publication
+/// while Metal is reprojection-drawing the already uploaded texture.
+public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (Bool) -> Void
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
@@ -97,6 +103,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onZoomToggle: MetalFramebufferZoomToggleHandler?
     private let pointerControlMode: PointerControlMode
     private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
+    private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
     /// Current local zoom scale, owned by the SwiftUI parent and pushed
     /// down so the host's gesture handlers know whether a one-finger
     /// drag is a pan (zoomed) or a remote drag (fit), and so the pan
@@ -129,7 +136,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onPan: MetalFramebufferPanHandler? = nil,
         onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
-        onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil
+        onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
+        onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
@@ -150,6 +158,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onZoomToggle = onZoomToggle
         self.pointerControlMode = pointerControlMode
         self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportInteractionChange = onViewportInteractionChange
     }
 
     public static func isSupported() -> Bool {
@@ -176,6 +185,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.panHandler = onPan
         host.zoomToggleHandler = onZoomToggle
         host.trackpadGestureHandler = onTrackpadGesture
+        host.viewportInteractionHandler = onViewportInteractionChange
         host.syncInputState(
             pointerControlMode: pointerControlMode,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
@@ -208,6 +218,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.panHandler = onPan
         uiView.zoomToggleHandler = onZoomToggle
         uiView.trackpadGestureHandler = onTrackpadGesture
+        uiView.viewportInteractionHandler = onViewportInteractionChange
         uiView.syncInputState(
             pointerControlMode: pointerControlMode,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
@@ -342,6 +353,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// auto-pan transform, which this host applies through the Metal
     /// renderer immediately.
     public var trackpadGestureHandler: MetalFramebufferTrackpadGestureHandler?
+
+    /// Signals when the host is locally manipulating the viewport.
+    /// This lets the model merge incoming frames to the newest pending
+    /// frame instead of making SwiftUI republish during every touch
+    /// sample.
+    public var viewportInteractionHandler: MetalFramebufferViewportInteractionHandler?
 
     /// Current one-finger input mode.  Direct-touch keeps the existing
     /// tap/drag behavior; trackpad mode turns tap/drag into cursor
@@ -1122,6 +1139,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     private func finishViewportTransformGesture() {
+        let wasActive = isViewportTransformGestureActive
         isViewportTransformGestureActive = false
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
         let shouldFlushRedraw = viewportGestureRedrawThrottle.flushAfterGesture()
@@ -1134,15 +1152,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         if shouldFlushRedraw {
             requestRedraw()
         }
+        if wasActive {
+            viewportInteractionHandler?(false)
+        }
     }
 
     @MainActor
     private func beginViewportTransformGesture() {
-        if !isViewportTransformGestureActive {
+        let wasInactive = !isViewportTransformGestureActive
+        if wasInactive {
             deferredFramebufferRedrawDuringViewportGesture = false
         }
         isViewportTransformGestureActive = true
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
+        if wasInactive {
+            viewportInteractionHandler?(true)
+        }
     }
 
     @MainActor

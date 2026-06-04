@@ -247,7 +247,7 @@ public struct RemoteInputDockView: View {
                     .frame(width: 44, height: 40)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(text.isEmpty)
+            .disabled(isComposeSendDisabled)
             .help("Send composed text")
             .accessibilityIdentifier("naru.input.send")
         }
@@ -383,7 +383,7 @@ public struct RemoteInputDockView: View {
                 Label("Send", systemImage: "paperplane.fill")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(text.isEmpty)
+            .disabled(isComposeSendDisabled)
             .help("Send composed text")
             .accessibilityIdentifier("naru.input.send")
         }
@@ -416,6 +416,14 @@ public struct RemoteInputDockView: View {
 
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
+    }
+
+    private var isComposeSendDisabled: Bool {
+        #if os(iOS) && canImport(UIKit)
+        composeCommitController.currentText.isEmpty && text.isEmpty
+        #else
+        text.isEmpty
+        #endif
     }
 
     private var composeTextEditor: some View {
@@ -518,9 +526,15 @@ private struct ComposeTextEditingView: View {
 @MainActor
 final class ComposeTextCommitController: ObservableObject {
     private weak var textView: UITextView?
+    @Published private(set) var currentText: String = ""
 
     func attach(_ textView: UITextView) {
         self.textView = textView
+        currentText = textView.text ?? ""
+    }
+
+    func updateCurrentText(from textView: UITextView) {
+        currentText = textView.text ?? ""
     }
 
     var hasMarkedText: Bool {
@@ -535,7 +549,9 @@ final class ComposeTextCommitController: ObservableObject {
             textView.unmarkText()
         }
         textView.layoutIfNeeded()
-        return textView.text ?? fallback
+        let committedText = textView.text ?? fallback
+        currentText = committedText
+        return committedText
     }
 }
 
@@ -574,6 +590,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         // `text` during that window can collapse or reorder the candidate.
         if textView.markedTextRange == nil, textView.text != text {
             textView.text = text
+            context.coordinator.parent.commitController.updateCurrentText(from: textView)
         }
     }
 
@@ -592,6 +609,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            parent.commitController.updateCurrentText(from: textView)
             parent.text = textView.text
         }
 

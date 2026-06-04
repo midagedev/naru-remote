@@ -116,6 +116,9 @@ public struct NaruRemoteAppShell: View {
             onTrackpadGesture: { gesture, transform in
                 model.handleTrackpadGesture(gesture, transform: transform) ?? transform
             },
+            onViewportInteractionChange: { isActive in
+                model.setViewportInteractionActive(isActive)
+            },
             onTogglePointerMode: {
                 model.togglePointerControlMode()
             },
