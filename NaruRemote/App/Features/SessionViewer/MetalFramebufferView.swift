@@ -482,15 +482,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var viewportGestureLastSampleTimestamp: CFTimeInterval?
     private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
-        minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval
+        minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval,
+        allowsFirstRedrawDuringGesture: false
     )
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    // Keep expensive remote-frame uploads conservative while local touch
-    // tracking owns the viewport; the current texture still moves at
-    // screen rate on the compositor path.
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
+    // Keep expensive remote-frame uploads entirely off the local
+    // touch-tracking path. The current texture still moves at screen
+    // rate on the compositor path, and the latest deferred frame is
+    // flushed once the gesture settles.
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = .infinity
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {
