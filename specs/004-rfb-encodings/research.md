@@ -893,3 +893,35 @@ gestures.
 framebuffer dimensions, pixels, cursor pixels, raw timestamps, raw timing
 samples, host identity, or raw errors. Compose commit hardening must not log or
 export draft text.
+
+## D31 — Pacing diagnostics should explain low-FPS and heat reports
+
+References:
+- Apple Energy Efficiency Guide, Low Power Mode: https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/LowPowerMode.html
+- Apple `ProcessInfo.thermalState`: https://developer.apple.com/documentation/foundation/processinfo/1417480-thermalstate
+- Apple rendering efficiency guidance: https://developer.apple.com/documentation/xcode/improving-your-app-s-rendering-efficiency
+
+**Decision**: extend active-session diagnostics with aggregate stream pacing
+signals: pacing-delay sample count, average/max pacing-delay buckets, and sample
+counts where the effective delay was raised by thermal pacing, power-saver
+pacing, or sustained empty-update backoff.
+
+**Why**:
+- Hot-device reports need to separate “the app is overloaded” from “the app is
+  intentionally backing off.” Existing diagnostics expose FPS, receive/apply
+  timing, renderer upload timing, viewport redraw pressure, adaptive pressure,
+  and latest thermal bucket, but they do not say which pacing floor actually
+  shaped the stream loop.
+- Apple documents Low Power Mode as a state where iOS may reduce CPU/GPU
+  performance and recommends apps reduce work such as animations/frame rates or
+  networking. Apple also documents `thermalState` as a signal to reduce system
+  usage. Naru already reacts to both; diagnostics should show when those
+  reactions were active so a low-FPS trace is interpretable.
+- Empty-update backoff is a healthy behavior on static screens. Counting it
+  prevents a static terminal from being mistaken for stream starvation or
+  decode/render pressure.
+
+**Privacy rule**: diagnostics export only fixed labels, counts, and timing
+buckets. They must not export raw delays, raw timing samples, device power
+state, host identity, dimensions, coordinates, pixels, byte counts, cursor
+pixels, or draft text.

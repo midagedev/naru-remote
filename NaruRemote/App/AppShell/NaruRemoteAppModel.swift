@@ -1688,20 +1688,22 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // screen never busy-loops the request path. Sustained
                     // empty updates add a small extra backoff, but content
                     // frames reset the streak immediately.
-                    let pacingDelay = isEmptyUpdate
-                        ? SessionStreamPacingPolicy.delay(
+                    let pacingDecision = isEmptyUpdate
+                        ? SessionStreamPacingPolicy.decision(
                             for: .emptyUpdate,
                             configuredDelay: configuration.idleFrameInterval,
                             thermalState: thermalState,
                             usesPowerSaverPacing: usesPowerSaverPacing,
                             emptyUpdateStreak: emptyUpdateStreak
                         )
-                        : SessionStreamPacingPolicy.delay(
+                        : SessionStreamPacingPolicy.decision(
                             for: .contentFrame,
                             configuredDelay: configuration.frameInterval,
                             thermalState: thermalState,
                             usesPowerSaverPacing: usesPowerSaverPacing
                         )
+                    recordSessionStreamPacingDecision(pacingDecision)
+                    let pacingDelay = pacingDecision.delay
                     if pacingDelay > 0 {
                         if let streamPacingSleepOverride {
                             try await streamPacingSleepOverride(pacingDelay)
@@ -1811,6 +1813,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
             appFrameApplyMilliseconds: appFrameApplyMilliseconds
         )
+    }
+
+    private func recordSessionStreamPacingDecision(_ decision: SessionStreamPacingDecision) {
+        sessionStreamStats.recordPacingDecision(decision)
     }
 
     public func recordRendererUploadTiming(milliseconds: Int) {

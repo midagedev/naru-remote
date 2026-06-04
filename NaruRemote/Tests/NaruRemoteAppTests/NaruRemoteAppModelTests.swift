@@ -180,6 +180,64 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testSessionStreamPacingDecisionClassifiesActiveFloor() {
+        let thermal = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: 1.0 / 30.0,
+            thermalState: .serious
+        )
+        XCTAssertEqual(thermal.delay, 1.0 / 15.0, accuracy: 0.0001)
+        XCTAssertTrue(thermal.usesThermalPacing)
+        XCTAssertFalse(thermal.usesPowerSaverPacing)
+        XCTAssertFalse(thermal.usesEmptyBackoffPacing)
+
+        let powerSaver = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .nominal,
+            usesPowerSaverPacing: true,
+            emptyUpdateStreak: 1
+        )
+        XCTAssertEqual(powerSaver.delay, 0.125, accuracy: 0.0001)
+        XCTAssertFalse(powerSaver.usesThermalPacing)
+        XCTAssertTrue(powerSaver.usesPowerSaverPacing)
+        XCTAssertFalse(powerSaver.usesEmptyBackoffPacing)
+
+        let emptyBackoff = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .nominal,
+            emptyUpdateStreak: 8
+        )
+        XCTAssertEqual(emptyBackoff.delay, 0.075, accuracy: 0.0001)
+        XCTAssertFalse(emptyBackoff.usesThermalPacing)
+        XCTAssertFalse(emptyBackoff.usesPowerSaverPacing)
+        XCTAssertTrue(emptyBackoff.usesEmptyBackoffPacing)
+
+        let tiedFloors = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .serious,
+            usesPowerSaverPacing: true,
+            emptyUpdateStreak: 1
+        )
+        XCTAssertEqual(tiedFloors.delay, 0.125, accuracy: 0.0001)
+        XCTAssertTrue(tiedFloors.usesThermalPacing)
+        XCTAssertTrue(tiedFloors.usesPowerSaverPacing)
+        XCTAssertFalse(tiedFloors.usesEmptyBackoffPacing)
+
+        let overriddenBackoff = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .serious,
+            emptyUpdateStreak: 8
+        )
+        XCTAssertEqual(overriddenBackoff.delay, 0.125, accuracy: 0.0001)
+        XCTAssertTrue(overriddenBackoff.usesThermalPacing)
+        XCTAssertFalse(overriddenBackoff.usesPowerSaverPacing)
+        XCTAssertFalse(overriddenBackoff.usesEmptyBackoffPacing)
+    }
+
     func testSessionStreamPressurePacingStateActivatesAfterRepeatedLaggingClientProcessing() {
         var state = SessionStreamPressurePacingState()
         let slowFrame = pressureTestFrame(
@@ -1213,6 +1271,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 2)
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 500)
         XCTAssertEqual(performance.appFrameApplyTimingSampleCount, 4)
+        XCTAssertEqual(performance.streamPacingDelaySampleCount, 4)
+        XCTAssertEqual(performance.averageStreamPacingDelayBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(performance.maxStreamPacingDelayBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(performance.powerSaverPacingSampleCount, 2)
+        XCTAssertEqual(performance.thermalPacingSampleCount, 0)
+        XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 0)
         model.disconnect()
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -1837,7 +1901,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 14)
+        XCTAssertEqual(report.schemaVersion, 15)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1908,7 +1972,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 14)
+        XCTAssertEqual(report.schemaVersion, 15)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -1933,6 +1997,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.averageClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.maxClientProcessingTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.appFrameApplyTimingSampleCount, 2)
+        XCTAssertEqual(performance.streamPacingDelaySampleCount, 2)
+        XCTAssertEqual(performance.averageStreamPacingDelayBucket, DiagnosticTimingBucket.subFrame.rawValue)
+        XCTAssertEqual(performance.maxStreamPacingDelayBucket, DiagnosticTimingBucket.subFrame.rawValue)
+        XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
+        XCTAssertEqual(performance.thermalPacingSampleCount, 0)
+        XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 0)
         XCTAssertEqual(
             performance.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, zrleRectangles: 1)

@@ -314,6 +314,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case appFrameApplyTimingSampleCount
         case averageAppFrameApplyTimingBucket
         case maxAppFrameApplyTimingBucket
+        case streamPacingDelaySampleCount
+        case averageStreamPacingDelayBucket
+        case maxStreamPacingDelayBucket
+        case thermalPacingSampleCount
+        case powerSaverPacingSampleCount
+        case emptyBackoffPacingSampleCount
         case actualEncodingMix
         case thermalState
     }
@@ -364,6 +370,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let appFrameApplyTimingSampleCount: Int
     public let averageAppFrameApplyTimingBucket: String
     public let maxAppFrameApplyTimingBucket: String
+    public let streamPacingDelaySampleCount: Int
+    public let averageStreamPacingDelayBucket: String
+    public let maxStreamPacingDelayBucket: String
+    public let thermalPacingSampleCount: Int
+    public let powerSaverPacingSampleCount: Int
+    public let emptyBackoffPacingSampleCount: Int
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -414,6 +426,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         appFrameApplyTimingSampleCount: Int = 0,
         averageAppFrameApplyTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxAppFrameApplyTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        streamPacingDelaySampleCount: Int = 0,
+        averageStreamPacingDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxStreamPacingDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        thermalPacingSampleCount: Int = 0,
+        powerSaverPacingSampleCount: Int = 0,
+        emptyBackoffPacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -499,6 +517,27 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             self.averageAppFrameApplyTimingBucket = Self.safeTimingBucket(averageAppFrameApplyTimingBucket)
             self.maxAppFrameApplyTimingBucket = Self.safeTimingBucket(maxAppFrameApplyTimingBucket)
         }
+        let streamPacingDelaySampleCount = max(streamPacingDelaySampleCount, 0)
+        self.streamPacingDelaySampleCount = streamPacingDelaySampleCount
+        if streamPacingDelaySampleCount == 0 {
+            self.averageStreamPacingDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxStreamPacingDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageStreamPacingDelayBucket = Self.safeTimingBucket(averageStreamPacingDelayBucket)
+            self.maxStreamPacingDelayBucket = Self.safeTimingBucket(maxStreamPacingDelayBucket)
+        }
+        self.thermalPacingSampleCount = min(
+            max(thermalPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
+        self.powerSaverPacingSampleCount = min(
+            max(powerSaverPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
+        self.emptyBackoffPacingSampleCount = min(
+            max(emptyBackoffPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
     }
@@ -657,6 +696,30 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .maxAppFrameApplyTimingBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            streamPacingDelaySampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .streamPacingDelaySampleCount
+            ) ?? 0,
+            averageStreamPacingDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageStreamPacingDelayBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxStreamPacingDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxStreamPacingDelayBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            thermalPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .thermalPacingSampleCount
+            ) ?? 0,
+            powerSaverPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .powerSaverPacingSampleCount
+            ) ?? 0,
+            emptyBackoffPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .emptyBackoffPacingSampleCount
+            ) ?? 0,
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .actualEncodingMix
@@ -906,7 +969,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 14
+    public static let currentSchemaVersion = 15
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
