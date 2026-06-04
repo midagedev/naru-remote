@@ -83,7 +83,7 @@ public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
 /// Closure invoked when the user starts or finishes a local viewport
 /// manipulation (pinch, zoomed pan, trackpad cursor drag). The app
 /// model uses this signal to defer SwiftUI framebuffer publication
-/// while Metal is reprojection-drawing the already uploaded texture.
+/// while the Metal surface stays on the compositor transform path.
 public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (Bool) -> Void
 
 /// Closure invoked with safe aggregate local viewport redraw counters.
@@ -420,9 +420,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Current local zoom scale, owned by the host view so the
     /// recognizer can clamp incrementally between callbacks.  The
     /// SwiftUI parent mirrors the value through `pinchHandler`, while
-    /// the host pushes the visible transform directly into the Metal
-    /// renderer so streaming-driven SwiftUI diffs do not sit in the
-    /// gesture's critical path.
+    /// the host applies the visible transform directly to the embedded
+    /// `MTKView` layer so streaming-driven SwiftUI diffs do not sit in
+    /// the gesture's critical path.
     private var currentZoomScale: CGFloat = 1.0
 
     /// Dynamic lower bound for pinch zoom.  Standard aspect-fit sessions use
@@ -454,8 +454,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
     private var deferredViewportStateRequiresFlush = false
-    private var viewportRedrawDisplayLink: CADisplayLink?
-    private var viewportRedrawRequested = false
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
@@ -629,6 +627,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
     }
 
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        applyViewportTransformToMetalView()
+    }
+
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
 
     private var canPanViewport: Bool {
@@ -670,10 +673,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         metalView?.setNeedsDisplay()
     }
 
-    private func requestImmediateViewportRedraw() {
-        metalView?.draw()
-    }
-
     /// Request a redraw for a newly arrived remote frame, giving touch
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
@@ -706,9 +705,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         viewportStateDisplayLink?.invalidate()
         viewportStateDisplayLink = nil
-        viewportRedrawDisplayLink?.invalidate()
-        viewportRedrawDisplayLink = nil
-        viewportRedrawRequested = false
         viewportDecelerationDisplayLink?.invalidate()
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
@@ -1012,66 +1008,38 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     private func applyViewportTransformToMetalView() {
+        // Keep the renderer drawing the latest texture at the stable
+        // aspect-fit baseline and let Core Animation move the MTKView
+        // layer for local viewport navigation. This keeps pinch/pan on
+        // the compositor path instead of requiring a Metal redraw for
+        // every touch callback.
         coordinator?.renderer?.updateViewportTransform(
-            zoomScale: currentZoomScale,
-            panOffset: currentPanOffset,
+            zoomScale: Self.minZoomScale,
+            panOffset: .zero,
             maxZoomScale: Self.maxZoomScale
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            metalView?.transform = .identity
+            metalView?.transform = viewportLayerTransform()
         }
         CATransaction.commit()
-        requestCoalescedViewportRedraw()
     }
 
-    @MainActor
-    private func requestCoalescedViewportRedraw() {
-        pendingViewportRedrawDiagnostics.redrawRequestCount += 1
-        viewportRedrawRequested = true
-        guard viewportRedrawDisplayLink == nil else {
-            return
+    private func viewportLayerTransform() -> CGAffineTransform {
+        let clampedScale = min(max(currentZoomScale, currentMinimumZoomScale), Self.maxZoomScale)
+        guard clampedScale > 0 else {
+            return .identity
         }
 
-        let displayLink = CADisplayLink(
-            target: self,
-            selector: #selector(displayLinkFlushViewportRedraw(_:))
+        // `UIView.transform` already scales around the view's layer
+        // anchor point (center by default). Keep the matrix simple:
+        // translate the scaled surface by the clamped local pan.
+        return CGAffineTransform(
+            translationX: currentPanOffset.width,
+            y: currentPanOffset.height
         )
-        configureViewportDisplayLink(displayLink)
-        displayLink.add(to: .main, forMode: .common)
-        viewportRedrawDisplayLink = displayLink
-    }
-
-    @MainActor
-    @objc
-    private func displayLinkFlushViewportRedraw(_ displayLink: CADisplayLink) {
-        flushPendingViewportRedrawIfNeeded()
-    }
-
-    @MainActor
-    private func flushPendingViewportRedrawIfNeeded() {
-        guard viewportRedrawRequested else {
-            stopViewportRedrawDisplayLinkIfIdle()
-            return
-        }
-
-        viewportRedrawRequested = false
-        pendingViewportRedrawDiagnostics.redrawFlushCount += 1
-        requestImmediateViewportRedraw()
-        stopViewportRedrawDisplayLinkIfIdle()
-    }
-
-    @MainActor
-    private func stopViewportRedrawDisplayLinkIfIdle() {
-        guard !isViewportTransformGestureActive,
-              viewportDecelerationDisplayLink == nil,
-              !viewportRedrawRequested
-        else {
-            return
-        }
-        viewportRedrawDisplayLink?.invalidate()
-        viewportRedrawDisplayLink = nil
+            .scaledBy(x: clampedScale, y: clampedScale)
     }
 
     @MainActor
@@ -1115,14 +1083,20 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         return true
     }
 
+    private func recordViewportDisplayRefreshRate() {
+        let screenMaximum = window?.screen.maximumFramesPerSecond
+            ?? UIScreen.main.maximumFramesPerSecond
+        pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond = max(
+            pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond,
+            max(60, screenMaximum)
+        )
+    }
+
     private func configureViewportDisplayLink(_ displayLink: CADisplayLink) {
         let screenMaximum = window?.screen.maximumFramesPerSecond
             ?? UIScreen.main.maximumFramesPerSecond
         let maximum = Float(max(60, screenMaximum))
-        pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond = max(
-            pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond,
-            Int(maximum.rounded())
-        )
+        recordViewportDisplayRefreshRate()
         displayLink.preferredFrameRateRange = CAFrameRateRange(
             minimum: min(60, maximum),
             maximum: maximum,
@@ -1216,7 +1190,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         if deferredViewportStateRequiresFlush || pendingViewportState != nil {
             flushPendingViewportState()
         }
-        flushPendingViewportRedrawIfNeeded()
         if shouldFlushRedraw {
             requestRedraw()
         }
@@ -1236,6 +1209,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
         if wasInactive {
             pendingViewportRedrawDiagnostics.interactionCount += 1
+            recordViewportDisplayRefreshRate()
             viewportInteractionHandler?(true)
         }
     }
