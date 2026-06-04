@@ -649,3 +649,34 @@ app threshold/recovery constants, and aggregate adaptive pacing sample
 count/permille. Raw timing samples, host identity, framebuffer dimensions,
 coordinates, pixels, byte counts, cursor pixels, and raw errors remain
 excluded.
+
+## D24 — Power-saver sessions should request the sustained ZRLE candidate
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
+
+**Decision**: keep the default `balanced` app path on `localLowLatency`, but
+when the explicit viewer power-saver setting or system Low Power Mode is active
+at session start, re-advertise a request/response sustained profile that
+prefers ZRLE with compression level 0 and still requests server cursor
+pseudo-encodings. This is an automatic power policy, not a manual encoding
+picker.
+
+**Why**:
+- Prior redacted macOS Screen Sharing runs repeatedly identified
+  `zrle-compression-0` as the strongest sustained request/response candidate,
+  including a low-power timed run where `local-low-latency` timed out while
+  `zrle-compression-0` completed.
+- The evidence is still too mixed to flip the global static default; balanced
+  should preserve the Tight-first profile with server cursor support.
+- RFC 6143 makes `SetEncodings` a client preference list that can be resent
+  safely on an active session. TigerVNC/TightVNC both expose compression
+  controls, reinforcing that power/bandwidth/latency tradeoffs are legitimate
+  session policy.
+
+**Privacy rule**: the app sends only fixed catalog encoding and
+pseudo-encoding codes. It does not log or export host identity, framebuffer
+dimensions, coordinates, pixels, byte counts, compressed payloads, raw timing
+samples, raw power state, or raw errors.

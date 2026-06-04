@@ -849,6 +849,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
             connectorFactory: { connector },
+            lowPowerModeProvider: { false },
             allowsAdaptiveEncodingRenegotiation: true
         )
 
@@ -1123,6 +1124,89 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 500)
         model.disconnect()
         try await Task.sleep(for: .milliseconds(10))
+    }
+
+    func testModelKeepsBalancedEncodingProfileWithoutPowerSaverSignal() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [framebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
+    }
+
+    func testModelRenegotiatesPowerSaverSustainedEncodingProfile() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [framebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamPowerMode(.powerSaver)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertEqual(connector.renegotiatedPreferences, [.powerSaverSustained])
+        let list = try XCTUnwrap(connector.renegotiatedPreferences.first).encodingList()
+        XCTAssertEqual(list.first, RFBEncoding.zrle)
+        XCTAssertTrue(list.contains(RFBEncoding.cursor))
+        XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
+    }
+
+    func testModelRenegotiatesPowerSaverSustainedEncodingProfileForSystemLowPowerMode() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [framebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { true }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertEqual(connector.renegotiatedPreferences, [.powerSaverSustained])
     }
 
     func testModelCancelsFrameStreamAndClearsFramebufferWhenProfileChanges() async throws {

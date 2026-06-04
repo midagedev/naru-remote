@@ -333,6 +333,12 @@ iPhone) and ships as its own PR.
   pacing activated, without exporting raw timing samples, power state,
   dimensions, coordinates, pixels, byte counts, or raw errors. Owns: app
   snapshot, app model wiring, diagnostic export, tests. **Done.**
+- **T349** Power-saver sustained encoding profile: keep balanced sessions on the
+  static Tight-first `localLowLatency` default, but have explicit viewer
+  power-saver or system Low Power Mode sessions re-advertise a request/response
+  ZRLE compression-0 profile with server cursor pseudo-encodings before the
+  frame loop, using fixed catalog codes only. Owns: encoding preference, app
+  model wiring, tests, research notes. **Done.**
 
 ## Cross-cutting (every increment)
 

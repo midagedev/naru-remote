@@ -62,6 +62,19 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(list.contains(RFBEncoding.raw))
     }
 
+    func testPowerSaverSustainedPrefersZrleCompressionZeroWithServerCursor() {
+        let list = RFBEncodingPreference.powerSaverSustained.encodingList()
+
+        XCTAssertEqual(list.first, RFBEncoding.zrle)
+        XCTAssertFalse(list.contains(RFBEncoding.tight))
+        XCTAssertTrue(list.contains(RFBEncoding.hextile))
+        XCTAssertTrue(list.contains(RFBEncoding.copyRect))
+        XCTAssertTrue(list.contains(RFBEncoding.cursor))
+        XCTAssertTrue(list.contains(RFBEncoding.xCursor))
+        XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
+        XCTAssertTrue(list.contains(RFBEncoding.raw))
+    }
+
     func testQualityAndCompressionHintsRideOnlyOnTheirEncodings() {
         // Tight quality hint only when Tight is advertised.
         let withoutTight = RFBEncodingPreference(tight: false, tightQualityLevel: 5).encodingList()
