@@ -165,7 +165,7 @@ final class TrackpadModeModelTests: XCTestCase {
             panOffset: .zero
         )
 
-        let updated = try XCTUnwrap(
+        let result = try XCTUnwrap(
             model.handleTrackpadGesture(
                 .dragChanged(
                     viewPoint: CGPoint(x: 190, y: 50),
@@ -174,11 +174,14 @@ final class TrackpadModeModelTests: XCTestCase {
                 transform: zoomed
             )
         )
+        let updated = result.transform
         try await waitForTrackpadCursor(model) { cursor in
             abs(cursor.position.x - 150) < 0.0001
                 && abs(cursor.position.y - 50) < 0.0001
         }
 
+        XCTAssertEqual(result.cursor.position.x, 150, accuracy: 1e-6)
+        XCTAssertEqual(result.cursor.position.y, 50, accuracy: 1e-6)
         XCTAssertEqual(model.trackpadCursor.position.x, 150, accuracy: 1e-6)
         XCTAssertEqual(model.trackpadCursor.position.y, 50, accuracy: 1e-6)
         XCTAssertEqual(updated.zoomScale, 2, accuracy: 1e-6)
@@ -189,6 +192,40 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(event.mask, 0x00)
         XCTAssertEqual(event.x, 150)
         XCTAssertEqual(event.y, 50)
+    }
+
+    func testTrackpadDragReturnsImmediateCursorBeforePublishedCursorFlush() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        let start = model.trackpadCursor.position
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+
+        let result = try XCTUnwrap(
+            model.handleTrackpadGesture(
+                .dragChanged(
+                    viewPoint: CGPoint(x: 120, y: 60),
+                    translation: CGSize(width: 20, height: 10)
+                ),
+                transform: transform
+            )
+        )
+
+        XCTAssertEqual(model.trackpadCursor.position, start)
+        XCTAssertEqual(result.cursor.position.x, 120, accuracy: 1e-6)
+        XCTAssertEqual(result.cursor.position.y, 60, accuracy: 1e-6)
+
+        try await waitForTrackpadCursor(model) { cursor in
+            abs(cursor.position.x - 120) < 0.0001
+                && abs(cursor.position.y - 60) < 0.0001
+        }
     }
 
     private func waitForPointerEvents(

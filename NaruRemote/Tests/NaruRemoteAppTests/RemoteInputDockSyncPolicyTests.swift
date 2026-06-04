@@ -221,6 +221,30 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedCurrentComposeTextKeepsControllerWhenMarkedSuffixIsMissingFromView() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCurrentComposeText(
+                viewText: "입력느",
+                markedText: "낌",
+                controllerText: "입력느낌",
+                fallback: "입력느"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedCurrentComposeTextCombinesFallbackPrefixWithMarkedSuffix() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCurrentComposeText(
+                viewText: "입력느",
+                markedText: "낌",
+                controllerText: "",
+                fallback: "입력느"
+            ),
+            "입력느낌"
+        )
+    }
+
     func testResolvedStabilizedComposeTextKeepsImmediateWhenNextSnapshotDropsSuffix() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedStabilizedComposeText(

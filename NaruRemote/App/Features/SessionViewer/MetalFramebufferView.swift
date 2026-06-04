@@ -78,7 +78,7 @@ public typealias MetalFramebufferZoomToggleHandler = @MainActor @Sendable (_ poi
 public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
     _ gesture: PointerGesture,
     _ transform: ViewportTransform
-) -> ViewportTransform?
+) -> SessionViewportTrackpadGestureResult?
 
 /// Closure invoked when the user starts or finishes a local viewport
 /// manipulation (pinch, zoomed pan, trackpad cursor drag). The app
@@ -110,6 +110,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onPan: MetalFramebufferPanHandler?
     private let onZoomToggle: MetalFramebufferZoomToggleHandler?
     private let pointerControlMode: PointerControlMode
+    private let trackpadCursor: TrackpadCursor
+    private let serverCursor: RFBServerCursor?
     private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
     private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
     private let onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler?
@@ -146,6 +148,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onPan: MetalFramebufferPanHandler? = nil,
         onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
+        trackpadCursor: TrackpadCursor = TrackpadCursor(),
+        serverCursor: RFBServerCursor? = nil,
         onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
         onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil,
         onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler? = nil,
@@ -169,6 +173,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onPan = onPan
         self.onZoomToggle = onZoomToggle
         self.pointerControlMode = pointerControlMode
+        self.trackpadCursor = trackpadCursor
+        self.serverCursor = serverCursor
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
@@ -204,6 +210,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
         host.syncInputState(
             pointerControlMode: pointerControlMode,
+            trackpadCursor: trackpadCursor,
+            serverCursor: serverCursor,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
         )
         host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
@@ -239,6 +247,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
         uiView.syncInputState(
             pointerControlMode: pointerControlMode,
+            trackpadCursor: trackpadCursor,
+            serverCursor: serverCursor,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
         )
         uiView.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
@@ -324,6 +334,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     private weak var metalView: MTKView?
     private weak var coordinator: MetalFramebufferView.Coordinator?
+    private let hotCursorView = UIImageView()
 
     /// Closure invoked on a tap inside the host view.  Reassigned by
     /// the SwiftUI representable on every `updateUIView` so the model
@@ -390,6 +401,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// tap/drag behavior; trackpad mode turns tap/drag into cursor
     /// gestures without routing through a SwiftUI overlay.
     private var pointerControlMode: PointerControlMode = .directTouch
+
+    /// Latest trackpad cursor fed from SwiftUI or returned immediately
+    /// by the model while the UIKit recognizer is in the hot path.
+    private var currentTrackpadCursor = TrackpadCursor()
+
+    /// Latest server-provided cursor shape.  Rendered here when
+    /// available so the actual remote pointer shape follows the
+    /// immediate trackpad cursor, not SwiftUI's published-state cadence.
+    private var currentServerCursor: RFBServerCursor?
+    private var currentServerCursorImage: UIImage?
 
     /// Live framebuffer dimensions used to build the same pure
     /// `ViewportTransform` the SwiftUI overlay used before the Metal
@@ -510,6 +531,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         ])
         self.metalView = mtkView
 
+        hotCursorView.isHidden = true
+        hotCursorView.isUserInteractionEnabled = false
+        hotCursorView.contentMode = .scaleToFill
+        hotCursorView.tintColor = .white
+        hotCursorView.layer.shadowColor = UIColor.black.cgColor
+        hotCursorView.layer.shadowOpacity = 0.55
+        hotCursorView.layer.shadowRadius = 2
+        hotCursorView.layer.shadowOffset = CGSize(width: 0, height: 1)
+        hotCursorView.layer.magnificationFilter = .nearest
+        hotCursorView.layer.minificationFilter = .nearest
+        addSubview(hotCursorView)
+
         let tapRecognizer = UITapGestureRecognizer(
             target: self,
             action: #selector(handleTapGesture(_:))
@@ -619,20 +652,33 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         currentPanOffset = nextPanOffset
         if didChange {
             applyViewportTransformToMetalView()
+            updateHotCursorOverlay()
         }
     }
 
-    public func syncInputState(pointerControlMode: PointerControlMode, framebufferSize: CGSize) {
+    public func syncInputState(
+        pointerControlMode: PointerControlMode,
+        trackpadCursor: TrackpadCursor,
+        serverCursor: RFBServerCursor?,
+        framebufferSize: CGSize
+    ) {
         self.pointerControlMode = pointerControlMode
+        currentTrackpadCursor = trackpadCursor
+        if currentServerCursor != serverCursor {
+            currentServerCursor = serverCursor
+            currentServerCursorImage = serverCursor.flatMap(Self.cursorImage(_:))
+        }
         self.currentFramebufferSize = CGSize(
             width: max(framebufferSize.width, 0),
             height: max(framebufferSize.height, 0)
         )
+        updateHotCursorOverlay()
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
         applyViewportTransformToMetalView()
+        updateHotCursorOverlay()
     }
 
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
@@ -1064,6 +1110,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             metalView?.transform = viewportLayerTransform()
         }
         CATransaction.commit()
+        updateHotCursorOverlay()
     }
 
     private func viewportLayerTransform() -> CGAffineTransform {
@@ -1344,7 +1391,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     @discardableResult
-    private func dispatchTrackpadGesture(_ gesture: PointerGesture) -> ViewportTransform? {
+    private func dispatchTrackpadGesture(_ gesture: PointerGesture) -> SessionViewportTrackpadGestureResult? {
         guard let trackpadGestureHandler,
               currentFramebufferSize.width > 0,
               currentFramebufferSize.height > 0,
@@ -1361,12 +1408,14 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             panOffset: currentPanOffset,
             maxZoomScale: Self.maxZoomScale
         )
-        guard let updated = trackpadGestureHandler(gesture, transform) else {
+        guard let result = trackpadGestureHandler(gesture, transform) else {
             return nil
         }
 
+        let updated = result.transform
         let zoomDidChange = abs(updated.zoomScale - currentZoomScale) > 0.0001
         let panDidChange = updated.panOffset != currentPanOffset
+        currentTrackpadCursor = result.cursor
         currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = clampedPan(updated.panOffset)
         if zoomDidChange || panDidChange {
@@ -1380,7 +1429,90 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 shouldPublishPan: panDidChange
             )
         }
-        return updated
+        updateHotCursorOverlay()
+        return result
+    }
+
+    private func updateHotCursorOverlay() {
+        guard pointerControlMode.isTrackpad,
+              currentTrackpadCursor.isVisible,
+              currentFramebufferSize.width > 0,
+              currentFramebufferSize.height > 0,
+              bounds.width > 0,
+              bounds.height > 0
+        else {
+            hotCursorView.isHidden = true
+            return
+        }
+
+        let transform = ViewportTransform(
+            framebufferSize: currentFramebufferSize,
+            viewSize: bounds.size,
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset,
+            maxZoomScale: Self.maxZoomScale
+        )
+        let anchor = transform.viewPoint(fromFramebufferPoint: currentTrackpadCursor.position)
+
+        if let cursor = currentServerCursor,
+           cursor.width > 0,
+           cursor.height > 0,
+           let image = currentServerCursorImage {
+            let visualScale = max(1, transform.displayScale)
+            let size = CGSize(
+                width: CGFloat(cursor.width) * visualScale,
+                height: CGFloat(cursor.height) * visualScale
+            )
+            let origin = CGPoint(
+                x: anchor.x - CGFloat(cursor.hotSpotX) * visualScale,
+                y: anchor.y - CGFloat(cursor.hotSpotY) * visualScale
+            )
+            hotCursorView.image = image
+            hotCursorView.bounds = CGRect(origin: .zero, size: size)
+            hotCursorView.center = CGPoint(
+                x: origin.x + size.width / 2,
+                y: origin.y + size.height / 2
+            )
+        } else {
+            hotCursorView.image = UIImage(systemName: "cursorarrow")
+            hotCursorView.bounds = CGRect(origin: .zero, size: CGSize(width: 22, height: 22))
+            hotCursorView.center = anchor
+        }
+
+        hotCursorView.isHidden = false
+        bringSubviewToFront(hotCursorView)
+    }
+
+    private static func cursorImage(_ cursor: RFBServerCursor) -> UIImage? {
+        guard cursor.width > 0, cursor.height > 0 else {
+            return nil
+        }
+
+        let size = CGSize(width: CGFloat(cursor.width), height: CGFloat(cursor.height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            for y in 0..<cursor.height {
+                for x in 0..<cursor.width {
+                    guard let color = cursor[x, y], color.alpha > 0 else {
+                        continue
+                    }
+                    context.cgContext.setFillColor(
+                        UIColor(
+                            red: CGFloat(color.red) / 255.0,
+                            green: CGFloat(color.green) / 255.0,
+                            blue: CGFloat(color.blue) / 255.0,
+                            alpha: CGFloat(color.alpha) / 255.0
+                        ).cgColor
+                    )
+                    context.cgContext.fill(
+                        CGRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1)
+                    )
+                }
+            }
+        }
     }
 
     private func viewportAnchor(for gesture: PointerGesture) -> CGPoint {

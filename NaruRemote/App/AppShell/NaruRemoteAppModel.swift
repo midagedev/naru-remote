@@ -2617,7 +2617,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func handleTrackpadGesture(
         _ gesture: PointerGesture,
         transform: ViewportTransform
-    ) -> ViewportTransform? {
+    ) -> SessionViewportTrackpadGestureResult? {
         guard let session else {
             return nil
         }
@@ -2629,9 +2629,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         _ gesture: PointerGesture,
         transform: ViewportTransform,
         session: RemoteSession
-    ) -> ViewportTransform {
+    ) -> SessionViewportTrackpadGestureResult {
         let resolver = PointerGestureResolver(mode: .trackpad)
         let outcome = resolver.resolve(gesture, transform: transform, cursor: resolvedTrackpadCursor)
+        let result = SessionViewportTrackpadGestureResult(
+            transform: outcome.transform,
+            cursor: outcome.cursor
+        )
         let isContinuousDrag: Bool
         if case .dragChanged = gesture {
             isContinuousDrag = true
@@ -2645,7 +2649,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard !outcome.commands.isEmpty,
               let pointerClient = activePointerClient
         else {
-            return outcome.transform
+            return result
         }
 
         let streamID = activeFrameStreamID
@@ -2660,7 +2664,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 sessionID: sessionID,
                 profileID: profileID
             )
-            return outcome.transform
+            return result
         }
 
         flushPendingPointerMove()
@@ -2671,7 +2675,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: sessionID,
             profileID: profileID
         )
-        return outcome.transform
+        return result
     }
 
     // MARK: - Direct Keystroke Streaming Mode
