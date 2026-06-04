@@ -248,6 +248,6 @@ public struct PointerGestureResolver: Sendable {
         guard shortestSide.isFinite, shortestSide > 0 else {
             return autoPanMargin
         }
-        return max(autoPanMargin, shortestSide * 0.32)
+        return max(autoPanMargin, shortestSide * 0.44)
     }
 }

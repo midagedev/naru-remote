@@ -180,4 +180,25 @@ final class PointerGestureResolverTests: XCTestCase {
             RFBPointerCommand(buttonMask: 0x00, x: 750, y: 500)
         ])
     }
+
+    func testTrackpadFollowZoneStartsBeforeCursorReachesEdgeWhenZoomed() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 150, height: 0)),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertLessThan(
+            outcome.transform.panOffset.width,
+            zoomed.panOffset.width,
+            "Zoomed trackpad pan should begin while the cursor is still well inside the viewport"
+        )
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 575, y: 500)
+        ])
+    }
 }

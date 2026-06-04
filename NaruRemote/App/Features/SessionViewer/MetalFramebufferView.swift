@@ -5,6 +5,7 @@ import SwiftUI
 import UIKit
 import Metal
 import MetalKit
+import QuartzCore
 
 /// SwiftUI representable that hosts a `MTKView` driven by
 /// `MetalFramebufferRenderer`.  Uploads incoming `RFBRawFramebuffer`
@@ -388,6 +389,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// in-flight accumulator with a one-frame-old parent value.
     private var isViewportTransformGestureActive = false
 
+    /// A two-finger pinch can be recognized simultaneously with the
+    /// two-finger pan recognizer. While pinch is active, the pan
+    /// recognizer's translation is local gesture drift, not remote
+    /// scroll intent.
+    private var isPinchGestureActive = false
+
     /// Local clamp range applied to the zoom scale.  Mirrors the
     /// range applied by `SessionViewportView` so the host view's
     /// internal accumulator never drifts past the visible clamp.
@@ -643,6 +650,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         guard let handler = scrollHandler else {
             return
         }
+        guard !isPinchGestureActive else {
+            recognizer.setTranslation(.zero, in: self)
+            return
+        }
         switch recognizer.state {
         case .changed, .ended:
             let translation = recognizer.translation(in: self)
@@ -665,10 +676,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         switch recognizer.state {
         case .began:
             isViewportTransformGestureActive = true
+            isPinchGestureActive = true
         case .changed:
             break
         case .ended, .cancelled, .failed:
             isViewportTransformGestureActive = false
+            isPinchGestureActive = false
             flushPendingViewportState()
             return
         default:
@@ -855,7 +868,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     private func applyViewportTransformToMetalView() {
-        metalView?.transform = CGAffineTransform(
+        let transform = CGAffineTransform(
             a: currentZoomScale,
             b: 0,
             c: 0,
@@ -863,6 +876,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             tx: currentPanOffset.width,
             ty: currentPanOffset.height
         )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            metalView?.transform = transform
+        }
+        CATransaction.commit()
     }
 
     @MainActor
