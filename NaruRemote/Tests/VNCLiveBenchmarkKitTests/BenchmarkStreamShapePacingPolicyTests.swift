@@ -3,6 +3,14 @@ import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
+    func testBenchmarkBalancedCadenceMatchesAppDefault() {
+        XCTAssertEqual(
+            BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,
+            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+    }
+
     func testAppModeMatchesNaruIdleBackoffThresholds() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,

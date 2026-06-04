@@ -243,7 +243,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
-    public static let defaultActiveFrameInterval: TimeInterval = 1.0 / 60.0
+    public static let defaultActiveFrameInterval: TimeInterval =
+        StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
     public static let defaultFrameStreamConfiguration = RFBFramePumpConfiguration(
         requestTimeout: 8,

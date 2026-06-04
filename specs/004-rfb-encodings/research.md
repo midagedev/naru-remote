@@ -795,3 +795,37 @@ mirrors the receive-side client-processing portion.
 reports continue to export only fixed labels, aggregate activation counts, and
 bucketed timing summaries; they must not export raw milliseconds, dimensions,
 coordinates, pixels, byte counts, host identity, power state, or raw errors.
+
+## D28 — Balanced request cadence should start at the sustained 30fps floor
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: set the production balanced request/response content-frame
+cadence to 30fps-class pacing (`1/30s`) instead of 60fps-class pacing, and make
+`VNCLiveBenchmark` use the same default stream-shape frame interval. Keep
+explicit zero-delay fake/test paths and caller-provided benchmark intervals
+unchanged.
+
+**Why**:
+- RFC 6143 notes that a fast client may regulate incremental
+  `FramebufferUpdateRequest` rate to avoid excessive network traffic. Naru is
+  demand-driven against macOS Screen Sharing, so the client cadence is a real
+  power/latency lever rather than only a display preference.
+- TigerVNC documents automatic selection of encoding/pixel format based on link
+  speed and exposes compression/quality knobs. Naru does not yet expose a manual
+  viewer-performance panel, so the balanced default should be conservative
+  enough for the primary sustained iPhone workflow.
+- A redacted localhost macOS Screen Sharing run on 2026-06-05 showed the
+  current ZRLE default did not gain meaningful content FPS from 60fps-class
+  requests, but did create much worse client-processing tail work. The 60fps run
+  reported content FPS 4.75 and client-processing p95 138ms with adaptive
+  pacing active for 319 permille of samples. A 30fps run reported content FPS
+  4.33 and client-processing p95 8ms with no adaptive activation. A 45fps probe
+  had one full-dirty/full-upload outlier and a very large max
+  client-processing sample, so it is not the balanced default.
+
+**Privacy rule**: benchmark evidence is aggregate-only. It omits host, password,
+server name, framebuffer dimensions, coordinates, pixels, byte counts, cursor
+pixels, compressed payloads, raw errors, and raw per-frame timing samples.
