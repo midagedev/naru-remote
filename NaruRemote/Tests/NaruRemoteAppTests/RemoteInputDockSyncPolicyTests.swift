@@ -432,6 +432,29 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testComposeSendStabilizationWindowCoversDelayedIMECommit() {
+        XCTAssertGreaterThanOrEqual(RemoteInputDockView.composeSendStabilizationSnapshotCount, 12)
+        XCTAssertGreaterThanOrEqual(
+            RemoteInputDockView.composeSendStabilizationDelayNanoseconds,
+            12_000_000
+        )
+        let delayedCommitSnapshots = Array(
+            repeating: "입력느",
+            count: RemoteInputDockView.composeSendStabilizationSnapshotCount - 1
+        ) + ["입력느낌"]
+        XCTAssertEqual(
+            delayedCommitSnapshots.count,
+            RemoteInputDockView.composeSendStabilizationSnapshotCount
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느",
+                stabilizedSnapshots: delayedCommitSnapshots
+            ),
+            "입력느낌"
+        )
+    }
+
     func testCompactStatusHidesDefaultReadyCopy() {
         XCTAssertFalse(
             RemoteInputDockView.shouldShowCompactStatusText(

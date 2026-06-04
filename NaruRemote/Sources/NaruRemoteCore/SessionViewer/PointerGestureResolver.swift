@@ -283,7 +283,10 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        let maximumStep = max(6, min(140, touchDistance * 0.75 + 6))
+        // Tiny high-refresh samples should still visibly catch up to the
+        // cursor. A single-digit cap made the viewport trail the pointer
+        // in discrete steps while zoomed, especially on phone screens.
+        let maximumStep = max(18, min(160, touchDistance * 2 + 18))
         let limited = limit(damped, maximumLength: maximumStep)
         return transform.panned(by: limited)
     }

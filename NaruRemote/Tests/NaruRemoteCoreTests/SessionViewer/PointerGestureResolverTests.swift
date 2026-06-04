@@ -256,7 +256,7 @@ final class PointerGestureResolverTests: XCTestCase {
         )
     }
 
-    func testTrackpadAutoPanDoesNotJumpForTinyTouchSamples() {
+    func testTrackpadAutoPanKeepsUpForTinyTouchSamplesWithoutSnapping() {
         let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
         let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
         let cursor = TrackpadCursor(position: CGPoint(x: 745, y: 500), isVisible: true)
@@ -274,8 +274,13 @@ final class PointerGestureResolverTests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             outcome.transform.panOffset.width,
-            -12,
-            "Tiny high-refresh touch samples should not produce coarse auto-pan jumps."
+            -32,
+            "Tiny high-refresh touch samples should not snap to the full reveal delta."
+        )
+        XCTAssertLessThanOrEqual(
+            outcome.transform.panOffset.width,
+            -18,
+            "Tiny high-refresh touch samples should still make visible follow-pan progress."
         )
     }
 }
