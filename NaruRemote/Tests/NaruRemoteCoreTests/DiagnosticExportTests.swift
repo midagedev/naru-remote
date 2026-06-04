@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 13"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 14"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 13)
+        XCTAssertEqual(decoded.schemaVersion, 14)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -342,6 +342,9 @@ final class DiagnosticExportTests: XCTestCase {
             averageRendererUploadTimingBucket: DiagnosticTimingBucket.subFrame.rawValue,
             maxRendererUploadTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
             viewportInteractionCount: 3,
+            viewportGestureSampleCount: 17,
+            viewportGestureLongFrameCount: 4,
+            viewportGestureMaxIntervalBucket: DiagnosticTimingBucket.interactive.rawValue,
             viewportIncomingFrameDeferredCount: 12,
             viewportRedrawRequestCount: 60,
             viewportRedrawFlushCount: 30,
@@ -372,7 +375,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 13)
+        XCTAssertEqual(decoded.schemaVersion, 14)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -380,6 +383,8 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"averageAppFrameApplyTimingBucket\" : \"interactive\""))
         XCTAssertTrue(rendered.contains("\"averageRendererUploadTimingBucket\" : \"subFrame\""))
         XCTAssertTrue(rendered.contains("\"adaptiveClientPressurePacingPermille\" : 75"))
+        XCTAssertTrue(rendered.contains("\"viewportGestureSampleCount\" : 17"))
+        XCTAssertTrue(rendered.contains("\"viewportGestureMaxIntervalBucket\" : \"interactive\""))
         XCTAssertTrue(rendered.contains("\"viewportIncomingFrameDeferredCount\" : 12"))
         XCTAssertTrue(rendered.contains("\"viewportDisplayRefreshRateBucket\" : \"sixtyOrMore\""))
         XCTAssertTrue(rendered.contains("\"copyRectRectangles\" : 70"))
@@ -441,7 +446,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 13)
+        XCTAssertEqual(decoded.schemaVersion, 14)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -571,6 +576,9 @@ final class DiagnosticExportTests: XCTestCase {
             averageRendererUploadTimingBucket: "timing=SECRET",
             maxRendererUploadTimingBucket: DiagnosticTimingBucket.lagging.rawValue,
             viewportInteractionCount: -17,
+            viewportGestureSampleCount: -18,
+            viewportGestureLongFrameCount: -19,
+            viewportGestureMaxIntervalBucket: "timing=SECRET",
             viewportIncomingFrameDeferredCount: -18,
             viewportRedrawRequestCount: -19,
             viewportRedrawFlushCount: -20,
@@ -623,6 +631,9 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.averageRendererUploadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.maxRendererUploadTimingBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.viewportInteractionCount, 0)
+        XCTAssertEqual(performance.viewportGestureSampleCount, 0)
+        XCTAssertEqual(performance.viewportGestureLongFrameCount, 0)
+        XCTAssertEqual(performance.viewportGestureMaxIntervalBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.viewportIncomingFrameDeferredCount, 0)
         XCTAssertEqual(performance.viewportRedrawRequestCount, 0)
         XCTAssertEqual(performance.viewportRedrawFlushCount, 0)
@@ -717,6 +728,9 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(performance.rendererFullUploadPermille)
         XCTAssertEqual(performance.rendererUploadRegionCountMax, 0)
         XCTAssertEqual(performance.viewportInteractionCount, 0)
+        XCTAssertEqual(performance.viewportGestureSampleCount, 0)
+        XCTAssertEqual(performance.viewportGestureLongFrameCount, 0)
+        XCTAssertEqual(performance.viewportGestureMaxIntervalBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.viewportIncomingFrameDeferredCount, 0)
         XCTAssertEqual(performance.viewportRedrawRequestCount, 0)
         XCTAssertEqual(performance.viewportRedrawFlushCount, 0)
@@ -808,8 +822,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v13 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 13"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v14 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 14"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

@@ -246,6 +246,7 @@ public struct NaruRemoteAppShell: View {
                             directKeystrokeMode: snapshot.directKeystrokeMode,
                             stickyModifierState: snapshot.stickyModifierState,
                             layoutStyle: isLiveSession ? .compactAccessory : .standard,
+                            showsCompactStatusText: snapshot.latestInjectionAttempt != nil,
                             showsComposeQuickKeys: snapshot.session?.state == .active,
                             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
                             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },

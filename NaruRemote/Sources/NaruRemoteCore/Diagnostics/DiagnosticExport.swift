@@ -296,6 +296,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case averageRendererUploadTimingBucket
         case maxRendererUploadTimingBucket
         case viewportInteractionCount
+        case viewportGestureSampleCount
+        case viewportGestureLongFrameCount
+        case viewportGestureMaxIntervalBucket
         case viewportIncomingFrameDeferredCount
         case viewportRedrawRequestCount
         case viewportRedrawFlushCount
@@ -343,6 +346,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let averageRendererUploadTimingBucket: String
     public let maxRendererUploadTimingBucket: String
     public let viewportInteractionCount: Int
+    public let viewportGestureSampleCount: Int
+    public let viewportGestureLongFrameCount: Int
+    public let viewportGestureMaxIntervalBucket: String
     public let viewportIncomingFrameDeferredCount: Int
     public let viewportRedrawRequestCount: Int
     public let viewportRedrawFlushCount: Int
@@ -390,6 +396,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         averageRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         viewportInteractionCount: Int = 0,
+        viewportGestureSampleCount: Int = 0,
+        viewportGestureLongFrameCount: Int = 0,
+        viewportGestureMaxIntervalBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         viewportIncomingFrameDeferredCount: Int = 0,
         viewportRedrawRequestCount: Int = 0,
         viewportRedrawFlushCount: Int = 0,
@@ -454,6 +463,11 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             self.maxRendererUploadTimingBucket = Self.safeTimingBucket(maxRendererUploadTimingBucket)
         }
         self.viewportInteractionCount = max(viewportInteractionCount, 0)
+        self.viewportGestureSampleCount = max(viewportGestureSampleCount, 0)
+        self.viewportGestureLongFrameCount = max(viewportGestureLongFrameCount, 0)
+        self.viewportGestureMaxIntervalBucket = viewportGestureSampleCount > 1
+            ? Self.safeTimingBucket(viewportGestureMaxIntervalBucket)
+            : DiagnosticTimingBucket.notMeasured.rawValue
         self.viewportIncomingFrameDeferredCount = max(viewportIncomingFrameDeferredCount, 0)
         self.viewportRedrawRequestCount = max(viewportRedrawRequestCount, 0)
         self.viewportRedrawFlushCount = max(viewportRedrawFlushCount, 0)
@@ -571,6 +585,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .viewportInteractionCount
             ) ?? 0,
+            viewportGestureSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportGestureSampleCount
+            ) ?? 0,
+            viewportGestureLongFrameCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportGestureLongFrameCount
+            ) ?? 0,
+            viewportGestureMaxIntervalBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewportGestureMaxIntervalBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             viewportIncomingFrameDeferredCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .viewportIncomingFrameDeferredCount
@@ -880,7 +906,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 13
+    public static let currentSchemaVersion = 14
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

@@ -41,6 +41,9 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         stats.recordViewportRedrawDiagnostics(
             ViewportRedrawDiagnostics(
                 interactionCount: 2,
+                gestureSampleCount: 9,
+                gestureLongFrameCount: 2,
+                gestureMaxIntervalMilliseconds: 34,
                 incomingFrameDeferredCount: 5,
                 redrawRequestCount: 11,
                 redrawFlushCount: 6,
@@ -74,6 +77,9 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.averageRendererUploadTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.maxRendererUploadTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
         XCTAssertEqual(report.viewportInteractionCount, 2)
+        XCTAssertEqual(report.viewportGestureSampleCount, 9)
+        XCTAssertEqual(report.viewportGestureLongFrameCount, 2)
+        XCTAssertEqual(report.viewportGestureMaxIntervalBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.viewportIncomingFrameDeferredCount, 5)
         XCTAssertEqual(report.viewportRedrawRequestCount, 11)
         XCTAssertEqual(report.viewportRedrawFlushCount, 6)
