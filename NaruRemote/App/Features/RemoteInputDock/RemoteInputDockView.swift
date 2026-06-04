@@ -462,6 +462,7 @@ public struct RemoteInputDockView: View {
         ComposeTextEditingView(
             text: $text,
             onFocusChange: updateComposeFocus(_:),
+            onCommittedTextChange: handleCommittedComposeText(_:),
             commitController: composeCommitController
         )
         #else
@@ -470,6 +471,16 @@ public struct RemoteInputDockView: View {
             onFocusChange: updateComposeFocus(_:)
         )
         #endif
+    }
+
+    private func handleCommittedComposeText(_ committedText: String) {
+        guard !directKeystrokeMode.isActive else {
+            return
+        }
+        if text != committedText {
+            text = committedText
+        }
+        onTextChange(committedText)
     }
 
     private func focusComposeEditor() {
@@ -538,9 +549,16 @@ public struct RemoteInputDockView: View {
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
         isDirectModeActive: Bool,
-        hasMarkedText _: Bool
+        hasMarkedText: Bool
     ) -> Bool {
-        !isDirectModeActive
+        !isDirectModeActive && !hasMarkedText
+    }
+
+    nonisolated static func didCommitMarkedComposeText(
+        previouslyHadMarkedText: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        previouslyHadMarkedText && !hasMarkedText
     }
 
     nonisolated static func shouldApplyExternalComposeText(
@@ -689,6 +707,7 @@ private struct ComposeTextEditingView: View {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
     #if os(iOS) && canImport(UIKit)
+    let onCommittedTextChange: (String) -> Void
     let commitController: ComposeTextCommitController
     #endif
 
@@ -697,6 +716,7 @@ private struct ComposeTextEditingView: View {
         MultilingualComposeTextView(
             text: $text,
             onFocusChange: onFocusChange,
+            onCommittedTextChange: onCommittedTextChange,
             commitController: commitController
         )
         #else
@@ -798,6 +818,7 @@ final class ComposeTextCommitController: ObservableObject {
 private struct MultilingualComposeTextView: UIViewRepresentable {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
+    let onCommittedTextChange: (String) -> Void
     let commitController: ComposeTextCommitController
 
     func makeCoordinator() -> Coordinator {
@@ -844,6 +865,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MultilingualComposeTextView
         private weak var textView: UITextView?
+        private var previouslyHadMarkedText = false
+        private var lastCommittedTextNotification: String?
 
         init(parent: MultilingualComposeTextView) {
             self.parent = parent
@@ -852,6 +875,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         func attach(_ textView: UITextView) {
             self.textView = textView
             parent.commitController.attach(textView)
+            previouslyHadMarkedText = textView.markedTextRange != nil
+            lastCommittedTextNotification = textView.text ?? ""
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -860,6 +885,19 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             if parent.text != resolvedText {
                 parent.text = resolvedText
             }
+            notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            parent.commitController.updateCurrentText(from: textView)
+            let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
+            if RemoteInputDockView.didCommitMarkedComposeText(
+                previouslyHadMarkedText: previouslyHadMarkedText,
+                hasMarkedText: textView.markedTextRange != nil
+            ), parent.text != resolvedText {
+                parent.text = resolvedText
+            }
+            notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -870,6 +908,25 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             parent.onFocusChange(false)
         }
 
+        private func notifyIfMarkedTextCommitted(
+            _ textView: UITextView,
+            resolvedText: String
+        ) {
+            let hasMarkedText = textView.markedTextRange != nil
+            defer { previouslyHadMarkedText = hasMarkedText }
+
+            guard RemoteInputDockView.didCommitMarkedComposeText(
+                previouslyHadMarkedText: previouslyHadMarkedText,
+                hasMarkedText: hasMarkedText
+            ) else {
+                return
+            }
+            guard lastCommittedTextNotification != resolvedText else {
+                return
+            }
+            lastCommittedTextNotification = resolvedText
+            parent.onCommittedTextChange(resolvedText)
+        }
     }
 }
 #endif
