@@ -64,17 +64,25 @@ public struct PointerGestureResolver: Sendable {
     /// Keeping this below 1 avoids the "snap to follow zone" jump that
     /// feels unlike native photo/map panning on a small phone viewport.
     public let autoPanDamping: CGFloat
+    /// While zoomed in trackpad mode, couple cursor motion to local
+    /// viewport pan so the screen follows the mouse continuously
+    /// instead of waiting for a reveal edge. 1.0 keeps the cursor
+    /// visually pinned; a slightly lower value preserves relative
+    /// cursor motion while still feeling native.
+    public let zoomedTrackpadPanCoupling: CGFloat
 
     public init(
         mode: PointerControlMode,
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
-        autoPanDamping: CGFloat = 0.82
+        autoPanDamping: CGFloat = 0.82,
+        zoomedTrackpadPanCoupling: CGFloat = 0.72
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
         self.autoPanMargin = autoPanMargin
         self.autoPanDamping = min(max(autoPanDamping, 0.05), 1)
+        self.zoomedTrackpadPanCoupling = min(max(zoomedTrackpadPanCoupling, 0), 1)
     }
 
     public func resolve(
@@ -266,16 +274,20 @@ public struct PointerGestureResolver: Sendable {
         revealing framebufferPoint: CGPoint,
         touchTranslation: CGSize
     ) -> ViewportTransform {
-        let target = transform.panToReveal(
+        let coupledTransform = touchCoupledTrackpadPanTransform(
+            transform,
+            touchTranslation: touchTranslation
+        )
+        let target = coupledTransform.panToReveal(
             framebufferPoint: framebufferPoint,
-            margin: followPanMargin(for: transform)
+            margin: followPanMargin(for: coupledTransform)
         )
         let delta = CGSize(
-            width: target.panOffset.width - transform.panOffset.width,
-            height: target.panOffset.height - transform.panOffset.height
+            width: target.panOffset.width - coupledTransform.panOffset.width,
+            height: target.panOffset.height - coupledTransform.panOffset.height
         )
         guard delta != .zero else {
-            return transform
+            return coupledTransform
         }
 
         let damped = CGSize(
@@ -288,7 +300,27 @@ public struct PointerGestureResolver: Sendable {
         // in discrete steps while zoomed, especially on phone screens.
         let maximumStep = max(18, min(160, touchDistance * 2 + 18))
         let limited = limit(damped, maximumLength: maximumStep)
-        return transform.panned(by: limited)
+        return coupledTransform.panned(by: limited)
+    }
+
+    private func touchCoupledTrackpadPanTransform(
+        _ transform: ViewportTransform,
+        touchTranslation: CGSize
+    ) -> ViewportTransform {
+        guard transform.isZoomed,
+              transform.isPannable,
+              zoomedTrackpadPanCoupling > 0,
+              touchTranslation != .zero
+        else {
+            return transform
+        }
+
+        return transform.panned(
+            by: CGSize(
+                width: -touchTranslation.width * zoomedTrackpadPanCoupling,
+                height: -touchTranslation.height * zoomedTrackpadPanCoupling
+            )
+        )
     }
 
     private func limit(_ delta: CGSize, maximumLength: CGFloat) -> CGSize {

@@ -692,6 +692,18 @@ public struct RemoteInputDockView: View {
            immediateText.count > stabilizedText.count {
             return immediateText
         }
+        if immediateText.contains(stabilizedText),
+           immediateText.count > stabilizedText.count {
+            return immediateText
+        }
+        if stabilizedText.hasPrefix(immediateText),
+           stabilizedText.count > immediateText.count {
+            return stabilizedText
+        }
+        if stabilizedText.contains(immediateText),
+           stabilizedText.count > immediateText.count {
+            return stabilizedText
+        }
         return stabilizedText
     }
 
