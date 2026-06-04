@@ -5,6 +5,13 @@ enum SessionStreamPacingEvent: Equatable, Sendable {
     case emptyUpdate
 }
 
+struct SessionStreamPacingDecision: Equatable, Sendable {
+    var delay: TimeInterval
+    var usesThermalPacing: Bool
+    var usesPowerSaverPacing: Bool
+    var usesEmptyBackoffPacing: Bool
+}
+
 struct SessionStreamPacingPolicy: Equatable, Sendable {
     private static let mediumEmptyUpdateStreakThreshold = 8
     private static let longEmptyUpdateStreakThreshold = 24
@@ -18,11 +25,32 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         usesPowerSaverPacing: Bool = false,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
+        decision(
+            for: event,
+            configuredDelay: configuredDelay,
+            thermalState: thermalState,
+            usesPowerSaverPacing: usesPowerSaverPacing,
+            emptyUpdateStreak: emptyUpdateStreak
+        ).delay
+    }
+
+    static func decision(
+        for event: SessionStreamPacingEvent,
+        configuredDelay: TimeInterval,
+        thermalState: SessionStreamThermalState,
+        usesPowerSaverPacing: Bool = false,
+        emptyUpdateStreak: Int = 1
+    ) -> SessionStreamPacingDecision {
         let configuredDelay = max(configuredDelay, 0)
         guard configuredDelay > 0 else {
             // Explicit zero-delay streams are opt-in deterministic
             // fake/test paths; they bypass thermal and low-power floors.
-            return 0
+            return SessionStreamPacingDecision(
+                delay: 0,
+                usesThermalPacing: false,
+                usesPowerSaverPacing: false,
+                usesEmptyBackoffPacing: false
+            )
         }
 
         let configuredDelayWithBackoff = backoffDelay(
@@ -35,7 +63,14 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             for: event,
             usesPowerSaverPacing: usesPowerSaverPacing
         )
-        return max(configuredDelayWithBackoff, thermalMinimum, powerSaverMinimum)
+        let effectiveDelay = max(configuredDelayWithBackoff, thermalMinimum, powerSaverMinimum)
+        return SessionStreamPacingDecision(
+            delay: effectiveDelay,
+            usesThermalPacing: thermalMinimum > 0 && thermalMinimum == effectiveDelay,
+            usesPowerSaverPacing: powerSaverMinimum > 0 && powerSaverMinimum == effectiveDelay,
+            usesEmptyBackoffPacing: configuredDelayWithBackoff > configuredDelay
+                && configuredDelayWithBackoff == effectiveDelay
+        )
     }
 
     private static func backoffDelay(

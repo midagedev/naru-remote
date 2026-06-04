@@ -62,6 +62,12 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var appFrameApplyTimingSampleCount: Int
     public var appFrameApplyMillisecondsTotal: Int
     public var appFrameApplyMillisecondsMax: Int
+    public var streamPacingDelaySampleCount: Int
+    public var streamPacingDelayMillisecondsTotal: Int
+    public var streamPacingDelayMillisecondsMax: Int
+    public var thermalPacingSampleCount: Int
+    public var powerSaverPacingSampleCount: Int
+    public var emptyBackoffPacingSampleCount: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
@@ -110,6 +116,12 @@ public struct SessionStreamStats: Equatable, Sendable {
         appFrameApplyTimingSampleCount: Int = 0,
         appFrameApplyMillisecondsTotal: Int = 0,
         appFrameApplyMillisecondsMax: Int = 0,
+        streamPacingDelaySampleCount: Int = 0,
+        streamPacingDelayMillisecondsTotal: Int = 0,
+        streamPacingDelayMillisecondsMax: Int = 0,
+        thermalPacingSampleCount: Int = 0,
+        powerSaverPacingSampleCount: Int = 0,
+        emptyBackoffPacingSampleCount: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
@@ -156,6 +168,21 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.appFrameApplyTimingSampleCount = max(appFrameApplyTimingSampleCount, 0)
         self.appFrameApplyMillisecondsTotal = max(appFrameApplyMillisecondsTotal, 0)
         self.appFrameApplyMillisecondsMax = max(appFrameApplyMillisecondsMax, 0)
+        self.streamPacingDelaySampleCount = max(streamPacingDelaySampleCount, 0)
+        self.streamPacingDelayMillisecondsTotal = max(streamPacingDelayMillisecondsTotal, 0)
+        self.streamPacingDelayMillisecondsMax = max(streamPacingDelayMillisecondsMax, 0)
+        self.thermalPacingSampleCount = min(
+            max(thermalPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
+        self.powerSaverPacingSampleCount = min(
+            max(powerSaverPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
+        self.emptyBackoffPacingSampleCount = min(
+            max(emptyBackoffPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
         self.adaptiveClientPressurePacingSampleCount = min(
             max(adaptiveClientPressurePacingSampleCount, 0),
             self.deliveredFrameCount
@@ -272,6 +299,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         appFrameApplyTimingMax(appFrameApplyMillisecondsMax)
     }
 
+    public var averageStreamPacingDelayMilliseconds: Int? {
+        averageStreamPacingDelay(streamPacingDelayMillisecondsTotal)
+    }
+
+    public var maxStreamPacingDelayMilliseconds: Int? {
+        streamPacingDelayMax(streamPacingDelayMillisecondsMax)
+    }
+
     public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
         guard deliveredFrameCount > 0 else {
             return nil
@@ -340,6 +375,14 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageAppFrameApplyMilliseconds).rawValue,
             maxAppFrameApplyTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxAppFrameApplyMilliseconds).rawValue,
+            streamPacingDelaySampleCount: streamPacingDelaySampleCount,
+            averageStreamPacingDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageStreamPacingDelayMilliseconds).rawValue,
+            maxStreamPacingDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxStreamPacingDelayMilliseconds).rawValue,
+            thermalPacingSampleCount: thermalPacingSampleCount,
+            powerSaverPacingSampleCount: powerSaverPacingSampleCount,
+            emptyBackoffPacingSampleCount: emptyBackoffPacingSampleCount,
             actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
@@ -401,6 +444,22 @@ public struct SessionStreamStats: Equatable, Sendable {
             rendererUploadMillisecondsMax,
             clampedMilliseconds
         )
+    }
+
+    mutating func recordPacingDecision(_ decision: SessionStreamPacingDecision) {
+        let milliseconds = max(0, Int((decision.delay * 1_000).rounded()))
+        streamPacingDelaySampleCount += 1
+        streamPacingDelayMillisecondsTotal += milliseconds
+        streamPacingDelayMillisecondsMax = max(streamPacingDelayMillisecondsMax, milliseconds)
+        if decision.usesThermalPacing {
+            thermalPacingSampleCount += 1
+        }
+        if decision.usesPowerSaverPacing {
+            powerSaverPacingSampleCount += 1
+        }
+        if decision.usesEmptyBackoffPacing {
+            emptyBackoffPacingSampleCount += 1
+        }
     }
 
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
@@ -510,6 +569,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / rendererUploadTimingSampleCount
     }
 
+    private func averageStreamPacingDelay(_ total: Int) -> Int? {
+        guard streamPacingDelaySampleCount > 0 else {
+            return nil
+        }
+        return total / streamPacingDelaySampleCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
             return nil
@@ -526,6 +592,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     private func rendererUploadTimingMax(_ value: Int) -> Int? {
         guard rendererUploadTimingSampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func streamPacingDelayMax(_ value: Int) -> Int? {
+        guard streamPacingDelaySampleCount > 0 else {
             return nil
         }
         return value

@@ -38,6 +38,22 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         )
         stats.recordRendererUploadTiming(milliseconds: 4)
         stats.recordRendererUploadTiming(milliseconds: 92)
+        stats.recordPacingDecision(
+            SessionStreamPacingDecision(
+                delay: 1.0 / 24.0,
+                usesThermalPacing: true,
+                usesPowerSaverPacing: false,
+                usesEmptyBackoffPacing: false
+            )
+        )
+        stats.recordPacingDecision(
+            SessionStreamPacingDecision(
+                delay: 0.125,
+                usesThermalPacing: false,
+                usesPowerSaverPacing: true,
+                usesEmptyBackoffPacing: true
+            )
+        )
         stats.recordViewportRedrawDiagnostics(
             ViewportRedrawDiagnostics(
                 interactionCount: 2,
@@ -88,6 +104,12 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.appFrameApplyTimingSampleCount, 2)
         XCTAssertEqual(report.averageAppFrameApplyTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.maxAppFrameApplyTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
+        XCTAssertEqual(report.streamPacingDelaySampleCount, 2)
+        XCTAssertEqual(report.averageStreamPacingDelayBucket, DiagnosticTimingBucket.lagging.rawValue)
+        XCTAssertEqual(report.maxStreamPacingDelayBucket, DiagnosticTimingBucket.lagging.rawValue)
+        XCTAssertEqual(report.thermalPacingSampleCount, 1)
+        XCTAssertEqual(report.powerSaverPacingSampleCount, 1)
+        XCTAssertEqual(report.emptyBackoffPacingSampleCount, 1)
         XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)

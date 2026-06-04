@@ -402,6 +402,12 @@ iPhone) and ships as its own PR.
   so a short UIKit commit snapshot cannot drop the final Korean/CJK candidate.
   Owns: Metal viewport host, RemoteInputDock commit policy, tests, research
   note. **Done.**
+- **T359** Stream pacing diagnostics: export safe aggregate pacing-delay buckets
+  plus thermal, power-saver, and empty-backoff pacing sample counts in
+  diagnostics schema v15, and classify pacing decisions in the app stream loop
+  without exporting raw delay samples, device power state, host identity,
+  dimensions, coordinates, pixels, byte counts, or draft text. Owns: app pacing
+  policy/state, diagnostic export, app/model tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
