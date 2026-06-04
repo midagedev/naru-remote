@@ -283,6 +283,28 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedCommittedComposeTextKeepsCurrentTextWhenMarkedCommitSnapshotIsEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "",
+                markedTextBeforeCommit: "낌",
+                currentTextBeforeCommit: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedCommittedComposeTextKeepsCurrentTextWhenMarkedCommitSnapshotIsMissing() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: nil,
+                markedTextBeforeCommit: "낌",
+                currentTextBeforeCommit: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
     func testResolvedCommittedComposeTextUsesCurrentTextWhenViewSnapshotIsMissing() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedCommittedComposeText(

@@ -283,7 +283,7 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        let maximumStep = max(32, min(180, touchDistance * 5.0 + 24))
+        let maximumStep = max(6, min(140, touchDistance * 0.75 + 6))
         let limited = limit(damped, maximumLength: maximumStep)
         return transform.panned(by: limited)
     }
