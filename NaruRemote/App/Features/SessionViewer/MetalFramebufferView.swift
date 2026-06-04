@@ -405,7 +405,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// visible Metal transform immediately.  This keeps frame-driven
     /// SwiftUI work out of the per-touch critical path.
     private var pendingViewportState: PendingViewportState?
-    private var viewportStatePublishTask: Task<Void, Never>?
+    private var viewportStateDisplayLink: CADisplayLink?
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -528,10 +528,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(dragRecognizer)
         isUserInteractionEnabled = true
-    }
-
-    deinit {
-        viewportStatePublishTask?.cancel()
     }
 
     /// Push the parent's current zoom/pan into the host so gesture
@@ -862,6 +858,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
             isViewportTransformGestureActive = false
+            flushPendingViewportState()
         default:
             break
         }
@@ -903,19 +900,24 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             shouldPublishPan: (existing?.shouldPublishPan ?? false) || shouldPublishPan
         )
 
-        guard viewportStatePublishTask == nil else {
+        guard viewportStateDisplayLink == nil else {
             return
         }
-        viewportStatePublishTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 16_000_000)
-            self?.flushPendingViewportState()
-        }
+        let displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFlushPendingViewportState(_:)))
+        displayLink.add(to: .main, forMode: .common)
+        viewportStateDisplayLink = displayLink
+    }
+
+    @MainActor
+    @objc
+    private func displayLinkFlushPendingViewportState(_ displayLink: CADisplayLink) {
+        flushPendingViewportState()
     }
 
     @MainActor
     private func flushPendingViewportState() {
-        viewportStatePublishTask?.cancel()
-        viewportStatePublishTask = nil
+        viewportStateDisplayLink?.invalidate()
+        viewportStateDisplayLink = nil
         guard let pending = pendingViewportState else {
             return
         }
@@ -951,10 +953,38 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return nil
         }
 
+        let zoomDidChange = abs(updated.zoomScale - currentZoomScale) > 0.0001
+        let panDidChange = updated.panOffset != currentPanOffset
         currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = clampedPan(updated.panOffset)
         applyViewportTransformToMetalView()
+        if zoomDidChange || panDidChange {
+            queueViewportStatePublish(
+                zoomScale: currentZoomScale,
+                panOffset: currentPanOffset,
+                anchor: viewportAnchor(for: gesture),
+                viewSize: bounds.size,
+                shouldPublishZoom: zoomDidChange,
+                shouldPublishPan: panDidChange
+            )
+        }
         return updated
+    }
+
+    private func viewportAnchor(for gesture: PointerGesture) -> CGPoint {
+        switch gesture {
+        case let .tap(viewPoint),
+             let .secondaryTap(viewPoint),
+             let .longPress(viewPoint),
+             let .dragBegan(viewPoint),
+             let .dragChanged(viewPoint, _),
+             let .dragEnded(viewPoint):
+            return viewPoint
+        case .pressDragBegan,
+             .pressDragChanged,
+             .pressDragEnded:
+            return CGPoint(x: bounds.midX, y: bounds.midY)
+        }
     }
 
     // MARK: UIGestureRecognizerDelegate

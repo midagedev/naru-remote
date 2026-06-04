@@ -12,6 +12,9 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 
 public struct RemoteInputDockView: View {
     @State private var text: String
+    #if os(iOS) && canImport(UIKit)
+    @StateObject private var composeCommitController = ComposeTextCommitController()
+    #endif
     /// Tracks whether the compose editor has firstResponder.
     /// Forwarded to the parent via `onComposeFocusChange` so future
     /// keyboard-aware surfaces can react to it.  Today no overlay
@@ -211,10 +214,7 @@ public struct RemoteInputDockView: View {
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
 
-            ComposeTextEditingView(
-                text: $text,
-                onFocusChange: updateComposeFocus(_:)
-            )
+            composeTextEditor
                 .frame(minHeight: 40, maxHeight: 88)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 12)
@@ -352,10 +352,7 @@ public struct RemoteInputDockView: View {
         // gives the disabled-state Send button visible breathing
         // room in static screenshots.
         HStack(alignment: .bottom, spacing: 16) {
-            ComposeTextEditingView(
-                text: $text,
-                onFocusChange: updateComposeFocus(_:)
-            )
+            composeTextEditor
                 .frame(minHeight: 72, maxHeight: 120)
                 // UX punch-list #302: was `Color.white.opacity(0.74)`
                 // which rendered as a stark bright rectangle on the
@@ -414,14 +411,30 @@ public struct RemoteInputDockView: View {
         composeFieldFocused = focused
     }
 
+    private var composeTextEditor: some View {
+        #if os(iOS) && canImport(UIKit)
+        ComposeTextEditingView(
+            text: $text,
+            onFocusChange: updateComposeFocus(_:),
+            commitController: composeCommitController
+        )
+        #else
+        ComposeTextEditingView(
+            text: $text,
+            onFocusChange: updateComposeFocus(_:)
+        )
+        #endif
+    }
+
     private func sendCurrentComposeText() {
         #if os(iOS) && canImport(UIKit)
-        NotificationCenter.default.post(name: .naruCommitComposeMarkedText, object: nil)
-        Task { @MainActor in
-            await Task.yield()
-            guard !text.isEmpty else { return }
-            onSend(text)
+        let committedText = composeCommitController.commitMarkedTextAndRead(fallback: text)
+        if committedText != text {
+            text = committedText
+            onTextChange(committedText)
         }
+        guard !committedText.isEmpty else { return }
+        onSend(committedText)
         #else
         onSend(text)
         #endif
@@ -431,12 +444,16 @@ public struct RemoteInputDockView: View {
 private struct ComposeTextEditingView: View {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
+    #if os(iOS) && canImport(UIKit)
+    let commitController: ComposeTextCommitController
+    #endif
 
     var body: some View {
         #if os(iOS) && canImport(UIKit)
         MultilingualComposeTextView(
             text: $text,
-            onFocusChange: onFocusChange
+            onFocusChange: onFocusChange,
+            commitController: commitController
         )
         #else
         TextEditor(text: $text)
@@ -447,13 +464,30 @@ private struct ComposeTextEditingView: View {
 }
 
 #if os(iOS) && canImport(UIKit)
-private extension Notification.Name {
-    static let naruCommitComposeMarkedText = Notification.Name("naruCommitComposeMarkedText")
+@MainActor
+final class ComposeTextCommitController: ObservableObject {
+    private weak var textView: UITextView?
+
+    func attach(_ textView: UITextView) {
+        self.textView = textView
+    }
+
+    func commitMarkedTextAndRead(fallback: String) -> String {
+        guard let textView else {
+            return fallback
+        }
+        if textView.markedTextRange != nil {
+            textView.unmarkText()
+        }
+        textView.layoutIfNeeded()
+        return textView.text ?? fallback
+    }
 }
 
 private struct MultilingualComposeTextView: UIViewRepresentable {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
+    let commitController: ComposeTextCommitController
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -492,28 +526,14 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MultilingualComposeTextView
         private weak var textView: UITextView?
-        private var observesCommitNotification = false
 
         init(parent: MultilingualComposeTextView) {
             self.parent = parent
         }
 
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
-
         func attach(_ textView: UITextView) {
             self.textView = textView
-            guard !observesCommitNotification else {
-                return
-            }
-            observesCommitNotification = true
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(commitMarkedTextNotification(_:)),
-                name: .naruCommitComposeMarkedText,
-                object: nil
-            )
+            parent.commitController.attach(textView)
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -528,24 +548,6 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             parent.onFocusChange(false)
         }
 
-        @objc
-        private func commitMarkedTextNotification(_ notification: Notification) {
-            commitMarkedTextIfNeeded()
-        }
-
-        private func commitMarkedTextIfNeeded() {
-            guard let textView,
-                  textView.isFirstResponder
-            else {
-                return
-            }
-            if textView.markedTextRange != nil {
-                textView.unmarkText()
-            }
-            if parent.text != textView.text {
-                parent.text = textView.text
-            }
-        }
     }
 }
 #endif
