@@ -135,6 +135,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let adaptiveClientPressurePacingSamples: Int
     public let adaptiveClientPressurePacingPermille: Int?
+    public let viewportInteractionPacingSamples: Int
+    public let viewportInteractionPacingPermille: Int?
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
 
@@ -165,6 +167,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case actualEncodingMix
         case adaptiveClientPressurePacingSamples
         case adaptiveClientPressurePacingPermille
+        case viewportInteractionPacingSamples
+        case viewportInteractionPacingPermille
         case firstTimeoutMilliseconds
         case failureLabel
     }
@@ -175,7 +179,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
         failureLabel: String?,
-        adaptiveClientPressurePacingSamples: Int = 0
+        adaptiveClientPressurePacingSamples: Int = 0,
+        viewportInteractionPacingSamples: Int = 0
     ) {
         let requestedSamples = max(requestedSamples, 0)
         let receivedSamples = samples.count
@@ -183,6 +188,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let contentUpdateSamples = samples.filter { $0.kind == .contentUpdate }.count
         let adaptiveClientPressurePacingSamples = min(
             max(adaptiveClientPressurePacingSamples, 0),
+            receivedSamples
+        )
+        let viewportInteractionPacingSamples = min(
+            max(viewportInteractionPacingSamples, 0),
             receivedSamples
         )
         let rendererUploadSamples = samples.filter { $0.rendererUploadStrategy != .none }
@@ -242,6 +251,11 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.adaptiveClientPressurePacingSamples = adaptiveClientPressurePacingSamples
         self.adaptiveClientPressurePacingPermille = Self.permille(
             adaptiveClientPressurePacingSamples,
+            of: receivedSamples
+        )
+        self.viewportInteractionPacingSamples = viewportInteractionPacingSamples
+        self.viewportInteractionPacingPermille = Self.permille(
+            viewportInteractionPacingSamples,
             of: receivedSamples
         )
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
@@ -325,6 +339,23 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             forKey: .adaptiveClientPressurePacingPermille
         ) ?? Self.permille(
             self.adaptiveClientPressurePacingSamples,
+            of: self.receivedSamples
+        )
+        self.viewportInteractionPacingSamples = min(
+            max(
+                try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .viewportInteractionPacingSamples
+                ) ?? 0,
+                0
+            ),
+            self.receivedSamples
+        )
+        self.viewportInteractionPacingPermille = try container.decodeIfPresent(
+            Int.self,
+            forKey: .viewportInteractionPacingPermille
+        ) ?? Self.permille(
+            self.viewportInteractionPacingSamples,
             of: self.receivedSamples
         )
         self.firstTimeoutMilliseconds = try container.decodeIfPresent(Int.self, forKey: .firstTimeoutMilliseconds)

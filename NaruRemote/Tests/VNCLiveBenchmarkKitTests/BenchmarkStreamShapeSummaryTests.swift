@@ -49,7 +49,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             elapsedMilliseconds: 100,
             firstTimeoutMilliseconds: nil,
             failureLabel: nil,
-            adaptiveClientPressurePacingSamples: 1
+            adaptiveClientPressurePacingSamples: 1,
+            viewportInteractionPacingSamples: 2
         )
 
         XCTAssertEqual(summary.status, .mixedUpdates)
@@ -75,6 +76,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.rendererUploadRegionCount).maxMilliseconds, 2)
         XCTAssertEqual(summary.adaptiveClientPressurePacingSamples, 1)
         XCTAssertEqual(summary.adaptiveClientPressurePacingPermille, 500)
+        XCTAssertEqual(summary.viewportInteractionPacingSamples, 2)
+        XCTAssertEqual(summary.viewportInteractionPacingPermille, 1_000)
         XCTAssertEqual(summary.actualEncodingMix.rawRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.tightRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.cursorRectangles, 1)
@@ -156,6 +159,22 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(summary.adaptiveClientPressurePacingSamples, 1)
         XCTAssertEqual(summary.adaptiveClientPressurePacingPermille, 1_000)
+    }
+
+    func testViewportInteractionPacingSamplesClampToReceivedSamples() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [
+                streamShapeSample(duration: 10)
+            ],
+            elapsedMilliseconds: 10,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            viewportInteractionPacingSamples: 4
+        )
+
+        XCTAssertEqual(summary.viewportInteractionPacingSamples, 1)
+        XCTAssertEqual(summary.viewportInteractionPacingPermille, 1_000)
     }
 
     func testTailLatencySummaryCorrelatesSlowSamplesWithDirtyAndUploadBuckets() {
@@ -269,7 +288,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             removingKeys: [
                 "actualEncodingMix",
                 "adaptiveClientPressurePacingSamples",
-                "adaptiveClientPressurePacingPermille"
+                "adaptiveClientPressurePacingPermille",
+                "viewportInteractionPacingSamples",
+                "viewportInteractionPacingPermille"
             ]
         )
         let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
@@ -277,6 +298,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decodedSummary.actualEncodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingSamples, 0)
         XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingPermille, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPacingSamples, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPacingPermille, 0)
         XCTAssertEqual(decodedSummary.receivedSamples, 1)
     }
 

@@ -925,3 +925,42 @@ pacing, or sustained empty-update backoff.
 buckets. They must not export raw delays, raw timing samples, device power
 state, host identity, dimensions, coordinates, pixels, byte counts, cursor
 pixels, or draft text.
+
+## D32 — Live benchmark should reproduce viewport-interaction pacing
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- Apple Energy Efficiency Guide, Minimize Networking:
+  https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/MinimizeNetworking.html
+
+**Decision**: extend `VNCLiveBenchmark` with an opt-in
+`--stream-shape-viewport-interaction off|app` mode. The `app` mode mirrors the
+production temporary viewport-interaction pacing floors used during zoom/pan
+interaction: 15fps-class content-frame requests and 125 ms idle polling. Bump
+the benchmark report to schema v25 and export the fixed mode/floors plus
+aggregate viewport-interaction pacing sample count and permille.
+
+**Why**:
+- Physical-device feedback still reports unnatural zoom/pan, low frame rate,
+  heat, and broken Compose input. The benchmark needs to reproduce the stream
+  cadence used while local viewport interaction is active before subsequent UX
+  tuning can compare normal, low-power, client-pressure, and
+  viewport-interaction runs on the same target.
+- RFC 6143 explicitly allows a fast client to regulate incremental
+  `FramebufferUpdateRequest` rate to avoid excessive traffic. That makes
+  viewer-side request pacing a protocol-compatible way to keep network/decode
+  work from competing with local gesture rendering.
+- TigerVNC exposes viewer-side rate/encoding controls such as pointer-event
+  interval and preferred encoding. Practical VNC clients therefore treat
+  viewer pacing and encoding choices as operational performance controls, not
+  server-only behavior.
+- Apple's networking energy guidance recommends reducing repeated transfers and
+  minimizing network work. During pinch/pan, locally responsive compositor
+  transforms are more important than requesting every possible remote frame, so
+  the live benchmark should make that temporary reduction measurable.
+
+**Privacy rule**: reports export only fixed mode labels, fixed pacing floors,
+aggregate pacing sample counts, and permille ratios. They must not export
+coordinates, dimensions, pixels, cursor pixels, byte counts, raw delays, raw
+timing samples, host identity, raw errors, or Compose draft text.

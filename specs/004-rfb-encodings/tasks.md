@@ -416,6 +416,13 @@ iPhone) and ships as its own PR.
   prevent stale SwiftUI binding writes from overwriting UIKit text immediately
   after Korean/CJK marked-text commit. Owns: app pacing policy/loop, diagnostic
   export, RemoteInputDock sync policy, app/model tests. **Done.**
+- **T361** Viewport-interaction live benchmark parity: extend
+  `VNCLiveBenchmark` schema v25 with
+  `--stream-shape-viewport-interaction off|app`, mirror the app's temporary
+  viewport-interaction content/idle pacing floors inside stream-shape probes,
+  and report only aggregate viewport-interaction pacing sample count/permille
+  plus fixed floor constants. Owns: benchmark pacing policy, CLI/report,
+  summary tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
