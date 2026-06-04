@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 15"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 16"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 15)
+        XCTAssertEqual(decoded.schemaVersion, 16)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -359,6 +359,7 @@ final class DiagnosticExportTests: XCTestCase {
             thermalPacingSampleCount: 4,
             powerSaverPacingSampleCount: 9,
             emptyBackoffPacingSampleCount: 20,
+            viewportInteractionPacingSampleCount: 11,
             actualEncodingMix: RFBFramebufferEncodingMix(
                 rawRectangles: 10,
                 copyRectRectangles: 70,
@@ -381,7 +382,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 15)
+        XCTAssertEqual(decoded.schemaVersion, 16)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -393,6 +394,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"thermalPacingSampleCount\" : 4"))
         XCTAssertTrue(rendered.contains("\"powerSaverPacingSampleCount\" : 9"))
         XCTAssertTrue(rendered.contains("\"emptyBackoffPacingSampleCount\" : 20"))
+        XCTAssertTrue(rendered.contains("\"viewportInteractionPacingSampleCount\" : 11"))
         XCTAssertTrue(rendered.contains("\"viewportGestureSampleCount\" : 17"))
         XCTAssertTrue(rendered.contains("\"viewportGestureMaxIntervalBucket\" : \"interactive\""))
         XCTAssertTrue(rendered.contains("\"viewportIncomingFrameDeferredCount\" : 12"))
@@ -456,7 +458,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 15)
+        XCTAssertEqual(decoded.schemaVersion, 16)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -610,6 +612,7 @@ final class DiagnosticExportTests: XCTestCase {
             thermalPacingSampleCount: 100,
             powerSaverPacingSampleCount: -1,
             emptyBackoffPacingSampleCount: 100,
+            viewportInteractionPacingSampleCount: 100,
             actualEncodingMix: RFBFramebufferEncodingMix(
                 rawRectangles: -100,
                 copyRectRectangles: 2,
@@ -671,6 +674,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
         XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 0)
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 0)
         XCTAssertEqual(
             performance.actualEncodingMix,
             RFBFramebufferEncodingMix(copyRectRectangles: 2, endOfContinuousUpdatesEvents: 1)
@@ -706,6 +710,7 @@ final class DiagnosticExportTests: XCTestCase {
             thermalPacingSampleCount: 2,
             powerSaverPacingSampleCount: 1,
             emptyBackoffPacingSampleCount: 7,
+            viewportInteractionPacingSampleCount: 8,
             thermalState: "nominal"
         )
 
@@ -725,6 +730,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.thermalPacingSampleCount, 2)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 6)
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 6)
     }
 
     func testStreamPerformanceReportDecodesMissingNewerFieldsAsSafeDefaults() throws {
@@ -788,6 +794,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
         XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 0)
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 0)
         XCTAssertEqual(performance.actualEncodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(performance.thermalState, "fair")
     }
@@ -862,8 +869,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v15 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 15"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v16 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 16"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

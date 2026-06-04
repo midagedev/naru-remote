@@ -51,7 +51,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
                 delay: 0.125,
                 usesThermalPacing: false,
                 usesPowerSaverPacing: true,
-                usesEmptyBackoffPacing: true
+                usesEmptyBackoffPacing: true,
+                usesViewportInteractionPacing: true
             )
         )
         stats.recordViewportRedrawDiagnostics(
@@ -110,6 +111,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.thermalPacingSampleCount, 1)
         XCTAssertEqual(report.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(report.emptyBackoffPacingSampleCount, 1)
+        XCTAssertEqual(report.viewportInteractionPacingSampleCount, 1)
         XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)

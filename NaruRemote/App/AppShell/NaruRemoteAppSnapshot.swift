@@ -68,6 +68,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var thermalPacingSampleCount: Int
     public var powerSaverPacingSampleCount: Int
     public var emptyBackoffPacingSampleCount: Int
+    public var viewportInteractionPacingSampleCount: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
@@ -122,6 +123,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         thermalPacingSampleCount: Int = 0,
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
+        viewportInteractionPacingSampleCount: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
@@ -181,6 +183,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
         self.emptyBackoffPacingSampleCount = min(
             max(emptyBackoffPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
+        self.viewportInteractionPacingSampleCount = min(
+            max(viewportInteractionPacingSampleCount, 0),
             self.streamPacingDelaySampleCount
         )
         self.adaptiveClientPressurePacingSampleCount = min(
@@ -383,6 +389,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             thermalPacingSampleCount: thermalPacingSampleCount,
             powerSaverPacingSampleCount: powerSaverPacingSampleCount,
             emptyBackoffPacingSampleCount: emptyBackoffPacingSampleCount,
+            viewportInteractionPacingSampleCount: viewportInteractionPacingSampleCount,
             actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
@@ -459,6 +466,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         if decision.usesEmptyBackoffPacing {
             emptyBackoffPacingSampleCount += 1
+        }
+        if decision.usesViewportInteractionPacing {
+            viewportInteractionPacingSampleCount += 1
         }
     }
 

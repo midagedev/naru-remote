@@ -408,6 +408,14 @@ iPhone) and ships as its own PR.
   without exporting raw delay samples, device power state, host identity,
   dimensions, coordinates, pixels, byte counts, or draft text. Owns: app pacing
   policy/state, diagnostic export, app/model tests, research note. **Done.**
+- **T360** Viewport-interaction stream pacing and Compose stale-binding guard:
+  while pinch, zoomed pan, or zoomed trackpad auto-pan is active, apply a
+  temporary stream pacing floor so incoming frame request/decode work does not
+  compete with local gesture rendering; export only the safe aggregate
+  viewport-interaction pacing sample count in diagnostics schema v16. Also
+  prevent stale SwiftUI binding writes from overwriting UIKit text immediately
+  after Korean/CJK marked-text commit. Owns: app pacing policy/loop, diagnostic
+  export, RemoteInputDock sync policy, app/model tests. **Done.**
 
 ## Cross-cutting (every increment)
 
