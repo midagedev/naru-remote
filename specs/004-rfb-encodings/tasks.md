@@ -388,6 +388,11 @@ iPhone) and ships as its own PR.
   propagate local Compose draft text during marked-text composition without
   overwriting UIKit's in-flight multilingual input. Owns: Metal viewport host,
   RemoteInputDock sync policy, tests. **Done.**
+- **T357** Display-linked viewport transform coalescing: coalesce pinch,
+  zoomed-pan, and trackpad auto-pan layer-transform applications onto one
+  display-link tick while preserving immediate parent sync/layout updates and
+  flushing the final transform at gesture end. Owns: Metal viewport host,
+  coalescer state, tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

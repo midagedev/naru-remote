@@ -475,6 +475,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// critical path.
     private var pendingViewportState: PendingViewportState?
     private var viewportStateDisplayLink: CADisplayLink?
+    private var viewportTransformDisplayLink: CADisplayLink?
+    private var viewportTransformApplicationCoalescer = ViewportTransformApplicationCoalescer()
     private var deferredViewportStateRequiresFlush = false
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
@@ -493,6 +495,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private enum ViewportStatePublishCadence {
         case nextDisplayLink
         case gestureEnd
+    }
+
+    private enum ViewportTransformApplyCadence {
+        case immediate
+        case nextDisplayLink
     }
 
     private static let interactiveViewportStatePublishCadence: ViewportStatePublishCadence =
@@ -655,7 +662,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         currentPanOffset = nextPanOffset
         if didChange {
             applyViewportTransformToMetalView()
-            updateHotCursorOverlay()
         }
     }
 
@@ -681,7 +687,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     public override func layoutSubviews() {
         super.layoutSubviews()
         applyViewportTransformToMetalView()
-        updateHotCursorOverlay()
     }
 
     private var isZoomed: Bool { currentZoomScale > 1.0001 }
@@ -762,6 +767,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         viewportStateDisplayLink?.invalidate()
         viewportStateDisplayLink = nil
+        viewportTransformDisplayLink?.invalidate()
+        viewportTransformDisplayLink = nil
+        viewportTransformApplicationCoalescer.cancel()
         viewportDecelerationDisplayLink?.invalidate()
         viewportDecelerationDisplayLink = nil
         viewportDecelerationVelocity = .zero
@@ -894,13 +902,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let nextPanOffset = nextTransform.panOffset
         let panDidChange = nextPanOffset != currentPanOffset
         currentPanOffset = nextPanOffset
-        applyViewportTransformToMetalView()
+        applyViewportTransformToMetalView(cadence: .nextDisplayLink)
         // Constitution §I: pinch is a LOCAL view transform.  We must
-        // never translate this into a remote scroll/zoom event.  The
-        // renderer has already accepted the local transform on this
-        // callback. SwiftUI overlays and PiP focus catch up on the next
-        // display-link tick so they stay visually close without adding
-        // per-touch state work.
+        // never translate this into a remote scroll/zoom event.  The latest
+        // transform is applied on the next display tick so touch samples
+        // coalesce to the screen cadence while SwiftUI overlays and PiP focus
+        // catch up at gesture end.
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: nextPanOffset,
@@ -1043,7 +1050,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         currentPanOffset = nextPanOffset
-        applyViewportTransformToMetalView()
+        applyViewportTransformToMetalView(cadence: .nextDisplayLink)
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: currentPanOffset,
@@ -1104,11 +1111,23 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
     }
 
-    private func applyViewportTransformToMetalView() {
+    private func applyViewportTransformToMetalView(
+        cadence: ViewportTransformApplyCadence = .immediate
+    ) {
+        switch cadence {
+        case .immediate:
+            cancelPendingViewportTransformApplication()
+            applyViewportTransformToMetalViewNow()
+        case .nextDisplayLink:
+            scheduleViewportTransformApplication()
+        }
+    }
+
+    private func applyViewportTransformToMetalViewNow() {
         // Keep local viewport navigation on Core Animation's compositor
         // path. The renderer already draws the latest texture at its
         // stable aspect-fit baseline, so the hot path should not mutate
-        // renderer state for every touch callback.
+        // renderer state for every display tick.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -1116,6 +1135,41 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         CATransaction.commit()
         updateHotCursorOverlay()
+    }
+
+    private func scheduleViewportTransformApplication() {
+        guard viewportTransformApplicationCoalescer.requestDisplayLinkedApplication() else {
+            return
+        }
+        let displayLink = CADisplayLink(
+            target: self,
+            selector: #selector(displayLinkApplyPendingViewportTransform(_:))
+        )
+        configureViewportDisplayLink(displayLink)
+        displayLink.add(to: .main, forMode: .common)
+        viewportTransformDisplayLink = displayLink
+    }
+
+    @MainActor
+    @objc
+    private func displayLinkApplyPendingViewportTransform(_: CADisplayLink) {
+        flushPendingViewportTransformApplication()
+    }
+
+    @MainActor
+    private func flushPendingViewportTransformApplication() {
+        viewportTransformDisplayLink?.invalidate()
+        viewportTransformDisplayLink = nil
+        guard viewportTransformApplicationCoalescer.flush() else {
+            return
+        }
+        applyViewportTransformToMetalViewNow()
+    }
+
+    private func cancelPendingViewportTransformApplication() {
+        viewportTransformDisplayLink?.invalidate()
+        viewportTransformDisplayLink = nil
+        viewportTransformApplicationCoalescer.cancel()
     }
 
     private func viewportLayerTransform() -> CGAffineTransform {
@@ -1276,6 +1330,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @MainActor
     private func finishViewportTransformGesture() {
         let wasActive = isViewportTransformGestureActive
+        flushPendingViewportTransformApplication()
         isViewportTransformGestureActive = false
         viewportGestureLastSampleTimestamp = nil
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
@@ -1425,7 +1480,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
         currentPanOffset = clampedPan(updated.panOffset)
         if zoomDidChange || panDidChange {
-            applyViewportTransformToMetalView()
+            applyViewportTransformToMetalView(cadence: .nextDisplayLink)
             queueViewportStatePublish(
                 zoomScale: currentZoomScale,
                 panOffset: currentPanOffset,
@@ -1435,8 +1490,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 shouldPublishPan: panDidChange,
                 cadence: Self.interactiveViewportStatePublishCadence
             )
+        } else {
+            updateHotCursorOverlay()
         }
-        updateHotCursorOverlay()
         return result
     }
 
