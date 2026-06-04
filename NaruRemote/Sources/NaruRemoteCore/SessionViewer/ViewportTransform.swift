@@ -146,6 +146,24 @@ public struct ViewportTransform: Equatable, Sendable {
         )
     }
 
+    /// Copy with an incremental pinch update. In addition to zooming about the
+    /// current pinch centroid, this applies the centroid translation so a
+    /// two-finger pan during pinch follows the fingers like Photos/Maps.
+    public func pinched(
+        to newScale: CGFloat,
+        about anchor: CGPoint,
+        anchorDelta: CGSize = .zero,
+        minimumZoomScale: CGFloat = 1
+    ) -> ViewportTransform {
+        let floor = Swift.min(Swift.max(minimumZoomScale, 1), maxZoomScale)
+        let target = Swift.min(Swift.max(newScale, floor), maxZoomScale)
+        let previousAnchor = CGPoint(
+            x: anchor.x - anchorDelta.width,
+            y: anchor.y - anchorDelta.height
+        )
+        return zoomed(to: target, about: previousAnchor).panned(by: anchorDelta)
+    }
+
     /// Copy translated by a view-space delta (re-clamped).
     public func panned(by delta: CGSize) -> ViewportTransform {
         ViewportTransform(
