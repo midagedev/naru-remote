@@ -80,6 +80,15 @@ that only accept classic cut text.  This is intentionally tracked as a follow-up
 because advertising the pseudo-encoding also requires the stream receive loop
 to handle extended `ServerCutText` capability/action messages.
 
+**Implementation update (2026-06-05)**: The production encoding preferences now
+request Extended Clipboard and the streaming receive loop handles extended
+`ServerCutText` caps/control messages interleaved before framebuffer updates.
+Naru only sends UTF-8 Extended Clipboard `provide` after a server caps message
+confirms text+provide support; otherwise it keeps the legacy `ClientCutText`
+fallback.  Unit and fake-server integration tests cover signed negative
+cut-text lengths, zlib-wrapped UTF-8 payloads, newline normalization, and safe
+diagnostic labeling for malformed extended clipboard frames.
+
 ## Decision 3: Fake RFB Server Is Required Before Broad Compatibility Claims
 
 **Decision**: Add a fake RFB server or fixture harness early enough to verify

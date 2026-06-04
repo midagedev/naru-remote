@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 
 public struct RFBProtocolVersion: Codable, Equatable, Sendable {
     public let major: Int
@@ -97,6 +98,33 @@ public struct RFBFramebufferUpdateHeader: Codable, Equatable, Sendable {
     }
 }
 
+public enum RFBServerCutTextMessage: Equatable, Sendable {
+    case legacyText(String)
+    case extendedClipboard(RFBExtendedClipboardMessage)
+}
+
+public struct RFBExtendedClipboardMessage: Equatable, Sendable {
+    public let flags: RFBExtendedClipboardFlags
+    public let textMaximumBytes: UInt32?
+    public let text: String?
+
+    public init(
+        flags: RFBExtendedClipboardFlags,
+        textMaximumBytes: UInt32? = nil,
+        text: String? = nil
+    ) {
+        self.flags = flags
+        self.textMaximumBytes = textMaximumBytes
+        self.text = text
+    }
+
+    public var confirmsUTF8TextProvide: Bool {
+        flags.contains(.caps) &&
+            flags.contains(.text) &&
+            flags.contains(.provide)
+    }
+}
+
 public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
     case insufficientData(expected: Int, actual: Int)
     case invalidProtocolVersion(String)
@@ -104,6 +132,7 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
     case unexpectedMessageType(UInt8)
     case truncatedServerCutText(expected: Int, actual: Int)
     case invalidServerCutTextEncoding
+    case malformedExtendedServerCutText
 
     public var errorDescription: String? {
         switch self {
@@ -119,6 +148,8 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
             "Truncated RFB ServerCutText payload. Expected \(expected) bytes, received \(actual)."
         case .invalidServerCutTextEncoding:
             "RFB ServerCutText payload is not valid UTF-8."
+        case .malformedExtendedServerCutText:
+            "RFB extended ServerCutText payload is malformed."
         }
     }
 }
@@ -230,7 +261,20 @@ public enum RFBProtocolDecoder {
         return RFBFramebufferUpdateHeader(rectangles: rectangles)
     }
 
-    /// Parses an RFB ServerCutText message (server-to-client message type 3).
+    /// Parses an RFB ServerCutText message (server-to-client message type 3)
+    /// and returns only user text. Extended Clipboard caps/control messages
+    /// return an empty string because they carry capability state rather than
+    /// pasteboard text.
+    public static func parseServerCutText(_ data: Data) throws -> String {
+        switch try parseServerCutTextMessage(data) {
+        case .legacyText(let text):
+            return text
+        case .extendedClipboard(let message):
+            return message.text ?? ""
+        }
+    }
+
+    /// Parses legacy and Extended Clipboard `ServerCutText` messages.
     ///
     /// Wire layout (RFC 6143 §7.6.4):
     ///
@@ -247,7 +291,7 @@ public enum RFBProtocolDecoder {
     /// Returns the decoded payload string. Throws a typed
     /// ``RFBProtocolDecoderError`` (never traps) on truncation, wrong message
     /// type, or invalid UTF-8.
-    public static func parseServerCutText(_ data: Data) throws -> String {
+    public static func parseServerCutTextMessage(_ data: Data) throws -> RFBServerCutTextMessage {
         let bytes = Array(data)
         try require(bytes, count: 8)
 
@@ -255,7 +299,12 @@ public enum RFBProtocolDecoder {
             throw RFBProtocolDecoderError.unexpectedMessageType(bytes[0])
         }
 
-        let payloadLength = Int(uint32(bytes, at: 4))
+        let signedPayloadLength = int32(bytes, at: 4)
+        if signedPayloadLength < 0 {
+            return try parseExtendedServerCutText(bytes, signedLength: signedPayloadLength)
+        }
+
+        let payloadLength = Int(signedPayloadLength)
         let expectedTotal = 8 + payloadLength
         guard bytes.count >= expectedTotal else {
             throw RFBProtocolDecoderError.truncatedServerCutText(
@@ -265,14 +314,82 @@ public enum RFBProtocolDecoder {
         }
 
         guard payloadLength > 0 else {
-            return ""
+            return .legacyText("")
         }
 
         let payloadBytes = bytes[8..<expectedTotal]
         guard let text = String(bytes: payloadBytes, encoding: .utf8) else {
             throw RFBProtocolDecoderError.invalidServerCutTextEncoding
         }
-        return text
+        return .legacyText(text)
+    }
+
+    private static func parseExtendedServerCutText(
+        _ bytes: [UInt8],
+        signedLength: Int32
+    ) throws -> RFBServerCutTextMessage {
+        guard signedLength != Int32.min else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+        let payloadLength = Int(-signedLength)
+        let expectedTotal = 8 + payloadLength
+        guard payloadLength >= 4 else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+        guard bytes.count >= expectedTotal else {
+            throw RFBProtocolDecoderError.truncatedServerCutText(
+                expected: expectedTotal,
+                actual: bytes.count
+            )
+        }
+
+        let flags = RFBExtendedClipboardFlags(rawValue: uint32(bytes, at: 8))
+        let payloadStart = 12
+        if flags.contains(.caps) {
+            let formatCount = extendedClipboardFormatCount(in: flags)
+            guard payloadLength == 4 + formatCount * 4 else {
+                throw RFBProtocolDecoderError.malformedExtendedServerCutText
+            }
+            var textMaximumBytes: UInt32?
+            if flags.contains(.text), formatCount > 0 {
+                textMaximumBytes = uint32(bytes, at: payloadStart)
+            }
+            return .extendedClipboard(
+                RFBExtendedClipboardMessage(
+                    flags: flags,
+                    textMaximumBytes: textMaximumBytes
+                )
+            )
+        }
+
+        if flags.contains(.provide), flags.contains(.text) {
+            let compressed = Array(bytes[payloadStart..<expectedTotal])
+            let inflated = try RFBZlibWrappedPayloadInflate.inflate(compressed)
+            guard inflated.count >= 4 else {
+                throw RFBProtocolDecoderError.malformedExtendedServerCutText
+            }
+            let textByteCount = Int(uint32(inflated, at: 0))
+            guard inflated.count >= 4 + textByteCount else {
+                throw RFBProtocolDecoderError.malformedExtendedServerCutText
+            }
+            var textBytes = Array(inflated[4..<(4 + textByteCount)])
+            if textBytes.last == 0 {
+                textBytes.removeLast()
+            }
+            guard let text = String(bytes: textBytes, encoding: .utf8) else {
+                throw RFBProtocolDecoderError.invalidServerCutTextEncoding
+            }
+            return .extendedClipboard(
+                RFBExtendedClipboardMessage(
+                    flags: flags,
+                    text: text
+                        .replacingOccurrences(of: "\r\n", with: "\n")
+                        .replacingOccurrences(of: "\r", with: "\n")
+                )
+            )
+        }
+
+        return .extendedClipboard(RFBExtendedClipboardMessage(flags: flags))
     }
 
     private static func require(_ bytes: [UInt8], count: Int) throws {
@@ -297,5 +414,79 @@ public enum RFBProtocolDecoder {
 
     private static func int32(_ bytes: [UInt8], at offset: Int) -> Int32 {
         Int32(bitPattern: uint32(bytes, at: offset))
+    }
+
+    private static func extendedClipboardFormatCount(in flags: RFBExtendedClipboardFlags) -> Int {
+        let formatBits = flags.rawValue & 0x0000ffff
+        return formatBits.nonzeroBitCount
+    }
+}
+
+private enum RFBZlibWrappedPayloadInflate {
+    private static let outputChunkSize = 64 * 1024
+
+    static func inflate(_ input: [UInt8]) throws -> [UInt8] {
+        guard input.count >= 6 else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+
+        let rawDeflate = Array(input[2..<(input.count - 4)])
+        guard !rawDeflate.isEmpty else {
+            return []
+        }
+
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        var initialized = false
+        defer {
+            if initialized {
+                compression_stream_destroy(stream)
+            }
+            stream.deallocate()
+        }
+
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw RFBZlibInflateStream.InflateError.initializationFailed
+        }
+        initialized = true
+
+        var output: [UInt8] = []
+        var failure: Error?
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: outputChunkSize)
+        defer { destination.deallocate() }
+
+        rawDeflate.withUnsafeBufferPointer { source in
+            guard let baseAddress = source.baseAddress else {
+                return
+            }
+            stream.pointee.src_ptr = baseAddress
+            stream.pointee.src_size = source.count
+
+            while true {
+                stream.pointee.dst_ptr = destination
+                stream.pointee.dst_size = outputChunkSize
+                let status = compression_stream_process(stream, 0)
+                let produced = outputChunkSize - stream.pointee.dst_size
+                if produced > 0 {
+                    output.append(contentsOf: UnsafeBufferPointer(start: destination, count: produced))
+                }
+
+                switch status {
+                case COMPRESSION_STATUS_OK:
+                    if stream.pointee.src_size == 0, produced < outputChunkSize {
+                        return
+                    }
+                case COMPRESSION_STATUS_END:
+                    return
+                default:
+                    failure = RFBZlibInflateStream.InflateError.inflateFailed
+                    return
+                }
+            }
+        }
+
+        if let failure {
+            throw failure
+        }
+        return output
     }
 }

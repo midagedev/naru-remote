@@ -51,6 +51,8 @@ public enum BenchmarkFailureLabel {
             return "truncated-server-cuttext"
         case RFBProtocolDecoderError.invalidServerCutTextEncoding:
             return "invalid-server-cuttext-encoding"
+        case RFBProtocolDecoderError.malformedExtendedServerCutText:
+            return "malformed-extended-server-cuttext"
         case RFBRawFramebufferDecoderError.unsupportedPixelFormat:
             return "unsupported-pixel-format"
         case RFBRawFramebufferDecoderError.unsupportedEncoding:
@@ -92,6 +94,10 @@ public enum BenchmarkFailureLabel {
         case RFBClientMessageEncodingError.unsupportedFenceFlags:
             return "client-message-encoding"
         case RFBClientMessageEncodingError.fencePayloadTooLarge:
+            return "client-message-encoding"
+        case RFBClientMessageEncodingError.extendedClipboardPayloadTooLarge:
+            return "client-message-encoding"
+        case RFBClientMessageEncodingError.zlibCompressionFailed:
             return "client-message-encoding"
         default:
             return "unexpected-error"

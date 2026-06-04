@@ -180,6 +180,76 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertTrue(receivedMessages.starts(with: expectedMessages))
     }
 
+    func testProductionRFBNetworkClientUsesExtendedClipboardAfterServerCaps() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let serverCaps = Self.serverCutTextMessage(
+            fromClientCutText: try RFBClientMessageEncoder.extendedClipboardCaps(textMaximumBytes: 8192)
+        )
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                serverCaps,
+                Self.rawTwoByTwoUpdateData()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let frame = try client.receiveFramebufferUpdate()
+        XCTAssertEqual(frame.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+
+        try client.setClipboardText("한글 Extended 😊")
+
+        let expectedCapsResponse = try RFBClientMessageEncoder.extendedClipboardCaps()
+        let expectedProvide = try RFBClientMessageEncoder.extendedClipboardProvideText("한글 Extended 😊")
+        let expectedMessages = expectedCapsResponse + expectedProvide
+        let receivedMessages = try recorder.waitForByteCount(expectedMessages.count)
+
+        XCTAssertTrue(receivedMessages.starts(with: expectedMessages))
+    }
+
+    func testFirstFrameConnectionSkipsExtendedClipboardCapsBeforeUpdateHeader() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let serverCaps = Self.serverCutTextMessage(
+            fromClientCutText: try RFBClientMessageEncoder.extendedClipboardCaps(textMaximumBytes: 8192)
+        )
+        let firstFrameHeaderOnly = Self.rawTwoByTwoUpdateData().prefix(16)
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                serverCaps,
+                Data(firstFrameHeaderOnly)
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        let serverInit = try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        XCTAssertEqual(serverInit.width, 2)
+        XCTAssertEqual(client.state, .receivingFrames)
+
+        try client.setClipboardText("첫 프레임 전 caps 😊")
+
+        let expectedRequestLength = 10
+        let expectedCapsResponse = try RFBClientMessageEncoder.extendedClipboardCaps()
+        let expectedProvide = try RFBClientMessageEncoder.extendedClipboardProvideText("첫 프레임 전 caps 😊")
+        let receivedMessages = try recorder.waitForByteCount(
+            expectedRequestLength + expectedCapsResponse.count + expectedProvide.count
+        )
+        let clipboardMessages = receivedMessages.dropFirst(expectedRequestLength)
+
+        XCTAssertTrue(clipboardMessages.starts(with: expectedCapsResponse + expectedProvide))
+    }
+
     func testProductionRFBNetworkClientRequestsAndDecodesRepeatedRawFramebufferUpdates() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(
@@ -817,6 +887,12 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         bytes.append(UInt8(payload.count))
         bytes.append(contentsOf: payload)
         return Data(bytes)
+    }
+
+    private static func serverCutTextMessage(fromClientCutText message: Data) -> Data {
+        var serverMessage = message
+        serverMessage[serverMessage.startIndex] = 3
+        return serverMessage
     }
 
     private static func uint16Bytes(_ value: UInt16) -> [UInt8] {

@@ -267,6 +267,12 @@ the expected UTF-8 clipboard payload and paste command path.
 - [x] T157 [US3] Surface UTF-8-extension-required compose sends in safe status/diagnostic state so physical-device logs can distinguish VNC clipboard compatibility risk from local IME failure
 - [x] T158 [US3] Verify text-injection, diagnostic redaction, and app-model compose send tests after the payload-encoding diagnostic addition
 
+## Phase 30: Extended Clipboard Unicode Compose Path
+
+- [x] T159 [US3] Advertise the Extended Clipboard pseudo-encoding (`0xc0a1e5ce`) in production low-latency/sustained encoding preferences and parse extended `ServerCutText` caps/control messages without tearing down the frame stream
+- [x] T160 [US3] Send composed Unicode text through Extended Clipboard UTF-8 `provide` only after the server confirms text+provide support; preserve legacy `ClientCutText` fallback for servers that never confirm the extension
+- [x] T161 [US3] Add encoder/decoder/fake-server integration tests for extended caps, zlib-wrapped UTF-8 provide, newline normalization, fallback preservation, first-frame caps interleaving, safe diagnostic failure codes, and signed-length recorder handling
+
 ## Parallel Notes
 
 - T029 still requires physical iPhone/iPad access and cannot be delegated to a

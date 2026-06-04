@@ -993,7 +993,8 @@ public final class NaruRemoteAppModel: ObservableObject {
              .invalidProtocolVersion,
              .unexpectedMessageType,
              .truncatedServerCutText,
-             .invalidServerCutTextEncoding:
+             .invalidServerCutTextEncoding,
+             .malformedExtendedServerCutText:
             return .rfbHandshake
         }
     }
@@ -1212,6 +1213,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return "rfb.truncatedServerCutText"
             case .invalidServerCutTextEncoding:
                 return "rfb.invalidServerCutTextEncoding"
+            case .malformedExtendedServerCutText:
+                return "rfb.malformedExtendedServerCutText"
             }
         }
 

@@ -26,6 +26,11 @@ public enum RFBEncoding {
     public static let desktopName: Int32 = -307
     public static let fence: Int32 = -312
     public static let continuousUpdates: Int32 = -313
+    /// Extended Clipboard pseudo-encoding (`0xc0a1e5ce`). The signed
+    /// `S32` value is advertised in `SetEncodings`; servers that do not
+    /// support it ignore the request, while supporting servers confirm via
+    /// an extended `ServerCutText` caps message.
+    public static let extendedClipboard: Int32 = Int32(bitPattern: 0xc0a1e5ce)
 
     // MARK: Tight quality / compression hint pseudo-encodings
 
@@ -58,6 +63,7 @@ public struct RFBEncodingSupport: Equatable, Sendable {
     public var cursor: Bool
     public var fence: Bool
     public var continuousUpdates: Bool
+    public var extendedClipboard: Bool
 
     public init(
         copyRect: Bool = true,
@@ -66,7 +72,8 @@ public struct RFBEncodingSupport: Equatable, Sendable {
         tight: Bool = false,
         cursor: Bool = false,
         fence: Bool = false,
-        continuousUpdates: Bool = false
+        continuousUpdates: Bool = false,
+        extendedClipboard: Bool = true
     ) {
         self.copyRect = copyRect
         self.hextile = hextile
@@ -75,6 +82,7 @@ public struct RFBEncodingSupport: Equatable, Sendable {
         self.cursor = cursor
         self.fence = fence
         self.continuousUpdates = continuousUpdates
+        self.extendedClipboard = extendedClipboard
     }
 
     public static let increment1 = RFBEncodingSupport()
@@ -97,6 +105,7 @@ public struct RFBPseudoEncodingRequest: Equatable, Sendable {
     public var cursor: Bool
     public var fence: Bool
     public var continuousUpdates: Bool
+    public var extendedClipboard: Bool
 
     public init(
         desktopSize: Bool = true,
@@ -104,7 +113,8 @@ public struct RFBPseudoEncodingRequest: Equatable, Sendable {
         lastRect: Bool = true,
         cursor: Bool = false,
         fence: Bool = false,
-        continuousUpdates: Bool = false
+        continuousUpdates: Bool = false,
+        extendedClipboard: Bool = false
     ) {
         self.desktopSize = desktopSize
         self.extendedDesktopSize = extendedDesktopSize
@@ -112,15 +122,21 @@ public struct RFBPseudoEncodingRequest: Equatable, Sendable {
         self.cursor = cursor
         self.fence = fence
         self.continuousUpdates = continuousUpdates
+        self.extendedClipboard = extendedClipboard
     }
 
     public static let streamingBaseline = RFBPseudoEncodingRequest()
-    public static let withServerCursor = RFBPseudoEncodingRequest(cursor: true)
-    public static let withPacingExtensions = RFBPseudoEncodingRequest(fence: true, continuousUpdates: true)
+    public static let withServerCursor = RFBPseudoEncodingRequest(cursor: true, extendedClipboard: true)
+    public static let withPacingExtensions = RFBPseudoEncodingRequest(
+        fence: true,
+        continuousUpdates: true,
+        extendedClipboard: true
+    )
     public static let withServerCursorAndPacingExtensions = RFBPseudoEncodingRequest(
         cursor: true,
         fence: true,
-        continuousUpdates: true
+        continuousUpdates: true,
+        extendedClipboard: true
     )
 }
 
@@ -153,6 +169,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public var cursor: Bool
     public var fence: Bool
     public var continuousUpdates: Bool
+    public var extendedClipboard: Bool
     /// Optional JPEG quality level `0...9` (Tight). Emitted only when
     /// `tight` is also true. `nil` advertises no quality hint.
     public var tightQualityLevel: Int?
@@ -172,6 +189,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         cursor: Bool = false,
         fence: Bool = false,
         continuousUpdates: Bool = false,
+        extendedClipboard: Bool = false,
         tightQualityLevel: Int? = nil,
         compressionLevel: Int? = nil
     ) {
@@ -186,6 +204,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         self.cursor = cursor
         self.fence = fence
         self.continuousUpdates = continuousUpdates
+        self.extendedClipboard = extendedClipboard
         self.tightQualityLevel = tightQualityLevel
         self.compressionLevel = compressionLevel
     }
@@ -208,6 +227,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public static let localLowLatency = RFBEncodingPreference(
         tight: true,
         cursor: true,
+        extendedClipboard: true,
         tightQualityLevel: 8,
         compressionLevel: 1
     )
@@ -221,6 +241,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     public static let powerSaverSustained = RFBEncodingPreference(
         zrle: true,
         cursor: true,
+        extendedClipboard: true,
         compressionLevel: 0
     )
 
@@ -249,6 +270,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
             cursor: supported.cursor && requested.cursor,
             fence: supported.fence && requested.fence,
             continuousUpdates: supported.continuousUpdates && requested.continuousUpdates,
+            extendedClipboard: supported.extendedClipboard && requested.extendedClipboard,
             tightQualityLevel: supported.tight ? qualityProfile.tightQualityLevel : nil,
             compressionLevel: (supported.zrle || supported.tight) ? qualityProfile.compressionLevel : nil
         )
@@ -282,6 +304,7 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         }
         if fence { list.append(RFBEncoding.fence) }
         if continuousUpdates { list.append(RFBEncoding.continuousUpdates) }
+        if extendedClipboard { list.append(RFBEncoding.extendedClipboard) }
 
         // Quality / compression hints ride only on the encodings that
         // use them (spec 004 FR-013).
