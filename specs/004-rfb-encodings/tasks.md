@@ -327,6 +327,12 @@ iPhone) and ships as its own PR.
   tell whether `--stream-shape-client-pressure app` actually affected pacing
   without exporting raw timing samples. Owns: benchmark summary/report/tests
   and benchmark docs. **Done.**
+- **T348** App adaptive pressure activation diagnostics: export safe active-session
+  aggregate adaptive client-pressure pacing sample count/permille in diagnostics
+  schema v8 so real-device heat/FPS reports show whether app-side pressure
+  pacing activated, without exporting raw timing samples, power state,
+  dimensions, coordinates, pixels, byte counts, or raw errors. Owns: app
+  snapshot, app model wiring, diagnostic export, tests. **Done.**
 
 ## Cross-cutting (every increment)
 

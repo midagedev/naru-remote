@@ -26,7 +26,11 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         var stats = SessionStreamStats()
 
         stats.record(frame: firstFrame, thermalState: .nominal)
-        stats.record(frame: emptyFrame, thermalState: .serious)
+        stats.record(
+            frame: emptyFrame,
+            thermalState: .serious,
+            usesAdaptiveClientPressurePacing: true
+        )
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -37,6 +41,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.contentFramePermille, 500)
         XCTAssertEqual(report.emptyUpdatePermille, 500)
         XCTAssertEqual(report.transportIdleTimeoutPermille, 0)
+        XCTAssertEqual(report.adaptiveClientPressurePacingSampleCount, 1)
+        XCTAssertEqual(report.adaptiveClientPressurePacingPermille, 500)
         XCTAssertEqual(report.dirtyRectangleSampleCount, 2)
         XCTAssertEqual(report.dirtyRectangleCountMax, 1)
         XCTAssertEqual(report.dirtyAreaPermilleMax, 1_000)
@@ -72,6 +78,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(stats.contentFrameCount, 0)
         XCTAssertEqual(stats.emptyUpdateCount, 0)
         XCTAssertEqual(stats.transportIdleTimeoutCount, 1)
+        XCTAssertEqual(stats.adaptiveClientPressurePacingSampleCount, 0)
         XCTAssertEqual(stats.dirtyRectangleSampleCount, 0)
         XCTAssertNil(stats.averageDirtyRectangleCount)
         XCTAssertNil(stats.averageDirtyAreaPermille)

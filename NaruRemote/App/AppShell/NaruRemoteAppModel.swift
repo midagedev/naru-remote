@@ -1591,12 +1591,18 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
-                    let thermalState = thermalStateProvider()
-                    recordSessionStreamStats(for: frame, thermalState: thermalState)
                     streamPressurePacingState.record(frame: frame)
+                    let usesAdaptiveClientPressurePacing = streamPressurePacingState
+                        .usesAdaptivePowerSaverPacing
+                    let thermalState = thermalStateProvider()
+                    recordSessionStreamStats(
+                        for: frame,
+                        thermalState: thermalState,
+                        usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing
+                    )
                     let usesPowerSaverPacing = lowPowerModeProvider()
                         || appSettings.streamPowerMode == .powerSaver
-                        || streamPressurePacingState.usesAdaptivePowerSaverPacing
+                        || usesAdaptiveClientPressurePacing
 
                     // An empty incremental update (zero changed pixels)
                     // means the connection is alive but framebuffer
@@ -1750,11 +1756,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func recordSessionStreamStats(
         for frame: RFBFramePumpFrame,
-        thermalState: SessionStreamThermalState
+        thermalState: SessionStreamThermalState,
+        usesAdaptiveClientPressurePacing: Bool
     ) {
         sessionStreamStats.record(
             frame: frame,
-            thermalState: thermalState
+            thermalState: thermalState,
+            usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing
         )
     }
 

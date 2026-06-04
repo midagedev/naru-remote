@@ -47,6 +47,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var networkReadMillisecondsMax: Int
     public var clientProcessingMillisecondsTotal: Int
     public var clientProcessingMillisecondsMax: Int
+    public var adaptiveClientPressurePacingSampleCount: Int
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
@@ -79,6 +80,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         networkReadMillisecondsMax: Int = 0,
         clientProcessingMillisecondsTotal: Int = 0,
         clientProcessingMillisecondsMax: Int = 0,
+        adaptiveClientPressurePacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
         firstFrameCapturedAt: Date? = nil,
@@ -106,6 +108,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.networkReadMillisecondsMax = max(networkReadMillisecondsMax, 0)
         self.clientProcessingMillisecondsTotal = max(clientProcessingMillisecondsTotal, 0)
         self.clientProcessingMillisecondsMax = max(clientProcessingMillisecondsMax, 0)
+        self.adaptiveClientPressurePacingSampleCount = min(
+            max(adaptiveClientPressurePacingSampleCount, 0),
+            self.deliveredFrameCount
+        )
         self.actualEncodingMix = actualEncodingMix
         self.thermalState = thermalState
         self.firstFrameCapturedAt = firstFrameCapturedAt
@@ -157,6 +163,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         permille(transportIdleTimeoutCount, of: deliveredFrameCount)
     }
 
+    public var adaptiveClientPressurePacingPermille: Int? {
+        permille(adaptiveClientPressurePacingSampleCount, of: deliveredFrameCount)
+    }
+
     public var rendererPartialUploadPermille: Int? {
         permille(rendererPartialUploadCount, of: rendererUploadSampleCount)
     }
@@ -204,6 +214,8 @@ public struct SessionStreamStats: Equatable, Sendable {
             contentFramePermille: contentFramePermille,
             emptyUpdatePermille: emptyUpdatePermille,
             transportIdleTimeoutPermille: transportIdleTimeoutPermille,
+            adaptiveClientPressurePacingSampleCount: adaptiveClientPressurePacingSampleCount,
+            adaptiveClientPressurePacingPermille: adaptiveClientPressurePacingPermille,
             dirtyRectangleSampleCount: dirtyRectangleSampleCount,
             averageDirtyRectangleCount: averageDirtyRectangleCount,
             dirtyRectangleCountMax: dirtyRectangleCountMax,
@@ -237,9 +249,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     public mutating func record(
         frame: RFBFramePumpFrame,
-        thermalState: SessionStreamThermalState
+        thermalState: SessionStreamThermalState,
+        usesAdaptiveClientPressurePacing: Bool = false
     ) {
         deliveredFrameCount += 1
+        if usesAdaptiveClientPressurePacing {
+            adaptiveClientPressurePacingSampleCount += 1
+        }
         self.thermalState = thermalState
         if firstFrameCapturedAt == nil {
             firstFrameCapturedAt = frame.capturedAt
