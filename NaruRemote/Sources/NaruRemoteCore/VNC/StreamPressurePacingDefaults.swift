@@ -7,6 +7,7 @@ import Foundation
 /// live benchmark mirror the app's pressure trigger without drifting
 /// when sustained-session tuning changes.
 public enum StreamPressurePacingDefaults {
+    public static let balancedContentFrameIntervalSeconds: Double = 1.0 / 30.0
     public static let severeLaggingLocalWorkThresholdMilliseconds = 80
     public static let consecutiveSevereLaggingContentFrameThreshold = 3
     public static let sustainedLaggingLocalWorkThresholdMilliseconds = 34

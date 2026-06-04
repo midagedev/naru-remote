@@ -6,15 +6,15 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
-    func testDefaultFrameStreamConfigurationCapsActiveCadenceAtDisplayRate() {
+    func testDefaultFrameStreamConfigurationCapsActiveCadenceForSustainedPhoneUse() {
         let configuration = NaruRemoteAppModel.defaultFrameStreamConfiguration
 
         XCTAssertEqual(configuration.requestTimeout, 8)
         XCTAssertEqual(
             configuration.frameInterval,
-            1.0 / 60.0,
+            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
             accuracy: 0.0001,
-            "Default live sessions should cap active frame requests at about 60 fps."
+            "Default live sessions should cap active frame requests at the benchmark-backed sustained cadence."
         )
         XCTAssertEqual(configuration.idleFrameInterval, 0.05)
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)

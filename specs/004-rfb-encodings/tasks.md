@@ -375,6 +375,13 @@ iPhone) and ships as its own PR.
   so heat/FPS runs can reproduce runtime behavior without exporting raw timing
   samples. Owns: app pacing state, benchmark pacing state, tests, research note,
   benchmark artifact. **Done.**
+- **T355** Benchmark-backed balanced 30fps cadence: switch the production
+  balanced active request cadence from 60fps-class to the shared 30fps-class
+  sustained-session floor, make `VNCLiveBenchmark` use the same default
+  stream-shape frame interval, and extend benchmark schema/output so both
+  severe and sustained adaptive pressure thresholds are visible. Owns: shared
+  pacing defaults, app default configuration, benchmark CLI/report/tests,
+  research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

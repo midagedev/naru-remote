@@ -17,6 +17,8 @@ public enum BenchmarkStreamShapeClientPressureMode: String, Codable, Equatable, 
 }
 
 public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
+    public static let appBalancedContentFrameInterval = StreamPressurePacingDefaults
+        .balancedContentFrameIntervalSeconds
     public static let appMediumEmptyUpdateStreakThreshold = 8
     public static let appLongEmptyUpdateStreakThreshold = 24
     public static let appMediumIdleFrameInterval: TimeInterval = 0.075

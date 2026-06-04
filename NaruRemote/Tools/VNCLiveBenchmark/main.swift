@@ -634,7 +634,8 @@ private struct BenchmarkOptions: Equatable {
     var continuousUpdateSamples = 1
     var streamShapeSamples = 12
     var streamShapeDuration: TimeInterval?
-    var streamShapeFrameInterval: TimeInterval = 1.0 / 60.0
+    var streamShapeFrameInterval: TimeInterval = BenchmarkStreamShapePacingPolicy
+        .appBalancedContentFrameInterval
     var streamShapeIdleFrameInterval: TimeInterval = 0.05
     var streamShapeEmptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode = .app
     var streamShapePowerMode: BenchmarkStreamShapePowerMode = .normal
@@ -1036,6 +1037,8 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeLowPowerIdleFrameIntervalSeconds: TimeInterval
     let streamShapeClientPressureLaggingThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveContentFrameThreshold: Int
+    let streamShapeClientPressureSustainedLaggingThresholdMilliseconds: Int
+    let streamShapeClientPressureConsecutiveSustainedContentFrameThreshold: Int
     let streamShapeClientPressureConsecutiveFullUploadFrameThreshold: Int
     let streamShapeClientPressureRecoveryUpdateCount: Int
     let streamShapeEmptyBackoffMediumStreakThreshold: Int
@@ -1077,7 +1080,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 23
+        self.schemaVersion = 24
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1097,6 +1100,10 @@ private struct BenchmarkReport: Codable, Equatable {
             BenchmarkStreamShapePacingPolicy.appLaggingClientProcessingThresholdMilliseconds
         self.streamShapeClientPressureConsecutiveContentFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveLaggingContentFrameThreshold
+        self.streamShapeClientPressureSustainedLaggingThresholdMilliseconds =
+            BenchmarkStreamShapePacingPolicy.appSustainedLaggingClientProcessingThresholdMilliseconds
+        self.streamShapeClientPressureConsecutiveSustainedContentFrameThreshold =
+            BenchmarkStreamShapePacingPolicy.appConsecutiveSustainedLaggingContentFrameThreshold
         self.streamShapeClientPressureConsecutiveFullUploadFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold
         self.streamShapeClientPressureRecoveryUpdateCount =
@@ -1343,6 +1350,9 @@ private func renderText(_ report: BenchmarkReport) {
             "stream-shape client-pressure thresholds: client-processing >= "
                 + "\(report.streamShapeClientPressureLaggingThresholdMilliseconds)ms for "
                 + "\(report.streamShapeClientPressureConsecutiveContentFrameThreshold) content frames, "
+                + "or client-processing >= "
+                + "\(report.streamShapeClientPressureSustainedLaggingThresholdMilliseconds)ms for "
+                + "\(report.streamShapeClientPressureConsecutiveSustainedContentFrameThreshold) content frames, "
                 + "or full renderer uploads for "
                 + "\(report.streamShapeClientPressureConsecutiveFullUploadFrameThreshold) content frames, "
                 + "recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"
@@ -1629,7 +1639,7 @@ private func printUsage() {
       --stream-shape-duration-seconds SECONDS
                                 Optional sustained stream-shape duration limit. When set, the probe stops at this duration or the sample cap, whichever comes first.
       --stream-shape-frame-interval SECONDS
-                                Delay after content stream-shape incremental requests. Defaults to 0.0167, matching the app's 60 Hz normal-mode cap.
+                                Delay after content stream-shape incremental requests. Defaults to \(formatSeconds(BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval)), matching the app's balanced sustained-session cap.
       --stream-shape-idle-frame-interval SECONDS
                                 Delay after empty stream-shape incremental requests. Defaults to 0.05, matching the app's idle poll backoff.
       --stream-shape-empty-backoff app|none
