@@ -77,6 +77,13 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   efficient CopyRect/Hextile/ZRLE/Tight/cursor/resize paths without payload
   bytes, dimensions, coordinates, pixels, raw timing samples, host identity, or
   raw errors. Owns: diagnostics/app snapshot/model/tests. **Done.**
+- **T513** Bump diagnostics to schema v9 with safe Compose/input state:
+  include only fixed-catalog draft state, direct-mode state, paste command,
+  clipboard-set step, paste-command step, restore status, and duration bucket so
+  physical-device reports can distinguish "clipboard did not set" from "paste
+  key did not send" without composed text, clipboard text, safe-message bodies,
+  host identity, coordinates, pixels, raw timing, or raw errors. Owns:
+  diagnostics/app model/input tests. **Done.**
 
 ## Cross-cutting Rules
 

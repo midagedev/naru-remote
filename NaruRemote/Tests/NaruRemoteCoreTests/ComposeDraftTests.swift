@@ -38,13 +38,13 @@ final class ComposeDraftTests: XCTestCase {
         XCTAssertEqual(draft.lastStatusMessage, "Confirmation unavailable")
     }
 
-    func testUnknownSendCanClearAfterPasteCommandLeavesDevice() {
+    func testPasteDispatchedKeepsUnknownDraftForRetry() {
         let sessionID = UUID()
         var draft = ComposeDraft(sessionID: sessionID, text: "한글과 English 😊")
 
         draft.markPasteDispatched(message: "Paste command sent")
 
-        XCTAssertEqual(draft.text, "")
+        XCTAssertEqual(draft.text, "한글과 English 😊")
         XCTAssertEqual(draft.sendState, .unknown)
         XCTAssertNil(draft.lastFailureReason)
         XCTAssertEqual(draft.lastStatusMessage, "Paste command sent")

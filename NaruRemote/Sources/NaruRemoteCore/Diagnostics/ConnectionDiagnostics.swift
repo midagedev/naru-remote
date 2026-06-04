@@ -25,7 +25,7 @@ public enum DiagnosticRunTrigger: String, Codable, Equatable, Sendable {
     case credentialLookup
 }
 
-public enum DiagnosticDurationBucket: String, Codable, Equatable, Sendable {
+public enum DiagnosticDurationBucket: String, Codable, Equatable, CaseIterable, Sendable {
     case notMeasured
     case underOneSecond
     case oneToThreeSeconds

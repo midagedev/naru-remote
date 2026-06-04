@@ -10,6 +10,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let context: DiagnosticRunContext?
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: StreamPowerMode?
+    public let input: DiagnosticInputReport?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -23,7 +24,8 @@ public struct DiagnosticExport: Equatable, Sendable {
         run: ConnectionDiagnosticRun,
         detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
-        viewerStreamPowerMode: StreamPowerMode? = nil
+        viewerStreamPowerMode: StreamPowerMode? = nil,
+        input: DiagnosticInputReport? = nil
     ) {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
@@ -33,6 +35,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.context = run.context
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = viewerStreamPowerMode
+        self.input = input
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -128,7 +131,8 @@ public struct DiagnosticExport: Equatable, Sendable {
             verdict: verdict.rawValue,
             stageRows: stageRows,
             streamPerformance: streamPerformance,
-            viewerStreamPowerMode: viewerStreamPowerMode?.rawValue
+            viewerStreamPowerMode: viewerStreamPowerMode?.rawValue,
+            input: input
         )
     }
 
@@ -562,6 +566,151 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     }
 }
 
+public struct DiagnosticInputReport: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case directKeystrokeModeActive
+        case hasComposeDraftText
+        case composeSendState
+        case latestInjectionPath
+        case latestInjectionStatus
+        case latestInjectionPasteCommand
+        case latestInjectionClipboardSetStatus
+        case latestInjectionPasteCommandStatus
+        case latestInjectionRemoteClipboardRestore
+        case latestInjectionDurationBucket
+    }
+
+    public let directKeystrokeModeActive: Bool?
+    public let hasComposeDraftText: Bool?
+    public let composeSendState: String?
+    public let latestInjectionPath: String?
+    public let latestInjectionStatus: String?
+    public let latestInjectionPasteCommand: String?
+    public let latestInjectionClipboardSetStatus: String?
+    public let latestInjectionPasteCommandStatus: String?
+    public let latestInjectionRemoteClipboardRestore: String?
+    public let latestInjectionDurationBucket: String?
+
+    public init(
+        directKeystrokeModeActive: Bool? = nil,
+        hasComposeDraftText: Bool? = nil,
+        composeSendState: String? = nil,
+        latestInjectionPath: String? = nil,
+        latestInjectionStatus: String? = nil,
+        latestInjectionPasteCommand: String? = nil,
+        latestInjectionClipboardSetStatus: String? = nil,
+        latestInjectionPasteCommandStatus: String? = nil,
+        latestInjectionRemoteClipboardRestore: String? = nil,
+        latestInjectionDurationBucket: String? = nil
+    ) {
+        self.directKeystrokeModeActive = directKeystrokeModeActive
+        self.hasComposeDraftText = hasComposeDraftText
+        self.composeSendState = Self.safeComposeSendState(composeSendState)
+        self.latestInjectionPath = Self.safeInjectionPath(latestInjectionPath)
+        self.latestInjectionStatus = Self.safeInjectionStatus(latestInjectionStatus)
+        self.latestInjectionPasteCommand = Self.safePasteCommand(latestInjectionPasteCommand)
+        self.latestInjectionClipboardSetStatus = Self.safeInjectionStepStatus(latestInjectionClipboardSetStatus)
+        self.latestInjectionPasteCommandStatus = Self.safeInjectionStepStatus(latestInjectionPasteCommandStatus)
+        self.latestInjectionRemoteClipboardRestore = Self.safeRemoteClipboardRestore(
+            latestInjectionRemoteClipboardRestore
+        )
+        self.latestInjectionDurationBucket = Self.safeDurationBucket(latestInjectionDurationBucket)
+    }
+
+    public init(
+        composeDraft: ComposeDraft?,
+        latestInjectionAttempt: TextInjectionAttempt?,
+        directKeystrokeModeActive: Bool
+    ) {
+        self.init(
+            directKeystrokeModeActive: directKeystrokeModeActive,
+            hasComposeDraftText: composeDraft.map { !$0.text.isEmpty },
+            composeSendState: composeDraft?.sendState.rawValue,
+            latestInjectionPath: latestInjectionAttempt?.path.rawValue,
+            latestInjectionStatus: latestInjectionAttempt?.status.rawValue,
+            latestInjectionPasteCommand: latestInjectionAttempt?.pasteCommand?.rawValue,
+            latestInjectionClipboardSetStatus: latestInjectionAttempt?.clipboardSetStatus.rawValue,
+            latestInjectionPasteCommandStatus: latestInjectionAttempt?.pasteCommandStatus.rawValue,
+            latestInjectionRemoteClipboardRestore: latestInjectionAttempt?.remoteClipboardRestore.rawValue,
+            latestInjectionDurationBucket: latestInjectionAttempt.map {
+                DiagnosticDurationBucket.bucket(
+                    startedAt: $0.startedAt,
+                    finishedAt: $0.finishedAt
+                ).rawValue
+            }
+        )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            directKeystrokeModeActive: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .directKeystrokeModeActive
+            ),
+            hasComposeDraftText: try container.decodeIfPresent(Bool.self, forKey: .hasComposeDraftText),
+            composeSendState: try container.decodeIfPresent(String.self, forKey: .composeSendState),
+            latestInjectionPath: try container.decodeIfPresent(String.self, forKey: .latestInjectionPath),
+            latestInjectionStatus: try container.decodeIfPresent(String.self, forKey: .latestInjectionStatus),
+            latestInjectionPasteCommand: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionPasteCommand
+            ),
+            latestInjectionClipboardSetStatus: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionClipboardSetStatus
+            ),
+            latestInjectionPasteCommandStatus: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionPasteCommandStatus
+            ),
+            latestInjectionRemoteClipboardRestore: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionRemoteClipboardRestore
+            ),
+            latestInjectionDurationBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionDurationBucket
+            )
+        )
+    }
+
+    private static func safeComposeSendState(_ value: String?) -> String? {
+        safe(value, allowed: Set(ComposeSendState.allCases.map(\.rawValue)))
+    }
+
+    private static func safeInjectionPath(_ value: String?) -> String? {
+        safe(value, allowed: Set(TextInjectionPath.allCases.map(\.rawValue)))
+    }
+
+    private static func safeInjectionStatus(_ value: String?) -> String? {
+        safe(value, allowed: Set(TextInjectionStatus.allCases.map(\.rawValue)))
+    }
+
+    private static func safePasteCommand(_ value: String?) -> String? {
+        safe(value, allowed: Set(PasteCommand.allCases.map(\.rawValue)))
+    }
+
+    private static func safeInjectionStepStatus(_ value: String?) -> String? {
+        safe(value, allowed: Set(TextInjectionStepStatus.allCases.map(\.rawValue)))
+    }
+
+    private static func safeRemoteClipboardRestore(_ value: String?) -> String? {
+        safe(value, allowed: Set(RemoteClipboardRestoreStatus.allCases.map(\.rawValue)))
+    }
+
+    private static func safeDurationBucket(_ value: String?) -> String? {
+        safe(value, allowed: Set(DiagnosticDurationBucket.allCases.map(\.rawValue)))
+    }
+
+    private static func safe(_ value: String?, allowed: Set<String>) -> String? {
+        guard let value else {
+            return nil
+        }
+        return allowed.contains(value) ? value : nil
+    }
+}
+
 public enum DiagnosticFailureCodeCatalog {
     private static let allowedCodes: Set<String> = [
         "credential.passwordMissing",
@@ -598,7 +747,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 8
+    public static let currentSchemaVersion = 9
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -619,6 +768,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case stageRows
         case streamPerformance
         case viewerStreamPowerMode
+        case input
     }
 
     public let schemaVersion: Int
@@ -639,6 +789,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let stageRows: [DiagnosticExport.Row]
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: String?
+    public let input: DiagnosticInputReport?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -658,7 +809,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         verdict: String,
         stageRows: [DiagnosticExport.Row],
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
-        viewerStreamPowerMode: String? = nil
+        viewerStreamPowerMode: String? = nil,
+        input: DiagnosticInputReport? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -678,6 +830,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.stageRows = stageRows
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
+        self.input = input
     }
 
     public init(from decoder: Decoder) throws {
@@ -703,7 +856,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 DiagnosticStreamPerformanceReport.self,
                 forKey: .streamPerformance
             ),
-            viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode)
+            viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode),
+            input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input)
         )
     }
 

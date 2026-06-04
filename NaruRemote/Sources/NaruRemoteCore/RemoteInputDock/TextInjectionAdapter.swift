@@ -1,15 +1,15 @@
 import Foundation
 
-public enum TextInjectionPath: String, Codable, Equatable, Sendable {
+public enum TextInjectionPath: String, Codable, Equatable, CaseIterable, Sendable {
     case vncClipboardPaste
 }
 
-public enum PasteCommand: String, Codable, Equatable, Sendable {
+public enum PasteCommand: String, Codable, Equatable, CaseIterable, Sendable {
     case commandV
     case controlV
 }
 
-public enum RemoteClipboardRestoreStatus: String, Codable, Equatable, Sendable {
+public enum RemoteClipboardRestoreStatus: String, Codable, Equatable, CaseIterable, Sendable {
     case notAttempted
     case attempted
     case succeeded
@@ -17,20 +17,44 @@ public enum RemoteClipboardRestoreStatus: String, Codable, Equatable, Sendable {
     case unsupported
 }
 
-public enum TextInjectionStatus: String, Codable, Equatable, Sendable {
+public enum TextInjectionStatus: String, Codable, Equatable, CaseIterable, Sendable {
     case sent
     case failed
     case unknown
 }
 
+public enum TextInjectionStepStatus: String, Codable, Equatable, CaseIterable, Sendable {
+    case notAttempted
+    case succeeded
+    case failed
+}
+
 public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case draftID
+        case sessionID
+        case path
+        case pasteCommand
+        case startedAt
+        case finishedAt
+        case status
+        case clipboardSetStatus
+        case pasteCommandStatus
+        case remoteClipboardRestore
+        case safeMessage
+    }
+
     public let id: UUID
     public let draftID: ComposeDraft.ID
     public let sessionID: UUID
     public let path: TextInjectionPath
+    public var pasteCommand: PasteCommand?
     public let startedAt: Date
     public var finishedAt: Date?
     public var status: TextInjectionStatus
+    public var clipboardSetStatus: TextInjectionStepStatus
+    public var pasteCommandStatus: TextInjectionStepStatus
     public var remoteClipboardRestore: RemoteClipboardRestoreStatus
     public var safeMessage: String
 
@@ -39,9 +63,12 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         draftID: ComposeDraft.ID,
         sessionID: UUID,
         path: TextInjectionPath,
+        pasteCommand: PasteCommand? = nil,
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
         status: TextInjectionStatus = .unknown,
+        clipboardSetStatus: TextInjectionStepStatus = .notAttempted,
+        pasteCommandStatus: TextInjectionStepStatus = .notAttempted,
         remoteClipboardRestore: RemoteClipboardRestoreStatus = .notAttempted,
         safeMessage: String = ""
     ) {
@@ -49,11 +76,41 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         self.draftID = draftID
         self.sessionID = sessionID
         self.path = path
+        self.pasteCommand = pasteCommand
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.status = status
+        self.clipboardSetStatus = clipboardSetStatus
+        self.pasteCommandStatus = pasteCommandStatus
         self.remoteClipboardRestore = remoteClipboardRestore
         self.safeMessage = safeMessage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            draftID: try container.decode(ComposeDraft.ID.self, forKey: .draftID),
+            sessionID: try container.decode(UUID.self, forKey: .sessionID),
+            path: try container.decode(TextInjectionPath.self, forKey: .path),
+            pasteCommand: try container.decodeIfPresent(PasteCommand.self, forKey: .pasteCommand),
+            startedAt: try container.decode(Date.self, forKey: .startedAt),
+            finishedAt: try container.decodeIfPresent(Date.self, forKey: .finishedAt),
+            status: try container.decode(TextInjectionStatus.self, forKey: .status),
+            clipboardSetStatus: try container.decodeIfPresent(
+                TextInjectionStepStatus.self,
+                forKey: .clipboardSetStatus
+            ) ?? .notAttempted,
+            pasteCommandStatus: try container.decodeIfPresent(
+                TextInjectionStepStatus.self,
+                forKey: .pasteCommandStatus
+            ) ?? .notAttempted,
+            remoteClipboardRestore: try container.decode(
+                RemoteClipboardRestoreStatus.self,
+                forKey: .remoteClipboardRestore
+            ),
+            safeMessage: try container.decode(String.self, forKey: .safeMessage)
+        )
     }
 }
 
@@ -126,6 +183,7 @@ public struct TextInjectionAdapter {
                 draftID: draft.id,
                 sessionID: draft.sessionID,
                 path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
                 startedAt: now,
                 finishedAt: now,
                 status: .failed,
@@ -139,17 +197,20 @@ public struct TextInjectionAdapter {
             draftID: draft.id,
             sessionID: draft.sessionID,
             path: .vncClipboardPaste,
+            pasteCommand: pasteCommand,
             startedAt: now,
             remoteClipboardRestore: .unsupported
         )
 
         do {
             try client.setClipboardText(draft.text)
+            attempt.clipboardSetStatus = .succeeded
         } catch {
             let message = safeClipboardFailureMessage(from: error)
             draft.markFailed(reason: message, at: now)
             attempt.finishedAt = now
             attempt.status = .failed
+            attempt.clipboardSetStatus = .failed
             attempt.safeMessage = message
             return attempt
         }
@@ -160,11 +221,13 @@ public struct TextInjectionAdapter {
 
         do {
             try client.sendPasteCommand(pasteCommand)
+            attempt.pasteCommandStatus = .succeeded
         } catch {
             let message = safePasteFailureMessage(from: error)
             draft.markFailed(reason: message, at: now)
             attempt.finishedAt = now
             attempt.status = .failed
+            attempt.pasteCommandStatus = .failed
             attempt.safeMessage = message
             return attempt
         }

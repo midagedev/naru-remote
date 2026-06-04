@@ -1434,8 +1434,27 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
         XCTAssertEqual(connector.pasteCommands, [.controlV])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommand, .controlV)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(report.input?.hasComposeDraftText, true)
+        XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
+        XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
+        XCTAssertEqual(report.input?.latestInjectionClipboardSetStatus, TextInjectionStepStatus.succeeded.rawValue)
+        XCTAssertEqual(report.input?.latestInjectionPasteCommandStatus, TextInjectionStepStatus.succeeded.rawValue)
+        XCTAssertFalse(json.contains("한글과 English"))
+        XCTAssertFalse(json.contains("😊"))
     }
 
     func testModelUpdatesComposeDraftAsUserTypes() throws {
@@ -1513,6 +1532,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
             "Text send cancelled because the remote session changed."
@@ -1669,7 +1690,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 8)
+        XCTAssertEqual(report.schemaVersion, 9)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -1740,7 +1761,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 8)
+        XCTAssertEqual(report.schemaVersion, 9)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

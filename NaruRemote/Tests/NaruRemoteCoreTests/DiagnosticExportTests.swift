@@ -253,7 +253,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 8"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 9"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -265,7 +265,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 8)
+        XCTAssertEqual(decoded.schemaVersion, 9)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -351,7 +351,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 8)
+        XCTAssertEqual(decoded.schemaVersion, 9)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -362,6 +362,114 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"viewerStreamPowerMode\" : \"power-saver\""))
         XCTAssertFalse(rendered.contains("caller detail"))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
+    }
+
+    func testRenderCollectionJSONIncludesSafeInputReportWithoutDraftText() throws {
+        let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let run = ConnectionDiagnosticRun(
+            profileID: profileID,
+            finishedAt: Date(timeIntervalSince1970: 10),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .clipboardText,
+                    status: .passed,
+                    safeTitle: "Input",
+                    safeDetail: "caller detail must not appear"
+                )
+            ]
+        )
+        let sessionID = try XCTUnwrap(UUID(uuidString: "22222222-3333-4444-5555-666666666666"))
+        let draftText = "한글과 English 😊 SECRETPHRASE"
+        let draft = ComposeDraft(
+            sessionID: sessionID,
+            text: draftText,
+            sendState: .unknown,
+            lastStatusMessage: "Paste command sent; remote app confirmation unavailable."
+        )
+        let attempt = TextInjectionAttempt(
+            draftID: draft.id,
+            sessionID: sessionID,
+            path: .vncClipboardPaste,
+            pasteCommand: .commandV,
+            startedAt: Date(timeIntervalSince1970: 7),
+            finishedAt: Date(timeIntervalSince1970: 8),
+            status: .unknown,
+            clipboardSetStatus: .succeeded,
+            pasteCommandStatus: .succeeded,
+            remoteClipboardRestore: .unsupported,
+            safeMessage: "Paste command sent; remote app confirmation unavailable."
+        )
+        let input = DiagnosticInputReport(
+            composeDraft: draft,
+            latestInjectionAttempt: attempt,
+            directKeystrokeModeActive: false
+        )
+        let export = DiagnosticExport(run: run, input: input)
+
+        let rendered = export.renderCollectionJSON(
+            buildVersion: "0.1.0",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let decoded = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(rendered.utf8)
+        )
+
+        XCTAssertEqual(decoded.schemaVersion, 9)
+        XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
+        XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
+        XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
+        XCTAssertEqual(decoded.input?.latestInjectionPath, TextInjectionPath.vncClipboardPaste.rawValue)
+        XCTAssertEqual(decoded.input?.latestInjectionStatus, TextInjectionStatus.unknown.rawValue)
+        XCTAssertEqual(decoded.input?.latestInjectionPasteCommand, PasteCommand.commandV.rawValue)
+        XCTAssertEqual(
+            decoded.input?.latestInjectionClipboardSetStatus,
+            TextInjectionStepStatus.succeeded.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.latestInjectionPasteCommandStatus,
+            TextInjectionStepStatus.succeeded.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.latestInjectionRemoteClipboardRestore,
+            RemoteClipboardRestoreStatus.unsupported.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.latestInjectionDurationBucket,
+            DiagnosticDurationBucket.oneToThreeSeconds.rawValue
+        )
+        XCTAssertTrue(rendered.contains("\"input\""))
+        XCTAssertFalse(rendered.contains(draftText))
+        XCTAssertFalse(rendered.contains("SECRETPHRASE"))
+        XCTAssertFalse(rendered.contains("Paste command sent"))
+        XCTAssertFalse(rendered.contains("caller detail"))
+        XCTAssertFalse(rendered.contains(sessionID.uuidString))
+    }
+
+    func testInputReportClampsUnsafeCatalogValues() {
+        let input = DiagnosticInputReport(
+            directKeystrokeModeActive: true,
+            hasComposeDraftText: true,
+            composeSendState: "state=SECRET",
+            latestInjectionPath: "path=SECRET",
+            latestInjectionStatus: "status=SECRET",
+            latestInjectionPasteCommand: "paste=SECRET",
+            latestInjectionClipboardSetStatus: "clipboard=SECRET",
+            latestInjectionPasteCommandStatus: "command=SECRET",
+            latestInjectionRemoteClipboardRestore: "restore=SECRET",
+            latestInjectionDurationBucket: "duration=SECRET"
+        )
+
+        XCTAssertEqual(input.directKeystrokeModeActive, true)
+        XCTAssertEqual(input.hasComposeDraftText, true)
+        XCTAssertNil(input.composeSendState)
+        XCTAssertNil(input.latestInjectionPath)
+        XCTAssertNil(input.latestInjectionStatus)
+        XCTAssertNil(input.latestInjectionPasteCommand)
+        XCTAssertNil(input.latestInjectionClipboardSetStatus)
+        XCTAssertNil(input.latestInjectionPasteCommandStatus)
+        XCTAssertNil(input.latestInjectionRemoteClipboardRestore)
+        XCTAssertNil(input.latestInjectionDurationBucket)
     }
 
     func testCollectionReportClampsUnsafeViewerStreamPowerMode() throws {
@@ -629,8 +737,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v8 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 8"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v9 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 9"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }
