@@ -31,6 +31,10 @@ Compose input was not working reliably.
 - Added Extended Clipboard advertisement, caps parsing, zlib-wrapped UTF-8 text
   provide encoding/decoding, server-support gating, legacy fallback, safe
   diagnostic code mapping, and fake-server signed-length handling.
+- Folded in Hermes review feedback by pinning the Extended Clipboard zlib
+  encoder/decoder behavior against known Python `zlib.compress` fixture bytes,
+  proving the wire payload has a single RFC 1950 wrapper rather than nested zlib
+  framing.
 
 ## Verification
 
@@ -38,8 +42,10 @@ Compose input was not working reliably.
   - Result: passed, 44 tests, 0 failures.
 - `swift test --filter FakeRFBServerIntegrationTests/testFirstFrameConnectionSkipsExtendedClipboardCapsBeforeUpdateHeader --filter FakeRFBServerIntegrationTests/testProductionRFBNetworkClientUsesExtendedClipboardAfterServerCaps`
   - Result: passed, 2 tests, 0 failures.
+- `swift test --filter RFBClientMessageEncoderTests/testExtendedClipboardProvideTextUsesSingleRFC1950ZlibWrapper --filter RFBProtocolDecoderTests/testParsesExtendedClipboardProvideTextFromStandardZlibFixture --filter RFBClientMessageEncoderTests/testExtendedClipboardProvideTextCarriesUTF8Payload --filter RFBProtocolDecoderTests/testParsesExtendedClipboardProvideTextMessage`
+  - Result: passed, 4 tests, 0 failures.
 - `swift test`
-  - Result: passed, 617 tests, 10 skipped, 0 failures.
+  - Result: passed, 619 tests, 10 skipped, 0 failures.
 - `xcodegen generate --spec project.yml`
   - Result: passed.
 - `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' build`

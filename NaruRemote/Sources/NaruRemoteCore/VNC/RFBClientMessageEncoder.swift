@@ -278,6 +278,9 @@ private enum RFBZlibDeflate {
             return []
         }
 
+        // Apple's `COMPRESSION_ZLIB` encoder emits raw DEFLATE bytes here.
+        // Extended Clipboard needs an RFC 1950 zlib wrapper, so the caller
+        // adds exactly one header/trailer around this payload.
         let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
         var initialized = false
         defer {

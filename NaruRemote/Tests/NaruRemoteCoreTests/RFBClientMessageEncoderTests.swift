@@ -52,6 +52,23 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         XCTAssertEqual(decoded.text, "첫줄\n둘째 😊")
     }
 
+    func testExtendedClipboardProvideTextUsesSingleRFC1950ZlibWrapper() throws {
+        let message = try RFBClientMessageEncoder.extendedClipboardProvideText("hello")
+
+        // Ground truth from Python `zlib.compress` over:
+        // [u32 text length = 6]["hello"][NUL].
+        let expectedCompressed = Data([
+            0x78, 0x9c,
+            0x63, 0x60, 0x60, 0x60, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x67, 0x00, 0x00,
+            0x08, 0x6f, 0x02, 0x1b
+        ])
+        let compressed = message.subdata(in: 12..<message.count)
+
+        XCTAssertEqual(compressed, expectedCompressed)
+        XCTAssertEqual(compressed.prefix(2), Data([0x78, 0x9c]))
+        XCTAssertNotEqual(compressed.dropFirst(2).prefix(2), Data([0x78, 0x9c]))
+    }
+
     func testPasteCommandEmitsModifierAndVKeyEvents() {
         let command = RFBClientMessageEncoder.pasteCommand(.controlV)
 

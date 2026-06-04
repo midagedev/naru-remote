@@ -430,6 +430,9 @@ private enum RFBZlibWrappedPayloadInflate {
             throw RFBProtocolDecoderError.malformedExtendedServerCutText
         }
 
+        // Extended Clipboard carries one RFC 1950-wrapped zlib payload.
+        // Apple's `COMPRESSION_ZLIB` decoder consumes raw DEFLATE, so strip
+        // the wrapper exactly once before one-shot inflate.
         let rawDeflate = Array(input[2..<(input.count - 4)])
         guard !rawDeflate.isEmpty else {
             return []
