@@ -829,3 +829,35 @@ unchanged.
 **Privacy rule**: benchmark evidence is aggregate-only. It omits host, password,
 server name, framebuffer dimensions, coordinates, pixels, byte counts, cursor
 pixels, compressed payloads, raw errors, and raw per-frame timing samples.
+
+## D29 — Viewport transforms should be display-linked during gestures
+
+References:
+- Apple Metal frame-rate guidance: https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FrameRate.html
+- Apple `CADisplayLink.preferredFrameRateRange`: https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: keep local viewport navigation on the UIKit/Core Animation layer
+transform path, but coalesce pinch, zoomed-pan, and trackpad auto-pan transform
+applications onto a one-shot `CADisplayLink`. Parent-driven sync, layout, and
+gesture-end flushes still apply immediately so the final state cannot lag behind
+the model.
+
+**Why**:
+- Apple frame-rate guidance emphasizes stable presentation cadence and says
+  apps that cannot sustain a frame budget should reduce work to avoid jitter.
+  Applying a layer transform for every raw gesture callback can exceed the
+  display cadence on a hot iPhone even though only the newest transform is
+  visible at the next refresh.
+- TigerVNC documents a default 17 ms pointer-event interval, showing that
+  practical VNC viewers already rate-limit high-frequency input traffic to a
+  screen-scale cadence. Naru already coalesces trackpad pointer moves on the
+  wire; the local viewport transform should follow the same principle.
+- RFC 6143 keeps framebuffer updates client-regulated in the request/response
+  path. Reducing local per-sample viewport work complements the 30fps request
+  cadence and adaptive client-pressure pacing without changing protocol
+  correctness or persisted viewer settings.
+
+**Privacy rule**: this change only changes local transform scheduling. It must
+not log or export gesture coordinates, framebuffer dimensions, pixels, cursor
+pixels, raw timestamps, raw timing samples, host identity, or raw errors.
