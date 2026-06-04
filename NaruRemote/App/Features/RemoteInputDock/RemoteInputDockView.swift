@@ -235,8 +235,7 @@ public struct RemoteInputDockView: View {
                 .simultaneousGesture(TapGesture().onEnded {
                     focusComposeEditor()
                 })
-                .accessibilityLabel("Remote input text")
-                .accessibilityIdentifier("naru.input.editor")
+                .composeEditorShellAccessibility()
 
             if showsComposeQuickKeys {
                 quickKeyMenu
@@ -382,8 +381,7 @@ public struct RemoteInputDockView: View {
                 .simultaneousGesture(TapGesture().onEnded {
                     focusComposeEditor()
                 })
-                .accessibilityLabel("Remote input text")
-                .accessibilityIdentifier("naru.input.editor")
+                .composeEditorShellAccessibility()
 
             Button {
                 sendCurrentComposeText()
@@ -648,3 +646,16 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
     }
 }
 #endif
+
+private extension View {
+    @ViewBuilder
+    func composeEditorShellAccessibility() -> some View {
+        #if os(iOS) && canImport(UIKit)
+        self
+        #else
+        self
+            .accessibilityLabel("Remote input text")
+            .accessibilityIdentifier("naru.input.editor")
+        #endif
+    }
+}
