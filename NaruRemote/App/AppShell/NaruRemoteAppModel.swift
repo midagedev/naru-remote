@@ -196,12 +196,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var pendingTrackpadCursor: TrackpadCursor?
     private var trackpadCursorPublishTask: Task<Void, Never>?
     private var resolvedTrackpadCursor: TrackpadCursor = TrackpadCursor()
-    /// One 60 Hz display frame. Remote dragging does not benefit from
-    /// queuing pointer moves faster than the screen can plausibly
-    /// repaint, and a frame-sized window keeps high-refresh touch
-    /// streams from building stale VNC write backlog.
-    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(16)
-    private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
+    /// Roughly one 120 Hz display frame. Keep only the newest move in
+    /// that window so high-refresh touch streams feel live without
+    /// building stale VNC write backlog.
+    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(8)
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(8)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
@@ -3047,6 +3046,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        let utf8Support = activeTextClient.utf8ClipboardSupport
+        let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
         let draftForSend = draft
         draft.markSending(path: .vncClipboardPaste, at: now)
         composeDraft = draft
@@ -3056,6 +3057,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             path: .vncClipboardPaste,
             pasteCommand: pasteCommand,
             payloadEncoding: payloadEncoding,
+            clipboardTransferMode: transferMode,
+            utf8ClipboardSupport: utf8Support,
             startedAt: now,
             status: .unknown,
             remoteClipboardRestore: .unsupported,
@@ -3067,7 +3070,15 @@ public final class NaruRemoteAppModel: ObservableObject {
         let clientBox = RemoteClipboardTextClientBox(client: activeTextClient)
         let pasteSettleDelay = Self.remoteClipboardPasteSettleDelay
 
-        Task.detached(priority: .userInitiated) { [weak self, clientBox, draftForSend, pasteCommand, now] in
+        Task.detached(priority: .userInitiated) { [
+            weak self,
+            clientBox,
+            draftForSend,
+            pasteCommand,
+            now,
+            transferMode,
+            utf8Support
+        ] in
             var sendingDraft = draftForSend
             var attempt = TextInjectionAttempt(
                 draftID: sendingDraft.id,
@@ -3075,6 +3086,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 path: .vncClipboardPaste,
                 pasteCommand: pasteCommand,
                 payloadEncoding: TextInjectionPayloadEncoding.classify(sendingDraft.text),
+                clipboardTransferMode: transferMode,
+                utf8ClipboardSupport: utf8Support,
                 startedAt: now,
                 remoteClipboardRestore: .unsupported
             )
@@ -3157,7 +3170,10 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
 
-            let message = attempt.payloadEncoding?.unconfirmedPasteMessage
+            let message = attempt.payloadEncoding?.unconfirmedPasteMessage(
+                transferMode: attempt.clipboardTransferMode,
+                utf8Support: attempt.utf8ClipboardSupport
+            )
                 ?? "Paste command sent; remote app confirmation unavailable."
             sendingDraft.markPasteDispatched(message: message, at: now)
             attempt.finishedAt = now

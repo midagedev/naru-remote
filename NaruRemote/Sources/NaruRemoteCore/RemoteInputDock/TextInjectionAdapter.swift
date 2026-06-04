@@ -44,13 +44,40 @@ public enum TextInjectionPayloadEncoding: String, Codable, Equatable, CaseIterab
         return .ascii
     }
 
-    public var unconfirmedPasteMessage: String {
+    public func unconfirmedPasteMessage(
+        transferMode: TextClipboardTransferMode?,
+        utf8Support: RemoteClipboardUTF8Support?
+    ) -> String {
         switch self {
         case .ascii, .latin1:
             "Paste command sent; remote app confirmation unavailable."
         case .utf8ExtensionRequired:
-            "Paste command sent; remote app confirmation unavailable. This text requires UTF-8 clipboard support from the VNC server."
+            switch (transferMode, utf8Support) {
+            case (.extendedClipboardUTF8?, .supported?):
+                "Paste command sent through UTF-8 clipboard; remote app confirmation unavailable."
+            case (_, .unsupported?):
+                "Paste command sent through legacy VNC clipboard; this server did not confirm UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+            default:
+                "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+            }
         }
+    }
+}
+
+public enum RemoteClipboardUTF8Support: String, Codable, Equatable, CaseIterable, Sendable {
+    case unknown
+    case supported
+    case unsupported
+}
+
+public enum TextClipboardTransferMode: String, Codable, Equatable, CaseIterable, Sendable {
+    case legacyClientCutText
+    case extendedClipboardUTF8
+
+    public static func selected(
+        utf8Support: RemoteClipboardUTF8Support
+    ) -> TextClipboardTransferMode {
+        utf8Support == .supported ? .extendedClipboardUTF8 : .legacyClientCutText
     }
 }
 
@@ -62,6 +89,8 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         case path
         case pasteCommand
         case payloadEncoding
+        case clipboardTransferMode
+        case utf8ClipboardSupport
         case startedAt
         case finishedAt
         case status
@@ -77,6 +106,8 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     public let path: TextInjectionPath
     public var pasteCommand: PasteCommand?
     public var payloadEncoding: TextInjectionPayloadEncoding?
+    public var clipboardTransferMode: TextClipboardTransferMode?
+    public var utf8ClipboardSupport: RemoteClipboardUTF8Support?
     public let startedAt: Date
     public var finishedAt: Date?
     public var status: TextInjectionStatus
@@ -92,6 +123,8 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         path: TextInjectionPath,
         pasteCommand: PasteCommand? = nil,
         payloadEncoding: TextInjectionPayloadEncoding? = nil,
+        clipboardTransferMode: TextClipboardTransferMode? = nil,
+        utf8ClipboardSupport: RemoteClipboardUTF8Support? = nil,
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
         status: TextInjectionStatus = .unknown,
@@ -106,6 +139,8 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         self.path = path
         self.pasteCommand = pasteCommand
         self.payloadEncoding = payloadEncoding
+        self.clipboardTransferMode = clipboardTransferMode
+        self.utf8ClipboardSupport = utf8ClipboardSupport
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.status = status
@@ -126,6 +161,14 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
             payloadEncoding: try container.decodeIfPresent(
                 TextInjectionPayloadEncoding.self,
                 forKey: .payloadEncoding
+            ),
+            clipboardTransferMode: try container.decodeIfPresent(
+                TextClipboardTransferMode.self,
+                forKey: .clipboardTransferMode
+            ),
+            utf8ClipboardSupport: try container.decodeIfPresent(
+                RemoteClipboardUTF8Support.self,
+                forKey: .utf8ClipboardSupport
             ),
             startedAt: try container.decode(Date.self, forKey: .startedAt),
             finishedAt: try container.decodeIfPresent(Date.self, forKey: .finishedAt),
@@ -148,6 +191,8 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
 }
 
 public protocol RemoteClipboardTextClient: AnyObject {
+    var utf8ClipboardSupport: RemoteClipboardUTF8Support { get }
+
     func setClipboardText(_ text: String) throws
     func sendPasteCommand(_ command: PasteCommand) throws
 
@@ -168,6 +213,8 @@ public protocol RemoteClipboardTextClient: AnyObject {
 }
 
 public extension RemoteClipboardTextClient {
+    var utf8ClipboardSupport: RemoteClipboardUTF8Support { .unknown }
+
     func receiveServerCutText(timeout: TimeInterval) throws -> String {
         throw TextInjectionError.clipboardUnavailable(
             "Remote clipboard receive is not supported by this client."
@@ -225,6 +272,8 @@ public struct TextInjectionAdapter {
         }
 
         draft.markSending(path: .vncClipboardPaste, at: now)
+        let utf8Support = client.utf8ClipboardSupport
+        let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
 
         var attempt = TextInjectionAttempt(
             draftID: draft.id,
@@ -232,6 +281,8 @@ public struct TextInjectionAdapter {
             path: .vncClipboardPaste,
             pasteCommand: pasteCommand,
             payloadEncoding: TextInjectionPayloadEncoding.classify(draft.text),
+            clipboardTransferMode: transferMode,
+            utf8ClipboardSupport: utf8Support,
             startedAt: now,
             remoteClipboardRestore: .unsupported
         )
@@ -266,7 +317,10 @@ public struct TextInjectionAdapter {
             return attempt
         }
 
-        let message = attempt.payloadEncoding?.unconfirmedPasteMessage
+        let message = attempt.payloadEncoding?.unconfirmedPasteMessage(
+            transferMode: attempt.clipboardTransferMode,
+            utf8Support: attempt.utf8ClipboardSupport
+        )
             ?? "Paste command sent; remote app confirmation unavailable."
         draft.markUnknown(message: message, at: now)
         attempt.finishedAt = now

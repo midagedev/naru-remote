@@ -98,6 +98,13 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
   milliseconds, dimensions, coordinates, pixels, byte counts, target identity,
   power state, or raw errors. Owns: diagnostics/app snapshot/model tests.
   **Done.**
+- **T516** Bump diagnostics to schema v17 with safe Compose clipboard transport
+  state: include only `legacyClientCutText|extendedClipboardUTF8` and
+  `unknown|supported|unsupported` so physical-device reports can distinguish
+  UTF-8 Extended Clipboard support from legacy fallback without composed text,
+  clipboard text, byte counts, safe-message bodies, host identity, coordinates,
+  pixels, raw timing, or raw errors. Owns: diagnostics/app model/RFB/input
+  tests. **Done.**
 
 ## Cross-cutting Rules
 

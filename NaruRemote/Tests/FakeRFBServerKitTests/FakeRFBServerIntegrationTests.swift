@@ -169,6 +169,7 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
 
         let client = RFBNetworkClient()
         try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+        XCTAssertEqual(client.utf8ClipboardSupport, .unknown)
 
         try client.setClipboardText("한글과 English 😊")
         try client.sendPasteCommand(.controlV)
@@ -202,6 +203,7 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
 
         let frame = try client.receiveFramebufferUpdate()
         XCTAssertEqual(frame.framebuffer[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(client.utf8ClipboardSupport, .supported)
 
         try client.setClipboardText("한글 Extended 😊")
 

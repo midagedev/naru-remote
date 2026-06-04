@@ -27,6 +27,8 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(attempt.path, .vncClipboardPaste)
         XCTAssertEqual(attempt.pasteCommand, .commandV)
         XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(attempt.clipboardTransferMode, .legacyClientCutText)
+        XCTAssertEqual(attempt.utf8ClipboardSupport, .unknown)
         XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
         XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
         XCTAssertEqual(attempt.remoteClipboardRestore, .unsupported)
@@ -35,8 +37,25 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertNil(draft.lastFailureReason)
         XCTAssertEqual(
             draft.lastStatusMessage,
-            "Paste command sent; remote app confirmation unavailable. This text requires UTF-8 clipboard support from the VNC server."
+            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
         )
+    }
+
+    func testAdapterReportsExtendedClipboardWhenServerConfirmsUTF8Support() {
+        let client = FakeClipboardClient(utf8ClipboardSupport: .supported)
+        let adapter = TextInjectionAdapter()
+        var draft = ComposeDraft(sessionID: UUID(), text: "한글 Extended 😊")
+
+        let attempt = adapter.send(
+            draft: &draft,
+            via: client,
+            pasteCommand: .commandV
+        )
+
+        XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(attempt.clipboardTransferMode, .extendedClipboardUTF8)
+        XCTAssertEqual(attempt.utf8ClipboardSupport, .supported)
+        XCTAssertEqual(draft.lastStatusMessage, "Paste command sent through UTF-8 clipboard; remote app confirmation unavailable.")
     }
 
     func testAdapterWaitsForClipboardSettleBeforePasteCommand() {
@@ -116,11 +135,17 @@ private final class FakeClipboardClient: RemoteClipboardTextClient {
     var clipboardPayloads: [String] = []
     var pasteCommands: [PasteCommand] = []
     var events: [Event] = []
+    let utf8ClipboardSupport: RemoteClipboardUTF8Support
 
     private let setClipboardError: Error?
     private let pasteError: Error?
 
-    init(setClipboardError: Error? = nil, pasteError: Error? = nil) {
+    init(
+        utf8ClipboardSupport: RemoteClipboardUTF8Support = .unknown,
+        setClipboardError: Error? = nil,
+        pasteError: Error? = nil
+    ) {
+        self.utf8ClipboardSupport = utf8ClipboardSupport
         self.setClipboardError = setClipboardError
         self.pasteError = pasteError
     }

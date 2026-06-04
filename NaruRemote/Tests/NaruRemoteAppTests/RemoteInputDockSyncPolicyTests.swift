@@ -432,6 +432,26 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedStabilizedComposeTextDoesNotReplaceCompleteTextWithDelayedFragment() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느낌",
+                stabilizedText: "느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedStabilizedComposeTextUsesShorterSnapshotWhenItIsARealEdit() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느낌",
+                stabilizedText: "수정"
+            ),
+            "수정"
+        )
+    }
+
     func testComposeSendStabilizationWindowCoversDelayedIMECommit() {
         XCTAssertGreaterThanOrEqual(RemoteInputDockView.composeSendStabilizationSnapshotCount, 12)
         XCTAssertGreaterThanOrEqual(

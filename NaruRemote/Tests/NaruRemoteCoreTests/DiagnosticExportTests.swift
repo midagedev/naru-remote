@@ -228,7 +228,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("(no diagnostic stages recorded)"))
     }
 
-    func testRenderCollectionJSONIsDeterministicSchemaV6() throws {
+    func testRenderCollectionJSONIsDeterministicCurrentSchema() throws {
         let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let runID = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
         let run = ConnectionDiagnosticRun(
@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 16"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 17"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 16)
+        XCTAssertEqual(decoded.schemaVersion, 17)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -382,7 +382,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 16)
+        XCTAssertEqual(decoded.schemaVersion, 17)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -434,6 +434,8 @@ final class DiagnosticExportTests: XCTestCase {
             path: .vncClipboardPaste,
             pasteCommand: .commandV,
             payloadEncoding: .utf8ExtensionRequired,
+            clipboardTransferMode: .legacyClientCutText,
+            utf8ClipboardSupport: .unknown,
             startedAt: Date(timeIntervalSince1970: 7),
             finishedAt: Date(timeIntervalSince1970: 8),
             status: .unknown,
@@ -458,7 +460,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 16)
+        XCTAssertEqual(decoded.schemaVersion, 17)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -468,6 +470,14 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             decoded.input?.latestInjectionPayloadEncoding,
             TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.latestInjectionClipboardTransferMode,
+            TextClipboardTransferMode.legacyClientCutText.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.latestInjectionUTF8ClipboardSupport,
+            RemoteClipboardUTF8Support.unknown.rawValue
         )
         XCTAssertEqual(
             decoded.input?.latestInjectionClipboardSetStatus,
@@ -502,6 +512,8 @@ final class DiagnosticExportTests: XCTestCase {
             latestInjectionStatus: "status=SECRET",
             latestInjectionPasteCommand: "paste=SECRET",
             latestInjectionPayloadEncoding: "payload=SECRET",
+            latestInjectionClipboardTransferMode: "mode=SECRET",
+            latestInjectionUTF8ClipboardSupport: "support=SECRET",
             latestInjectionClipboardSetStatus: "clipboard=SECRET",
             latestInjectionPasteCommandStatus: "command=SECRET",
             latestInjectionRemoteClipboardRestore: "restore=SECRET",
@@ -515,6 +527,8 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(input.latestInjectionStatus)
         XCTAssertNil(input.latestInjectionPasteCommand)
         XCTAssertNil(input.latestInjectionPayloadEncoding)
+        XCTAssertNil(input.latestInjectionClipboardTransferMode)
+        XCTAssertNil(input.latestInjectionUTF8ClipboardSupport)
         XCTAssertNil(input.latestInjectionClipboardSetStatus)
         XCTAssertNil(input.latestInjectionPasteCommandStatus)
         XCTAssertNil(input.latestInjectionRemoteClipboardRestore)
@@ -869,8 +883,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v16 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 16"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v17 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 17"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

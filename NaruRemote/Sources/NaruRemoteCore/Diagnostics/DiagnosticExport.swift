@@ -794,6 +794,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case latestInjectionStatus
         case latestInjectionPasteCommand
         case latestInjectionPayloadEncoding
+        case latestInjectionClipboardTransferMode
+        case latestInjectionUTF8ClipboardSupport
         case latestInjectionClipboardSetStatus
         case latestInjectionPasteCommandStatus
         case latestInjectionRemoteClipboardRestore
@@ -807,6 +809,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let latestInjectionStatus: String?
     public let latestInjectionPasteCommand: String?
     public let latestInjectionPayloadEncoding: String?
+    public let latestInjectionClipboardTransferMode: String?
+    public let latestInjectionUTF8ClipboardSupport: String?
     public let latestInjectionClipboardSetStatus: String?
     public let latestInjectionPasteCommandStatus: String?
     public let latestInjectionRemoteClipboardRestore: String?
@@ -820,6 +824,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         latestInjectionStatus: String? = nil,
         latestInjectionPasteCommand: String? = nil,
         latestInjectionPayloadEncoding: String? = nil,
+        latestInjectionClipboardTransferMode: String? = nil,
+        latestInjectionUTF8ClipboardSupport: String? = nil,
         latestInjectionClipboardSetStatus: String? = nil,
         latestInjectionPasteCommandStatus: String? = nil,
         latestInjectionRemoteClipboardRestore: String? = nil,
@@ -832,6 +838,12 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.latestInjectionStatus = Self.safeInjectionStatus(latestInjectionStatus)
         self.latestInjectionPasteCommand = Self.safePasteCommand(latestInjectionPasteCommand)
         self.latestInjectionPayloadEncoding = Self.safePayloadEncoding(latestInjectionPayloadEncoding)
+        self.latestInjectionClipboardTransferMode = Self.safeClipboardTransferMode(
+            latestInjectionClipboardTransferMode
+        )
+        self.latestInjectionUTF8ClipboardSupport = Self.safeUTF8ClipboardSupport(
+            latestInjectionUTF8ClipboardSupport
+        )
         self.latestInjectionClipboardSetStatus = Self.safeInjectionStepStatus(latestInjectionClipboardSetStatus)
         self.latestInjectionPasteCommandStatus = Self.safeInjectionStepStatus(latestInjectionPasteCommandStatus)
         self.latestInjectionRemoteClipboardRestore = Self.safeRemoteClipboardRestore(
@@ -853,6 +865,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionStatus: latestInjectionAttempt?.status.rawValue,
             latestInjectionPasteCommand: latestInjectionAttempt?.pasteCommand?.rawValue,
             latestInjectionPayloadEncoding: latestInjectionAttempt?.payloadEncoding?.rawValue,
+            latestInjectionClipboardTransferMode: latestInjectionAttempt?.clipboardTransferMode?.rawValue,
+            latestInjectionUTF8ClipboardSupport: latestInjectionAttempt?.utf8ClipboardSupport?.rawValue,
             latestInjectionClipboardSetStatus: latestInjectionAttempt?.clipboardSetStatus.rawValue,
             latestInjectionPasteCommandStatus: latestInjectionAttempt?.pasteCommandStatus.rawValue,
             latestInjectionRemoteClipboardRestore: latestInjectionAttempt?.remoteClipboardRestore.rawValue,
@@ -883,6 +897,14 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionPayloadEncoding: try container.decodeIfPresent(
                 String.self,
                 forKey: .latestInjectionPayloadEncoding
+            ),
+            latestInjectionClipboardTransferMode: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionClipboardTransferMode
+            ),
+            latestInjectionUTF8ClipboardSupport: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionUTF8ClipboardSupport
             ),
             latestInjectionClipboardSetStatus: try container.decodeIfPresent(
                 String.self,
@@ -921,6 +943,14 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safePayloadEncoding(_ value: String?) -> String? {
         safe(value, allowed: Set(TextInjectionPayloadEncoding.allCases.map(\.rawValue)))
+    }
+
+    private static func safeClipboardTransferMode(_ value: String?) -> String? {
+        safe(value, allowed: Set(TextClipboardTransferMode.allCases.map(\.rawValue)))
+    }
+
+    private static func safeUTF8ClipboardSupport(_ value: String?) -> String? {
+        safe(value, allowed: Set(RemoteClipboardUTF8Support.allCases.map(\.rawValue)))
     }
 
     private static func safeInjectionStepStatus(_ value: String?) -> String? {
@@ -980,7 +1010,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 16
+    public static let currentSchemaVersion = 17
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
