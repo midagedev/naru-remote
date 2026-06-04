@@ -255,4 +255,27 @@ final class PointerGestureResolverTests: XCTestCase {
             "Auto-pan should still damp the full reveal delta rather than snapping."
         )
     }
+
+    func testTrackpadAutoPanDoesNotJumpForTinyTouchSamples() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 745, y: 500), isVisible: true)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 4, height: 0)),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertLessThan(
+            outcome.transform.panOffset.width,
+            zoomed.panOffset.width,
+            "The viewport should still follow a cursor that is close to the edge."
+        )
+        XCTAssertGreaterThanOrEqual(
+            outcome.transform.panOffset.width,
+            -12,
+            "Tiny high-refresh touch samples should not produce coarse auto-pan jumps."
+        )
+    }
 }

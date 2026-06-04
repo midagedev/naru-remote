@@ -11,7 +11,7 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
-    private static let composeSendStabilizationSnapshotCount = 5
+    private static let composeSendStabilizationSnapshotCount = 8
     private static let composeSendStabilizationDelayNanoseconds: UInt64 = 8_000_000
 
     @State private var text: String
@@ -660,12 +660,18 @@ public struct RemoteInputDockView: View {
                 return committedText
             }
             if let markedTextBeforeCommit, !markedTextBeforeCommit.isEmpty {
+                if currentTextBeforeCommit.contains(markedTextBeforeCommit) {
+                    return currentTextBeforeCommit
+                }
                 return markedTextBeforeCommit
             }
             return ""
         }
 
         if let markedTextBeforeCommit, !markedTextBeforeCommit.isEmpty {
+            if currentTextBeforeCommit.contains(markedTextBeforeCommit) {
+                return currentTextBeforeCommit
+            }
             return markedTextBeforeCommit
         }
 
@@ -850,6 +856,7 @@ final class ComposeTextCommitController: ObservableObject {
             textView.unmarkText()
         }
         textView.layoutIfNeeded()
+        updateCurrentText(from: textView)
         let committedText = RemoteInputDockView.resolvedCommittedComposeText(
             committedText: textView.text,
             markedTextBeforeCommit: markedTextBeforeCommit,
