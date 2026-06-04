@@ -657,6 +657,10 @@ References:
 - TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
 - TightVNC viewer manual: https://www.tightvnc.com/vncviewer.1.php
 
+**Status**: historical decision, superseded for balanced sessions by D25. The
+power-saver policy still uses the same ZRLE compression-0 profile, but D25 also
+promotes that profile to the balanced default.
+
 **Decision**: keep the default `balanced` app path on `localLowLatency`, but
 when the explicit viewer power-saver setting or system Low Power Mode is active
 at session start, re-advertise a request/response sustained profile that
@@ -680,3 +684,47 @@ picker.
 pseudo-encoding codes. It does not log or export host identity, framebuffer
 dimensions, coordinates, pixels, byte counts, compressed payloads, raw timing
 samples, raw power state, or raw errors.
+
+## D25 — Balanced sessions should also request the sustained ZRLE candidate
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TightVNC release notes: https://www.tightvnc.com/whatsnew.php
+
+**Decision**: switch the production `localLowLatency` balanced encoding profile
+from Tight-first to request/response ZRLE with compression level 0, retaining
+Hextile/CopyRect/Raw fallback, server cursor pseudo-encodings, and Extended
+Clipboard. Leave ContinuousUpdates and automatic adaptive renegotiation disabled
+by default.
+
+**Why**:
+- Schema v20+ benchmark output now records the actual encoding mix, not only the
+  requested profile. On the local macOS Screen Sharing target, repeated
+  duration runs showed the Tight-first profile being served as Raw, while
+  `zrle-compression-0` negotiated actual ZRLE.
+- In the 2026-06-05 normal 20 second run, Tight-first delivered 5.20 content FPS
+  with Raw-only updates, client-processing p95 96 ms, and adaptive
+  client-pressure pacing active for 549 permille of samples. ZRLE compression-0
+  delivered 6.35 content FPS, actual ZRLE-only updates, client-processing p95
+  8 ms, and no full-upload samples.
+- In the matching low-power-paced run, Tight-first had slightly lower aggregate
+  update latency but still produced Raw-only updates and client-processing p95
+  100 ms. ZRLE compression-0 kept client-processing p95 to 9 ms. Since the user
+  report is heat and low FPS during sustained iPhone use, lower local processing
+  tails are the stronger default signal than a small low-power average-latency
+  difference.
+- A post-change 12 second `local-low-latency` smoke confirmed the label now
+  receives actual ZRLE-only updates on this target, with client-processing p95
+  10 ms.
+- RFC 6143 treats `SetEncodings` order as a preference list and lets clients
+  regulate request traffic. TigerVNC/TightVNC both expose encoding,
+  compression, quality, and cursor-shape controls, reinforcing that a practical
+  viewer should choose defaults from measured server behavior rather than a
+  static theory of which encoding should win.
+
+**Privacy rule**: the app and benchmark use only fixed catalog encoding
+pseudo-encoding codes and aggregate safe labels. They must not log or export
+host identity, framebuffer dimensions, coordinates, pixels, byte counts,
+compressed payloads, raw timing samples, raw power state, cursor pixels, or raw
+errors.

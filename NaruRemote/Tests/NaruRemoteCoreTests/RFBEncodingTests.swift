@@ -50,16 +50,16 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertEqual(list[1], RFBEncoding.tight)
     }
 
-    func testLocalLowLatencyPrefersTightWithServerCursorForSustainedMacResponsiveness() {
+    func testLocalLowLatencyPrefersZrleCompressionZeroWithServerCursor() {
         let list = RFBEncodingPreference.localLowLatency.encodingList()
 
-        XCTAssertEqual(list.first, RFBEncoding.tight)
+        XCTAssertEqual(list.first, RFBEncoding.zrle)
         XCTAssertTrue(list.contains(RFBEncoding.hextile))
-        XCTAssertFalse(list.contains(RFBEncoding.zrle))
+        XCTAssertFalse(list.contains(RFBEncoding.tight))
         XCTAssertTrue(list.contains(RFBEncoding.cursor))
         XCTAssertTrue(list.contains(RFBEncoding.xCursor))
-        XCTAssertTrue(list.contains(RFBEncoding.tightQualityLevel(8)))
-        XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(1)))
+        XCTAssertFalse(list.contains(RFBEncoding.tightQualityLevel(8)))
+        XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
         XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
     }
