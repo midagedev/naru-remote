@@ -1036,6 +1036,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeLowPowerIdleFrameIntervalSeconds: TimeInterval
     let streamShapeClientPressureLaggingThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveContentFrameThreshold: Int
+    let streamShapeClientPressureConsecutiveFullUploadFrameThreshold: Int
     let streamShapeClientPressureRecoveryUpdateCount: Int
     let streamShapeEmptyBackoffMediumStreakThreshold: Int
     let streamShapeEmptyBackoffLongStreakThreshold: Int
@@ -1076,7 +1077,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 22
+        self.schemaVersion = 23
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1096,6 +1097,8 @@ private struct BenchmarkReport: Codable, Equatable {
             BenchmarkStreamShapePacingPolicy.appLaggingClientProcessingThresholdMilliseconds
         self.streamShapeClientPressureConsecutiveContentFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveLaggingContentFrameThreshold
+        self.streamShapeClientPressureConsecutiveFullUploadFrameThreshold =
+            BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold
         self.streamShapeClientPressureRecoveryUpdateCount =
             BenchmarkStreamShapePacingPolicy.appClientPressureRecoveryUpdateCount
         self.streamShapeEmptyBackoffMediumStreakThreshold =
@@ -1340,6 +1343,8 @@ private func renderText(_ report: BenchmarkReport) {
             "stream-shape client-pressure thresholds: client-processing >= "
                 + "\(report.streamShapeClientPressureLaggingThresholdMilliseconds)ms for "
                 + "\(report.streamShapeClientPressureConsecutiveContentFrameThreshold) content frames, "
+                + "or full renderer uploads for "
+                + "\(report.streamShapeClientPressureConsecutiveFullUploadFrameThreshold) content frames, "
                 + "recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"
         )
     }

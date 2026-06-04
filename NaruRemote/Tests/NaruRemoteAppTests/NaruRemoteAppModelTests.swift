@@ -253,6 +253,27 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterSustainedFullUploadFrames() {
+        var state = SessionStreamPressurePacingState()
+        let fullUploadFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            changedPixelCount: 8_000,
+            dirtyRectangles: [
+                RFBFrameDamageRect(x: 0, y: 0, width: 100, height: 80)
+            ]
+        )
+
+        for _ in 0..<(SessionStreamPressurePacingState.consecutiveFullUploadContentFrameThreshold - 1) {
+            state.record(frame: fullUploadFrame)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(frame: fullUploadFrame)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testSessionStreamPressurePacingStateBreaksModerateStreakOnHealthyContentFrame() {
         var state = SessionStreamPressurePacingState()
         let moderateFrame = pressureTestFrame(
@@ -2030,14 +2051,17 @@ final class NaruRemoteAppModelTests: XCTestCase {
         networkReadMilliseconds: Int,
         isIncremental: Bool = true,
         changedPixelCount: Int = 1,
-        transportIdleTimedOut: Bool = false
+        transportIdleTimedOut: Bool = false,
+        dirtyRectangles: [RFBFrameDamageRect]? = nil
     ) -> RFBFramePumpFrame {
-        RFBFramePumpFrame(
+        let width = 100
+        let height = 100
+        return RFBFramePumpFrame(
             sequence: 1,
-            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
-            dirtyRectangles: changedPixelCount == 0 ? [] : [
+            framebuffer: RFBRawFramebuffer(width: width, height: height),
+            dirtyRectangles: dirtyRectangles ?? (changedPixelCount == 0 ? [] : [
                 RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)
-            ],
+            ]),
             changedPixelCount: changedPixelCount,
             isIncremental: isIncremental,
             transportIdleTimedOut: transportIdleTimedOut,
