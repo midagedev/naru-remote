@@ -93,8 +93,8 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
-    func testPropagatesLocalComposeTextWhileMarkedTextIsActive() {
-        XCTAssertTrue(
+    func testDefersLocalComposeTextPropagationWhileMarkedTextIsActive() {
+        XCTAssertFalse(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
                 isDirectModeActive: false,
                 hasMarkedText: true
@@ -115,6 +115,33 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         XCTAssertFalse(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
                 isDirectModeActive: true,
+                hasMarkedText: false
+            )
+        )
+    }
+
+    func testDetectsMarkedTextCommitTransition() {
+        XCTAssertTrue(
+            RemoteInputDockView.didCommitMarkedComposeText(
+                previouslyHadMarkedText: true,
+                hasMarkedText: false
+            )
+        )
+    }
+
+    func testDoesNotTreatOngoingMarkedTextAsCommitted() {
+        XCTAssertFalse(
+            RemoteInputDockView.didCommitMarkedComposeText(
+                previouslyHadMarkedText: true,
+                hasMarkedText: true
+            )
+        )
+    }
+
+    func testDoesNotTreatPlainTypingAsMarkedTextCommit() {
+        XCTAssertFalse(
+            RemoteInputDockView.didCommitMarkedComposeText(
+                previouslyHadMarkedText: false,
                 hasMarkedText: false
             )
         )
