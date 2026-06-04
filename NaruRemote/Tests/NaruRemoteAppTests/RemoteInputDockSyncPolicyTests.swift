@@ -92,4 +92,48 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testResolvedCommittedComposeTextPrefersCommittedText() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "완성된 문장",
+                markedTextBeforeCommit: "조합중",
+                currentTextBeforeCommit: "이전 값"
+            ),
+            "완성된 문장"
+        )
+    }
+
+    func testResolvedCommittedComposeTextFallsBackToMarkedTextWhenUIKitReturnsEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "",
+                markedTextBeforeCommit: "한",
+                currentTextBeforeCommit: "stale fallback"
+            ),
+            "한"
+        )
+    }
+
+    func testResolvedCommittedComposeTextKeepsEmptyEditorEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "",
+                markedTextBeforeCommit: nil,
+                currentTextBeforeCommit: "stale fallback"
+            ),
+            ""
+        )
+    }
+
+    func testResolvedCommittedComposeTextUsesCurrentTextWhenViewSnapshotIsMissing() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: nil,
+                markedTextBeforeCommit: nil,
+                currentTextBeforeCommit: "컨트롤러 값"
+            ),
+            "컨트롤러 값"
+        )
+    }
 }
