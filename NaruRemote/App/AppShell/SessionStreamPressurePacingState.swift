@@ -2,16 +2,23 @@ import Foundation
 import NaruRemoteCore
 
 struct SessionStreamPressurePacingState: Equatable, Sendable {
-    static let severeLaggingLocalWorkThresholdMilliseconds = 80
-    static let consecutiveSevereLaggingContentFrameThreshold = 3
-    static let sustainedLaggingLocalWorkThresholdMilliseconds = 34
-    static let consecutiveSustainedLaggingContentFrameThreshold = 8
+    static let severeLaggingLocalWorkThresholdMilliseconds = StreamPressurePacingDefaults
+        .severeLaggingLocalWorkThresholdMilliseconds
+    static let consecutiveSevereLaggingContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveSevereLaggingContentFrameThreshold
+    static let sustainedLaggingLocalWorkThresholdMilliseconds = StreamPressurePacingDefaults
+        .sustainedLaggingLocalWorkThresholdMilliseconds
+    static let consecutiveSustainedLaggingContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveSustainedLaggingContentFrameThreshold
+    static let consecutiveFullUploadContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveFullUploadContentFrameThreshold
     static let laggingClientProcessingThresholdMilliseconds = severeLaggingLocalWorkThresholdMilliseconds
     static let consecutiveLaggingContentFrameThreshold = consecutiveSevereLaggingContentFrameThreshold
-    static let adaptiveRecoveryUpdateCount = 120
+    static let adaptiveRecoveryUpdateCount = StreamPressurePacingDefaults.adaptiveRecoveryUpdateCount
 
     private var consecutiveSevereLaggingContentFrames = 0
     private var consecutiveSustainedLaggingContentFrames = 0
+    private var consecutiveFullUploadContentFrames = 0
     private var adaptiveRecoveryUpdatesRemaining = 0
 
     var usesAdaptivePowerSaverPacing: Bool {
@@ -29,7 +36,7 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         }
 
         if frame.transportIdleTimedOut {
-            resetLaggingContentStreaks()
+            resetContentPressureStreaks()
             return
         }
 
@@ -37,10 +44,19 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             return
         }
 
+        if requiresFullRendererUpload(frame) {
+            consecutiveFullUploadContentFrames += 1
+        } else {
+            consecutiveFullUploadContentFrames = 0
+        }
+
         let clientProcessingMilliseconds = frame.timing?.clientProcessingMilliseconds
         let appFrameApplyMilliseconds = appFrameApplyMilliseconds.map { max($0, 0) }
         guard clientProcessingMilliseconds != nil || appFrameApplyMilliseconds != nil else {
-            resetLaggingContentStreaks()
+            activatePowerSaverPacingIfNeeded()
+            if !usesAdaptivePowerSaverPacing {
+                resetLaggingContentStreaks()
+            }
             return
         }
 
@@ -53,6 +69,7 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             consecutiveSustainedLaggingContentFrames += 1
         } else {
             resetLaggingContentStreaks()
+            activatePowerSaverPacingIfNeeded()
             return
         }
 
@@ -62,8 +79,33 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             consecutiveSevereLaggingContentFrames = 0
         }
 
+        activatePowerSaverPacingIfNeeded()
+    }
+
+    private func isEmptyIncrementalUpdate(_ frame: RFBFramePumpFrame) -> Bool {
+        frame.isIncremental && frame.changedPixelCount == 0
+    }
+
+    private func requiresFullRendererUpload(_ frame: RFBFramePumpFrame) -> Bool {
+        guard frame.isIncremental,
+              frame.changedPixelCount > 0,
+              frame.framebuffer.width > 0,
+              frame.framebuffer.height > 0
+        else {
+            return false
+        }
+        return FramebufferUploadPlan.plan(
+            framebufferWidth: frame.framebuffer.width,
+            framebufferHeight: frame.framebuffer.height,
+            dirtyRectangles: frame.dirtyRectangles,
+            requiresTextureRecreation: false
+        ).strategy == .full
+    }
+
+    private mutating func activatePowerSaverPacingIfNeeded() {
         guard consecutiveSevereLaggingContentFrames >= Self.consecutiveSevereLaggingContentFrameThreshold
             || consecutiveSustainedLaggingContentFrames >= Self.consecutiveSustainedLaggingContentFrameThreshold
+            || consecutiveFullUploadContentFrames >= Self.consecutiveFullUploadContentFrameThreshold
         else {
             return
         }
@@ -71,15 +113,16 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             adaptiveRecoveryUpdatesRemaining,
             Self.adaptiveRecoveryUpdateCount
         )
-        resetLaggingContentStreaks()
-    }
-
-    private func isEmptyIncrementalUpdate(_ frame: RFBFramePumpFrame) -> Bool {
-        frame.isIncremental && frame.changedPixelCount == 0
+        resetContentPressureStreaks()
     }
 
     private mutating func resetLaggingContentStreaks() {
         consecutiveSevereLaggingContentFrames = 0
         consecutiveSustainedLaggingContentFrames = 0
+    }
+
+    private mutating func resetContentPressureStreaks() {
+        resetLaggingContentStreaks()
+        consecutiveFullUploadContentFrames = 0
     }
 }

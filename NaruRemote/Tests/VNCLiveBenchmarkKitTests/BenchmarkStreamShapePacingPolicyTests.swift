@@ -1,4 +1,5 @@
 import XCTest
+import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
@@ -225,6 +226,52 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
     }
 
+    func testClientPressureStateActivatesAfterSustainedFullUploadContentSamples() {
+        var state = BenchmarkStreamShapeClientPressureState()
+        let fullUploadContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: nil,
+            rendererUploadStrategy: .full
+        )
+
+        for _ in 0..<(BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold - 1) {
+            state.record(sample: fullUploadContent, mode: .app)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(sample: fullUploadContent, mode: .app)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testClientPressureStateBreaksFullUploadStreakOnPartialContentSample() {
+        var state = BenchmarkStreamShapeClientPressureState()
+        let fullUploadContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: nil,
+            rendererUploadStrategy: .full
+        )
+        let partialContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: nil,
+            rendererUploadStrategy: .partial
+        )
+
+        for _ in 0..<(BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold - 1) {
+            state.record(sample: fullUploadContent, mode: .app)
+        }
+        state.record(sample: partialContent, mode: .app)
+        state.record(sample: fullUploadContent, mode: .app)
+
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testClientPressureStateOffModeStaysInactive() {
         var state = BenchmarkStreamShapeClientPressureState()
         let slowContent = streamShapeSample(
@@ -245,7 +292,8 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         kind: BenchmarkStreamUpdateKind,
         receiveTotalMilliseconds: Int,
         networkReadMilliseconds: Int,
-        clientProcessingMilliseconds: Int
+        clientProcessingMilliseconds: Int?,
+        rendererUploadStrategy: FramebufferUploadStrategy = .none
     ) -> BenchmarkStreamShapeSample {
         BenchmarkStreamShapeSample(
             kind: kind,
@@ -253,6 +301,8 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
             dirtyRectangleCount: kind == .contentUpdate ? 1 : 0,
             dirtyAreaPermille: kind == .contentUpdate ? 1 : 0,
             changedPixelsPermille: kind == .contentUpdate ? 1 : 0,
+            rendererUploadStrategy: rendererUploadStrategy,
+            rendererUploadRegionCount: rendererUploadStrategy == .none ? 0 : 1,
             receiveTotalMilliseconds: receiveTotalMilliseconds,
             networkReadMilliseconds: networkReadMilliseconds,
             clientProcessingMilliseconds: clientProcessingMilliseconds

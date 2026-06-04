@@ -1,4 +1,5 @@
 import Foundation
+import NaruRemoteCore
 
 public enum BenchmarkStreamShapeEmptyBackoffMode: String, Codable, Equatable, Sendable {
     case app
@@ -22,15 +23,22 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
     public static let appLongIdleFrameInterval: TimeInterval = 0.125
     public static let appLowPowerContentFrameInterval: TimeInterval = 1.0 / 30.0
     public static let appLowPowerIdleFrameInterval: TimeInterval = 0.125
-    public static let appSevereLaggingClientProcessingThresholdMilliseconds = 80
-    public static let appConsecutiveSevereLaggingContentFrameThreshold = 3
-    public static let appSustainedLaggingClientProcessingThresholdMilliseconds = 34
-    public static let appConsecutiveSustainedLaggingContentFrameThreshold = 8
+    public static let appSevereLaggingClientProcessingThresholdMilliseconds = StreamPressurePacingDefaults
+        .severeLaggingLocalWorkThresholdMilliseconds
+    public static let appConsecutiveSevereLaggingContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveSevereLaggingContentFrameThreshold
+    public static let appSustainedLaggingClientProcessingThresholdMilliseconds = StreamPressurePacingDefaults
+        .sustainedLaggingLocalWorkThresholdMilliseconds
+    public static let appConsecutiveSustainedLaggingContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveSustainedLaggingContentFrameThreshold
+    public static let appConsecutiveFullUploadContentFrameThreshold = StreamPressurePacingDefaults
+        .consecutiveFullUploadContentFrameThreshold
     public static let appLaggingClientProcessingThresholdMilliseconds =
         appSevereLaggingClientProcessingThresholdMilliseconds
     public static let appConsecutiveLaggingContentFrameThreshold =
         appConsecutiveSevereLaggingContentFrameThreshold
-    public static let appClientPressureRecoveryUpdateCount = 120
+    public static let appClientPressureRecoveryUpdateCount = StreamPressurePacingDefaults
+        .adaptiveRecoveryUpdateCount
 
     public let contentFrameInterval: TimeInterval
     public let idleFrameInterval: TimeInterval
@@ -113,6 +121,7 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
 public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
     private var consecutiveSevereLaggingContentFrames = 0
     private var consecutiveSustainedLaggingContentFrames = 0
+    private var consecutiveFullUploadContentFrames = 0
     private var adaptiveRecoveryUpdatesRemaining = 0
 
     public init() {}
@@ -126,7 +135,7 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
         mode: BenchmarkStreamShapeClientPressureMode
     ) {
         guard mode == .app else {
-            resetLaggingContentStreaks()
+            resetContentPressureStreaks()
             adaptiveRecoveryUpdatesRemaining = 0
             return
         }
@@ -138,8 +147,17 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
         guard sample.kind == .contentUpdate else {
             return
         }
+        if sample.rendererUploadStrategy == .full {
+            consecutiveFullUploadContentFrames += 1
+        } else {
+            consecutiveFullUploadContentFrames = 0
+        }
+
         guard let clientProcessingMilliseconds = sample.clientProcessingMilliseconds else {
-            resetLaggingContentStreaks()
+            activatePowerSaverPacingIfNeeded()
+            if !usesAdaptivePowerSaverPacing {
+                resetLaggingContentStreaks()
+            }
             return
         }
 
@@ -160,12 +178,19 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             consecutiveSevereLaggingContentFrames = 0
         }
 
+        activatePowerSaverPacingIfNeeded()
+    }
+
+    private mutating func activatePowerSaverPacingIfNeeded() {
         let severeActivationThreshold = BenchmarkStreamShapePacingPolicy
             .appConsecutiveSevereLaggingContentFrameThreshold
         let sustainedActivationThreshold = BenchmarkStreamShapePacingPolicy
             .appConsecutiveSustainedLaggingContentFrameThreshold
+        let fullUploadActivationThreshold = BenchmarkStreamShapePacingPolicy
+            .appConsecutiveFullUploadContentFrameThreshold
         guard consecutiveSevereLaggingContentFrames >= severeActivationThreshold
             || consecutiveSustainedLaggingContentFrames >= sustainedActivationThreshold
+            || consecutiveFullUploadContentFrames >= fullUploadActivationThreshold
         else {
             return
         }
@@ -174,11 +199,16 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             adaptiveRecoveryUpdatesRemaining,
             BenchmarkStreamShapePacingPolicy.appClientPressureRecoveryUpdateCount
         )
-        resetLaggingContentStreaks()
+        resetContentPressureStreaks()
     }
 
     private mutating func resetLaggingContentStreaks() {
         consecutiveSevereLaggingContentFrames = 0
         consecutiveSustainedLaggingContentFrames = 0
+    }
+
+    private mutating func resetContentPressureStreaks() {
+        resetLaggingContentStreaks()
+        consecutiveFullUploadContentFrames = 0
     }
 }
