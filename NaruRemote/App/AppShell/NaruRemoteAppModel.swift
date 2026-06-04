@@ -25,6 +25,14 @@ private struct RemoteClipboardTextClientBox: @unchecked Sendable {
     }
 }
 
+private struct DeferredViewportStreamFrame {
+    let frame: RFBFramePumpFrame
+    let serverInit: RFBServerInit
+    let profile: ConnectionProfile
+    let sessionID: RemoteSession.ID
+    let streamID: UUID
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.12
@@ -202,6 +210,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
+    private var isViewportInteractionActive = false
+    private var deferredViewportStreamFrame: DeferredViewportStreamFrame?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     /// Last profile + credential pair we successfully started a
     /// streaming session against.  Captured at stream start so an
@@ -1802,6 +1812,33 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    public func setViewportInteractionActive(_ isActive: Bool) {
+        if isActive {
+            isViewportInteractionActive = true
+            return
+        }
+
+        guard isViewportInteractionActive else {
+            return
+        }
+        isViewportInteractionActive = false
+        flushDeferredViewportStreamFrameIfNeeded()
+    }
+
+    private func flushDeferredViewportStreamFrameIfNeeded() {
+        guard let deferred = deferredViewportStreamFrame else {
+            return
+        }
+        deferredViewportStreamFrame = nil
+        applyStreamFrame(
+            deferred.frame,
+            serverInit: deferred.serverInit,
+            profile: deferred.profile,
+            sessionID: deferred.sessionID,
+            streamID: deferred.streamID
+        )
+    }
+
     private func applyStreamFrame(
         _ frame: RFBFramePumpFrame,
         serverInit: RFBServerInit,
@@ -1810,6 +1847,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         streamID: UUID
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
+            return
+        }
+
+        if shouldDeferViewportStreamFrame(frame) {
+            reconnectAttempts = 0
+            deferredViewportStreamFrame = DeferredViewportStreamFrame(
+                frame: frame,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
             return
         }
 
@@ -1964,6 +2013,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 requestTimeout: requestTimeout
             )
         }
+    }
+
+    private func shouldDeferViewportStreamFrame(_ frame: RFBFramePumpFrame) -> Bool {
+        isViewportInteractionActive
+            && latestFramebuffer != nil
+            && !frame.transportIdleTimedOut
+            && frame.changedPixelCount > 0
     }
 
     private func renegotiatePowerSaverSustainedEncodingsIfNeeded(
@@ -2353,6 +2409,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameStreamTask = nil
         activeFramePump = nil
         activeFrameStreamID = nil
+        isViewportInteractionActive = false
+        deferredViewportStreamFrame = nil
         cancelPointerEventQueue()
     }
 
@@ -3101,8 +3159,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     ) async -> Bool {
         await MainActor.run {
             guard let model,
-                  model.composeDraft?.id == draftID,
-                  model.composeDraft?.sessionID == sessionID,
                   model.session?.id == sessionID,
                   model.session?.state == .active,
                   clientBox.matches(model.activeTextClient)
@@ -3122,12 +3178,14 @@ public final class NaruRemoteAppModel: ObservableObject {
     ) async {
         await MainActor.run {
             guard let model,
-                  model.composeDraft?.id == draftID,
-                  model.composeDraft?.sessionID == sessionID
+                  model.session?.id == sessionID
             else {
                 return
             }
-            model.composeDraft = draft
+            if model.composeDraft?.id == draftID,
+               model.composeDraft?.sessionID == sessionID {
+                model.composeDraft = draft
+            }
             model.latestInjectionAttempt = attempt
         }
     }

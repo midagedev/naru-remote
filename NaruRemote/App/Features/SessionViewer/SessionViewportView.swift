@@ -51,6 +51,10 @@ public struct SessionViewportView: View {
     /// returned transform is local-only auto-pan state that keeps the
     /// cursor visible while zoomed (spec 003 FR-011).
     private let onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)?
+    /// Reports local viewport manipulation lifecycle to the app model
+    /// so it can coalesce incoming streaming frames while the Metal
+    /// view redraws the current texture locally.
+    private let onViewportInteractionChange: ((Bool) -> Void)?
     /// Flips `pointerControlMode` direct ↔ trackpad via the control-bar
     /// toggle.
     private let onTogglePointerMode: (() -> Void)?
@@ -153,6 +157,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
+        onViewportInteractionChange: ((Bool) -> Void)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
@@ -182,6 +187,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportInteractionChange = onViewportInteractionChange
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
@@ -212,6 +218,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> ViewportTransform)? = nil,
+        onViewportInteractionChange: ((Bool) -> Void)? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
@@ -240,6 +247,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportInteractionChange = onViewportInteractionChange
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
@@ -1026,7 +1034,8 @@ public struct SessionViewportView: View {
                     // SwiftUI state on every pointer sample makes physical
                     // iPhone drags fight the fast UIKit path.
                     onTrackpadGesture?(gesture, transform) ?? transform
-                }
+                },
+                onViewportInteractionChange: onViewportInteractionChange
             )
                 // The Metal path applies zoom/pan directly inside
                 // `MetalFramebufferHostingView` so UIKit recognizers

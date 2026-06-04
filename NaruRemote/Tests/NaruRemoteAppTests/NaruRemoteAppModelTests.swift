@@ -1454,7 +1454,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
         XCTAssertEqual(
             model.snapshot.composeDraft?.lastStatusMessage,
@@ -1469,7 +1469,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(json.utf8)
         )
-        XCTAssertEqual(report.input?.hasComposeDraftText, true)
+        XCTAssertEqual(report.input?.hasComposeDraftText, false)
         XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
         XCTAssertEqual(
@@ -1528,8 +1528,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNotEqual(model.snapshot.composeDraft?.id, sendingDraftID)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "새로 쓰는 문장")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .ready)
-        XCTAssertNil(model.snapshot.latestInjectionAttempt)
-        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.draftID, sendingDraftID)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
+        XCTAssertEqual(connector.pasteCommands, [.controlV])
     }
 
     func testModelCancelsComposedPasteWhenSessionDisconnectsDuringSettleDelay() async throws {
@@ -1617,6 +1618,52 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(pipController.enqueuedFramebuffers, [firstFramebuffer, secondFramebuffer])
         XCTAssertEqual(model.snapshot.pipWatchSession?.lastFrame?.changeActivity, .high)
+    }
+
+    func testViewportInteractionDefersStreamingFramePublicationUntilGestureEnds() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let thirdFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer, thirdFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 0.05),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<50 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.setViewportInteractionActive(true)
+        try await Task.sleep(for: .milliseconds(140))
+
+        XCTAssertGreaterThanOrEqual(connector.frameUpdateRequests.count, 3)
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.setViewportInteractionActive(false)
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
     }
 
     // MARK: - Per-profile diagnostic verdict cache (UX punch-list #109)
