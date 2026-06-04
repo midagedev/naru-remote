@@ -119,6 +119,63 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         )
     }
 
+    func testClientPressureStateActivatesAppFloorAfterSustainedModerateContentSamples() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 1.0 / 60.0,
+            idleFrameInterval: 0.05,
+            clientPressureMode: .app
+        )
+        var state = BenchmarkStreamShapeClientPressureState()
+        let moderateContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 55,
+            networkReadMilliseconds: 15,
+            clientProcessingMilliseconds: 40
+        )
+
+        for _ in 0..<(BenchmarkStreamShapePacingPolicy.appConsecutiveSustainedLaggingContentFrameThreshold - 1) {
+            state.record(sample: moderateContent, mode: policy.clientPressureMode)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(sample: moderateContent, mode: policy.clientPressureMode)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+        XCTAssertEqual(
+            policy.delay(
+                isEmptyUpdate: false,
+                emptyUpdateStreak: 0,
+                usesAdaptiveClientPressure: state.usesAdaptivePowerSaverPacing
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testClientPressureStateBreaksModerateStreakOnHealthyContentSample() {
+        var state = BenchmarkStreamShapeClientPressureState()
+        let moderateContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 55,
+            networkReadMilliseconds: 15,
+            clientProcessingMilliseconds: 40
+        )
+        let healthyContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: 15
+        )
+
+        for _ in 0..<(BenchmarkStreamShapePacingPolicy.appConsecutiveSustainedLaggingContentFrameThreshold - 1) {
+            state.record(sample: moderateContent, mode: .app)
+        }
+        state.record(sample: healthyContent, mode: .app)
+        state.record(sample: moderateContent, mode: .app)
+
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testClientPressureStateIgnoresNetworkWaitAndEmptySamples() {
         var state = BenchmarkStreamShapeClientPressureState()
         let slowNetworkContent = streamShapeSample(

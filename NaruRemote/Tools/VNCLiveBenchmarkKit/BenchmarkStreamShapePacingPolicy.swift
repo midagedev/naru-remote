@@ -22,8 +22,14 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
     public static let appLongIdleFrameInterval: TimeInterval = 0.125
     public static let appLowPowerContentFrameInterval: TimeInterval = 1.0 / 30.0
     public static let appLowPowerIdleFrameInterval: TimeInterval = 0.125
-    public static let appLaggingClientProcessingThresholdMilliseconds = 80
-    public static let appConsecutiveLaggingContentFrameThreshold = 3
+    public static let appSevereLaggingClientProcessingThresholdMilliseconds = 80
+    public static let appConsecutiveSevereLaggingContentFrameThreshold = 3
+    public static let appSustainedLaggingClientProcessingThresholdMilliseconds = 34
+    public static let appConsecutiveSustainedLaggingContentFrameThreshold = 8
+    public static let appLaggingClientProcessingThresholdMilliseconds =
+        appSevereLaggingClientProcessingThresholdMilliseconds
+    public static let appConsecutiveLaggingContentFrameThreshold =
+        appConsecutiveSevereLaggingContentFrameThreshold
     public static let appClientPressureRecoveryUpdateCount = 120
 
     public let contentFrameInterval: TimeInterval
@@ -105,7 +111,8 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
 }
 
 public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
-    private var consecutiveLaggingContentFrames = 0
+    private var consecutiveSevereLaggingContentFrames = 0
+    private var consecutiveSustainedLaggingContentFrames = 0
     private var adaptiveRecoveryUpdatesRemaining = 0
 
     public init() {}
@@ -119,7 +126,7 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
         mode: BenchmarkStreamShapeClientPressureMode
     ) {
         guard mode == .app else {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
             adaptiveRecoveryUpdatesRemaining = 0
             return
         }
@@ -132,21 +139,34 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             return
         }
         guard let clientProcessingMilliseconds = sample.clientProcessingMilliseconds else {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
             return
         }
 
-        let laggingThreshold = BenchmarkStreamShapePacingPolicy
-            .appLaggingClientProcessingThresholdMilliseconds
-        if clientProcessingMilliseconds >= laggingThreshold {
-            consecutiveLaggingContentFrames += 1
+        let sustainedLaggingThreshold = BenchmarkStreamShapePacingPolicy
+            .appSustainedLaggingClientProcessingThresholdMilliseconds
+        if clientProcessingMilliseconds >= sustainedLaggingThreshold {
+            consecutiveSustainedLaggingContentFrames += 1
         } else {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
+            return
         }
 
-        let activationThreshold = BenchmarkStreamShapePacingPolicy
-            .appConsecutiveLaggingContentFrameThreshold
-        guard consecutiveLaggingContentFrames >= activationThreshold else {
+        let severeLaggingThreshold = BenchmarkStreamShapePacingPolicy
+            .appSevereLaggingClientProcessingThresholdMilliseconds
+        if clientProcessingMilliseconds >= severeLaggingThreshold {
+            consecutiveSevereLaggingContentFrames += 1
+        } else {
+            consecutiveSevereLaggingContentFrames = 0
+        }
+
+        let severeActivationThreshold = BenchmarkStreamShapePacingPolicy
+            .appConsecutiveSevereLaggingContentFrameThreshold
+        let sustainedActivationThreshold = BenchmarkStreamShapePacingPolicy
+            .appConsecutiveSustainedLaggingContentFrameThreshold
+        guard consecutiveSevereLaggingContentFrames >= severeActivationThreshold
+            || consecutiveSustainedLaggingContentFrames >= sustainedActivationThreshold
+        else {
             return
         }
 
@@ -154,6 +174,11 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             adaptiveRecoveryUpdatesRemaining,
             BenchmarkStreamShapePacingPolicy.appClientPressureRecoveryUpdateCount
         )
-        consecutiveLaggingContentFrames = 0
+        resetLaggingContentStreaks()
+    }
+
+    private mutating func resetLaggingContentStreaks() {
+        consecutiveSevereLaggingContentFrames = 0
+        consecutiveSustainedLaggingContentFrames = 0
     }
 }

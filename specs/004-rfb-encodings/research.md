@@ -763,3 +763,35 @@ frame apply timing. They must not export raw milliseconds, raw samples,
 dimensions, coordinates, pixels, byte counts, power state, target identity, or
 raw errors. The adaptive trigger may use raw timing in memory only while the
 stream is alive.
+
+## D27 — Adaptive pressure should catch sustained 30fps-budget misses
+
+References:
+- Apple Metal frame-rate guidance: https://developer-mdn.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FrameRate.html
+- Apple `CADisplayLink.preferredFrameRateRange`: https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: keep the existing severe adaptive pacing trigger at 80 ms for 3
+consecutive content frames, and add a sustained moderate trigger at 34 ms for 8
+consecutive content frames. Both client-processing timing and app-frame-apply
+timing feed the runtime trigger; the benchmark `app` client-pressure mode
+mirrors the receive-side client-processing portion.
+
+**Why**:
+- The old severe trigger caught obvious stalls, but it let a device continue
+  requesting at the balanced 60 Hz-class cadence when local work repeatedly sat
+  just above the 30 fps frame budget. That is exactly the heat / low-FPS zone
+  reported during sustained iPhone sessions.
+- A 34 ms threshold is intentionally just above the 30 fps budget. Requiring 8
+  consecutive content frames avoids backing off for isolated decode/apply
+  spikes, while still reacting before the session spends minutes in a marginal
+  local-processing regime.
+- RFC 6143 framebuffer updates are client-regulated in the request/response
+  path, so applying the existing temporary power-saver pacing floor is a
+  protocol-compatible backpressure mechanism that does not change persisted
+  viewer settings or encoding negotiation.
+
+**Privacy rule**: raw timing stays memory-only. Diagnostics and benchmark
+reports continue to export only fixed labels, aggregate activation counts, and
+bucketed timing summaries; they must not export raw milliseconds, dimensions,
+coordinates, pixels, byte counts, host identity, power state, or raw errors.

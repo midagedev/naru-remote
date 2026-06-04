@@ -2,11 +2,16 @@ import Foundation
 import NaruRemoteCore
 
 struct SessionStreamPressurePacingState: Equatable, Sendable {
-    static let laggingClientProcessingThresholdMilliseconds = 80
-    static let consecutiveLaggingContentFrameThreshold = 3
+    static let severeLaggingLocalWorkThresholdMilliseconds = 80
+    static let consecutiveSevereLaggingContentFrameThreshold = 3
+    static let sustainedLaggingLocalWorkThresholdMilliseconds = 34
+    static let consecutiveSustainedLaggingContentFrameThreshold = 8
+    static let laggingClientProcessingThresholdMilliseconds = severeLaggingLocalWorkThresholdMilliseconds
+    static let consecutiveLaggingContentFrameThreshold = consecutiveSevereLaggingContentFrameThreshold
     static let adaptiveRecoveryUpdateCount = 120
 
-    private var consecutiveLaggingContentFrames = 0
+    private var consecutiveSevereLaggingContentFrames = 0
+    private var consecutiveSustainedLaggingContentFrames = 0
     private var adaptiveRecoveryUpdatesRemaining = 0
 
     var usesAdaptivePowerSaverPacing: Bool {
@@ -24,7 +29,7 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         }
 
         if frame.transportIdleTimedOut {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
             return
         }
 
@@ -35,31 +40,46 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         let clientProcessingMilliseconds = frame.timing?.clientProcessingMilliseconds
         let appFrameApplyMilliseconds = appFrameApplyMilliseconds.map { max($0, 0) }
         guard clientProcessingMilliseconds != nil || appFrameApplyMilliseconds != nil else {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
             return
         }
 
-        let hasLaggingLocalWork =
-            clientProcessingMilliseconds.map { $0 >= Self.laggingClientProcessingThresholdMilliseconds } ?? false
-            || appFrameApplyMilliseconds.map { $0 >= Self.laggingClientProcessingThresholdMilliseconds } ?? false
+        let localWorkMilliseconds = max(
+            clientProcessingMilliseconds ?? 0,
+            appFrameApplyMilliseconds ?? 0
+        )
 
-        if hasLaggingLocalWork {
-            consecutiveLaggingContentFrames += 1
+        if localWorkMilliseconds >= Self.sustainedLaggingLocalWorkThresholdMilliseconds {
+            consecutiveSustainedLaggingContentFrames += 1
         } else {
-            consecutiveLaggingContentFrames = 0
+            resetLaggingContentStreaks()
+            return
         }
 
-        guard consecutiveLaggingContentFrames >= Self.consecutiveLaggingContentFrameThreshold else {
+        if localWorkMilliseconds >= Self.severeLaggingLocalWorkThresholdMilliseconds {
+            consecutiveSevereLaggingContentFrames += 1
+        } else {
+            consecutiveSevereLaggingContentFrames = 0
+        }
+
+        guard consecutiveSevereLaggingContentFrames >= Self.consecutiveSevereLaggingContentFrameThreshold
+            || consecutiveSustainedLaggingContentFrames >= Self.consecutiveSustainedLaggingContentFrameThreshold
+        else {
             return
         }
         adaptiveRecoveryUpdatesRemaining = max(
             adaptiveRecoveryUpdatesRemaining,
             Self.adaptiveRecoveryUpdateCount
         )
-        consecutiveLaggingContentFrames = 0
+        resetLaggingContentStreaks()
     }
 
     private func isEmptyIncrementalUpdate(_ frame: RFBFramePumpFrame) -> Bool {
         frame.isIncremental && frame.changedPixelCount == 0
+    }
+
+    private mutating func resetLaggingContentStreaks() {
+        consecutiveSevereLaggingContentFrames = 0
+        consecutiveSustainedLaggingContentFrames = 0
     }
 }
