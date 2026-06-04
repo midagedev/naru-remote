@@ -38,6 +38,16 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         )
         stats.recordRendererUploadTiming(milliseconds: 4)
         stats.recordRendererUploadTiming(milliseconds: 92)
+        stats.recordViewportRedrawDiagnostics(
+            ViewportRedrawDiagnostics(
+                interactionCount: 2,
+                incomingFrameDeferredCount: 5,
+                redrawRequestCount: 11,
+                redrawFlushCount: 6,
+                decelerationFrameCount: 3,
+                observedMaximumFramesPerSecond: 120
+            )
+        )
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -63,6 +73,12 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.rendererUploadTimingSampleCount, 2)
         XCTAssertEqual(report.averageRendererUploadTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.maxRendererUploadTimingBucket, DiagnosticTimingBucket.lagging.rawValue)
+        XCTAssertEqual(report.viewportInteractionCount, 2)
+        XCTAssertEqual(report.viewportIncomingFrameDeferredCount, 5)
+        XCTAssertEqual(report.viewportRedrawRequestCount, 11)
+        XCTAssertEqual(report.viewportRedrawFlushCount, 6)
+        XCTAssertEqual(report.viewportDecelerationFrameCount, 3)
+        XCTAssertEqual(report.viewportDisplayRefreshRateBucket, DiagnosticFrameRateBucket.sixtyOrMore.rawValue)
         XCTAssertEqual(report.appFrameApplyTimingSampleCount, 2)
         XCTAssertEqual(report.averageAppFrameApplyTimingBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.maxAppFrameApplyTimingBucket, DiagnosticTimingBucket.lagging.rawValue)

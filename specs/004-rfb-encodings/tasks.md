@@ -360,6 +360,14 @@ iPhone) and ships as its own PR.
   coordinates, pixels, byte counts, power state, or raw timing samples. Owns:
   Metal renderer/view wiring, app stats/export, tests, research notes.
   **Done.**
+- **T353** Viewport redraw pressure diagnostics: batch local Metal viewport
+  gesture/redraw counters inside the UIKit host, flush them to the app model at
+  gesture boundaries, and export only safe aggregate counts plus refresh-rate
+  bucket in active-session diagnostics schema v13. This lets physical iPhone
+  reports distinguish stream/frame upload pressure from local viewport redraw
+  pressure without exporting coordinates, pixels, device model, raw timestamps,
+  or user content. Owns: Metal view wiring, app stats/export, tests, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

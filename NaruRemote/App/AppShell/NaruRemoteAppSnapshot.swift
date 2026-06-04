@@ -43,6 +43,12 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var rendererUploadTimingSampleCount: Int
     public var rendererUploadMillisecondsTotal: Int
     public var rendererUploadMillisecondsMax: Int
+    public var viewportInteractionCount: Int
+    public var viewportIncomingFrameDeferredCount: Int
+    public var viewportRedrawRequestCount: Int
+    public var viewportRedrawFlushCount: Int
+    public var viewportDecelerationFrameCount: Int
+    public var viewportObservedMaximumFramesPerSecond: Int
     public var receiveTimingSampleCount: Int
     public var receiveTotalMillisecondsTotal: Int
     public var receiveTotalMillisecondsMax: Int
@@ -82,6 +88,12 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererUploadTimingSampleCount: Int = 0,
         rendererUploadMillisecondsTotal: Int = 0,
         rendererUploadMillisecondsMax: Int = 0,
+        viewportInteractionCount: Int = 0,
+        viewportIncomingFrameDeferredCount: Int = 0,
+        viewportRedrawRequestCount: Int = 0,
+        viewportRedrawFlushCount: Int = 0,
+        viewportDecelerationFrameCount: Int = 0,
+        viewportObservedMaximumFramesPerSecond: Int = 0,
         receiveTimingSampleCount: Int = 0,
         receiveTotalMillisecondsTotal: Int = 0,
         receiveTotalMillisecondsMax: Int = 0,
@@ -116,6 +128,15 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.rendererUploadTimingSampleCount = max(rendererUploadTimingSampleCount, 0)
         self.rendererUploadMillisecondsTotal = max(rendererUploadMillisecondsTotal, 0)
         self.rendererUploadMillisecondsMax = max(rendererUploadMillisecondsMax, 0)
+        self.viewportInteractionCount = max(viewportInteractionCount, 0)
+        self.viewportIncomingFrameDeferredCount = max(viewportIncomingFrameDeferredCount, 0)
+        self.viewportRedrawRequestCount = max(viewportRedrawRequestCount, 0)
+        self.viewportRedrawFlushCount = max(viewportRedrawFlushCount, 0)
+        self.viewportDecelerationFrameCount = max(viewportDecelerationFrameCount, 0)
+        self.viewportObservedMaximumFramesPerSecond = max(
+            viewportObservedMaximumFramesPerSecond,
+            0
+        )
         self.receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
         self.receiveTotalMillisecondsTotal = max(receiveTotalMillisecondsTotal, 0)
         self.receiveTotalMillisecondsMax = max(receiveTotalMillisecondsMax, 0)
@@ -201,6 +222,15 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererUploadTimingMax(rendererUploadMillisecondsMax)
     }
 
+    public var viewportDisplayRefreshRateBucket: DiagnosticFrameRateBucket {
+        guard viewportObservedMaximumFramesPerSecond > 0 else {
+            return .notMeasured
+        }
+        return DiagnosticFrameRateBucket.bucket(
+            framesPerSecond: Double(viewportObservedMaximumFramesPerSecond)
+        )
+    }
+
     public var averageReceiveTotalMilliseconds: Int? {
         averageTiming(receiveTotalMillisecondsTotal)
     }
@@ -268,6 +298,12 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageRendererUploadMilliseconds).rawValue,
             maxRendererUploadTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxRendererUploadMilliseconds).rawValue,
+            viewportInteractionCount: viewportInteractionCount,
+            viewportIncomingFrameDeferredCount: viewportIncomingFrameDeferredCount,
+            viewportRedrawRequestCount: viewportRedrawRequestCount,
+            viewportRedrawFlushCount: viewportRedrawFlushCount,
+            viewportDecelerationFrameCount: viewportDecelerationFrameCount,
+            viewportDisplayRefreshRateBucket: viewportDisplayRefreshRateBucket.rawValue,
             receiveTimingSampleCount: receiveTimingSampleCount,
             averageReceiveTotalTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: averageReceiveTotalMilliseconds).rawValue,
@@ -346,6 +382,18 @@ public struct SessionStreamStats: Equatable, Sendable {
         rendererUploadMillisecondsMax = max(
             rendererUploadMillisecondsMax,
             clampedMilliseconds
+        )
+    }
+
+    public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
+        viewportInteractionCount += max(diagnostics.interactionCount, 0)
+        viewportIncomingFrameDeferredCount += max(diagnostics.incomingFrameDeferredCount, 0)
+        viewportRedrawRequestCount += max(diagnostics.redrawRequestCount, 0)
+        viewportRedrawFlushCount += max(diagnostics.redrawFlushCount, 0)
+        viewportDecelerationFrameCount += max(diagnostics.decelerationFrameCount, 0)
+        viewportObservedMaximumFramesPerSecond = max(
+            viewportObservedMaximumFramesPerSecond,
+            diagnostics.observedMaximumFramesPerSecond
         )
     }
 

@@ -213,6 +213,17 @@ public enum DiagnosticFrameRateBucket: String, Codable, Equatable, Sendable {
 
         let framesAfterFirst = max(deliveredFrameCount - 1, 0)
         let framesPerSecond = Double(framesAfterFirst) / observedDurationSeconds
+        return bucket(framesPerSecond: framesPerSecond)
+    }
+
+    public static func bucket(framesPerSecond: Double?) -> DiagnosticFrameRateBucket {
+        guard let framesPerSecond,
+              framesPerSecond.isFinite,
+              framesPerSecond > 0
+        else {
+            return .notMeasured
+        }
+
         switch framesPerSecond {
         case ..<5:
             return .underFive
@@ -284,6 +295,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case rendererUploadTimingSampleCount
         case averageRendererUploadTimingBucket
         case maxRendererUploadTimingBucket
+        case viewportInteractionCount
+        case viewportIncomingFrameDeferredCount
+        case viewportRedrawRequestCount
+        case viewportRedrawFlushCount
+        case viewportDecelerationFrameCount
+        case viewportDisplayRefreshRateBucket
         case receiveTimingSampleCount
         case averageReceiveTotalTimingBucket
         case maxReceiveTotalTimingBucket
@@ -325,6 +342,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let rendererUploadTimingSampleCount: Int
     public let averageRendererUploadTimingBucket: String
     public let maxRendererUploadTimingBucket: String
+    public let viewportInteractionCount: Int
+    public let viewportIncomingFrameDeferredCount: Int
+    public let viewportRedrawRequestCount: Int
+    public let viewportRedrawFlushCount: Int
+    public let viewportDecelerationFrameCount: Int
+    public let viewportDisplayRefreshRateBucket: String
     public let receiveTimingSampleCount: Int
     public let averageReceiveTotalTimingBucket: String
     public let maxReceiveTotalTimingBucket: String
@@ -366,6 +389,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         rendererUploadTimingSampleCount: Int = 0,
         averageRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        viewportInteractionCount: Int = 0,
+        viewportIncomingFrameDeferredCount: Int = 0,
+        viewportRedrawRequestCount: Int = 0,
+        viewportRedrawFlushCount: Int = 0,
+        viewportDecelerationFrameCount: Int = 0,
+        viewportDisplayRefreshRateBucket: String = DiagnosticFrameRateBucket.notMeasured.rawValue,
         receiveTimingSampleCount: Int = 0,
         averageReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxReceiveTotalTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
@@ -424,6 +453,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             self.averageRendererUploadTimingBucket = Self.safeTimingBucket(averageRendererUploadTimingBucket)
             self.maxRendererUploadTimingBucket = Self.safeTimingBucket(maxRendererUploadTimingBucket)
         }
+        self.viewportInteractionCount = max(viewportInteractionCount, 0)
+        self.viewportIncomingFrameDeferredCount = max(viewportIncomingFrameDeferredCount, 0)
+        self.viewportRedrawRequestCount = max(viewportRedrawRequestCount, 0)
+        self.viewportRedrawFlushCount = max(viewportRedrawFlushCount, 0)
+        self.viewportDecelerationFrameCount = max(viewportDecelerationFrameCount, 0)
+        self.viewportDisplayRefreshRateBucket = Self.safeFrameRateBucket(viewportDisplayRefreshRateBucket)
         let receiveTimingSampleCount = max(receiveTimingSampleCount, 0)
         self.receiveTimingSampleCount = receiveTimingSampleCount
         if receiveTimingSampleCount == 0 {
@@ -532,6 +567,30 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .maxRendererUploadTimingBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            viewportInteractionCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionCount
+            ) ?? 0,
+            viewportIncomingFrameDeferredCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportIncomingFrameDeferredCount
+            ) ?? 0,
+            viewportRedrawRequestCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportRedrawRequestCount
+            ) ?? 0,
+            viewportRedrawFlushCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportRedrawFlushCount
+            ) ?? 0,
+            viewportDecelerationFrameCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportDecelerationFrameCount
+            ) ?? 0,
+            viewportDisplayRefreshRateBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewportDisplayRefreshRateBucket
+            ) ?? DiagnosticFrameRateBucket.notMeasured.rawValue,
             receiveTimingSampleCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .receiveTimingSampleCount
@@ -821,7 +880,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 12
+    public static let currentSchemaVersion = 13
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
