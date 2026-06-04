@@ -538,9 +538,9 @@ public struct RemoteInputDockView: View {
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
         isDirectModeActive: Bool,
-        hasMarkedText: Bool
+        hasMarkedText _: Bool
     ) -> Bool {
-        !isDirectModeActive && !hasMarkedText
+        !isDirectModeActive
     }
 
     nonisolated static func shouldApplyExternalComposeText(
@@ -850,10 +850,10 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.commitController.updateCurrentText(from: textView)
-            guard textView.markedTextRange == nil else {
-                return
+            let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
+            if parent.text != resolvedText {
+                parent.text = resolvedText
             }
-            parent.text = textView.text
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {

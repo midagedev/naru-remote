@@ -382,6 +382,12 @@ iPhone) and ships as its own PR.
   severe and sustained adaptive pressure thresholds are visible. Owns: shared
   pacing defaults, app default configuration, benchmark CLI/report/tests,
   research note, benchmark artifact. **Done.**
+- **T356** Smooth viewport hot path and compose draft sync: keep pinch, zoomed
+  pan, deceleration, and trackpad auto-pan visible on the Metal/UIKit hot path
+  while deferring SwiftUI viewport-state publication until gesture end; also
+  propagate local Compose draft text during marked-text composition without
+  overwriting UIKit's in-flight multilingual input. Owns: Metal viewport host,
+  RemoteInputDock sync policy, tests. **Done.**
 
 ## Cross-cutting (every increment)
 
