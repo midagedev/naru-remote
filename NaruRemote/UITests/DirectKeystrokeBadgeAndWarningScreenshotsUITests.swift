@@ -64,14 +64,25 @@ final class DirectKeystrokeBadgeAndWarningScreenshotsUITests: XCTestCase {
         // `DirectKeystrokeKeyboardScreenshotsUITests` /
         // `DirectKeystrokeStickyModifierScreenshotsUITests`), so we
         // count by label.  At least one match → dock badge
-        // rendered.  Punch-list #008 changed the badge copy to
-        // "Direct — IME off" (Coral fill); match the new text.
-        let badgeQuery = app.staticTexts.matching(
-            NSPredicate(format: "label == 'Direct — IME off'")
+        // rendered.  SwiftUI can expose either the wrapped
+        // accessibility label or the inner visible Text, so mirror
+        // the FR-010 assertion test's dual-query helper.
+        let badgeLabel = NSPredicate(
+            format: "label == %@",
+            "Direct keystroke mode active, IME disabled"
         )
-        XCTAssertGreaterThanOrEqual(
-            badgeQuery.count,
-            1,
+        let directModeStaticText = NSPredicate(
+            format: "label == %@",
+            "Direct — IME off"
+        )
+        XCTAssertTrue(
+            waitForBadgeCount(
+                in: app,
+                matching: badgeLabel,
+                fallback: directModeStaticText,
+                expected: 1,
+                timeout: 4
+            ),
             "Dock-side Direct-mode badge must be visible while keyboard is up"
         )
 
@@ -113,5 +124,35 @@ final class DirectKeystrokeBadgeAndWarningScreenshotsUITests: XCTestCase {
         let attrs = try fm.attributesOfItem(atPath: url.path)
         let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
         XCTAssertGreaterThan(size, 0, "Screenshot \(filename) must not be empty")
+    }
+
+    private func waitForBadgeCount(
+        in app: XCUIApplication,
+        matching primary: NSPredicate,
+        fallback: NSPredicate,
+        expected: Int,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let primaryCount = app.descendants(matching: .any).matching(primary).count
+            if primaryCount == expected {
+                return true
+            }
+            let fallbackCount = app.staticTexts.matching(fallback).count
+            if min(primaryCount + fallbackCount, expected * 2) == expected
+                || fallbackCount == expected
+            {
+                return true
+            }
+            _ = XCTWaiter().wait(
+                for: [XCTNSPredicateExpectation(
+                    predicate: NSPredicate(value: false),
+                    object: nil
+                )],
+                timeout: 0.25
+            )
+        }
+        return false
     }
 }

@@ -137,6 +137,17 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testResolvedCommittedComposeTextKeepsCurrentTextWhenCommittedSnapshotIsPrefix() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCommittedComposeText(
+                committedText: "입력느",
+                markedTextBeforeCommit: nil,
+                currentTextBeforeCommit: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
     func testResolvedCommittedComposeTextKeepsEmptyEditorEmpty() {
         XCTAssertEqual(
             RemoteInputDockView.resolvedCommittedComposeText(
@@ -178,6 +189,36 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
                 markedText: "낌",
                 controllerText: "입력느",
                 fallback: ""
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedStabilizedComposeTextKeepsImmediateWhenNextSnapshotDropsSuffix() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느낌",
+                stabilizedText: "입력느"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedStabilizedComposeTextUsesNextSnapshotWhenItHasCommittedCandidate() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느",
+                stabilizedText: "입력느낌"
+            ),
+            "입력느낌"
+        )
+    }
+
+    func testResolvedStabilizedComposeTextFallsBackWhenNextSnapshotIsEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedStabilizedComposeText(
+                immediateText: "입력느낌",
+                stabilizedText: ""
             ),
             "입력느낌"
         )

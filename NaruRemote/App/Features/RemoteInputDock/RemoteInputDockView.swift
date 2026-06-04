@@ -15,6 +15,7 @@ public struct RemoteInputDockView: View {
     @State private var lastAppliedInitialText: String
     #if os(iOS) && canImport(UIKit)
     @StateObject private var composeCommitController = ComposeTextCommitController()
+    @State private var isPreparingComposeSend = false
     #endif
     /// Tracks whether the compose editor has firstResponder.
     /// Forwarded to the parent via `onComposeFocusChange` so future
@@ -444,7 +445,7 @@ public struct RemoteInputDockView: View {
 
     private var isComposeSendDisabled: Bool {
         #if os(iOS) && canImport(UIKit)
-        composeCommitController.readCurrentText(fallback: text).isEmpty
+        isPreparingComposeSend || composeCommitController.readCurrentText(fallback: text).isEmpty
         #else
         text.isEmpty
         #endif
@@ -473,13 +474,28 @@ public struct RemoteInputDockView: View {
 
     private func sendCurrentComposeText() {
         #if os(iOS) && canImport(UIKit)
-        let committedText = composeCommitController.commitMarkedTextAndRead(fallback: text)
-        if committedText != text {
-            text = committedText
-            onTextChange(committedText)
+        guard !isPreparingComposeSend else { return }
+        isPreparingComposeSend = true
+        let immediateText = composeCommitController.commitMarkedTextAndRead(fallback: text)
+        if immediateText != text {
+            text = immediateText
+            onTextChange(immediateText)
         }
-        guard !committedText.isEmpty else { return }
-        onSend(committedText)
+        Task { @MainActor in
+            await Task.yield()
+            let stabilizedText = composeCommitController.readCurrentText(fallback: immediateText)
+            let finalText = Self.resolvedStabilizedComposeText(
+                immediateText: immediateText,
+                stabilizedText: stabilizedText
+            )
+            if finalText != text {
+                text = finalText
+                onTextChange(finalText)
+            }
+            isPreparingComposeSend = false
+            guard !finalText.isEmpty else { return }
+            onSend(finalText)
+        }
         #else
         onSend(text)
         #endif
@@ -535,6 +551,11 @@ public struct RemoteInputDockView: View {
         currentTextBeforeCommit: String
     ) -> String {
         if let committedText {
+            if !committedText.isEmpty,
+               currentTextBeforeCommit.hasPrefix(committedText),
+               currentTextBeforeCommit.count > committedText.count {
+                return currentTextBeforeCommit
+            }
             if let markedTextBeforeCommit,
                !markedTextBeforeCommit.isEmpty,
                !committedText.contains(markedTextBeforeCommit),
@@ -555,6 +576,23 @@ public struct RemoteInputDockView: View {
         }
 
         return currentTextBeforeCommit
+    }
+
+    nonisolated static func resolvedStabilizedComposeText(
+        immediateText: String,
+        stabilizedText: String
+    ) -> String {
+        if stabilizedText.isEmpty {
+            return immediateText
+        }
+        if immediateText.isEmpty {
+            return stabilizedText
+        }
+        if immediateText.hasPrefix(stabilizedText),
+           immediateText.count > stabilizedText.count {
+            return immediateText
+        }
+        return stabilizedText
     }
 
     nonisolated static func shouldShowCompactStatusText(

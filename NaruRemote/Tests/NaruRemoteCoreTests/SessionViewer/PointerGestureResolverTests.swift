@@ -210,4 +210,27 @@ final class PointerGestureResolverTests: XCTestCase {
             RFBPointerCommand(buttonMask: 0x00, x: 625, y: 500)
         ])
     }
+
+    func testTrackpadAutoPanKeepsUpNearViewportEdge() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 650, y: 500), isVisible: true)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: CGSize(width: 200, height: 0)),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertLessThanOrEqual(
+            outcome.transform.panOffset.width,
+            -150,
+            "Trackpad auto-pan should move with the cursor instead of lagging at the edge."
+        )
+        XCTAssertGreaterThan(
+            outcome.transform.panOffset.width,
+            -340,
+            "Auto-pan should still damp the full reveal delta rather than snapping."
+        )
+    }
 }
