@@ -119,6 +119,9 @@ public struct NaruRemoteAppShell: View {
             onViewportInteractionChange: { isActive in
                 model.setViewportInteractionActive(isActive)
             },
+            onViewportRedrawDiagnostics: { diagnostics in
+                model.recordViewportRedrawDiagnostics(diagnostics)
+            },
             onRendererUploadTiming: { milliseconds in
                 model.recordRendererUploadTiming(milliseconds: milliseconds)
             },

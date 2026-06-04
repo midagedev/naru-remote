@@ -1816,6 +1816,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionStreamStats.recordRendererUploadTiming(milliseconds: milliseconds)
     }
 
+    public func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
+        sessionStreamStats.recordViewportRedrawDiagnostics(diagnostics)
+    }
+
     public func setViewportInteractionActive(_ isActive: Bool) {
         if isActive {
             isViewportInteractionActive = true

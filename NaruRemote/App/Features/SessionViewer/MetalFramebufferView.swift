@@ -86,6 +86,14 @@ public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
 /// while Metal is reprojection-drawing the already uploaded texture.
 public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (Bool) -> Void
 
+/// Closure invoked with safe aggregate local viewport redraw counters.
+/// The host batches these counters locally and reports them at gesture
+/// boundaries so diagnostics do not make the touch hot path publish
+/// SwiftUI state at frame cadence.
+public typealias MetalFramebufferViewportRedrawDiagnosticsHandler = @MainActor @Sendable (
+    ViewportRedrawDiagnostics
+) -> Void
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
@@ -104,6 +112,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let pointerControlMode: PointerControlMode
     private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
     private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
+    private let onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler?
     private let onUploadTiming: MetalFramebufferUploadTimingHandler?
     /// Current local zoom scale, owned by the SwiftUI parent and pushed
     /// down so the host's gesture handlers know whether a one-finger
@@ -139,6 +148,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         pointerControlMode: PointerControlMode = .directTouch,
         onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
         onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil,
+        onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler? = nil,
         onUploadTiming: MetalFramebufferUploadTimingHandler? = nil
     ) {
         self.framebuffer = framebuffer
@@ -161,6 +171,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.pointerControlMode = pointerControlMode
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
+        self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onUploadTiming = onUploadTiming
     }
 
@@ -190,6 +201,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.zoomToggleHandler = onZoomToggle
         host.trackpadGestureHandler = onTrackpadGesture
         host.viewportInteractionHandler = onViewportInteractionChange
+        host.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
         host.syncInputState(
             pointerControlMode: pointerControlMode,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
@@ -224,6 +236,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.zoomToggleHandler = onZoomToggle
         uiView.trackpadGestureHandler = onTrackpadGesture
         uiView.viewportInteractionHandler = onViewportInteractionChange
+        uiView.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
         uiView.syncInputState(
             pointerControlMode: pointerControlMode,
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
@@ -369,6 +382,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// sample.
     public var viewportInteractionHandler: MetalFramebufferViewportInteractionHandler?
 
+    /// Reports batched, safe redraw diagnostics at viewport gesture
+    /// boundaries. This stays off the per-touch publish path.
+    public var viewportRedrawDiagnosticsHandler: MetalFramebufferViewportRedrawDiagnosticsHandler?
+
     /// Current one-finger input mode.  Direct-touch keeps the existing
     /// tap/drag behavior; trackpad mode turns tap/drag into cursor
     /// gestures without routing through a SwiftUI overlay.
@@ -442,6 +459,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var viewportDecelerationDisplayLink: CADisplayLink?
     private var viewportDecelerationVelocity: CGPoint = .zero
     private var viewportDecelerationLastTimestamp: CFTimeInterval?
+    private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval
     )
@@ -661,6 +679,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
         if isViewportTransformGestureActive {
             deferredFramebufferRedrawDuringViewportGesture = true
+            pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
             _ = viewportGestureRedrawThrottle.recordIncomingFrame(
                 isGestureActive: true,
                 now: now
@@ -698,6 +717,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         deferredFramebufferRedrawDuringViewportGesture = false
         trackpadDragOwnsViewportInteraction = false
         finishViewportTransformGesture()
+        flushViewportRedrawDiagnosticsIfNeeded()
     }
 
     @MainActor
@@ -1008,6 +1028,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     private func requestCoalescedViewportRedraw() {
+        pendingViewportRedrawDiagnostics.redrawRequestCount += 1
         viewportRedrawRequested = true
         guard viewportRedrawDisplayLink == nil else {
             return
@@ -1036,6 +1057,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
 
         viewportRedrawRequested = false
+        pendingViewportRedrawDiagnostics.redrawFlushCount += 1
         requestImmediateViewportRedraw()
         stopViewportRedrawDisplayLinkIfIdle()
     }
@@ -1097,6 +1119,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let screenMaximum = window?.screen.maximumFramesPerSecond
             ?? UIScreen.main.maximumFramesPerSecond
         let maximum = Float(max(60, screenMaximum))
+        pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond = max(
+            pendingViewportRedrawDiagnostics.observedMaximumFramesPerSecond,
+            Int(maximum.rounded())
+        )
         displayLink.preferredFrameRateRange = CAFrameRateRange(
             minimum: min(60, maximum),
             maximum: maximum,
@@ -1107,6 +1133,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @MainActor
     @objc
     private func handleViewportDecelerationFrame(_ displayLink: CADisplayLink) {
+        pendingViewportRedrawDiagnostics.decelerationFrameCount += 1
         guard isZoomed else {
             finishViewportDeceleration()
             return
@@ -1196,6 +1223,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         if wasActive {
             viewportInteractionHandler?(false)
         }
+        flushViewportRedrawDiagnosticsIfNeeded()
     }
 
     @MainActor
@@ -1207,8 +1235,19 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         isViewportTransformGestureActive = true
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
         if wasInactive {
+            pendingViewportRedrawDiagnostics.interactionCount += 1
             viewportInteractionHandler?(true)
         }
+    }
+
+    @MainActor
+    private func flushViewportRedrawDiagnosticsIfNeeded() {
+        guard pendingViewportRedrawDiagnostics.hasSamples else {
+            return
+        }
+        let diagnostics = pendingViewportRedrawDiagnostics
+        pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
+        viewportRedrawDiagnosticsHandler?(diagnostics)
     }
 
     @MainActor
