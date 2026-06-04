@@ -929,7 +929,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case .began:
             stopViewportDeceleration()
             beginViewportTransformGesture()
-            recognizer.setTranslation(.zero, in: self)
             // If a remote button-1 drag had started before a pinch
             // zoomed the view mid-gesture, release it cleanly so no
             // stray button stays held on the wire.
@@ -941,24 +940,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 dragLastViewPoint = nil
                 pointerUpHandler?(endPoint, size)
             }
+            let initialTranslation = recognizer.translation(in: self)
+            recognizer.setTranslation(.zero, in: self)
+            applyZoomedPanTranslation(
+                initialTranslation,
+                anchor: recognizer.location(in: self)
+            )
         case .changed:
-            recordViewportGestureSample()
             let translation = recognizer.translation(in: self)
             recognizer.setTranslation(.zero, in: self)
-            let proposed = CGSize(
-                width: currentPanOffset.width + translation.x,
-                height: currentPanOffset.height + translation.y
-            )
-            currentPanOffset = clampedPan(proposed)
-            applyViewportTransformToMetalView()
-            queueViewportStatePublish(
-                zoomScale: currentZoomScale,
-                panOffset: currentPanOffset,
-                anchor: recognizer.location(in: self),
-                viewSize: bounds.size,
-                shouldPublishZoom: false,
-                shouldPublishPan: true,
-                cadence: .gestureEnd
+            applyZoomedPanTranslation(
+                translation,
+                anchor: recognizer.location(in: self)
             )
         case .ended:
             let velocity = recognizer.velocity(in: self)
@@ -971,6 +964,41 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         default:
             break
         }
+    }
+
+    @MainActor
+    private func applyZoomedPanTranslation(_ translation: CGPoint, anchor: CGPoint) {
+        applyZoomedPanTranslation(
+            CGSize(width: translation.x, height: translation.y),
+            anchor: anchor
+        )
+    }
+
+    @MainActor
+    private func applyZoomedPanTranslation(_ translation: CGSize, anchor: CGPoint) {
+        guard translation != .zero else {
+            return
+        }
+        recordViewportGestureSample()
+        let proposed = CGSize(
+            width: currentPanOffset.width + translation.width,
+            height: currentPanOffset.height + translation.height
+        )
+        let nextPanOffset = clampedPan(proposed)
+        guard nextPanOffset != currentPanOffset else {
+            return
+        }
+        currentPanOffset = nextPanOffset
+        applyViewportTransformToMetalView()
+        queueViewportStatePublish(
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset,
+            anchor: anchor,
+            viewSize: bounds.size,
+            shouldPublishZoom: false,
+            shouldPublishPan: true,
+            cadence: .gestureEnd
+        )
     }
 
     /// One-finger drag in trackpad mode: move the local cursor

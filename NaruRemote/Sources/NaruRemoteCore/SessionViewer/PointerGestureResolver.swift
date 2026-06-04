@@ -69,7 +69,7 @@ public struct PointerGestureResolver: Sendable {
         mode: PointerControlMode,
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
-        autoPanDamping: CGFloat = 0.55
+        autoPanDamping: CGFloat = 0.82
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
@@ -256,7 +256,7 @@ public struct PointerGestureResolver: Sendable {
         guard shortestSide.isFinite, shortestSide > 0 else {
             return autoPanMargin
         }
-        return max(autoPanMargin, shortestSide * 0.28)
+        return max(autoPanMargin, shortestSide * 0.34)
     }
 
     private func smoothedAutoPanTransform(
@@ -281,7 +281,7 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        let maximumStep = max(18, min(120, touchDistance * 3.5 + 12))
+        let maximumStep = max(32, min(180, touchDistance * 5.0 + 24))
         let limited = limit(damped, maximumLength: maximumStep)
         return transform.panned(by: limited)
     }
