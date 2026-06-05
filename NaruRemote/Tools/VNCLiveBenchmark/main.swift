@@ -669,6 +669,8 @@ enum VNCLiveBenchmark {
         guard count > 0 else {
             return
         }
+        // Hidden preflight is best-effort warm-up: measured samples remain
+        // the source of truth, and failure details stay out of redacted reports.
         for _ in 0..<count {
             do {
                 guard try pump.nextFrame(
