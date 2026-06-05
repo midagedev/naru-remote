@@ -132,6 +132,13 @@ request delay is enough to reach the sustained target. The first live v46 run
 raises the strongest ZRLE candidates to roughly 7fps but still misses 8fps and
 keeps max p95 near 500 ms, so the next unit remains transport cadence tuning
 instead of production default promotion.
+Current request cadence health artifact:
+`artifacts/benchmarks/2026-06-06-request-cadence-health-report-summary.md`.
+Schema v47 adds `streamShapeRequestCadenceHealth` so request/response gates
+separate sample-hit health from p95 update tail. The first live v47 zero-delay
+run reports high content hit, low unanswered-request pressure, and p95-failed
+latency, so the next unit should tune or instrument the request pacing window
+and update-wait timing rather than changing production defaults.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -426,8 +433,12 @@ this fixed preset label. `sustained-v2-zrle-zero-delay` keeps the ZRLE
 isolation shape but sets `streamShapeFrameIntervalSeconds=0` as a benchmark-only
 request-cadence pressure test. Schema v46 adds this fixed preset label and makes
 transport/cadence diagnosis route receive-path-majority mixed failures to
-`tuneTransportCadence`. For request/response-only presets the standalone
-ContinuousUpdates probe is also skipped:
+`tuneTransportCadence`. Schema v47 adds top-level
+`streamShapeRequestCadenceHealth`, derived from request/response aggregates and
+gates, so reports can distinguish high content hit with p95 tail from
+unanswered waits or empty responses before changing app defaults. For
+request/response-only presets the standalone ContinuousUpdates probe is also
+skipped:
 `continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
 `not-tested`.
 The sustained v2 presets are steady-stream gates: they keep

@@ -1252,6 +1252,186 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
     }
 
+    func testRequestCadenceHealthRoutesHighHitSlowTailToPacingWindowTuning() throws {
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "zrle-compression-0-cursor",
+                transportMode: .requestResponse,
+                iterationOrdinal: 1,
+                orderOrdinal: 1,
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 8,
+                    attemptedSamples: 8,
+                    samples: (0..<7).map { _ in sustainedContentSample(duration: 116) } + [
+                        sustainedContentSample(duration: 508)
+                    ],
+                    elapsedMilliseconds: 1_320,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhoneSustainedUsability
+                )
+            )
+        ]
+
+        let health = try XCTUnwrap(
+            BenchmarkStreamShapeRequestCadenceHealth.health(
+                from: BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports),
+                gates: BenchmarkStreamShapeProfileGateReport.gates(from: reports),
+                targets: .iPhoneSustainedUsability
+            )
+        )
+
+        XCTAssertEqual(health.targetName, "iphone-sustained-usability-v2")
+        XCTAssertEqual(health.sampleStatus, .highContentHit)
+        XCTAssertEqual(health.latencyStatus, .p95Failed)
+        XCTAssertEqual(health.recommendedNextProbe, .tuneRequestPacingWindow)
+        XCTAssertEqual(health.requestResponseGateCount, 1)
+        XCTAssertEqual(health.requestResponseBlockedGateCount, 1)
+        XCTAssertEqual(health.requestResponseAggregateCount, 1)
+        XCTAssertEqual(health.requestResponseUsableRunCount, 1)
+        XCTAssertEqual(health.averageReceivedSamplePermille, 1_000)
+        XCTAssertEqual(health.averageContentSamplePermille, 1_000)
+        XCTAssertEqual(health.averageContentResponsePermille, 1_000)
+        XCTAssertEqual(health.averageUnansweredSamplePermille, 0)
+        XCTAssertEqual(health.maxP95UpdateMilliseconds, 508)
+    }
+
+    func testRequestCadenceHealthRoutesUnansweredWaitsToUpdateWaitInspection() throws {
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "zrle-compression-0",
+                transportMode: .requestResponse,
+                iterationOrdinal: 1,
+                orderOrdinal: 1,
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 10,
+                    attemptedSamples: 10,
+                    samples: [
+                        sustainedContentSample(duration: 100),
+                        sustainedContentSample(duration: 100)
+                    ],
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: 800,
+                    failureLabel: nil,
+                    practicalTargets: .iPhoneSustainedUsability
+                )
+            )
+        ]
+
+        let health = try XCTUnwrap(
+            BenchmarkStreamShapeRequestCadenceHealth.health(
+                from: BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports),
+                gates: BenchmarkStreamShapeProfileGateReport.gates(from: reports),
+                targets: .iPhoneSustainedUsability
+            )
+        )
+
+        XCTAssertEqual(health.sampleStatus, .unansweredWait)
+        XCTAssertEqual(health.recommendedNextProbe, .inspectUpdateWaitTiming)
+        XCTAssertEqual(health.averageReceivedSamplePermille, 200)
+        XCTAssertEqual(health.averageUnansweredSamplePermille, 800)
+    }
+
+    func testRequestCadenceHealthRoutesEmptyResponsesToRegionAndStimulusInspection() throws {
+        let samples = (0..<8).map { _ in sustainedEmptySample(duration: 80) }
+            + (0..<2).map { _ in sustainedContentSample(duration: 90) }
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "zrle-compression-0",
+                transportMode: .requestResponse,
+                iterationOrdinal: 1,
+                orderOrdinal: 1,
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 10,
+                    attemptedSamples: 10,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhoneSustainedUsability
+                )
+            )
+        ]
+
+        let health = try XCTUnwrap(
+            BenchmarkStreamShapeRequestCadenceHealth.health(
+                from: BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports),
+                gates: BenchmarkStreamShapeProfileGateReport.gates(from: reports),
+                targets: .iPhoneSustainedUsability
+            )
+        )
+
+        XCTAssertEqual(health.sampleStatus, .emptyResponse)
+        XCTAssertEqual(health.recommendedNextProbe, .inspectRequestRegionAndStimulus)
+        XCTAssertEqual(health.averageReceivedSamplePermille, 1_000)
+        XCTAssertEqual(health.averageContentResponsePermille, 200)
+    }
+
+    func testRequestCadenceHealthLetsDominantDecodePressureOverrideHitRate() throws {
+        let aggregates = [
+            BenchmarkStreamShapeProfileAggregateReport(
+                label: "zrle-compression-0-cursor-clipboard",
+                transportMode: .requestResponse,
+                runCount: 5,
+                usableRunCount: 5,
+                failedRunCount: 0,
+                averageUpdateMilliseconds: 118,
+                maxP95UpdateMilliseconds: 320,
+                averageContentFramesPerSecond: 6.7,
+                averageRendererFullUploadPermille: 0,
+                maxClientProcessingP95Milliseconds: 135,
+                maxZrleTileApplyP95Milliseconds: 132,
+                slowUpdateSamples: 0,
+                verySlowUpdateSamples: 0,
+                receivedSamples: 60,
+                contentUpdateSamples: 55,
+                averageReceivedSamplePermille: 1_000,
+                averageContentSamplePermille: 917,
+                averageContentResponsePermille: 917,
+                averageUnansweredSamplePermille: 0
+            )
+        ]
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "zrle-compression-0-cursor-clipboard",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.clientProcessingFailed, .p95UpdateWarning],
+                primaryIssueCode: .clientProcessingFailed,
+                primaryConstraintCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                        count: 5
+                    ),
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue,
+                        count: 1
+                    )
+                ]
+            )
+        ]
+
+        let health = try XCTUnwrap(
+            BenchmarkStreamShapeRequestCadenceHealth.health(
+                from: aggregates,
+                gates: gates,
+                targets: .iPhoneSustainedUsability
+            )
+        )
+
+        XCTAssertEqual(health.sampleStatus, .highContentHit)
+        XCTAssertEqual(health.recommendedNextProbe, .compareRequestResponseEncodingProfiles)
+    }
+
     func testProfileGateDecodesMissingFailureLabelCountsAsEmpty() throws {
         let json = Data(
             """
@@ -1698,6 +1878,31 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             changedPixelsPermille: kind == .contentUpdate ? 1 : 0,
             rendererUploadStrategy: rendererUploadStrategy,
             rendererUploadRegionCount: rendererUploadStrategy == .none ? 0 : 1
+        )
+    }
+
+    private func sustainedContentSample(duration: Int) -> BenchmarkStreamShapeSample {
+        BenchmarkStreamShapeSample(
+            kind: .contentUpdate,
+            durationMilliseconds: duration,
+            dirtyRectangleCount: 1,
+            dirtyAreaPermille: 10,
+            changedPixelsPermille: 10,
+            rendererUploadStrategy: .partial,
+            rendererUploadRegionCount: 1,
+            clientProcessingMilliseconds: 8,
+            zrleTileApplyMilliseconds: 7
+        )
+    }
+
+    private func sustainedEmptySample(duration: Int) -> BenchmarkStreamShapeSample {
+        BenchmarkStreamShapeSample(
+            kind: .emptyUpdate,
+            durationMilliseconds: duration,
+            dirtyRectangleCount: 0,
+            dirtyAreaPermille: 0,
+            changedPixelsPermille: 0,
+            clientProcessingMilliseconds: 2
         )
     }
 

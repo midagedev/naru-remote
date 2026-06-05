@@ -3737,3 +3737,82 @@ not emit host identity, credentials, port values, raw TCP/RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, raw timings, raw FPS, stimulus command text, command output, draft
 text, marked text, IME state, or full diagnostic payloads.
+
+## D90 — Request cadence health should split hit-rate from tail latency
+
+References:
+- RFC 6143 FramebufferUpdateRequest flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options:
+  https://tigervnc.org/doc/vncviewer.html
+- D89 zero post-content request delay.
+- `artifacts/benchmarks/2026-06-06-request-cadence-health-report-summary.md`.
+
+**Decision**: add a top-level `streamShapeRequestCadenceHealth` report to
+`VNCLiveBenchmark` schema v47. The report is derived only from existing
+request/response profile aggregates and gates, and separates:
+
+- fixed sample-hit status (`high-content-hit`, `unanswered-wait`,
+  `empty-response`, `mixed-low-hit`, `no-usable-samples`, `not-tested`);
+- fixed latency status (`pass`, `average-warning`, `average-failed`,
+  `p95-warning`, `p95-failed`, `not-measured`);
+- fixed next probe (`tuneRequestPacingWindow`,
+  `inspectUpdateWaitTiming`, `inspectRequestRegionAndStimulus`,
+  `compareRequestResponseEncodingProfiles`, and related safe labels);
+- aggregate request/response gate counts, usable run counts, hit-rate permille
+  means, aggregate update milliseconds, content FPS, fixed constraint counts,
+  and fixed failure-label counts.
+
+**Why**:
+- D89 showed that removing post-content delay improved ZRLE candidates but did
+  not clear the sustained v2 target. The next question is no longer just
+  "request faster"; it is whether request/response misses come from unanswered
+  waits, empty server responses, low content hit-rate, local decode/render
+  pressure, or slow content-bearing response tails.
+- RFC 6143 allows an incremental update request to wait until changes are
+  available and leaves request-rate regulation to the client. That means the
+  benchmark needs a report layer that distinguishes request-loop health from
+  server/update tail behavior before app defaults change.
+- TigerVNC exposes encoding, quality, color, and pointer pacing controls rather
+  than a universal default. Naru needs the same measured decision surface for
+  request/response cadence before promoting a profile or cadence setting.
+
+**Evidence**:
+- Focused summary tests cover:
+  - high content hit plus p95 tail routing to `tuneRequestPacingWindow`;
+  - unanswered waits routing to `inspectUpdateWaitTiming`;
+  - empty responses routing to `inspectRequestRegionAndStimulus`;
+  - dominant client-decode constraints overriding hit-rate interpretation and
+    routing to `compareRequestResponseEncodingProfiles`.
+- Help output exposes schema v47 gate reporting.
+- A redacted live v47 `sustained-v2-zrle-zero-delay` run reported:
+  - `streamShapeRequestCadenceHealth.sampleStatus = high-content-hit`;
+  - `latencyStatus = p95-failed`;
+  - `recommendedNextProbe = tuneRequestPacingWindow`;
+  - request/response usable runs 24 across 5 aggregate labels;
+  - average received/request 989 permille, content/request 857 permille,
+    content/response 867 permille, unanswered 11 permille;
+  - average update 120 ms, max p95 update 511 ms;
+  - average content FPS 6.66;
+  - request/response constraint counts: receivePath 21, clientDecode 4.
+
+**Interpretation**:
+- The current macOS Screen Sharing request/response path is not primarily
+  blocked by unanswered requests or empty server responses in this gate. It is
+  receiving responses with content most of the time.
+- The remaining broad blocker is the p95 update tail while content hit-rate is
+  high. The next large unit should tune or instrument the request pacing window
+  and update-wait timing, rather than switching production defaults or blaming
+  stimulus generation.
+- One `zrle-compression-0` run failed with a fixed
+  `stream-connect-read-timeout` label, so the aggregate remains non-green and
+  should not promote defaults.
+
+**Privacy rule**: request cadence health may emit only fixed status/action
+labels, fixed target/profile/transport labels already present in benchmark
+reports, aggregate gate/run counts, aggregate permille ratios, aggregate
+millisecond summaries, aggregate content FPS, fixed constraint counts, and
+fixed failure-label counts. It must not emit host identity, credentials, port
+values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw payloads, raw timings, raw FPS, stimulus command text,
+command output, draft text, marked text, IME state, or full diagnostic payloads.
