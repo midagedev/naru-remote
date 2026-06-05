@@ -2,6 +2,15 @@ import XCTest
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
+    func testUsageDescriptionIncludesCoreMatrixSelection() {
+        XCTAssertEqual(
+            BenchmarkStreamShapeProfileSelection.usageDescription(
+                allProfileLabels: ["local-low-latency", "tight-first"]
+            ),
+            "local-low-latency|core-matrix|all|comma-separated labels (local-low-latency,tight-first)"
+        )
+    }
+
     func testAllSelectsEveryKnownProfileInOrder() throws {
         let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
             from: "all",
@@ -30,6 +39,52 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             XCTAssertEqual(
                 error as? BenchmarkStreamShapeProfileSelectionError,
                 .unknownLabels(["local-low-latency"])
+            )
+        }
+    }
+
+    func testCoreMatrixSelectsStableCandidateProfilesInOrder() throws {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: " core-matrix ",
+            allProfileLabels: [
+                "local-low-latency",
+                "tight-first",
+                "zrle-compression-0",
+                "adaptive-good-full",
+                "adaptive-poor-full"
+            ]
+        )
+
+        XCTAssertEqual(
+            labels,
+            [
+                "local-low-latency",
+                "zrle-compression-0",
+                "tight-first",
+                "adaptive-good-full"
+            ]
+        )
+    }
+
+    func testCoreMatrixThrowsWhenACandidateProfileIsMissing() {
+        XCTAssertThrowsError(
+            try BenchmarkStreamShapeProfileSelection.selectedLabels(
+                from: "core-matrix",
+                allProfileLabels: [
+                    "local-low-latency",
+                    "tight-first",
+                    "adaptive-good-full"
+                ]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BenchmarkStreamShapeProfileSelectionError,
+                .missingCoreMatrixLabels(["zrle-compression-0"])
+            )
+            XCTAssertEqual(
+                (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
+                "core-matrix stream-shape profile selection is unavailable because "
+                    + "required profile label(s) are missing: zrle-compression-0."
             )
         }
     }

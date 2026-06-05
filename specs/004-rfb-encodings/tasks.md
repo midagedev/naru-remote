@@ -603,6 +603,15 @@ iPhone) and ships as its own PR.
   renderer upload, request pacing, or server/network wait. Owns: decoder
   metrics, frame pump metadata, benchmark kit/CLI/tests, benchmark artifact,
   research note. **Done.**
+- **T385** Core practical stream matrix: add a named `VNCLiveBenchmark`
+  `--stream-shape-profiles core-matrix` selection that expands to the current
+  default, pure ZRLE compression-0, Tight-first, and adaptive-good-full
+  candidates, so larger optimization PRs can compare request/response versus
+  ContinuousUpdates without running every historical profile. Record a redacted
+  v31 localhost Screen Sharing matrix, keep `local-low-latency` as default, and
+  identify controlled dynamic-content stimulus as the next large benchmark
+  unit. Owns: benchmark profile selection kit/tests, CLI docs, benchmark
+  artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

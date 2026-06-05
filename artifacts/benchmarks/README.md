@@ -102,6 +102,32 @@ swift run VNCLiveBenchmark \
   --continuous-update-samples 3
 ```
 
+For practical optimization PRs, start with the shorter named matrix before an
+exhaustive all-profile sweep:
+
+```bash
+NARU_LIVE_MAC_HOST=127.0.0.1 \
+swift run VNCLiveBenchmark \
+  --attempts 1 \
+  --full-refresh-samples 0 \
+  --stream-shape-samples 0 \
+  --stream-shape-duration-seconds 8 \
+  --stream-shape-frame-interval 0.0167 \
+  --stream-shape-idle-frame-interval 0.05 \
+  --stream-shape-empty-backoff app \
+  --stream-shape-power-mode normal \
+  --stream-shape-client-pressure app \
+  --stream-shape-viewport-interaction app \
+  --first-frame-profiles stream-shape-profiles \
+  --stream-shape-profiles core-matrix \
+  --stream-shape-transport both \
+  --continuous-update-samples 1 \
+  --timeout 6 \
+  --idle-timeout 1 \
+  --ask-password \
+  --json
+```
+
 The live benchmark intentionally redacts the target identity and avoids
 emitting framebuffer dimensions, pixel payloads, byte counts, cursor
 pixels, and raw error descriptions. The stream-shape probe emits
@@ -139,6 +165,11 @@ local tile parsing/framebuffer apply work without exporting dimensions,
 coordinates, pixels, byte counts, raw payloads, or per-frame sample arrays.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
+`--stream-shape-profiles core-matrix` for the standard practical candidate
+set (`local-low-latency`, `zrle-compression-0`, `tight-first`, and
+`adaptive-good-full`) before deciding whether the next larger unit should
+change request cadence, transport, encoding profile, or server compatibility.
+Pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
 For targeted longer runs after an all-profile sweep, pass a comma-separated
