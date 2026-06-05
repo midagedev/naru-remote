@@ -3016,3 +3016,50 @@ codes. They must not include host identity, credentials, port value, TCP
 errors, RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels,
 byte counts, raw payloads, raw FPS, raw timings, draft text, marked text, or
 IME state.
+
+## D74 — Choose the next optimization unit at report level
+
+References:
+- D73 benchmark/app triage parity.
+- Existing schema v37 profile gates and schema v40 per-assessment triage.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v41, aggregate triage labels
+inside each `streamShapeProfileGate`, and add top-level
+`streamShapeOptimizationDecision`.
+
+**Why**:
+- The standard sustained v2 gate runs multiple profiles, transports, and
+  iterations. Per-run triage is useful, but a larger optimization PR needs a
+  single report-level answer before it decides whether to work on cadence,
+  receive path, client decode, renderer upload, or adaptive pacing.
+- Profile recommendations answer "which request/response profile was fastest";
+  the optimization decision answers "what class of constraint is still blocking
+  the target." The second question should come first when the user reports heat,
+  low FPS, and choppy interaction together.
+- Fixed label counts keep the conclusion auditable without exposing raw
+  timings, dimensions, coordinates, pixels, byte counts, or raw error strings.
+
+**Evidence**:
+- `BenchmarkStreamShapeSummaryTests` cover gate-level triage aggregation and a
+  report-level optimization decision spanning renderer-upload failure plus
+  content-cadence warning.
+- `VNCLiveBenchmark` text output prints gate triage counts and the top-level
+  optimization decision before profile recommendations.
+
+**Interpretation**:
+- Use `streamShapeOptimizationDecision.primaryConstraint` as the first routing
+  signal for the next large PR.
+- Use `streamShapeRecommendation` and
+  `streamShapeOrderNeutralRecommendation` only after the primary constraint is
+  profile/cadence related or after local renderer/decode constraints have been
+  addressed.
+- A report-level `primaryConstraint=none` means the benchmark gate itself did
+  not identify the next blocker; it still requires physical iPhone verification
+  before changing production defaults.
+
+**Privacy rule**: report-level optimization decisions may emit only fixed
+target/verdict labels, aggregate gate counts, fixed issue/constraint/next-probe
+labels, and aggregate label counts. They must not include host identity,
+credentials, port value, TCP errors, RFB errors, framebuffer dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
+timings, draft text, marked text, or IME state.
