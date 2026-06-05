@@ -2144,11 +2144,11 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
             return .disabled
         }
         let activeGates = gates.filter { $0.verdict != .disabled }
-        // Only classify explicit transport failures as pre-sample failures. Unlabeled
-        // blocked gates stay below target so future sample-bearing regressions are not
-        // hidden behind the transport/cadence bucket.
+        // Only classify explicit pre-sample transport failures here. Other labeled
+        // regressions stay below target so future decode/stimulus/sample-bearing
+        // failures are not hidden behind the transport/cadence bucket.
         if !activeGates.isEmpty,
-           activeGates.allSatisfy({ !$0.failureLabelCounts.isEmpty }) {
+           activeGates.allSatisfy(hasOnlyPreSampleTransportFailureLabels) {
             return .failedBeforeSamples
         }
         if gates.allSatisfy({ $0.verdict == .pass }) {
@@ -2201,6 +2201,27 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         for gates: [BenchmarkStreamShapeProfileGateReport]
     ) -> Int {
         gates.filter { $0.verdict == .warning || $0.verdict == .fail }.count
+    }
+
+    private static func hasOnlyPreSampleTransportFailureLabels(
+        for gate: BenchmarkStreamShapeProfileGateReport
+    ) -> Bool {
+        !gate.failureLabelCounts.isEmpty
+            && gate.failureLabelCounts.allSatisfy { isPreSampleTransportFailureLabel($0.label) }
+    }
+
+    private static func isPreSampleTransportFailureLabel(_ label: String) -> Bool {
+        label.hasPrefix("stream-connect-")
+            || label.hasPrefix("stream-first-frame-")
+            || label.hasPrefix("continuous-probe-connect-")
+            || label.hasPrefix("continuous-probe-first-frame-")
+            || label.hasPrefix("continuous-probe-enable-")
+            || label == "stream-continuous-updates-connect-timeout"
+            || label == "stream-continuous-updates-connection-failed"
+            || label == "stream-continuous-updates-not-connected"
+            || label == "stream-incremental-connect-timeout"
+            || label == "stream-incremental-connection-failed"
+            || label == "stream-incremental-not-connected"
     }
 
     private static func targetName(
