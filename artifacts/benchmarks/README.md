@@ -125,13 +125,20 @@ only the fixed mode label and threshold constants. Schema v22 adds aggregate
 heat/FPS comparisons can tell whether the adaptive client-pressure floor
 actually affected update pacing. Schema v28 adds the app-mirrored single
 very-slow local-work threshold used to enter adaptive client-pressure pacing
-after one 1000 ms-class decode/apply spike. By default
+after one 1000 ms-class decode/apply spike. Schema v29 splits the recovery
+windows so a single very-slow spike reports
+`streamShapeClientPressureVerySlowRecoveryUpdateCount`, while repeated lag or
+full-upload pressure still reports `streamShapeClientPressureRecoveryUpdateCount`.
+By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
 For targeted longer runs after an all-profile sweep, pass a comma-separated
 subset such as `--stream-shape-profiles tight-first,zrle-compression-0,adaptive-good-full`
 so the benchmark spends time only on the current candidates.
+Use `zrle-compression-0-cursor`, `zrle-compression-0-clipboard`, and
+`zrle-compression-0-cursor-clipboard` when isolating whether the server cursor
+or ExtendedClipboard pseudo-encoding request changes sustained tail behavior.
 Use `--stream-shape-duration-seconds` for sustained thermal/FPS runs; pair it
 with `--stream-shape-samples 0` when the run should stop only by duration
 rather than by a sample cap. Duration-capped runs also cap each in-flight

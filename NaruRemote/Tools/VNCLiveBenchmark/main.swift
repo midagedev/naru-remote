@@ -947,6 +947,9 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
     case tightFirst
     case zrleFirst
     case zrleCompressionZero
+    case zrleCompressionZeroCursor
+    case zrleCompressionZeroClipboard
+    case zrleCompressionZeroCursorClipboard
     case adaptiveGoodZRLE
     case adaptivePoorZRLE
     case adaptiveGoodFull
@@ -962,6 +965,12 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
             "zrle-first"
         case .zrleCompressionZero:
             "zrle-compression-0"
+        case .zrleCompressionZeroCursor:
+            "zrle-compression-0-cursor"
+        case .zrleCompressionZeroClipboard:
+            "zrle-compression-0-clipboard"
+        case .zrleCompressionZeroCursorClipboard:
+            "zrle-compression-0-cursor-clipboard"
         case .adaptiveGoodZRLE:
             "adaptive-good-zrle"
         case .adaptivePoorZRLE:
@@ -994,6 +1003,25 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
             return .increment2
         case .zrleCompressionZero:
             return RFBEncodingPreference(zrle: true, compressionLevel: 0)
+        case .zrleCompressionZeroCursor:
+            return RFBEncodingPreference(
+                zrle: true,
+                cursor: true,
+                compressionLevel: 0
+            )
+        case .zrleCompressionZeroClipboard:
+            return RFBEncodingPreference(
+                zrle: true,
+                extendedClipboard: true,
+                compressionLevel: 0
+            )
+        case .zrleCompressionZeroCursorClipboard:
+            return RFBEncodingPreference(
+                zrle: true,
+                cursor: true,
+                extendedClipboard: true,
+                compressionLevel: 0
+            )
         case .adaptiveGoodZRLE:
             return .adaptive(supported: .increment2, connectionQuality: .good)
         case .adaptivePoorZRLE:
@@ -1074,6 +1102,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeClientPressureSustainedLaggingThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveSustainedContentFrameThreshold: Int
     let streamShapeClientPressureVerySlowThresholdMilliseconds: Int
+    let streamShapeClientPressureVerySlowRecoveryUpdateCount: Int
     let streamShapeClientPressureConsecutiveFullUploadFrameThreshold: Int
     let streamShapeClientPressureRecoveryUpdateCount: Int
     let streamShapeEmptyBackoffMediumStreakThreshold: Int
@@ -1117,7 +1146,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 28
+        self.schemaVersion = 29
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1150,6 +1179,8 @@ private struct BenchmarkReport: Codable, Equatable {
             BenchmarkStreamShapePacingPolicy.appConsecutiveSustainedLaggingContentFrameThreshold
         self.streamShapeClientPressureVerySlowThresholdMilliseconds =
             BenchmarkStreamShapePacingPolicy.appVerySlowClientProcessingThresholdMilliseconds
+        self.streamShapeClientPressureVerySlowRecoveryUpdateCount =
+            BenchmarkStreamShapePacingPolicy.appVerySlowClientPressureRecoveryUpdateCount
         self.streamShapeClientPressureConsecutiveFullUploadFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold
         self.streamShapeClientPressureRecoveryUpdateCount =
@@ -1413,7 +1444,9 @@ private func renderText(_ report: BenchmarkReport) {
                 + "\(report.streamShapeClientPressureVerySlowThresholdMilliseconds)ms once, "
                 + "or full renderer uploads for "
                 + "\(report.streamShapeClientPressureConsecutiveFullUploadFrameThreshold) content frames, "
-                + "recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"
+                + "very-slow recovery "
+                + "\(report.streamShapeClientPressureVerySlowRecoveryUpdateCount) updates, "
+                + "sustained recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"
             )
     }
     if report.streamShapeViewportInteractionMode == .app {

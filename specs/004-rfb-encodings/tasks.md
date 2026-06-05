@@ -575,6 +575,18 @@ iPhone) and ships as its own PR.
   baseline still fails on decode/update tail. Owns: RFB decoder damage
   reporting, upload plan/renderer/view plumbing, app and benchmark pacing,
   focused tests, benchmark artifact. **Done.**
+- **T382** Cold-spike pressure cooldown and pseudo-encoding isolation: after
+  post-upload-cut benchmarks showed the first stream profile could receive one
+  2 second-class local-work spike regardless of Cursor/ExtendedClipboard
+  requests, add benchmark-only ZRLE compression-0 cursor/clipboard isolation
+  profiles, keep the app's default `local-low-latency` profile, and split app
+  plus benchmark adaptive recovery so a single very-slow spike cools for a
+  short fixed update window while repeated lag/full-upload pressure keeps the
+  long sustained recovery. Bump `VNCLiveBenchmark` to schema v29 with the
+  very-slow recovery count, update docs/research, and record safe localhost
+  Screen Sharing benchmark evidence. Owns: Core pacing defaults, app pressure
+  state, benchmark pacing/report/profile list, focused tests, benchmark
+  artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
