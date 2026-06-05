@@ -532,6 +532,14 @@ iPhone) and ships as its own PR.
   with helper-aware diagnostics. Owns: Core pacing defaults, text-injection
   policy, app model tests, adapter tests, research note, benchmark artifact.
   **Done.**
+- **T377** Physical iPhone smoothness and honest Compose follow-up: after real
+  device feedback still reported unnatural zoom/pan and non-working Compose,
+  lower zoomed trackpad follow-pan coupling, move viewport-interaction content
+  pacing to a conservative 4 Hz-class floor, and supersede T376's unconfirmed
+  UTF-8 best-effort path so Korean/CJK/emoji Compose without confirmed UTF-8
+  clipboard or reachable helper fails before writing clipboard bytes. Owns:
+  Core pacing defaults, pointer resolver, text-injection policy, focused app /
+  core tests, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

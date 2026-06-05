@@ -75,7 +75,7 @@ description: "Tasks: Host Helper Text Bridge"
 ## Phase 5: User Story 3 - Keep Basic VNC And Diagnostics Honest (Priority: P3)
 
 - [ ] T021 [US3] Add tests proving no-helper VNC viewing, Direct mode, PiP, and diagnostics paths do not require helper state.
-- [ ] T022 [US3] Add safe failure copy for unconfirmed VNC UTF-8 + helper unavailable in `TextInjectionClipboardPolicy` or successor policy.
+- [x] T022 [US3] Add safe failure copy for unconfirmed VNC UTF-8 + helper unavailable in `TextInjectionClipboardPolicy` or successor policy. **Done.**
 - [ ] T023 [US3] Update diagnostics schema docs/contracts if schema version changes.
 
 **Checkpoint**: No-helper baseline remains intact.

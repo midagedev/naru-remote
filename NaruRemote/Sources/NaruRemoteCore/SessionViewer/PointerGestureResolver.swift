@@ -77,7 +77,7 @@ public struct PointerGestureResolver: Sendable {
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
         autoPanDamping: CGFloat = 0.82,
-        zoomedTrackpadPanCoupling: CGFloat = 0.55
+        zoomedTrackpadPanCoupling: CGFloat = 0.25
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
