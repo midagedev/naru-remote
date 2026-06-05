@@ -1617,7 +1617,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 39
+        self.schemaVersion = 40
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -2428,7 +2428,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v39 gate reporting. Use individual stream-shape options without a preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v40 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

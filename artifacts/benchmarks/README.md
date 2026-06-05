@@ -287,6 +287,18 @@ ten second duration, zero hidden stream-shape preflight frames, and the
 `iphone-sustained-usability-v2` target. The pixel-format preset keeps that same
 gate shape but swaps in full-color/RGB565-in-32 profile pairs. Use explicit
 stream-shape options without the preset for custom experiments.
+Schema v40 extends stream-shape `practicalAssessment` with
+`primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe`, using the
+same fixed sustained-session triage catalog as diagnostic JSON v28. Treat these
+fields as the benchmark-side decision surface for the next large unit:
+content/receive constraints route to sustained profile or transport cadence
+gates, client-decode constraints route to encoding-profile comparison,
+renderer-upload constraints route to local render pipeline inspection, adaptive
+pacing constraints route to pacing comparison, and sample-size constraints
+route to longer physical-device collection. Do not add host identity,
+dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
+timings, TCP/RFB errors, draft text, marked text, or IME state to benchmark
+artifacts.
 Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw

@@ -773,6 +773,15 @@ iPhone) and ships as its own PR.
   sampling without exporting raw FPS, raw timings, host identity, dimensions,
   coordinates, pixels, byte counts, draft text, marked text, or IME state.
   Owns: diagnostic schema/tests, benchmark docs/artifact. **Done.**
+- **T405** Live benchmark practical triage parity: bump `VNCLiveBenchmark` to
+  schema v40 and extend each stream-shape `practicalAssessment` with derived
+  `primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe` labels
+  using the same sustained-session triage catalog as app diagnostics. Use this
+  to make benchmark gates and physical iPhone reports choose the same next
+  large optimization unit without exporting host identity, dimensions,
+  coordinates, pixels, cursor pixels, byte counts, raw timings, TCP/RFB errors,
+  raw payloads, draft text, marked text, or IME state. Owns: benchmark summary
+  kit/tests, CLI schema/help, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

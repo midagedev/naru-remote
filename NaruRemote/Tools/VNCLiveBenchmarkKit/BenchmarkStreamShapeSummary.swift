@@ -167,18 +167,201 @@ public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equat
 }
 
 public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Sendable {
+    private static let primaryIssuePriority: [BenchmarkStreamShapePracticalIssueCode] = [
+        .probeFailed,
+        .fullUploadFailed,
+        .clientProcessingFailed,
+        .verySlowUpdate,
+        .averageUpdateFailed,
+        .p95UpdateFailed,
+        .contentFPSFailed,
+        .noContentUpdates,
+        .fullUploadWarning,
+        .clientProcessingWarning,
+        .averageUpdateWarning,
+        .p95UpdateWarning,
+        .contentFPSWarning,
+        .adaptivePressureFailed,
+        .adaptivePressureWarning,
+        .insufficientContentSamples,
+        .probeDisabled
+    ]
+
+    private enum CodingKeys: String, CodingKey {
+        case targetName
+        case verdict
+        case issueCodes
+        case primaryIssueCode
+        case primaryConstraint
+        case recommendedNextProbe
+    }
+
     public let targetName: String
     public let verdict: BenchmarkStreamShapePracticalVerdict
     public let issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    public let primaryIssueCode: BenchmarkStreamShapePracticalIssueCode?
+    public let primaryConstraint: String
+    public let recommendedNextProbe: String
 
     public init(
         targetName: String,
         verdict: BenchmarkStreamShapePracticalVerdict,
-        issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+        issueCodes: [BenchmarkStreamShapePracticalIssueCode],
+        primaryIssueCode: BenchmarkStreamShapePracticalIssueCode? = nil,
+        primaryConstraint: String? = nil,
+        recommendedNextProbe: String? = nil
     ) {
         self.targetName = targetName
         self.verdict = verdict
-        self.issueCodes = issueCodes
+        let safeIssueCodes = Self.safeIssueCodes(issueCodes)
+        let primaryIssue = Self.safePrimaryIssueCode(
+            primaryIssueCode,
+            issueCodes: safeIssueCodes
+        ) ?? Self.primaryIssue(for: safeIssueCodes)
+        self.issueCodes = safeIssueCodes
+        self.primaryIssueCode = primaryIssue
+        let derivedPrimaryConstraint = Self.primaryConstraint(for: primaryIssue)
+        let derivedRecommendedNextProbe = Self.recommendedNextProbe(for: primaryIssue)
+        self.primaryConstraint = Self.safePrimaryConstraint(
+            primaryConstraint,
+            matching: derivedPrimaryConstraint
+        ) ?? derivedPrimaryConstraint.rawValue
+        self.recommendedNextProbe = Self.safeRecommendedNextProbe(
+            recommendedNextProbe,
+            matching: derivedRecommendedNextProbe
+        ) ?? derivedRecommendedNextProbe.rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawPrimaryIssueCode = try container.decodeIfPresent(String.self, forKey: .primaryIssueCode)
+        self.init(
+            targetName: try container.decode(String.self, forKey: .targetName),
+            verdict: try container.decode(BenchmarkStreamShapePracticalVerdict.self, forKey: .verdict),
+            issueCodes: try container.decodeIfPresent(
+                [BenchmarkStreamShapePracticalIssueCode].self,
+                forKey: .issueCodes
+            ) ?? [],
+            primaryIssueCode: rawPrimaryIssueCode.flatMap(BenchmarkStreamShapePracticalIssueCode.init(rawValue:)),
+            primaryConstraint: try container.decodeIfPresent(String.self, forKey: .primaryConstraint),
+            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(targetName, forKey: .targetName)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(issueCodes, forKey: .issueCodes)
+        try container.encodeIfPresent(primaryIssueCode?.rawValue, forKey: .primaryIssueCode)
+        try container.encode(primaryConstraint, forKey: .primaryConstraint)
+        try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
+    }
+
+    private static func safeIssueCodes(
+        _ values: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> [BenchmarkStreamShapePracticalIssueCode] {
+        var seen = Set<String>()
+        return values.filter { issue in
+            guard !seen.contains(issue.rawValue) else {
+                return false
+            }
+            seen.insert(issue.rawValue)
+            return true
+        }
+    }
+
+    private static func primaryIssue(
+        for issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalIssueCode? {
+        primaryIssuePriority.first { issueCodes.contains($0) }
+    }
+
+    private static func safePrimaryIssueCode(
+        _ value: BenchmarkStreamShapePracticalIssueCode?,
+        issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalIssueCode? {
+        guard let value, issueCodes.contains(value) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func safePrimaryConstraint(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionPrimaryConstraint
+    ) -> String? {
+        guard let value,
+              DiagnosticSustainedSessionPrimaryConstraint(rawValue: value) == expected
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private static func safeRecommendedNextProbe(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionNextProbe
+    ) -> String? {
+        guard let value,
+              DiagnosticSustainedSessionNextProbe(rawValue: value) == expected
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private static func primaryConstraint(
+        for issue: BenchmarkStreamShapePracticalIssueCode?
+    ) -> DiagnosticSustainedSessionPrimaryConstraint {
+        switch issue {
+        case nil, .probeDisabled?:
+            return .none
+        case .insufficientContentSamples?:
+            return .sampleSize
+        case .noContentUpdates?, .contentFPSWarning?, .contentFPSFailed?:
+            return .contentCadence
+        case .probeFailed?,
+            .averageUpdateWarning?,
+            .averageUpdateFailed?,
+            .p95UpdateWarning?,
+            .p95UpdateFailed?,
+            .verySlowUpdate?:
+            return .receivePath
+        case .clientProcessingWarning?, .clientProcessingFailed?:
+            return .clientDecode
+        case .fullUploadWarning?, .fullUploadFailed?:
+            return .rendererUpload
+        case .adaptivePressureWarning?, .adaptivePressureFailed?:
+            return .adaptivePacing
+        }
+    }
+
+    private static func recommendedNextProbe(
+        for issue: BenchmarkStreamShapePracticalIssueCode?
+    ) -> DiagnosticSustainedSessionNextProbe {
+        switch primaryConstraint(for: issue) {
+        case .none:
+            return .none
+        case .sampleSize:
+            return .collectLongerPhysicalRun
+        case .contentCadence:
+            return .runSustainedV2ProfileGate
+        case .receivePath:
+            return .inspectServerTransportCadence
+        case .clientDecode:
+            return .compareEncodingProfileGate
+        case .appFrameApply, .rendererUpload:
+            return .inspectLocalRenderPipeline
+        case .adaptivePacing:
+            return .compareAdaptivePacing
+        case .thermal:
+            return .runPowerSaverThermalPass
+        case .viewportInteraction:
+            return .runViewportInteractionTrace
+        case .composeInput:
+            return .inspectComposeRoute
+        }
     }
 }
 
