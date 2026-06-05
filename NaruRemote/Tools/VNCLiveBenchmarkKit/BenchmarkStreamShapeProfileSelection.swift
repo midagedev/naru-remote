@@ -2,6 +2,7 @@ import Foundation
 
 public enum BenchmarkStreamShapeProfileSelection {
     public static let coreMatrixSelection = "core-matrix"
+    public static let zrleIsolationSelection = "zrle-isolation"
     /// Current default, pure ZRLE, non-ZRLE fallback, and future adaptive path.
     public static let defaultCoreMatrixLabels = [
         "local-low-latency",
@@ -9,17 +10,26 @@ public enum BenchmarkStreamShapeProfileSelection {
         "tight-first",
         "adaptive-good-full"
     ]
+    /// Current default, pure ZRLE, and cursor/clipboard ZRLE extension variants.
+    public static let defaultZrleIsolationLabels = [
+        "local-low-latency",
+        "zrle-compression-0",
+        "zrle-compression-0-cursor",
+        "zrle-compression-0-clipboard",
+        "zrle-compression-0-cursor-clipboard"
+    ]
 
     public static func usageDescription(allProfileLabels: [String]) -> String {
         let labels = uniqueLabels(allProfileLabels).joined(separator: ",")
-        return "local-low-latency|\(coreMatrixSelection)|all|comma-separated labels (\(labels))"
+        return "local-low-latency|\(coreMatrixSelection)|\(zrleIsolationSelection)|all|comma-separated labels (\(labels))"
     }
 
     public static func selectedLabels(
         from rawValue: String,
         allProfileLabels: [String],
         localLowLatencyLabel: String = "local-low-latency",
-        coreMatrixLabels: [String] = defaultCoreMatrixLabels
+        coreMatrixLabels: [String] = defaultCoreMatrixLabels,
+        zrleIsolationLabels: [String] = defaultZrleIsolationLabels
     ) throws -> [String] {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -37,13 +47,18 @@ public enum BenchmarkStreamShapeProfileSelection {
             return [localLowLatencyLabel]
         }
         if trimmed == coreMatrixSelection {
-            let knownLabels = Set(allProfileLabels)
-            let selectedLabels = uniqueLabels(coreMatrixLabels)
-            let unknownLabels = selectedLabels.filter { !knownLabels.contains($0) }
-            guard unknownLabels.isEmpty else {
-                throw BenchmarkStreamShapeProfileSelectionError.missingCoreMatrixLabels(unknownLabels)
-            }
-            return selectedLabels
+            return try namedSelectionLabels(
+                coreMatrixLabels,
+                allProfileLabels: allProfileLabels,
+                missingError: BenchmarkStreamShapeProfileSelectionError.missingCoreMatrixLabels
+            )
+        }
+        if trimmed == zrleIsolationSelection {
+            return try namedSelectionLabels(
+                zrleIsolationLabels,
+                allProfileLabels: allProfileLabels,
+                missingError: BenchmarkStreamShapeProfileSelectionError.missingZrleIsolationLabels
+            )
         }
 
         let requestedLabels = trimmed
@@ -76,6 +91,20 @@ public enum BenchmarkStreamShapeProfileSelection {
         return result
     }
 
+    private static func namedSelectionLabels(
+        _ labels: [String],
+        allProfileLabels: [String],
+        missingError: ([String]) -> BenchmarkStreamShapeProfileSelectionError
+    ) throws -> [String] {
+        let knownLabels = Set(allProfileLabels)
+        let selectedLabels = uniqueLabels(labels)
+        let unknownLabels = selectedLabels.filter { !knownLabels.contains($0) }
+        guard unknownLabels.isEmpty else {
+            throw missingError(unknownLabels)
+        }
+        return selectedLabels
+    }
+
     private static func duplicateValues(in labels: [String]) -> [String] {
         var seen: Set<String> = []
         var duplicates: [String] = []
@@ -90,6 +119,7 @@ public enum BenchmarkStreamShapeProfileSelectionError: Error, Equatable, Sendabl
     case emptySelection
     case unknownLabels([String])
     case missingCoreMatrixLabels([String])
+    case missingZrleIsolationLabels([String])
     case duplicateLabels([String])
 
     public var message: String {
@@ -100,6 +130,9 @@ public enum BenchmarkStreamShapeProfileSelectionError: Error, Equatable, Sendabl
             return "unknown stream-shape profile label(s): \(labels.joined(separator: ", "))."
         case let .missingCoreMatrixLabels(labels):
             return "core-matrix stream-shape profile selection is unavailable because "
+                + "required profile label(s) are missing: \(labels.joined(separator: ", "))."
+        case let .missingZrleIsolationLabels(labels):
+            return "zrle-isolation stream-shape profile selection is unavailable because "
                 + "required profile label(s) are missing: \(labels.joined(separator: ", "))."
         case let .duplicateLabels(labels):
             return "duplicate stream-shape profile label(s): \(labels.joined(separator: ", "))."

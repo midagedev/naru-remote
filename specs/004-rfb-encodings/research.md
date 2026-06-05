@@ -1955,3 +1955,63 @@ renderer/upload counts, practical verdict codes, and safe failure labels. They
 must not include host identity, credentials, framebuffer dimensions, rectangle
 coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
 external command text, command output, or raw error text.
+
+## D57 — Isolate ZRLE extension profiles under dynamic stimulus before default changes
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add `--stream-shape-profiles zrle-isolation` as a named live
+benchmark matrix for the current default, pure ZRLE compression 0, and
+cursor/ExtendedClipboard extension combinations. Keep the production default
+unchanged after the first stimulated isolation run.
+
+**Why**:
+- D56 showed repeatable dynamic-content measurement, but the `core-matrix`
+  result could not tell whether the ZRLE tail was caused by compression,
+  server-cursor, ExtendedClipboard, or first-profile ordering.
+- A named selection makes this investigation reproducible without asking every
+  future optimization PR to spell out five comma-separated labels.
+
+**Evidence**:
+- `BenchmarkStreamShapeProfileSelectionTests` pass with `zrle-isolation` usage,
+  fixed ordering, and missing-label safety coverage.
+- Help output exposes `zrle-isolation` in both the synopsis and option text.
+- v32 local Screen Sharing request/response run with external animated-window
+  stimulus:
+  - `local-low-latency`: content FPS 1.33, update p50/p95 165/2667 ms, network
+    p95 466 ms, client p95 2200 ms, ZRLE tile/apply p95 2132 ms, full-upload
+    pressure 0 permille, one very-slow update.
+  - `zrle-compression-0`: content FPS 2.00, update p50/p95 153/373 ms,
+    network p95 370 ms, client p95 3 ms, ZRLE tile/apply p95 3 ms,
+    full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor`: content FPS 2.00, update p50/p95 189/395 ms,
+    network p95 393 ms, client p95 161 ms, ZRLE tile/apply p95 158 ms,
+    full-upload pressure 0 permille.
+  - `zrle-compression-0-clipboard`: content FPS 2.00, update p50/p95
+    149/368 ms, network p95 368 ms, client p95 2 ms, ZRLE tile/apply p95
+    1 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor-clipboard`: content FPS 2.00, update p50/p95
+    158/443 ms, network p95 431 ms, client p95 12 ms, ZRLE tile/apply p95
+    12 ms, full-upload pressure 0 permille.
+
+**Interpretation**:
+- `local-low-latency` and `zrle-compression-0-cursor-clipboard` request the
+  same request/response ZRLE compression-0, server-cursor, and
+  ExtendedClipboard preference. The 2 second-class tail appearing only on the
+  first profile is therefore an order/cold-start confound, not enough evidence
+  to change the production default.
+- The next larger unit should make candidate scoring order-neutral with
+  repeated iterations, profile rotation, or an explicit warm-up profile before
+  scoring.
+
+**Privacy rule**: ZRLE isolation artifacts may report only fixed
+stimulus/profile/transport labels, aggregate timing summaries, aggregate FPS,
+aggregate renderer/upload counts, practical verdict codes, and safe failure
+labels. They must not include host identity, credentials, framebuffer
+dimensions, rectangle coordinates, pixels, cursor pixels, byte counts, raw
+samples, raw payloads, external command text, command output, or raw error
+text.

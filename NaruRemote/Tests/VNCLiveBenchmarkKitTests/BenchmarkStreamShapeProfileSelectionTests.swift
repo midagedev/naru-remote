@@ -7,7 +7,7 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             BenchmarkStreamShapeProfileSelection.usageDescription(
                 allProfileLabels: ["local-low-latency", "tight-first"]
             ),
-            "local-low-latency|core-matrix|all|comma-separated labels (local-low-latency,tight-first)"
+            "local-low-latency|core-matrix|zrle-isolation|all|comma-separated labels (local-low-latency,tight-first)"
         )
     }
 
@@ -85,6 +85,55 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
                 (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
                 "core-matrix stream-shape profile selection is unavailable because "
                     + "required profile label(s) are missing: zrle-compression-0."
+            )
+        }
+    }
+
+    func testZrleIsolationSelectsExtensionProfilesInOrder() throws {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: " zrle-isolation ",
+            allProfileLabels: [
+                "local-low-latency",
+                "zrle-compression-0",
+                "zrle-compression-0-cursor",
+                "zrle-compression-0-clipboard",
+                "zrle-compression-0-cursor-clipboard",
+                "tight-first"
+            ]
+        )
+
+        XCTAssertEqual(
+            labels,
+            [
+                "local-low-latency",
+                "zrle-compression-0",
+                "zrle-compression-0-cursor",
+                "zrle-compression-0-clipboard",
+                "zrle-compression-0-cursor-clipboard"
+            ]
+        )
+    }
+
+    func testZrleIsolationThrowsWhenAnExtensionProfileIsMissing() {
+        XCTAssertThrowsError(
+            try BenchmarkStreamShapeProfileSelection.selectedLabels(
+                from: "zrle-isolation",
+                allProfileLabels: [
+                    "local-low-latency",
+                    "zrle-compression-0",
+                    "zrle-compression-0-cursor",
+                    "zrle-compression-0-clipboard"
+                ]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BenchmarkStreamShapeProfileSelectionError,
+                .missingZrleIsolationLabels(["zrle-compression-0-cursor-clipboard"])
+            )
+            XCTAssertEqual(
+                (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
+                "zrle-isolation stream-shape profile selection is unavailable because "
+                    + "required profile label(s) are missing: zrle-compression-0-cursor-clipboard."
             )
         }
     }
