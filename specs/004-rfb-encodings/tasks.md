@@ -911,6 +911,15 @@ iPhone) and ships as its own PR.
   from being capped by the app's intentional 4Hz-class local-gesture pacing
   floor. Owns: benchmark CLI preset, README, benchmark artifact, research note.
   **Done.**
+- **T420** Request/response ZRLE isolation preset: add a benchmark-only
+  `sustained-v2-zrle-isolation` gate preset that keeps the sustained v2
+  request/response shape, selects `zrle-isolation`, skips the standalone
+  ContinuousUpdates probe, and emits schema v45 so the new fixed preset label is
+  explicit in live reports. Record the first redacted live result and route the
+  next large unit to server/request-response cadence when pure ZRLE removes
+  client-decode tail but still misses the 8fps steady-stream target. Owns:
+  benchmark CLI preset, tests, README, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
