@@ -749,6 +749,14 @@ iPhone) and ships as its own PR.
   larger optimization PRs use one repeatable gate shape before physical iPhone
   verification. Owns: benchmark kit enum/tests, CLI option/report output,
   benchmark docs/artifact, research note. **Done.**
+- **T402** Benchmark-only pixel-format isolation gate: add
+  `VNCLiveBenchmark --stream-shape-profiles pixel-format-isolation` and
+  `--stream-shape-gate-preset sustained-v2-pixel-format`, using benchmark-only
+  RGB565-in-32 SetPixelFormat profile pairs under the same sustained v2
+  controlled-stimulus gate shape. Keep app defaults unchanged until live and
+  physical-device artifacts show a clear win. Owns: pixel-format constants,
+  network-client SetPixelFormat preference, benchmark profile selection,
+  gate preset/tests, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

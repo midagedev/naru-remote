@@ -64,6 +64,40 @@ public struct RFBPixelFormat: Codable, Equatable, Sendable {
     }
 }
 
+public extension RFBPixelFormat {
+    /// Naru's full-color framebuffer format for servers that need an
+    /// explicit SetPixelFormat reassertion before streaming.
+    static let fullColor32LittleEndian = RFBPixelFormat(
+        bitsPerPixel: 32,
+        depth: 24,
+        isBigEndian: false,
+        isTrueColor: true,
+        redMax: 255,
+        greenMax: 255,
+        blueMax: 255,
+        redShift: 16,
+        greenShift: 8,
+        blueShift: 0
+    )
+
+    /// Benchmark-only low-color format. It keeps 32 bits per pixel so
+    /// Naru's framebuffer pipeline and rectangle decoders stay on the
+    /// supported true-color path, while reducing channel precision to
+    /// RGB565 for compressed server encodings that honor SetPixelFormat.
+    static let rgb565In32LittleEndian = RFBPixelFormat(
+        bitsPerPixel: 32,
+        depth: 16,
+        isBigEndian: false,
+        isTrueColor: true,
+        redMax: 31,
+        greenMax: 63,
+        blueMax: 31,
+        redShift: 11,
+        greenShift: 5,
+        blueShift: 0
+    )
+}
+
 public struct RFBServerInit: Codable, Equatable, Sendable {
     public let width: Int
     public let height: Int

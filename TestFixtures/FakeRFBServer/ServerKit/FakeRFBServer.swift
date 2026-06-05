@@ -142,12 +142,14 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
                         send(transcript.bytes[safe: 14..<18]) { [self] in
                             receive(byteCount: 1) { [self] in
                                 send(transcript.bytes[safe: 18..<46]) { [self] in
-                                    // The production client sends SetEncodings
-                                    // immediately after ClientInit (spec 004
-                                    // FR-001).  Drain it before the fixed-size
+                                    // Drain post-ClientInit negotiation
+                                    // messages before the fixed-size
                                     // FramebufferUpdateRequest reads so the
                                     // framing stays aligned.
-                                    receiveSetEncodings { [self] in
+                                    receiveRFBClientNegotiationMessages(
+                                        connection: connection,
+                                        clientMessageRecorder: clientMessageRecorder
+                                    ) { [self] in
                                         receiveFramebufferRequestsAndSendUpdates()
                                     }
                                 }
@@ -204,41 +206,6 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
         }
     }
 
-    /// Drains exactly one `SetEncodings` message (RFC 6143 §7.5.2,
-    /// type 2) — 4-byte header (type, pad, u16 count) then `count`×4
-    /// bytes — recording it as a control message so the negotiation
-    /// assertion test can inspect it without polluting the main client
-    /// byte stream.
-    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
-        receiveData(byteCount: 4) { [self] header in
-            let bytes = [UInt8](header)
-            let count = Int(bytes[2]) << 8 | Int(bytes[3])
-            let bodyLength = count * 4
-            guard bodyLength > 0 else {
-                clientMessageRecorder?.appendControlMessage(header)
-                completion()
-                return
-            }
-            receiveData(byteCount: bodyLength) { [self] body in
-                clientMessageRecorder?.appendControlMessage(header + body)
-                completion()
-            }
-        }
-    }
-
-    private func receiveData(byteCount: Int, completion: @escaping @Sendable (Data) -> Void) {
-        connection.receive(
-            minimumIncompleteLength: byteCount,
-            maximumLength: byteCount
-        ) { [connection] data, _, _, error in
-            if let data, data.count == byteCount, error == nil {
-                completion(data)
-            } else {
-                connection.cancel()
-            }
-        }
-    }
-
     private func receiveClientMessages(into recorder: FakeRFBClientMessageRecorder) {
         connection.receive(
             minimumIncompleteLength: 1,
@@ -284,7 +251,10 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
                         send(transcript.bytes[safe: 14..<18]) { [self] in
                             receive(byteCount: 1) { [self] in
                                 send(transcript.bytes[safe: 18..<46]) { [self] in
-                                    receiveSetEncodings { [self] in
+                                    receiveRFBClientNegotiationMessages(
+                                        connection: connection,
+                                        clientMessageRecorder: clientMessageRecorder
+                                    ) { [self] in
                                         sendServerMessages(ArraySlice(serverMessages))
                                     }
                                 }
@@ -328,34 +298,6 @@ private final class FakeRFBNoAuthServerMessagesConnection: @unchecked Sendable {
         ) { [connection] _, _, _, error in
             if error == nil {
                 completion()
-            } else {
-                connection.cancel()
-            }
-        }
-    }
-
-    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
-        receiveData(byteCount: 4) { [self] header in
-            let bytes = [UInt8](header)
-            let count = Int(bytes[2]) << 8 | Int(bytes[3])
-            let bodyLength = count * 4
-            guard bodyLength > 0 else {
-                completion()
-                return
-            }
-            receiveData(byteCount: bodyLength) { _ in
-                completion()
-            }
-        }
-    }
-
-    private func receiveData(byteCount: Int, completion: @escaping @Sendable (Data) -> Void) {
-        connection.receive(
-            minimumIncompleteLength: byteCount,
-            maximumLength: byteCount
-        ) { [connection] data, _, _, error in
-            if let data, data.count == byteCount, error == nil {
-                completion(data)
             } else {
                 connection.cancel()
             }
@@ -426,11 +368,13 @@ private final class FakeRFBVNCAuthenticationConnection: @unchecked Sendable {
 
                                     receive(byteCount: 1) { [self] _ in
                                         send(transcript.bytes[safe: 18..<46]) { [self] in
-                                            // Drain the post-ClientInit
-                                            // SetEncodings (spec 004 FR-001)
-                                            // before the fixed-size update
-                                            // request reads.
-                                            receiveSetEncodings { [self] in
+                                            // Drain post-ClientInit
+                                            // negotiation before the fixed-size
+                                            // update request reads.
+                                            receiveRFBClientNegotiationMessages(
+                                                connection: connection,
+                                                clientMessageRecorder: nil
+                                            ) { [self] in
                                                 receiveFramebufferRequestsAndSendUpdates()
                                             }
                                         }
@@ -470,21 +414,6 @@ private final class FakeRFBVNCAuthenticationConnection: @unchecked Sendable {
         }
     }
 
-    private func receiveSetEncodings(completion: @escaping @Sendable () -> Void) {
-        receive(byteCount: 4) { [self] header in
-            let bytes = [UInt8](header)
-            let count = Int(bytes[2]) << 8 | Int(bytes[3])
-            let bodyLength = count * 4
-            guard bodyLength > 0 else {
-                completion()
-                return
-            }
-            receive(byteCount: bodyLength) { _ in
-                completion()
-            }
-        }
-    }
-
     private func receiveFramebufferRequestsAndSendUpdates() {
         let updates = frameUpdates ?? [transcript.bytes[safe: 46..<62]]
         receiveFramebufferRequestsAndSendUpdates(ArraySlice(updates))
@@ -510,6 +439,62 @@ private final class FakeRFBVNCAuthenticationConnection: @unchecked Sendable {
             UInt8((value >> 8) & 0xff),
             UInt8(value & 0xff)
         ])
+    }
+}
+
+/// Drains ClientInit follow-up negotiation messages before the fake server
+/// starts reading fixed-size FramebufferUpdateRequest messages. Naru always
+/// sends one `SetEncodings` message, and benchmark-only pixel-format runs may
+/// send one or more `SetPixelFormat` messages before it.
+private func receiveRFBClientNegotiationMessages(
+    connection: NWConnection,
+    clientMessageRecorder: FakeRFBClientMessageRecorder?,
+    completion: @escaping @Sendable () -> Void
+) {
+    receiveRFBClientData(connection: connection, byteCount: 4) { header in
+        let bytes = [UInt8](header)
+        switch bytes.first {
+        case 0:
+            receiveRFBClientData(connection: connection, byteCount: 16) { body in
+                clientMessageRecorder?.appendControlMessage(header + body)
+                receiveRFBClientNegotiationMessages(
+                    connection: connection,
+                    clientMessageRecorder: clientMessageRecorder,
+                    completion: completion
+                )
+            }
+        case 2:
+            let count = Int(bytes[2]) << 8 | Int(bytes[3])
+            let bodyLength = count * 4
+            guard bodyLength > 0 else {
+                clientMessageRecorder?.appendControlMessage(header)
+                completion()
+                return
+            }
+            receiveRFBClientData(connection: connection, byteCount: bodyLength) { body in
+                clientMessageRecorder?.appendControlMessage(header + body)
+                completion()
+            }
+        default:
+            connection.cancel()
+        }
+    }
+}
+
+private func receiveRFBClientData(
+    connection: NWConnection,
+    byteCount: Int,
+    completion: @escaping @Sendable (Data) -> Void
+) {
+    connection.receive(
+        minimumIncompleteLength: byteCount,
+        maximumLength: byteCount
+    ) { [connection] data, _, _, error in
+        if let data, data.count == byteCount, error == nil {
+            completion(data)
+        } else {
+            connection.cancel()
+        }
     }
 }
 

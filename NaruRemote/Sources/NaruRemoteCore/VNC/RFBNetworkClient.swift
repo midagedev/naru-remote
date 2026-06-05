@@ -10,19 +10,22 @@ import Dispatch
 // fakes that implement the same protocols (deferred to a follow-up
 // PR per PR #17's out-of-scope list).  Mutable state
 // (`clientState`, `clientLastFrame`, `clientServerInit`,
-// `clientFramebuffer`, `clientEncodingPreference`, `activeConnection`) is
+// `clientFramebuffer`, `clientEncodingPreference`,
+// `clientPixelFormatPreference`, `activeConnection`) is
 // guarded by `lock` —
 // every read and every write goes through `lock.withRFBClientLock`.
 public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
     private static let minimumNoAuthFirstFrameTranscriptByteCount = 62
 
     private let initialEncodingPreference: RFBEncodingPreference
+    private let initialPixelFormatPreference: RFBPixelFormat?
     private let lock = NSLock()
     private var clientState: RFBClientState = .disconnected
     private var clientLastFrame: RFBFrameMetadata?
     private var clientServerInit: RFBServerInit?
     private var clientFramebuffer: RFBRawFramebuffer?
     private var clientEncodingPreference: RFBEncodingPreference
+    private var clientPixelFormatPreference: RFBPixelFormat?
     /// Per-session persistent zlib inflate for ZRLE (spec 004 FR-005).
     /// Created fresh on each connect, torn down with the connection — a
     /// new session must start a fresh zlib window.
@@ -41,9 +44,14 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         self.init(encodingPreference: .localLowLatency)
     }
 
-    public init(encodingPreference: RFBEncodingPreference) {
+    public init(
+        encodingPreference: RFBEncodingPreference,
+        pixelFormatPreference: RFBPixelFormat? = nil
+    ) {
         self.initialEncodingPreference = encodingPreference
+        self.initialPixelFormatPreference = pixelFormatPreference
         self.clientEncodingPreference = encodingPreference
+        self.clientPixelFormatPreference = pixelFormatPreference
     }
 
     deinit {
@@ -149,6 +157,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientServerInit = nil
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
+            clientPixelFormatPreference = initialPixelFormatPreference
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientUTF8ClipboardSupport = .unknown
@@ -891,6 +900,11 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             timeout: timeout
         )
         let serverInit = try RFBProtocolDecoder.parseServerInit(serverInitData)
+        let effectiveServerInit = try applyPixelFormatPreference(
+            to: serverInit,
+            connection: connection,
+            timeout: timeout
+        )
 
         // Advertise the encodings Naru can decode, in server-honored
         // preference order, so the server stops falling back to Raw
@@ -899,7 +913,34 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         // dependency.
         try connection.write(setEncodingsMessage(), timeout: timeout)
 
-        return serverInit
+        return effectiveServerInit
+    }
+
+    private func applyPixelFormatPreference(
+        to serverInit: RFBServerInit,
+        connection: RFBNetworkConnection,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        let pixelFormatPreference = lock.withRFBClientLock {
+            clientPixelFormatPreference
+        }
+        guard let pixelFormatPreference else {
+            return serverInit
+        }
+        guard pixelFormatPreference.isSupported32BitTrueColor else {
+            throw RFBRawFramebufferDecoderError.unsupportedPixelFormat
+        }
+
+        try connection.write(
+            RFBClientMessageEncoder.setPixelFormat(pixelFormatPreference),
+            timeout: timeout
+        )
+        return RFBServerInit(
+            width: serverInit.width,
+            height: serverInit.height,
+            pixelFormat: pixelFormatPreference,
+            name: serverInit.name
+        )
     }
 
     private func setEncodingsMessage() -> Data {

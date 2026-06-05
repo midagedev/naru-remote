@@ -139,6 +139,23 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
+When the core gate says transport/profile pressure is the likely bottleneck,
+run the benchmark-only pixel-format gate before changing the app default:
+
+```bash
+NARU_LIVE_MAC_HOST=127.0.0.1 \
+NARU_LIVE_STIMULUS_COMMAND='.build/debug/VNCLiveStimulusWindow --duration "$NARU_LIVE_STIMULUS_DURATION_SECONDS"' \
+swift run VNCLiveBenchmark \
+  --stream-shape-gate-preset sustained-v2-pixel-format \
+  --ask-password \
+  --json
+```
+
+This compares full-color and RGB565-in-32 profiles under the same sustained v2
+stimulus, pacing, transport, and profile-rotation shape. Treat it as a server
+compatibility and pressure-isolation gate only; do not change the app's default
+pixel format until live and physical-device artifacts show a clear win.
+
 The live benchmark intentionally redacts the target identity and avoids
 emitting framebuffer dimensions, pixel payloads, byte counts, cursor
 pixels, and raw error descriptions. The stream-shape probe emits
@@ -261,12 +278,15 @@ marked text, or IME state in artifacts.
 v1 readiness labels before connecting or prompting for a password, and is meant
 to explain why a live profile gate could not be attempted.
 Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
-`streamShapeGatePreset` in benchmark reports. The sustained v2 core preset is
-the standard large-unit live gate: controlled stimulus, core matrix profiles,
-both transports, five rotated iterations, app client-pressure and viewport
-pacing, ten second duration, zero hidden stream-shape preflight frames, and the
-`iphone-sustained-usability-v2` target. Use explicit stream-shape options
-without the preset for custom experiments.
+`streamShapeGatePreset` in benchmark reports. Schema v39 adds
+`sustained-v2-pixel-format` and `--stream-shape-profiles
+pixel-format-isolation`. The sustained v2 core preset is the standard
+large-unit live gate: controlled stimulus, core matrix profiles, both
+transports, five rotated iterations, app client-pressure and viewport pacing,
+ten second duration, zero hidden stream-shape preflight frames, and the
+`iphone-sustained-usability-v2` target. The pixel-format preset keeps that same
+gate shape but swaps in full-color/RGB565-in-32 profile pairs. Use explicit
+stream-shape options without the preset for custom experiments.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
@@ -276,6 +296,8 @@ change request cadence, transport, encoding profile, or server compatibility.
 Pass `--stream-shape-profiles zrle-isolation` to compare the current default
 against pure ZRLE compression 0 plus cursor/ExtendedClipboard extension
 variants under the same dynamic stimulus.
+Pass `--stream-shape-profiles pixel-format-isolation` to compare benchmark-only
+full-color/RGB565-in-32 pairs without changing the app's normal connection path.
 Example:
 `--first-frame-profiles none --stream-shape-profiles zrle-isolation --stream-shape-transport request-response`.
 For order-neutral live scoring, add

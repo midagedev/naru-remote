@@ -35,18 +35,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
     }
 
     func testPixelDecodeFallsBackForNonByteAlignedChannels() {
-        let format = RFBPixelFormat(
-            bitsPerPixel: 32,
-            depth: 16,
-            isBigEndian: false,
-            isTrueColor: true,
-            redMax: 31,
-            greenMax: 63,
-            blueMax: 31,
-            redShift: 11,
-            greenShift: 5,
-            blueShift: 0
-        )
+        let format = RFBPixelFormat.rgb565In32LittleEndian
         let value: UInt32 = (31 << 11) | (63 << 5) | 31
         let bytes: [UInt8] = [
             UInt8(value & 0x000000ff),

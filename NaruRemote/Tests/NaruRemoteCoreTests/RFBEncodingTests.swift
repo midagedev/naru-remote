@@ -225,24 +225,24 @@ final class RFBEncodingTests: XCTestCase {
     // MARK: - SetPixelFormat wire bytes
 
     func testSetPixelFormatProducesTwentyByteMessage() {
-        let format = RFBPixelFormat(
-            bitsPerPixel: 32,
-            depth: 24,
-            isBigEndian: false,
-            isTrueColor: true,
-            redMax: 255,
-            greenMax: 255,
-            blueMax: 255,
-            redShift: 16,
-            greenShift: 8,
-            blueShift: 0
-        )
+        let format = RFBPixelFormat.fullColor32LittleEndian
         let message = RFBClientMessageEncoder.setPixelFormat(format)
         XCTAssertEqual([UInt8](message), [
             0, 0, 0, 0,          // type + 3 padding
             32, 24, 0, 1,        // bpp, depth, big-endian flag, true-colour flag
             0, 255, 0, 255, 0, 255, // r/g/b max (u16 each)
             16, 8, 0,            // r/g/b shift
+            0, 0, 0              // padding
+        ])
+    }
+
+    func testRGB565In32SetPixelFormatProducesTwentyByteMessage() {
+        let message = RFBClientMessageEncoder.setPixelFormat(.rgb565In32LittleEndian)
+        XCTAssertEqual([UInt8](message), [
+            0, 0, 0, 0,          // type + 3 padding
+            32, 16, 0, 1,        // bpp, depth, big-endian flag, true-colour flag
+            0, 31, 0, 63, 0, 31, // r/g/b max (u16 each)
+            11, 5, 0,            // r/g/b shift
             0, 0, 0              // padding
         ])
     }
