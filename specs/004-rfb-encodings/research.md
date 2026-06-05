@@ -1670,3 +1670,37 @@ a generous cap for large deliberate drags.
 mode labels and aggregate/synthetic trace deltas. They must not emit remote
 host identity, pixels, cursor pixels, real coordinates, raw text, byte counts,
 or raw per-frame samples from a live session.
+
+## D51 — Export Compose route readiness before Send
+
+**Decision**: bump diagnostic collection schema to v23 and include pre-send
+Compose route fields under the safe input report: draft payload encoding,
+planned injection path, active UTF-8 clipboard support, and a fixed route
+blocker. The fields are derived from local model state and helper availability,
+not from raw Compose text or remote pixels.
+
+**Why**:
+- Physical iPhone feedback still reports "Compose input does not work", but a
+  post-failure message alone is too late to separate local IME capture,
+  confirmed UTF-8 clipboard, helper-ready, helper-not-configured, and
+  no-active-session cases.
+- Apple Screen Sharing-style targets may not confirm UTF-8 clipboard support.
+  Without a reachable helper, Korean/CJK/emoji drafts must fail honestly before
+  writing legacy clipboard bytes; the diagnostic export needs to show that
+  decision path in a fixed catalog.
+- The same fields make helper setup problems debuggable from a screenshot or
+  exported log while preserving the constitution privacy boundary.
+
+**Evidence**:
+- `DiagnosticExportTests` now assert schema v23 preserves only safe enum values
+  for `composeDraftPayloadEncoding`, `composePlannedPath`,
+  `composeUTF8ClipboardSupport`, and `composeRouteBlocker`, and clamps arbitrary
+  strings to nil.
+- Focused `NaruRemoteAppModelTests` prove a Korean/CJK/emoji draft on an
+  unconfirmed UTF-8 session without helper exports `helperNotConfigured`, while
+  a reachable helper preflight exports planned path `helperTextBridge`.
+
+**Privacy rule**: route diagnostics may report only fixed enum labels and
+booleans. They must not emit raw draft text, host identity, helper endpoint,
+pairing fingerprint, clipboard bytes, key events, coordinates, pixels, timing
+samples, or byte counts.

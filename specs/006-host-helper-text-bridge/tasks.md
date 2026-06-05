@@ -76,7 +76,7 @@ description: "Tasks: Host Helper Text Bridge"
 
 - [ ] T021 [US3] Add tests proving no-helper VNC viewing, Direct mode, PiP, and diagnostics paths do not require helper state.
 - [x] T022 [US3] Add safe failure copy for unconfirmed VNC UTF-8 + helper unavailable in `TextInjectionClipboardPolicy` or successor policy. **Done.**
-- [ ] T023 [US3] Update diagnostics schema docs/contracts if schema version changes.
+- [x] T023 [US3] Update diagnostics schema docs/contracts if schema version changes; schema v23 now includes pre-send Compose route encoding/path/UTF-8-support/blocker fields using fixed catalogs only. **Done.**
 
 **Checkpoint**: No-helper baseline remains intact.
 
