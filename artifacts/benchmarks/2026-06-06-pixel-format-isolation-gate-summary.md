@@ -23,6 +23,8 @@ VNC connection path.
 
 - `swift test --filter RFBEncodingTests`
 - `swift test --filter RFBRawFramebufferDecoderTests`
+- `swift test --filter FakeRFBServerIntegrationTests/testProductionRFBNetworkClientSendsSetPixelFormatAndDecodesRGB565FirstFrame`
+- `swift test --filter FakeRFBServerIntegrationTests`
 - `swift test --filter BenchmarkStreamShapeGatePresetTests`
 - `swift test --filter BenchmarkStreamShapeProfileSelectionTests`
 - `swift build --product VNCLiveBenchmark`

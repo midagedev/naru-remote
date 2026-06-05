@@ -69,6 +69,36 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(client.lastFrame?.height, 768)
     }
 
+    func testProductionRFBNetworkClientSendsSetPixelFormatAndDecodesRGB565FirstFrame() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([
+                Self.rgb565TwoByTwoUpdateData()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(
+            encodingPreference: .localLowLatency,
+            pixelFormatPreference: .rgb565In32LittleEndian
+        )
+        let serverInit = try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        let frame = try client.requestRawFramebufferUpdate()
+        let controlMessages = try recorder.waitForControlMessages(2)
+
+        XCTAssertEqual(serverInit.pixelFormat, .rgb565In32LittleEndian)
+        XCTAssertEqual(controlMessages[0], RFBClientMessageEncoder.setPixelFormat(.rgb565In32LittleEndian))
+        XCTAssertEqual(controlMessages[1].first, 2)
+        XCTAssertEqual(frame[0, 0], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(frame[1, 0], RFBColor(red: 0, green: 255, blue: 0))
+        XCTAssertEqual(frame[0, 1], RFBColor(red: 0, green: 0, blue: 255))
+        XCTAssertEqual(frame[1, 1], RFBColor(red: 255, green: 255, blue: 255))
+    }
+
     func testProductionRFBNetworkClientSendsPointerEventsAfterInteractiveHandshake() async throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()
@@ -855,6 +885,18 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
             0, 255, 0, 0,
             255, 0, 0, 0,
             255, 255, 255, 0
+        ])
+    }
+
+    private static func rgb565TwoByTwoUpdateData() -> Data {
+        Data([
+            0, 0, 0, 1,
+            0, 0, 0, 0, 0, 2, 0, 2,
+            0, 0, 0, 0,
+            0x00, 0xf8, 0x00, 0x00,
+            0xe0, 0x07, 0x00, 0x00,
+            0x1f, 0x00, 0x00, 0x00,
+            0xff, 0xff, 0x00, 0x00
         ])
     }
 

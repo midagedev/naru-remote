@@ -2841,6 +2841,9 @@ profiles disabled, and the `iphone-sustained-usability-v2` target.
   `pixel-format-isolation` expansion and missing-profile failures.
 - `BenchmarkStreamShapeGatePresetTests` cover stable
   `sustained-v2-pixel-format` CLI contract.
+- `FakeRFBServerIntegrationTests` cover a production `RFBNetworkClient`
+  sending `SetPixelFormat` before `SetEncodings` over a loopback fake RFB
+  socket, then decoding the first RGB565 raw framebuffer update.
 - `swift build --product VNCLiveBenchmark` passes with schema v39 report
   wiring.
 
