@@ -41,6 +41,62 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
         XCTAssertEqual(pasteboard.currentString, "previous clipboard")
     }
 
+    func testReplaceFailureAttemptsRestoreBeforeReturningInsertRejected() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard", replaceFails: true)
+        let poster = FakePasteCommandPoster()
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.safeFailureCode, .insertRejected)
+        XCTAssertEqual(pasteboard.restoreCount, 1)
+        XCTAssertEqual(pasteboard.currentString, "previous clipboard")
+        XCTAssertEqual(poster.postCount, 0)
+    }
+
+    func testReplaceFailureReportsRestoreFailureWhenRestoreAlsoFails() throws {
+        let pasteboard = FakePasteboard(
+            initialString: "previous clipboard",
+            replaceFails: true,
+            restoreFails: true
+        )
+        let poster = FakePasteCommandPoster()
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.safeFailureCode, .restoreFailed)
+        XCTAssertEqual(pasteboard.restoreCount, 1)
+        XCTAssertEqual(poster.postCount, 0)
+    }
+
+    func testPasteCommandFailureReportsRestoreFailureWhenRestoreFails() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard", restoreFails: true)
+        let poster = FakePasteCommandPoster(shouldThrow: true)
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.safeFailureCode, .restoreFailed)
+        XCTAssertEqual(pasteboard.restoreCount, 1)
+        XCTAssertEqual(poster.postCount, 0)
+    }
+
     func testRestoreFailureReturnsFixedRestoreFailureCode() throws {
         let pasteboard = FakePasteboard(initialString: "previous clipboard", restoreFails: true)
         let poster = FakePasteCommandPoster()
@@ -96,10 +152,13 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
 private final class FakePasteboard: NaruHelperPasteboard {
     private(set) var currentString: String?
     private(set) var stagedStrings: [String] = []
+    private(set) var restoreCount = 0
+    private let replaceFails: Bool
     private let restoreFails: Bool
 
-    init(initialString: String?, restoreFails: Bool = false) {
+    init(initialString: String?, replaceFails: Bool = false, restoreFails: Bool = false) {
         self.currentString = initialString
+        self.replaceFails = replaceFails
         self.restoreFails = restoreFails
     }
 
@@ -108,11 +167,16 @@ private final class FakePasteboard: NaruHelperPasteboard {
     }
 
     func replaceGeneralString(with text: String) throws {
+        if replaceFails {
+            currentString = nil
+            throw NaruHelperTextInsertOperationError.pasteboardUnavailable
+        }
         currentString = text
         stagedStrings.append(text)
     }
 
     func restoreGeneralString(_ snapshot: NaruHelperPasteboardSnapshot) throws {
+        restoreCount += 1
         if restoreFails {
             throw NaruHelperTextInsertOperationError.restoreFailed
         }

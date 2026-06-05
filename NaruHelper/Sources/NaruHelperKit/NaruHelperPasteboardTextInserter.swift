@@ -77,8 +77,24 @@ public struct NaruHelperPasteboardTextInserter {
         let snapshot: NaruHelperPasteboardSnapshot
         do {
             snapshot = try pasteboard.saveGeneralString()
+        } catch {
+            return failure(
+                requestID: request.requestID,
+                strategyUsed: .pasteboardPasteWithRestore,
+                code: .insertRejected
+            )
+        }
+
+        do {
             try pasteboard.replaceGeneralString(with: request.text)
         } catch {
+            if restoreAfterFailure(snapshot) == .restoreFailed {
+                return failure(
+                    requestID: request.requestID,
+                    strategyUsed: .pasteboardPasteWithRestore,
+                    code: .restoreFailed
+                )
+            }
             return failure(
                 requestID: request.requestID,
                 strategyUsed: .pasteboardPasteWithRestore,
@@ -89,7 +105,13 @@ public struct NaruHelperPasteboardTextInserter {
         do {
             try pasteCommandPoster.postPasteCommand()
         } catch {
-            _ = try? pasteboard.restoreGeneralString(snapshot)
+            if restoreAfterFailure(snapshot) == .restoreFailed {
+                return failure(
+                    requestID: request.requestID,
+                    strategyUsed: .pasteboardPasteWithRestore,
+                    code: .restoreFailed
+                )
+            }
             return failure(
                 requestID: request.requestID,
                 strategyUsed: .pasteboardPasteWithRestore,
@@ -113,6 +135,17 @@ public struct NaruHelperPasteboardTextInserter {
             strategyUsed: .pasteboardPasteWithRestore,
             safeFailureCode: .none
         )
+    }
+
+    private func restoreAfterFailure(
+        _ snapshot: NaruHelperPasteboardSnapshot
+    ) -> HelperTextBridgeFailureCode {
+        do {
+            try pasteboard.restoreGeneralString(snapshot)
+            return .none
+        } catch {
+            return .restoreFailed
+        }
     }
 
     private func failure(
