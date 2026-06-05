@@ -137,6 +137,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let adaptiveClientPressurePacingPermille: Int?
     public let viewportInteractionPacingSamples: Int
     public let viewportInteractionPacingPermille: Int?
+    public let viewportInteractionPausedRequestCount: Int
+    public let viewportInteractionPausedRequestPermille: Int?
+    public let viewportInteractionPausePollCount: Int
+    public let viewportInteractionPausedMilliseconds: Int
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
 
@@ -169,6 +173,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case adaptiveClientPressurePacingPermille
         case viewportInteractionPacingSamples
         case viewportInteractionPacingPermille
+        case viewportInteractionPausedRequestCount
+        case viewportInteractionPausedRequestPermille
+        case viewportInteractionPausePollCount
+        case viewportInteractionPausedMilliseconds
         case firstTimeoutMilliseconds
         case failureLabel
     }
@@ -180,7 +188,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         firstTimeoutMilliseconds: Int?,
         failureLabel: String?,
         adaptiveClientPressurePacingSamples: Int = 0,
-        viewportInteractionPacingSamples: Int = 0
+        viewportInteractionPacingSamples: Int = 0,
+        viewportInteractionPausedRequestCount: Int = 0,
+        viewportInteractionPausePollCount: Int = 0,
+        viewportInteractionPausedMilliseconds: Int = 0
     ) {
         let requestedSamples = max(requestedSamples, 0)
         let receivedSamples = samples.count
@@ -193,6 +204,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let viewportInteractionPacingSamples = min(
             max(viewportInteractionPacingSamples, 0),
             receivedSamples
+        )
+        let viewportInteractionPausedRequestCount = min(
+            max(viewportInteractionPausedRequestCount, 0),
+            requestedSamples
         )
         let rendererUploadSamples = samples.filter { $0.rendererUploadStrategy != .none }
         let rendererPartialUploadSamples = rendererUploadSamples.filter {
@@ -258,6 +273,13 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             viewportInteractionPacingSamples,
             of: receivedSamples
         )
+        self.viewportInteractionPausedRequestCount = viewportInteractionPausedRequestCount
+        self.viewportInteractionPausedRequestPermille = Self.permille(
+            viewportInteractionPausedRequestCount,
+            of: requestedSamples
+        )
+        self.viewportInteractionPausePollCount = max(viewportInteractionPausePollCount, 0)
+        self.viewportInteractionPausedMilliseconds = max(viewportInteractionPausedMilliseconds, 0)
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
         self.failureLabel = failureLabel
     }
@@ -357,6 +379,37 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         ) ?? Self.permille(
             self.viewportInteractionPacingSamples,
             of: self.receivedSamples
+        )
+        self.viewportInteractionPausedRequestCount = min(
+            max(
+                try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .viewportInteractionPausedRequestCount
+                ) ?? 0,
+                0
+            ),
+            self.requestedSamples
+        )
+        self.viewportInteractionPausedRequestPermille = try container.decodeIfPresent(
+            Int.self,
+            forKey: .viewportInteractionPausedRequestPermille
+        ) ?? Self.permille(
+            self.viewportInteractionPausedRequestCount,
+            of: self.requestedSamples
+        )
+        self.viewportInteractionPausePollCount = max(
+            try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionPausePollCount
+            ) ?? 0,
+            0
+        )
+        self.viewportInteractionPausedMilliseconds = max(
+            try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionPausedMilliseconds
+            ) ?? 0,
+            0
         )
         self.firstTimeoutMilliseconds = try container.decodeIfPresent(Int.self, forKey: .firstTimeoutMilliseconds)
         self.failureLabel = try container.decodeIfPresent(String.self, forKey: .failureLabel)
