@@ -596,6 +596,13 @@ public struct RemoteInputDockView: View {
         previouslyHadMarkedText && !hasMarkedText
     }
 
+    nonisolated static func shouldAdoptUIKitComposeTextChange(
+        resolvedText: String,
+        currentBindingText: String
+    ) -> Bool {
+        resolvedText != currentBindingText
+    }
+
     nonisolated static func shouldDeferUIKitComposeBindingWrite(
         hasMarkedText: Bool,
         isFirstResponder: Bool,
@@ -981,7 +988,10 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             parent.commitController.updateCurrentText(from: textView)
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
-            if textView.markedTextRange == nil, parent.text != resolvedText {
+            if RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: resolvedText,
+                currentBindingText: parent.text
+            ) {
                 parent.text = resolvedText
             }
             notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
@@ -993,7 +1003,10 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             if RemoteInputDockView.didCommitMarkedComposeText(
                 previouslyHadMarkedText: previouslyHadMarkedText,
                 hasMarkedText: textView.markedTextRange != nil
-            ), parent.text != resolvedText {
+            ), RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: resolvedText,
+                currentBindingText: parent.text
+            ) {
                 parent.text = resolvedText
             }
             notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)

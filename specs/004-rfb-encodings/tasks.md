@@ -423,6 +423,13 @@ iPhone) and ships as its own PR.
   and report only aggregate viewport-interaction pacing sample count/permille
   plus fixed floor constants. Owns: benchmark pacing policy, CLI/report,
   summary tests, research note. **Done.**
+- **T362** Zoomed trackpad cursor travel and Compose local binding continuity:
+  reduce zoomed trackpad pan coupling so most touch travel remains visible as
+  cursor travel while viewport pan still follows the pointer, and update the
+  Compose UIKit bridge so marked-text candidate changes refresh local SwiftUI
+  binding state without propagating draft text to the model until composition
+  commits. Owns: pointer resolver, Remote Input Dock UIKit bridge, tests,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 

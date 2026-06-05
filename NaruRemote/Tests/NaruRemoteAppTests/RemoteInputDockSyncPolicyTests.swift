@@ -182,6 +182,24 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testAdoptsUIKitComposeTextChangeWhileMarkedTextUpdatesLocalBinding() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: "입력느낌",
+                currentBindingText: "입력느"
+            )
+        )
+    }
+
+    func testSkipsDuplicateUIKitComposeTextAdoption() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: "입력느낌",
+                currentBindingText: "입력느낌"
+            )
+        )
+    }
+
     func testDefersUIKitBindingWriteWhileMarkedTextIsActive() {
         XCTAssertTrue(
             RemoteInputDockView.shouldDeferUIKitComposeBindingWrite(

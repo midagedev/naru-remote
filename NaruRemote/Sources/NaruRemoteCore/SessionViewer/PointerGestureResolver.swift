@@ -66,9 +66,9 @@ public struct PointerGestureResolver: Sendable {
     public let autoPanDamping: CGFloat
     /// While zoomed in trackpad mode, couple cursor motion to local
     /// viewport pan so the screen follows the mouse continuously
-    /// instead of waiting for a reveal edge. 1.0 keeps the cursor
-    /// visually pinned; a slightly lower value preserves relative
-    /// cursor motion while still feeling native.
+    /// instead of waiting for a reveal edge. Keep this below 0.5 so
+    /// most touch travel still appears as cursor travel on screen; a
+    /// higher value made zoomed trackpad motion feel sticky on phone.
     public let zoomedTrackpadPanCoupling: CGFloat
 
     public init(
@@ -76,7 +76,7 @@ public struct PointerGestureResolver: Sendable {
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
         autoPanDamping: CGFloat = 0.82,
-        zoomedTrackpadPanCoupling: CGFloat = 0.72
+        zoomedTrackpadPanCoupling: CGFloat = 0.48
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
