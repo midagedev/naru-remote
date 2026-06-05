@@ -9,11 +9,11 @@ import Foundation
 public enum StreamPressurePacingDefaults {
     public static let balancedContentFrameIntervalSeconds: Double = 1.0 / 30.0
     /// While the user is locally pinching/panning the viewport, keep the
-    /// local compositor path in charge while the request loop continues at a
-    /// bounded cadence. The app can then keep only the newest deferred frame
-    /// and flush it when the touch interaction settles, avoiding a backlog
-    /// without tearing down stream liveness.
-    public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 15.0
+    /// local compositor path in charge while the request loop continues at an
+    /// 8 Hz-class bounded cadence. The app can then keep only the newest
+    /// deferred frame and flush it when the touch interaction settles, avoiding
+    /// a decode/upload backlog without tearing down stream liveness.
+    public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 8.0
     public static let viewportInteractionIdleFrameIntervalSeconds: Double = 0.20
     public static let viewportInteractionRequestPausePollSeconds: Double = 1.0 / 60.0
     public static let severeLaggingLocalWorkThresholdMilliseconds = 80

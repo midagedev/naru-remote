@@ -1503,3 +1503,61 @@ and the already-safe aggregate counts/permille inputs. It must not emit raw
 gesture timestamps, raw pause timestamps, raw per-pause milliseconds, host
 identity, password, framebuffer dimensions, coordinates, pixels, cursor pixels,
 byte counts, device identity, power state, or Compose draft text.
+
+## D48 — Restore touch-first viewport pacing and unconfirmed UTF-8 fallback
+
+References:
+- Apple `MTKView.enableSetNeedsDisplay` on-demand drawing:
+  https://developer.apple.com/documentation/metalkit/mtkview/enablesetneedsdisplay
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- Apple ProMotion frame pacing guidance:
+  https://developer.apple.com/documentation/quartzcore/optimizing-iphone-and-ipad-apps-to-support-promotion-displays
+- RFC 6143 RFB framebuffer update and cut-text flow:
+  https://datatracker.ietf.org/doc/rfc6143/
+
+**Decision**: after physical iPhone feedback still reports choppy zoom/pan and
+broken Compose, restore the active viewport-interaction content cadence to an
+8 Hz-class floor in the shared app/benchmark defaults and allow UTF-8 Compose
+payloads to attempt best-effort legacy VNC paste when clipboard UTF-8 support
+is unknown. Helper routing remains preferred when configured/reachable, and
+servers that explicitly report unsupported UTF-8 clipboard support still fail
+with helper-aware diagnostics instead of sending text that is known unreliable.
+
+**Why**:
+- Naru's visible pinch/pan path is a local `UIView.transform` on top of a
+  paused, event-driven `MTKView`. Apple documents this `MTKView` mode as
+  responding to `setNeedsDisplay()` only when invalidated, which matches the
+  goal: redraw for remote content changes, not for every touch sample.
+- Apple's display-link guidance says apps should request rates they can
+  consistently maintain and prepare for system throttling from thermal or power
+  conditions. Real-device feedback and the live localhost benchmark still show
+  tail-latency pressure, so mid-gesture remote decode/upload work should be
+  rarer than the local compositor path.
+- RFC 6143 makes framebuffer updates client-demanded and therefore gives the
+  viewer a legitimate request/pacing control point. During local viewport
+  manipulation, preserving touch tracking is more important than maximizing
+  remote freshness.
+- RFC 6143's base cut-text path is legacy text, while UTF-8 clipboard behavior
+  depends on extensions. Unknown UTF-8 support therefore should not be reported
+  as confirmed success, but a best-effort paste with `unknown` status is more
+  useful on macOS-style VNC targets than refusing to try.
+
+**Evidence**:
+- `swift run VNCLiveBenchmark --ask-password --first-frame-profiles none
+  --stream-shape-profiles local-low-latency --stream-shape-samples 0
+  --stream-shape-duration-seconds 6 --stream-shape-client-pressure app
+  --stream-shape-viewport-interaction app --json`
+  - Result: passed against the redacted local target.
+  - Schema v26 reported
+    `streamShapeViewportInteractionContentFrameIntervalSeconds: 0.125`,
+    `viewportInteractionPacingPermille: 1000`, request/response transport,
+    ZRLE rectangles only, 11 received samples, 10 content updates, 1 empty
+    update, 90% partial uploads, 10% full uploads, average update latency
+    406 ms, p95 update latency 2519 ms, and one very-slow update.
+- Focused tests plus full `swift test` passed after the correction.
+
+**Privacy rule**: benchmark and diagnostics may report only fixed mode labels,
+aggregate counts, aggregate permille values, and aggregate latency summaries.
+They must not emit host identity, password, framebuffer dimensions, pixels,
+cursor pixels, coordinates, raw text, byte counts, or raw per-frame samples.
