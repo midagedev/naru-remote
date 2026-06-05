@@ -297,13 +297,44 @@ final class PointerGestureResolverTests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             outcome.transform.panOffset.width,
-            -18,
-            "Tiny high-refresh touch samples should not snap to the full reveal delta."
+            -5,
+            "Tiny high-refresh touch samples should not pan faster than the finger can visually carry the cursor."
         )
         XCTAssertLessThanOrEqual(
             outcome.transform.panOffset.width,
-            -8,
+            -3,
             "Tiny high-refresh touch samples should still make visible follow-pan progress."
         )
+    }
+
+    func testTrackpadAutoPanTinySamplesDoNotMoveCursorBackwardOnScreen() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        var currentTransform = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        var currentCursor = TrackpadCursor(position: CGPoint(x: 745, y: 500), isVisible: true)
+        let touchDelta = CGSize(width: 4, height: 0)
+
+        for _ in 0..<24 {
+            let before = currentTransform.viewPoint(fromFramebufferPoint: currentCursor.position)
+            let outcome = resolver.resolve(
+                .dragChanged(viewPoint: .zero, translation: touchDelta),
+                transform: currentTransform,
+                cursor: currentCursor
+            )
+            let after = outcome.transform.viewPoint(fromFramebufferPoint: outcome.cursor.position)
+
+            XCTAssertGreaterThan(
+                after.x - before.x,
+                0,
+                "Near-edge auto-pan must not make the visible cursor travel opposite the finger."
+            )
+            XCTAssertLessThanOrEqual(
+                after.x - before.x,
+                touchDelta.width + 0.5,
+                "Near-edge auto-pan should slow visible cursor travel smoothly instead of overshooting."
+            )
+
+            currentTransform = outcome.transform
+            currentCursor = outcome.cursor
+        }
     }
 }

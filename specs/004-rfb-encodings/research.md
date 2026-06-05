@@ -1624,3 +1624,49 @@ labels, aggregate counts, aggregate permille values, and aggregate latency
 summaries. They must not emit host identity, password, framebuffer dimensions,
 pixels, cursor pixels, coordinates, raw Compose text, byte counts, or raw
 per-frame samples.
+
+## D50 — Keep zoomed trackpad edge-follow from reversing visible cursor travel
+
+References:
+- Apple app responsiveness guidance:
+  https://developer.apple.com/documentation/xcode/improving-app-responsiveness
+- Apple `MTKView.enableSetNeedsDisplay` on-demand drawing:
+  https://developer.apple.com/documentation/metalkit/mtkview/enablesetneedsdisplay
+- RFC 6143 framebuffer update request pacing:
+  https://datatracker.ietf.org/doc/rfc6143/
+
+**Decision**: add a trace-level smoothness invariant for zoomed trackpad
+edge-follow. The viewport may pan with the cursor while zoomed, but the
+auto-pan reveal step for a tiny high-refresh touch sample must not exceed the
+sample enough to make the visible cursor travel opposite the user's finger.
+Cap the reveal-only follow step to a fraction of the touch sample while keeping
+a generous cap for large deliberate drags.
+
+**Why**:
+- Physical iPhone feedback still describes zoom/pan as stepped and unnatural.
+  The prior single-sample tests allowed a near-edge 4 pt rightward trackpad
+  sample to produce a much larger leftward reveal pan. That keeps the cursor
+  technically visible, but the cursor appears to move backward on screen,
+  which reads as a hitch or snap.
+- Apple's responsiveness guidance treats jerky foreground drawing as a frame
+  deadline problem. In Naru's hot path the local compositor transform is the
+  right place for finger-following; extra RFB freshness cannot repair a local
+  transform that reverses direction within a touch sample.
+- RFC 6143 gives the viewer control over incremental update request pacing, so
+  local navigation smoothness should remain the first priority during viewport
+  interaction. Remote updates can stay bounded and aggregate-only in
+  diagnostics.
+
+**Evidence**:
+- A new `PointerGestureResolverTests` trace reproduces the old issue: before
+  the fix, a 4 pt rightward sample near the reveal margin moved the visible
+  cursor about 9.6 pt backward on screen.
+- The fixed trace asserts 24 consecutive tiny near-edge samples keep visible
+  cursor travel positive and no greater than the finger sample plus tolerance.
+- Focused `PointerGestureResolverTests` and `TrackpadModeModelTests` pass after
+  the correction.
+
+**Privacy rule**: gesture smoothness tests and artifacts may report only fixed
+mode labels and aggregate/synthetic trace deltas. They must not emit remote
+host identity, pixels, cursor pixels, real coordinates, raw text, byte counts,
+or raw per-frame samples from a live session.

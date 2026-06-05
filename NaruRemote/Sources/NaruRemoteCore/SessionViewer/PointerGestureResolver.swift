@@ -311,10 +311,12 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        // Tiny high-refresh samples should not inherit a large fixed step:
-        // scale the cap from the actual touch distance so edge-follow pan
-        // keeps moving without jumping in coarse chunks on phone screens.
-        let maximumStep = max(8, min(140, touchDistance * 1.4 + 8))
+        // Edge-follow pan must never outrun the finger on tiny high-refresh
+        // samples. If the reveal step is larger than the sample that caused
+        // it, the cursor appears to move backward on screen, which feels like
+        // stepped, non-native navigation. Large deliberate drags still get a
+        // generous cap so the viewport can keep up near the edge.
+        let maximumStep = min(140, touchDistance * 0.65)
         let limited = limit(damped, maximumLength: maximumStep)
         return coupledTransform.panned(by: limited)
     }
