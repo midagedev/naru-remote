@@ -2015,3 +2015,65 @@ labels. They must not include host identity, credentials, framebuffer
 dimensions, rectangle coordinates, pixels, cursor pixels, byte counts, raw
 samples, raw payloads, external command text, command output, or raw error
 text.
+
+## D58 — Rotate live profile order before scoring encoding defaults
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add schema v33 order-neutral stream-shape scoring before changing
+the production encoding default. `VNCLiveBenchmark` now supports
+`--stream-shape-profile-iterations N` and
+`--stream-shape-profile-order fixed|rotate`, records fixed per-probe
+iteration/order ordinals, and emits per-profile aggregates plus
+`streamShapeOrderNeutralRecommendation`.
+
+**Why**:
+- D57 showed `local-low-latency` and
+  `zrle-compression-0-cursor-clipboard` request the same request/response
+  ZRLE compression-0, server-cursor, and ExtendedClipboard preference, but the
+  first profile in the ordered run could still hit a 2 second-class tile/apply
+  tail.
+- A single ordered matrix is therefore too weak for default-changing decisions.
+  It can report a startup/session warm-up artifact as if it were an encoding
+  preference difference.
+
+**Evidence**:
+- Focused order-mode, profile-selection, and stream-shape summary tests pass.
+- v33 local Screen Sharing request/response run with external animated-window
+  stimulus, `zrle-isolation`, 5 iterations, and rotated order:
+  - `local-low-latency`: 5/5 usable runs, average update 447 ms, max p95 update
+    2452 ms, average content FPS 1.73, max client p95 2139 ms, max ZRLE
+    tile/apply p95 2066 ms, full-upload pressure 0 permille, one very-slow
+    update.
+  - `zrle-compression-0`: 5/5 usable runs, average update 221 ms, max p95
+    update 395 ms, average content FPS 1.80, max client p95 172 ms, max ZRLE
+    tile/apply p95 159 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor`: 5/5 usable runs, average update 234 ms, max
+    p95 update 570 ms, average content FPS 1.93, max client p95 173 ms, max
+    ZRLE tile/apply p95 168 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-clipboard`: 4/5 usable runs, average update 226 ms,
+    max p95 update 443 ms, average content FPS 2.08, max client p95 15 ms, max
+    ZRLE tile/apply p95 14 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor-clipboard`: 5/5 usable runs, average update
+    205 ms, max p95 update 375 ms, average content FPS 1.99, max client p95
+    15 ms, max ZRLE tile/apply p95 11 ms, full-upload pressure 0 permille.
+
+**Interpretation**:
+- Order-neutral scoring selects `zrle-compression-0-cursor-clipboard`, which
+  matches the production `local-low-latency` request/response preference. The
+  next optimization target is therefore explicit warm-up/preflight behavior and
+  server/network pacing, not a production default flip.
+- Keep reporting the single-probe recommendation for compatibility, but use
+  `streamShapeOrderNeutralRecommendation` for default-changing decisions.
+
+**Privacy rule**: order-neutral artifacts may report only fixed
+stimulus/profile/transport labels, fixed iteration/order ordinals, aggregate
+timing summaries, aggregate FPS, aggregate renderer/upload counts, practical
+verdict codes, and safe failure labels. They must not include host identity,
+credentials, framebuffer dimensions, rectangle coordinates, pixels, cursor
+pixels, byte counts, raw samples, raw payloads, external command text, command
+output, or raw error text.

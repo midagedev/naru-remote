@@ -288,6 +288,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let report = BenchmarkStreamShapeProfileReport(
             label: "local-low-latency",
             transportMode: .continuousUpdates,
+            iterationOrdinal: 2,
+            orderOrdinal: 3,
             firstFrameMilliseconds: 1_234,
             summary: summary
         )
@@ -297,6 +299,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(decoded, report)
         XCTAssertEqual(decoded.transportMode, .continuousUpdates)
+        XCTAssertEqual(decoded.iterationOrdinal, 2)
+        XCTAssertEqual(decoded.orderOrdinal, 3)
     }
 
     func testStreamShapeDecodesLegacyPayloadWithoutActualEncodingMix() throws {
@@ -413,6 +417,72 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(recommendation.averageUpdateMilliseconds, 206)
         XCTAssertEqual(recommendation.contentUpdateSamples, 2)
         XCTAssertEqual(recommendation.rendererFullUploadPermille, 0)
+    }
+
+    func testProfileAggregatesCombineRepeatedRequestResponseRuns() {
+        let reports = [
+            profileReport(label: "local-low-latency", durations: [1_200, 40], iteration: 1),
+            profileReport(label: "zrle-compression-0", durations: [180, 220], iteration: 1),
+            profileReport(label: "local-low-latency", durations: [80, 90], iteration: 2),
+            profileReport(label: "zrle-compression-0", durations: [120, 140], iteration: 2),
+            BenchmarkStreamShapeProfileReport(
+                label: "continuous",
+                transportMode: .continuousUpdates,
+                iterationOrdinal: 1,
+                orderOrdinal: 3,
+                firstFrameMilliseconds: nil,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 1,
+                    samples: [],
+                    elapsedMilliseconds: nil,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: "stream-continuous-updates-connection-failed"
+                )
+            )
+        ]
+
+        let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports)
+
+        XCTAssertEqual(aggregates.map(\.label), ["local-low-latency", "zrle-compression-0", "continuous"])
+        let local = aggregates[0]
+        XCTAssertEqual(local.runCount, 2)
+        XCTAssertEqual(local.usableRunCount, 2)
+        XCTAssertEqual(local.failedRunCount, 0)
+        XCTAssertEqual(local.averageUpdateMilliseconds, 353)
+        XCTAssertEqual(local.maxP95UpdateMilliseconds, 1_200)
+        XCTAssertEqual(local.slowUpdateSamples, 1)
+        XCTAssertEqual(local.verySlowUpdateSamples, 1)
+        XCTAssertEqual(local.receivedSamples, 4)
+
+        let continuous = aggregates[2]
+        XCTAssertEqual(continuous.runCount, 1)
+        XCTAssertEqual(continuous.usableRunCount, 0)
+        XCTAssertEqual(continuous.failedRunCount, 1)
+        XCTAssertNil(continuous.averageUpdateMilliseconds)
+    }
+
+    func testOrderNeutralRecommendationUsesAggregateRuns() throws {
+        let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(
+            from: [
+                profileReport(label: "local-low-latency", durations: [1_200, 40], iteration: 1),
+                profileReport(label: "zrle-compression-0", durations: [180, 220], iteration: 1),
+                profileReport(label: "local-low-latency", durations: [80, 90], iteration: 2),
+                profileReport(label: "zrle-compression-0", durations: [120, 140], iteration: 2)
+            ]
+        )
+
+        let recommendation = try XCTUnwrap(
+            BenchmarkStreamShapeRecommendation.recommendedOrderNeutralRequestResponseProfile(
+                from: aggregates
+            )
+        )
+
+        XCTAssertEqual(recommendation.label, "zrle-compression-0")
+        XCTAssertEqual(recommendation.reason, "lowest-average-update-latency-across-order-neutral-request-response-runs")
+        XCTAssertEqual(recommendation.runCount, 2)
+        XCTAssertEqual(recommendation.usableRunCount, 2)
+        XCTAssertEqual(recommendation.averageUpdateMilliseconds, 165)
+        XCTAssertEqual(recommendation.p95UpdateMilliseconds, 220)
     }
 
     func testRecommendationReturnsNilWithoutUsableRequestResponseSamples() {
@@ -606,6 +676,39 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             changedPixelsPermille: kind == .contentUpdate ? 1 : 0,
             rendererUploadStrategy: rendererUploadStrategy,
             rendererUploadRegionCount: rendererUploadStrategy == .none ? 0 : 1
+        )
+    }
+
+    private func profileReport(
+        label: String,
+        durations: [Int],
+        iteration: Int
+    ) -> BenchmarkStreamShapeProfileReport {
+        BenchmarkStreamShapeProfileReport(
+            label: label,
+            transportMode: .requestResponse,
+            iterationOrdinal: iteration,
+            orderOrdinal: 1,
+            firstFrameMilliseconds: 100,
+            summary: BenchmarkStreamShapeSummary(
+                requestedSamples: durations.count,
+                samples: durations.map { duration in
+                    BenchmarkStreamShapeSample(
+                        kind: .contentUpdate,
+                        durationMilliseconds: duration,
+                        dirtyRectangleCount: 1,
+                        dirtyAreaPermille: 1,
+                        changedPixelsPermille: 1,
+                        rendererUploadStrategy: .partial,
+                        rendererUploadRegionCount: 1,
+                        clientProcessingMilliseconds: max(duration / 10, 1),
+                        zrleTileApplyMilliseconds: max(duration / 12, 1)
+                    )
+                },
+                elapsedMilliseconds: durations.reduce(0, +),
+                firstTimeoutMilliseconds: nil,
+                failureLabel: nil
+            )
         )
     }
 
