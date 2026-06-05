@@ -199,13 +199,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Direct button-drag keeps a 120 Hz-class wire cadence because the
     /// remote object under the pointer is actively being dragged.
     private static let directPointerMoveCoalescingDelay: Duration = .milliseconds(8)
-    /// Trackpad mode has immediate local cursor feedback, so the remote
-    /// pointer can ride a 60 Hz-class cadence. This keeps stale pointer
-    /// writes from piling up behind the socket on hot phones.
-    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(16)
+    /// Trackpad mode has immediate local cursor feedback, but the remote
+    /// pointer still needs a high enough cadence that server-side cursor
+    /// echoes and hover feedback do not feel detached from the finger.
+    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(8)
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
-    private static let trackpadCursorPublishDelay: Duration = .milliseconds(33)
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
