@@ -88,6 +88,7 @@ description: "Tasks: Host Helper Text Bridge"
 - [x] T025 [US2] Implement helper capability response using fixed permission catalog states. **Done.**
 - [x] T026 [US1] Implement first text insertion strategy with privacy-preserving tests. **Done.**
 - [x] T027 [US1] Implement pasteboard fallback only with restore attempt and restore-failure reporting. **Done.**
+- [x] T030 [US1] Add authenticated length-prefixed helper network transport, macOS listen mode, and client/server tests. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T029 [US1] Record physical iPhone + Mac manual verification evidence.
 

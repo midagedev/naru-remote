@@ -1,6 +1,9 @@
 # Contract: Helper Text Bridge
 
-This contract describes the app-to-helper behavior before the transport is chosen. The first implementation may use an in-process fake helper for tests; the real macOS helper must preserve this semantic contract.
+This contract describes the app-to-helper behavior. The first implementation
+uses an in-process fake helper for routing tests and a private-network TCP
+transport for real helper calls. The macOS helper must preserve this semantic
+contract regardless of future transport changes.
 
 ## Trust Boundary
 
@@ -11,13 +14,24 @@ This contract describes the app-to-helper behavior before the transport is chose
 
 ## Capability Request
 
+Network framing:
+- One request per TCP connection.
+- Frame = 4-byte big-endian JSON payload length followed by UTF-8 JSON.
+- Maximum frame size is 1 MiB.
+- Request authentication uses a pairing secret that is never logged or exported.
+
 Input:
 
 ```json
 {
   "schemaVersion": 1,
-  "profilePairingFingerprint": "sha256:<redacted>",
-  "requestedCapability": "text.nativeInsert"
+  "requestID": "uuid",
+  "command": "capability",
+  "pairingSecret": "<process-local secret>",
+  "capabilityRequest": {
+    "profilePairingFingerprint": "sha256:<redacted>",
+    "requestedCapability": "text.nativeInsert"
+  }
 }
 ```
 
@@ -26,14 +40,19 @@ Output:
 ```json
 {
   "schemaVersion": 1,
-  "availability": "reachable",
-  "permissionState": {
-    "accessibility": "granted",
-    "inputMonitoring": "notRequired",
-    "pasteboardFallback": "available",
-    "activeUserSession": "available"
+  "requestID": "uuid",
+  "capabilityResponse": {
+    "schemaVersion": 1,
+    "availability": "reachable",
+    "permissionState": {
+      "accessibility": "granted",
+      "inputMonitoring": "notRequired",
+      "pasteboardFallback": "available",
+      "activeUserSession": "available"
+    },
+    "supportedStrategies": ["nativeInsert", "pasteboardPasteWithRestore"]
   },
-  "supportedStrategies": ["nativeInsert", "pasteboardPasteWithRestore"]
+  "safeFailureCode": "none"
 }
 ```
 
@@ -48,10 +67,16 @@ Input:
 {
   "schemaVersion": 1,
   "requestID": "uuid",
-  "payloadEncoding": "utf8ExtensionRequired",
-  "payloadSizeBucket": "small",
-  "strategyPreference": ["nativeInsert", "pasteboardPasteWithRestore"],
-  "text": "<process-local final Compose text>"
+  "command": "insertText",
+  "pairingSecret": "<process-local secret>",
+  "insertRequest": {
+    "schemaVersion": 1,
+    "requestID": "uuid",
+    "payloadEncoding": "utf8ExtensionRequired",
+    "payloadSizeBucket": "small",
+    "strategyPreference": ["nativeInsert", "pasteboardPasteWithRestore"],
+    "text": "<process-local final Compose text>"
+  }
 }
 ```
 
@@ -61,8 +86,13 @@ Output:
 {
   "schemaVersion": 1,
   "requestID": "uuid",
-  "status": "succeeded",
-  "strategyUsed": "nativeInsert",
+  "insertResponse": {
+    "schemaVersion": 1,
+    "requestID": "uuid",
+    "status": "sent",
+    "strategyUsed": "nativeInsert",
+    "safeFailureCode": "none"
+  },
   "safeFailureCode": "none"
 }
 ```
@@ -73,9 +103,37 @@ Failure output:
 {
   "schemaVersion": 1,
   "requestID": "uuid",
-  "status": "failed",
-  "strategyUsed": "nativeInsert",
+  "insertResponse": {
+    "schemaVersion": 1,
+    "requestID": "uuid",
+    "status": "failed",
+    "strategyUsed": "nativeInsert",
+    "safeFailureCode": "helper.permissionMissing"
+  },
   "safeFailureCode": "helper.permissionMissing"
+}
+```
+
+## Revoke Pairing Request
+
+Input:
+
+```json
+{
+  "schemaVersion": 1,
+  "requestID": "uuid",
+  "command": "revokePairing",
+  "pairingSecret": "<process-local secret>"
+}
+```
+
+Output:
+
+```json
+{
+  "schemaVersion": 1,
+  "requestID": "uuid",
+  "safeFailureCode": "helper.revoked"
 }
 ```
 

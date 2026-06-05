@@ -68,3 +68,17 @@
 **Alternatives considered**:
 - Export raw helper errors: rejected by constitution privacy rules.
 - Hide helper state until send time: rejected because permission failures should be understandable before the user loses a Compose draft send attempt.
+
+## D5 - Use authenticated length-prefixed JSON for the first helper transport
+
+**Decision**: The first app-to-helper network slice uses one TCP request per helper command, framed as a 4-byte big-endian payload length plus JSON. Each request carries a pairing secret; diagnostics and UI may expose only a non-secret pairing fingerprint.
+
+**Rationale**:
+- The helper is private-network/tailnet scoped and optional, but it still accepts user text, so unauthenticated local-network commands are not acceptable.
+- Length-prefix framing handles multiline Compose payloads without relying on newline-delimited JSON.
+- One request per connection is simple to test and avoids a long-lived unaudited control channel before pairing, persistence, and revocation UI are complete.
+
+**Alternatives considered**:
+- Newline-delimited JSON: rejected because Compose text can contain newlines and framing mistakes would be costly.
+- Expose helper without a pairing secret on a private network: rejected because private network reachability is not the same as user approval.
+- Full persistent bidirectional helper protocol now: deferred because the next practical need is Compose insert reliability, and the security review should stay small.
