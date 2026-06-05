@@ -66,7 +66,7 @@ Use Spec Kit for feature work:
 - `$speckit-implement`: implement only after spec, plan, and tasks are ready.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/002-direct-keystroke-mode` (spec only — plan / tasks not yet generated; the prior MVP feature `specs/001-naru-remote-mvp/` remains the reference baseline).
+Current active feature: `specs/006-host-helper-text-bridge` (spec / plan / tasks ready; implementation not yet started; the prior MVP feature `specs/001-naru-remote-mvp/` and RFB performance feature `specs/004-rfb-encodings/` remain reference baselines).
 <!-- SPECKIT END -->
 
 ## Development Rules
