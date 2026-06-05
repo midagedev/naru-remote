@@ -726,6 +726,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-practical-baseline-v1")
         XCTAssertEqual(summary.practicalAssessment.verdict, .pass)
         XCTAssertTrue(summary.practicalAssessment.issueCodes.isEmpty)
+        XCTAssertNil(summary.practicalAssessment.primaryIssueCode)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.none.rawValue
+        )
     }
 
     func testPracticalAssessmentWarnsForCurrentMacScreenSharingClassContentFPS() {
@@ -751,6 +760,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.contentFramesPerSecond, 5)
         XCTAssertEqual(summary.practicalAssessment.verdict, .warning)
         XCTAssertEqual(summary.practicalAssessment.issueCodes, [.contentFPSWarning])
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .contentFPSWarning)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
     }
 
     func testPracticalAssessmentFailsForVerySlowOrFullUploadPressure() {
@@ -770,6 +788,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
         XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.verySlowUpdate))
         XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.fullUploadFailed))
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .fullUploadFailed)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.rendererUpload.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectLocalRenderPipeline.rawValue
+        )
     }
 
     func testPracticalAssessmentIsEncodedIntoBenchmarkJSON() throws {
@@ -788,6 +815,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(assessment["targetName"] as? String, "iphone-practical-baseline-v1")
         XCTAssertEqual(assessment["verdict"] as? String, "disabled")
+        XCTAssertEqual(assessment["primaryIssueCode"] as? String, "probe-disabled")
+        XCTAssertEqual(assessment["primaryConstraint"] as? String, "none")
+        XCTAssertEqual(assessment["recommendedNextProbe"] as? String, "none")
     }
 
     func testSustainedUsabilityTargetSelectionIsDefaultForCliGate() {
@@ -829,6 +859,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-sustained-usability-v2")
         XCTAssertEqual(summary.practicalAssessment.verdict, .pass)
         XCTAssertTrue(summary.practicalAssessment.issueCodes.isEmpty)
+        XCTAssertNil(summary.practicalAssessment.primaryIssueCode)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
+        )
     }
 
     func testSustainedUsabilityTargetFailsAverageUpdateTail() {
@@ -854,6 +889,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
         XCTAssertEqual(summary.practicalAssessment.issueCodes, [.averageUpdateFailed])
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .averageUpdateFailed)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
+        )
     }
 
     func testSustainedUsabilityTargetIsEncodedIntoBenchmarkJSON() throws {
@@ -873,6 +917,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(assessment["targetName"] as? String, "iphone-sustained-usability-v2")
         XCTAssertEqual(assessment["verdict"] as? String, "pass")
+        XCTAssertEqual(assessment["primaryConstraint"] as? String, "none")
+        XCTAssertEqual(assessment["recommendedNextProbe"] as? String, "none")
     }
 
     func testPracticalAssessmentDecodesWhenLegacyJSONOmitsField() throws {
@@ -897,6 +943,79 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(decoded.contentUpdateSamples, 3)
         XCTAssertEqual(decoded.practicalAssessment.verdict, .pass)
+        XCTAssertNil(decoded.practicalAssessment.primaryIssueCode)
+        XCTAssertEqual(
+            decoded.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
+        )
+    }
+
+    func testPracticalAssessmentDerivesTriageWhenLegacyJSONOmitsTriageFields() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 8,
+            samples: (0..<8).map { _ in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 260,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    clientProcessingMilliseconds: 8
+                )
+            },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneSustainedUsability
+        )
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(summary)) as? [String: Any]
+        )
+        var assessment = try XCTUnwrap(object["practicalAssessment"] as? [String: Any])
+        assessment.removeValue(forKey: "primaryIssueCode")
+        assessment.removeValue(forKey: "primaryConstraint")
+        assessment.removeValue(forKey: "recommendedNextProbe")
+        object["practicalAssessment"] = assessment
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacyData)
+
+        XCTAssertEqual(decoded.practicalAssessment.primaryIssueCode, .averageUpdateFailed)
+        XCTAssertEqual(
+            decoded.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            decoded.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
+        )
+    }
+
+    func testPracticalAssessmentRejectsMismatchedDecodedTriageFields() throws {
+        let json = """
+        {
+          "targetName": "iphone-sustained-usability-v2",
+          "verdict": "fail",
+          "issueCodes": ["content-fps-failed"],
+          "primaryIssueCode": "content-fps-failed",
+          "primaryConstraint": "thermal",
+          "recommendedNextProbe": "inspectComposeRoute"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapePracticalAssessment.self, from: json)
+
+        XCTAssertEqual(decoded.primaryIssueCode, .contentFPSFailed)
+        XCTAssertEqual(
+            decoded.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue
+        )
+        XCTAssertEqual(
+            decoded.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
     }
 
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {

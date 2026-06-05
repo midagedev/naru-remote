@@ -2967,3 +2967,52 @@ constraint, and next-probe labels derived from existing safe issue codes. They
 must not include host identity, credentials, port value, TCP errors, RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, raw FPS, raw timings, draft text, marked text, or IME state.
+
+## D73 — Align live benchmark and physical diagnostic triage labels
+
+References:
+- RFC 6143 `SetEncodings` / framebuffer update flow remains the protocol axis
+  behind profile and transport experiments.
+- TigerVNC viewer options expose encoding, compression, and quality as
+  practical performance knobs, matching Naru's profile-gate experiments.
+- Apple `ProcessInfo.thermalState` is the physical-device axis behind
+  thermal/power-saver follow-up passes.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v40 and extend
+`BenchmarkStreamShapePracticalAssessment` with the same fixed triage surface
+used by diagnostic JSON v28: `primaryIssueCode`, `primaryConstraint`, and
+`recommendedNextProbe`.
+
+**Why**:
+- The large-unit goal is now sustained iPhone usability, not isolated micro
+  tuning. The live benchmark and the app diagnostic export must therefore
+  select the same next action when they observe the same broad constraint.
+- A benchmark `content-fps-failed` should point at the sustained v2 profile
+  gate; receive/update stalls should point at server/transport cadence;
+  client-processing pressure should point at encoding profile comparison;
+  renderer full-upload pressure should point at the local render pipeline; and
+  adaptive pressure should point at pacing comparison.
+- Reusing the diagnostic catalog keeps the output safe and stable while still
+  making benchmark artifacts directly actionable for PR selection.
+
+**Evidence**:
+- `BenchmarkStreamShapeSummaryTests` cover pass, content FPS, receive-path,
+  renderer-upload, legacy decode, and mismatched decoded triage-field cases.
+- `VNCLiveBenchmark` help/schema wiring records schema v40 for gate reports.
+
+**Interpretation**:
+- Treat `primaryConstraint` as the first decision point for larger PRs:
+  `contentCadence`/`receivePath` route to the sustained profile/transport gate,
+  `clientDecode` to encoding profile work, `rendererUpload` to local render
+  pipeline work, `adaptivePacing` to pacing comparison, and `sampleSize` to
+  longer physical collection.
+- A passing or disabled benchmark emits `primaryConstraint=none` and
+  `recommendedNextProbe=none`; it should not by itself justify changing
+  production defaults without the physical iPhone gate.
+
+**Privacy rule**: benchmark triage fields may emit only fixed issue,
+constraint, and next-probe labels derived from existing safe benchmark issue
+codes. They must not include host identity, credentials, port value, TCP
+errors, RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels,
+byte counts, raw payloads, raw FPS, raw timings, draft text, marked text, or
+IME state.
