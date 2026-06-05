@@ -186,6 +186,14 @@ number of hidden incremental frames after the stream-shape first frame and
 before measured samples. Use it only for warm-up/preflight experiments and keep
 the production app default unchanged until a physical iPhone run confirms the
 hand-feel trade-off.
+Schema v35 adds `--stream-shape-practical-target
+iphone-practical-baseline-v1|iphone-sustained-usability-v2` and makes
+`iphone-sustained-usability-v2` the default CLI target for new streaming work.
+The v2 target keeps the 8 fps content-FPS floor, adds an average-update band
+of 180 ms pass / 250 ms fail, tightens post-warm-up p95 to 350 ms pass /
+500 ms fail, expects 0 permille renderer full-upload pressure, and still
+requires a physical iPhone 10 minute hand-feel/thermal pass before production
+defaults change. Use v1 only for legacy artifact comparison.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
@@ -209,8 +217,9 @@ renderer full-upload pressure, stay at or below 250 ms average update, 500 ms
 max p95 update, and 30 ms max client-processing p95, and avoid unsafe diagnostic
 fields. The practical-use target is higher: controlled-stimulus content FPS at
 8 fps or better, 180 ms average update or better, p95 below 350 ms after
-warm-up, immediate local zoom/pan transforms, and a physical iPhone 10 minute
-session without `.serious` or `.critical` thermal state.
+warm-up, 0 permille renderer full-upload pressure, immediate local zoom/pan
+transforms, deterministic Compose route diagnostics, and a physical iPhone
+10 minute session without `.serious` or `.critical` thermal state.
 Pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.

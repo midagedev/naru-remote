@@ -615,6 +615,91 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(assessment["verdict"] as? String, "disabled")
     }
 
+    func testSustainedUsabilityTargetSelectionIsDefaultForCliGate() {
+        XCTAssertEqual(
+            BenchmarkStreamShapePracticalTargetSelection.defaultSelection,
+            .iPhoneSustainedUsability
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapePracticalTargetSelection.usageDescription,
+            "iphone-practical-baseline-v1|iphone-sustained-usability-v2"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapePracticalTargetSelection.iPhoneSustainedUsability.targets.name,
+            "iphone-sustained-usability-v2"
+        )
+    }
+
+    func testSustainedUsabilityTargetPassesOnlyWhenV2BandsAreMet() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 8,
+            samples: (0..<8).map { _ in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 100,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    clientProcessingMilliseconds: 8
+                )
+            },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneSustainedUsability
+        )
+
+        XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-sustained-usability-v2")
+        XCTAssertEqual(summary.practicalAssessment.verdict, .pass)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.isEmpty)
+    }
+
+    func testSustainedUsabilityTargetFailsAverageUpdateTail() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 8,
+            samples: (0..<8).map { _ in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 260,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    clientProcessingMilliseconds: 8
+                )
+            },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneSustainedUsability
+        )
+
+        XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
+        XCTAssertEqual(summary.practicalAssessment.issueCodes, [.averageUpdateFailed])
+    }
+
+    func testSustainedUsabilityTargetIsEncodedIntoBenchmarkJSON() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 8,
+            samples: (0..<8).map { _ in streamShapeSample(duration: 100, rendererUploadStrategy: .partial) },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneSustainedUsability
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(summary)) as? [String: Any]
+        )
+        let assessment = try XCTUnwrap(object["practicalAssessment"] as? [String: Any])
+
+        XCTAssertEqual(assessment["targetName"] as? String, "iphone-sustained-usability-v2")
+        XCTAssertEqual(assessment["verdict"] as? String, "pass")
+    }
+
     func testPracticalAssessmentDecodesWhenLegacyJSONOmitsField() throws {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 3,

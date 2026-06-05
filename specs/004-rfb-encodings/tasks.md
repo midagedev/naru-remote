@@ -644,15 +644,25 @@ iPhone) and ships as its own PR.
   evidence to decide whether app-side hidden preflight deserves a physical
   iPhone pass. Owns: benchmark CLI/report/docs, benchmark artifact, research
   note. **Done.**
-- **T390** App-side preflight production gate: after v34 showed hidden
+- **T390** App-side preflight production gate: after v34/v35 showed hidden
   preflight can remove the `local-low-latency` very-slow cold tail but still
-  leaves content FPS below the practical target, test whether enabling one
+  leaves content FPS below the sustained usability target, test whether enabling one
   hidden post-first-frame incremental preflight in the app improves physical
   iPhone hand feel without making the just-connected screen feel stale. Verify
   with a 10 minute physical iPhone thermal/hand-feel pass, Compose route
   diagnostics, and a sustained stimulated `core-matrix` comparison before
   changing production defaults. Owns: app stream policy, app model tests,
   physical-device verification note, benchmark artifact.
+- **T391** Sustained usability target v2 gate: before changing production app
+  defaults, promote the benchmark practical gate from the first v1 floor to an
+  explicit `iphone-sustained-usability-v2` target covering controlled-stimulus
+  content FPS, average update latency, post-warm-up p95, client-processing p95,
+  renderer full-upload pressure, adaptive pressure, Compose route diagnostics,
+  and the physical iPhone 10 minute thermal/hand-feel pass. Add
+  `--stream-shape-practical-target`, keep v1 available for legacy artifact
+  comparison, record a redacted v35 `zrle-isolation` run, and use v2 as the
+  default gate for T390 and subsequent cadence/default changes. Owns:
+  benchmark kit/CLI/tests, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

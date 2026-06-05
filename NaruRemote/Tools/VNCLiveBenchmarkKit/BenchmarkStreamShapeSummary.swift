@@ -34,6 +34,8 @@ public enum BenchmarkStreamShapePracticalIssueCode: String, Codable, Equatable, 
     case insufficientContentSamples = "insufficient-content-samples"
     case contentFPSWarning = "content-fps-warning"
     case contentFPSFailed = "content-fps-failed"
+    case averageUpdateWarning = "average-update-warning"
+    case averageUpdateFailed = "average-update-failed"
     case p95UpdateWarning = "p95-update-warning"
     case p95UpdateFailed = "p95-update-failed"
     case clientProcessingWarning = "client-processing-warning"
@@ -50,6 +52,8 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         name: "iphone-practical-baseline-v1",
         passContentFramesPerSecond: 8,
         failContentFramesPerSecond: 4,
+        passAverageUpdateMilliseconds: nil,
+        failAverageUpdateMilliseconds: nil,
         passP95UpdateMilliseconds: 500,
         failP95UpdateMilliseconds: 1_000,
         passClientProcessingP95Milliseconds: 24,
@@ -61,9 +65,28 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         minimumContentUpdateSamples: 3
     )
 
+    public static let iPhoneSustainedUsability = BenchmarkStreamShapePracticalTargets(
+        name: "iphone-sustained-usability-v2",
+        passContentFramesPerSecond: 8,
+        failContentFramesPerSecond: 4,
+        passAverageUpdateMilliseconds: 180,
+        failAverageUpdateMilliseconds: 250,
+        passP95UpdateMilliseconds: 350,
+        failP95UpdateMilliseconds: 500,
+        passClientProcessingP95Milliseconds: 24,
+        failClientProcessingP95Milliseconds: 50,
+        passRendererFullUploadPermille: 0,
+        failRendererFullUploadPermille: 50,
+        passAdaptivePressurePermille: 100,
+        failAdaptivePressurePermille: 500,
+        minimumContentUpdateSamples: 8
+    )
+
     public let name: String
     public let passContentFramesPerSecond: Double
     public let failContentFramesPerSecond: Double
+    public let passAverageUpdateMilliseconds: Int?
+    public let failAverageUpdateMilliseconds: Int?
     public let passP95UpdateMilliseconds: Int
     public let failP95UpdateMilliseconds: Int
     public let passClientProcessingP95Milliseconds: Int
@@ -78,6 +101,8 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         name: String,
         passContentFramesPerSecond: Double,
         failContentFramesPerSecond: Double,
+        passAverageUpdateMilliseconds: Int?,
+        failAverageUpdateMilliseconds: Int?,
         passP95UpdateMilliseconds: Int,
         failP95UpdateMilliseconds: Int,
         passClientProcessingP95Milliseconds: Int,
@@ -91,6 +116,11 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         self.name = name
         self.passContentFramesPerSecond = max(passContentFramesPerSecond, 0)
         self.failContentFramesPerSecond = max(failContentFramesPerSecond, 0)
+        let passAverageUpdateMilliseconds = passAverageUpdateMilliseconds.map { max($0, 0) }
+        self.passAverageUpdateMilliseconds = passAverageUpdateMilliseconds
+        self.failAverageUpdateMilliseconds = failAverageUpdateMilliseconds.map {
+            max($0, passAverageUpdateMilliseconds ?? 0)
+        }
         self.passP95UpdateMilliseconds = max(passP95UpdateMilliseconds, 0)
         self.failP95UpdateMilliseconds = max(failP95UpdateMilliseconds, self.passP95UpdateMilliseconds)
         self.passClientProcessingP95Milliseconds = max(passClientProcessingP95Milliseconds, 0)
@@ -113,6 +143,26 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
 
     private static func clampPermille(_ value: Int) -> Int {
         min(max(value, 0), 1_000)
+    }
+}
+
+public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equatable, Sendable, CaseIterable {
+    case iPhonePracticalBaseline = "iphone-practical-baseline-v1"
+    case iPhoneSustainedUsability = "iphone-sustained-usability-v2"
+
+    public static let defaultSelection = Self.iPhoneSustainedUsability
+
+    public static var usageDescription: String {
+        allCases.map(\.rawValue).joined(separator: "|")
+    }
+
+    public var targets: BenchmarkStreamShapePracticalTargets {
+        switch self {
+        case .iPhonePracticalBaseline:
+            return .iPhonePracticalBaseline
+        case .iPhoneSustainedUsability:
+            return .iPhoneSustainedUsability
+        }
     }
 }
 
@@ -273,19 +323,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let viewportInteractionPausedMilliseconds: Int
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
-    public var practicalAssessment: BenchmarkStreamShapePracticalAssessment {
-        Self.practicalAssessment(
-            status: status,
-            failureLabel: failureLabel,
-            contentUpdateSamples: contentUpdateSamples,
-            contentFramesPerSecond: contentFramesPerSecond,
-            updateLatency: updateLatency,
-            clientProcessingLatency: clientProcessingLatency,
-            tailLatency: tailLatency,
-            rendererFullUploadPermille: rendererFullUploadPermille,
-            adaptiveClientPressurePacingPermille: adaptiveClientPressurePacingPermille
-        )
-    }
+    public let practicalAssessment: BenchmarkStreamShapePracticalAssessment
 
     private enum CodingKeys: String, CodingKey {
         case status
@@ -337,7 +375,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         viewportInteractionPacingSamples: Int = 0,
         viewportInteractionPausedRequestCount: Int = 0,
         viewportInteractionPausePollCount: Int = 0,
-        viewportInteractionPausedMilliseconds: Int = 0
+        viewportInteractionPausedMilliseconds: Int = 0,
+        practicalTargets: BenchmarkStreamShapePracticalTargets = .iPhonePracticalBaseline
     ) {
         let requestedSamples = max(requestedSamples, 0)
         let receivedSamples = samples.count
@@ -430,6 +469,18 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.viewportInteractionPausedMilliseconds = max(viewportInteractionPausedMilliseconds, 0)
         self.firstTimeoutMilliseconds = firstTimeoutMilliseconds
         self.failureLabel = failureLabel
+        self.practicalAssessment = Self.practicalAssessment(
+            status: status,
+            failureLabel: failureLabel,
+            contentUpdateSamples: contentUpdateSamples,
+            contentFramesPerSecond: contentFramesPerSecond,
+            updateLatency: updateLatency,
+            clientProcessingLatency: clientProcessingLatency,
+            tailLatency: tailLatency,
+            rendererFullUploadPermille: rendererFullUploadPermille,
+            adaptiveClientPressurePacingPermille: adaptiveClientPressurePacingPermille,
+            targets: practicalTargets
+        )
     }
 
     public init(from decoder: Decoder) throws {
@@ -569,6 +620,20 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         )
         self.firstTimeoutMilliseconds = try container.decodeIfPresent(Int.self, forKey: .firstTimeoutMilliseconds)
         self.failureLabel = try container.decodeIfPresent(String.self, forKey: .failureLabel)
+        self.practicalAssessment = try container.decodeIfPresent(
+            BenchmarkStreamShapePracticalAssessment.self,
+            forKey: .practicalAssessment
+        ) ?? Self.practicalAssessment(
+            status: status,
+            failureLabel: failureLabel,
+            contentUpdateSamples: contentUpdateSamples,
+            contentFramesPerSecond: contentFramesPerSecond,
+            updateLatency: updateLatency,
+            clientProcessingLatency: clientProcessingLatency,
+            tailLatency: tailLatency,
+            rendererFullUploadPermille: rendererFullUploadPermille,
+            adaptiveClientPressurePacingPermille: adaptiveClientPressurePacingPermille
+        )
     }
 
     private static func status(
@@ -659,6 +724,14 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         }
 
         if let updateLatency {
+            if let failAverage = targets.failAverageUpdateMilliseconds,
+               updateLatency.averageMilliseconds > failAverage {
+                issues.append(.averageUpdateFailed)
+            } else if let passAverage = targets.passAverageUpdateMilliseconds,
+                      updateLatency.averageMilliseconds > passAverage {
+                issues.append(.averageUpdateWarning)
+            }
+
             if updateLatency.p95Milliseconds > targets.failP95UpdateMilliseconds {
                 issues.append(.p95UpdateFailed)
             } else if updateLatency.p95Milliseconds > targets.passP95UpdateMilliseconds {
@@ -708,6 +781,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             .probeFailed,
             .noContentUpdates,
             .contentFPSFailed,
+            .averageUpdateFailed,
             .p95UpdateFailed,
             .clientProcessingFailed,
             .verySlowUpdate,
