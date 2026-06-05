@@ -1,11 +1,34 @@
 import Foundation
 import NaruRemoteCore
 
+public struct NaruHelperPasteboardRepresentationSnapshot: Equatable, Sendable {
+    public let typeName: String
+    public let data: Data
+
+    public init(typeName: String, data: Data) {
+        self.typeName = typeName
+        self.data = data
+    }
+}
+
+public struct NaruHelperPasteboardItemSnapshot: Equatable, Sendable {
+    public let representations: [NaruHelperPasteboardRepresentationSnapshot]
+
+    public init(representations: [NaruHelperPasteboardRepresentationSnapshot]) {
+        self.representations = representations
+    }
+}
+
 public struct NaruHelperPasteboardSnapshot: Equatable, Sendable {
     public let stringValue: String?
+    public let items: [NaruHelperPasteboardItemSnapshot]
 
-    public init(stringValue: String?) {
+    public init(
+        stringValue: String?,
+        items: [NaruHelperPasteboardItemSnapshot] = []
+    ) {
         self.stringValue = stringValue
+        self.items = items
     }
 }
 
@@ -174,7 +197,22 @@ public final class MacGeneralPasteboard: NaruHelperPasteboard {
     }
 
     public func saveGeneralString() throws -> NaruHelperPasteboardSnapshot {
-        NaruHelperPasteboardSnapshot(stringValue: pasteboard.string(forType: .string))
+        let items = pasteboard.pasteboardItems?.map { pasteboardItem in
+            NaruHelperPasteboardItemSnapshot(
+                representations: pasteboardItem.types.compactMap { type in
+                    pasteboardItem.data(forType: type).map { data in
+                        NaruHelperPasteboardRepresentationSnapshot(
+                            typeName: type.rawValue,
+                            data: data
+                        )
+                    }
+                }
+            )
+        } ?? []
+        return NaruHelperPasteboardSnapshot(
+            stringValue: pasteboard.string(forType: .string),
+            items: items
+        )
     }
 
     public func replaceGeneralString(with text: String) throws {
@@ -186,6 +224,23 @@ public final class MacGeneralPasteboard: NaruHelperPasteboard {
 
     public func restoreGeneralString(_ snapshot: NaruHelperPasteboardSnapshot) throws {
         pasteboard.clearContents()
+        if !snapshot.items.isEmpty {
+            let pasteboardItems = snapshot.items.map { snapshotItem in
+                let item = NSPasteboardItem()
+                for representation in snapshotItem.representations {
+                    item.setData(
+                        representation.data,
+                        forType: NSPasteboard.PasteboardType(representation.typeName)
+                    )
+                }
+                return item
+            }
+            guard pasteboard.writeObjects(pasteboardItems) else {
+                throw NaruHelperTextInsertOperationError.restoreFailed
+            }
+            return
+        }
+
         guard let stringValue = snapshot.stringValue else {
             return
         }

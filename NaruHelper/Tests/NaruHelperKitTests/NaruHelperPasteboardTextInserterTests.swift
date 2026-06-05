@@ -59,6 +59,37 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
         XCTAssertEqual(poster.postCount, 0)
     }
 
+    func testReplaceFailureRestoresNonStringPasteboardSnapshot() throws {
+        let imageSnapshot = NaruHelperPasteboardItemSnapshot(
+            representations: [
+                NaruHelperPasteboardRepresentationSnapshot(
+                    typeName: "public.png",
+                    data: Data([0x89, 0x50, 0x4e, 0x47])
+                )
+            ]
+        )
+        let pasteboard = FakePasteboard(
+            initialString: nil,
+            initialItems: [imageSnapshot],
+            replaceFails: true
+        )
+        let poster = FakePasteCommandPoster()
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.safeFailureCode, .insertRejected)
+        XCTAssertEqual(pasteboard.restoreCount, 1)
+        XCTAssertEqual(pasteboard.currentString, nil)
+        XCTAssertEqual(pasteboard.currentItems, [imageSnapshot])
+        XCTAssertEqual(poster.postCount, 0)
+    }
+
     func testReplaceFailureReportsRestoreFailureWhenRestoreAlsoFails() throws {
         let pasteboard = FakePasteboard(
             initialString: "previous clipboard",
@@ -151,27 +182,36 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
 
 private final class FakePasteboard: NaruHelperPasteboard {
     private(set) var currentString: String?
+    private(set) var currentItems: [NaruHelperPasteboardItemSnapshot]
     private(set) var stagedStrings: [String] = []
     private(set) var restoreCount = 0
     private let replaceFails: Bool
     private let restoreFails: Bool
 
-    init(initialString: String?, replaceFails: Bool = false, restoreFails: Bool = false) {
+    init(
+        initialString: String?,
+        initialItems: [NaruHelperPasteboardItemSnapshot] = [],
+        replaceFails: Bool = false,
+        restoreFails: Bool = false
+    ) {
         self.currentString = initialString
+        self.currentItems = initialItems
         self.replaceFails = replaceFails
         self.restoreFails = restoreFails
     }
 
     func saveGeneralString() throws -> NaruHelperPasteboardSnapshot {
-        NaruHelperPasteboardSnapshot(stringValue: currentString)
+        NaruHelperPasteboardSnapshot(stringValue: currentString, items: currentItems)
     }
 
     func replaceGeneralString(with text: String) throws {
         if replaceFails {
             currentString = nil
+            currentItems = []
             throw NaruHelperTextInsertOperationError.pasteboardUnavailable
         }
         currentString = text
+        currentItems = []
         stagedStrings.append(text)
     }
 
@@ -181,6 +221,7 @@ private final class FakePasteboard: NaruHelperPasteboard {
             throw NaruHelperTextInsertOperationError.restoreFailed
         }
         currentString = snapshot.stringValue
+        currentItems = snapshot.items
     }
 }
 
