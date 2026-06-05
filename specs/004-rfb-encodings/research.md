@@ -3517,3 +3517,43 @@ aggregate gate outcomes. It must not emit host identity, credentials, port
 values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command text,
 command output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D86 — Controlled stimulus cadence must be explicit in sustained gates
+
+References:
+- D85 request/response-only preset cleanup.
+- `artifacts/benchmarks/2026-06-06-stimulus-cadence-target-summary.md`.
+
+**Decision**: report the configured external stimulus frame interval and
+derived expected FPS in `VNCLiveBenchmark` schema v44, and pass that same frame
+interval to external stimulus children through
+`NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS`.
+
+**Why**:
+- The sustained v2 target asks for controlled-stimulus content FPS of at least
+  8fps, but the benchmark did not state the stimulus cadence. That made a low
+  content-FPS result ambiguous: it could be weak stimulus generation, server
+  update cadence, request/response pacing, profile negotiation, or local decode
+  pressure.
+- `VNCLiveStimulusWindow` already defaults to 12Hz screen motion. Making that
+  cadence a report field gives the benchmark a stable denominator: 8fps is now
+  interpreted against a 12Hz stimulus, not against an unstated helper behavior.
+- The external command text remains redacted; only the configured numeric
+  cadence crosses into the report and child environment.
+
+**Implications**:
+- `sustained-v2-core`, `sustained-v2-request-response`, and
+  `sustained-v2-pixel-format` keep a 12Hz stimulus cadence unless a custom run
+  explicitly overrides `--stream-shape-stimulus-frame-interval`.
+- If a live run reports expected stimulus FPS near 12 while measured content
+  FPS remains near 2, the next large unit should inspect server transport
+  cadence, request/response profile behavior, or sample hit-rate rather than
+  treating renderer upload or stimulus generation as the primary suspect.
+- Production app defaults are unchanged.
+
+**Privacy rule**: stimulus cadence reporting may emit only configured frame
+interval and derived expected FPS. It must not emit stimulus command text,
+command output, host identity, credentials, port values, raw TCP/RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, raw FPS, raw timings, draft text, marked text, IME state, or full
+diagnostic payloads.

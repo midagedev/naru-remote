@@ -1,6 +1,7 @@
 public enum BenchmarkStreamShapeStimulusEnvironment {
     public static let commandKey = "NARU_LIVE_STIMULUS_COMMAND"
     public static let durationKey = "NARU_LIVE_STIMULUS_DURATION_SECONDS"
+    public static let frameIntervalKey = "NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"
     public static let profileLabelKey = "NARU_LIVE_STIMULUS_PROFILE_LABEL"
     public static let transportModeKey = "NARU_LIVE_STIMULUS_TRANSPORT_MODE"
 
@@ -17,6 +18,7 @@ public enum BenchmarkStreamShapeStimulusEnvironment {
     public static func make(
         parent: [String: String],
         durationSeconds: String,
+        frameIntervalSeconds: String,
         profileLabel: String,
         transportMode: String
     ) -> [String: String] {
@@ -26,6 +28,7 @@ public enum BenchmarkStreamShapeStimulusEnvironment {
             }
         )
         environment[durationKey] = durationSeconds
+        environment[frameIntervalKey] = frameIntervalSeconds
         environment[profileLabelKey] = profileLabel
         environment[transportModeKey] = transportMode
         return environment

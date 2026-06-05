@@ -893,6 +893,16 @@ iPhone) and ships as its own PR.
   blocker noise without weakening the full `sustained-v2-core` promotion gate.
   Owns: benchmark CLI/report status, README, benchmark artifact, research note.
   **Done.**
+- **T418** Controlled stimulus cadence target: bump `VNCLiveBenchmark` to schema
+  v44 with a reported `streamShapeStimulusFrameIntervalSeconds` and
+  `streamShapeStimulusExpectedFramesPerSecond`, pass the same fixed cadence to
+  external stimulus children via `NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS`,
+  and make `VNCLiveStimulusWindow` consume that value by default. This pins the
+  sustained v2 controlled stimulus at 12 Hz so future low content-FPS results
+  can be routed to server/transport/profile cadence inspection instead of
+  ambiguous stimulus suspicion. Owns: benchmark CLI/report, benchmark-kit
+  environment tests, stimulus helper, README, benchmark artifact, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

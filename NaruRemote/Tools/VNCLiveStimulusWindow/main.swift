@@ -104,7 +104,7 @@ private struct StimulusOptions {
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
             duration: environmentDuration() ?? 12,
-            frameInterval: 1.0 / 12.0,
+            frameInterval: environmentFrameInterval() ?? 1.0 / 12.0,
             size: NSSize(width: 420, height: 240),
             origin: NSPoint(x: 72, y: 72)
         )
@@ -156,6 +156,13 @@ private struct StimulusOptions {
 
     private static func environmentDuration() -> TimeInterval? {
         guard let value = ProcessInfo.processInfo.environment["NARU_LIVE_STIMULUS_DURATION_SECONDS"] else {
+            return nil
+        }
+        return TimeInterval(value).flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    private static func environmentFrameInterval() -> TimeInterval? {
+        guard let value = ProcessInfo.processInfo.environment["NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"] else {
             return nil
         }
         return TimeInterval(value).flatMap { $0 > 0 ? $0 : nil }

@@ -14,6 +14,7 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
                 "UNRELATED_SECRET": "secret"
             ],
             durationSeconds: "7.25",
+            frameIntervalSeconds: "0.0833",
             profileLabel: "local-low-latency",
             transportMode: "request-response"
         )
@@ -21,6 +22,7 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
         XCTAssertEqual(environment["PATH"], "/usr/bin")
         XCTAssertEqual(environment["HOME"], "/Users/example")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_DURATION_SECONDS"], "7.25")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"], "0.0833")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_PROFILE_LABEL"], "local-low-latency")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_TRANSPORT_MODE"], "request-response")
         XCTAssertNil(environment["NARU_LIVE_MAC_HOST"])
@@ -34,6 +36,10 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
         XCTAssertEqual(
             BenchmarkStreamShapeStimulusEnvironment.commandKey,
             "NARU_LIVE_STIMULUS_COMMAND"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeStimulusEnvironment.frameIntervalKey,
+            "NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"
         )
     }
 }
