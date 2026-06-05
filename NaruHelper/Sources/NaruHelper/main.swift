@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import NaruHelperKit
 import NaruRemoteCore
 
@@ -72,5 +73,5 @@ do {
     try NaruHelperCLI.run()
 } catch {
     FileHandle.standardError.write(Data("NaruHelper failed with a fixed safe error.\n".utf8))
-    Foundation.exit(2)
+    Darwin.exit(2)
 }
