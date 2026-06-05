@@ -1200,3 +1200,39 @@ or paste key events.
 **Privacy rule**: the probe and app behavior must not log or export the VNC
 password, raw clipboard contents, Compose draft text, host name, framebuffer
 pixels, coordinates, raw key events, byte payloads, or exact timing samples.
+
+## D40 — Re-try 30 Hz mid-gesture redraw as a bounded smoothness candidate
+
+References:
+- RFC 6143 framebuffer updates and encodings:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC automatic protocol selection:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+
+**Decision**: raise the active viewport-gesture incoming-frame redraw trickle
+from 15 Hz to 30 Hz while keeping framebuffer uploads suspended except for the
+bounded throttle slot and the final gesture-end flush.
+
+**Why**:
+- Physical iPhone feedback after the 15 Hz recovery path still reports
+  zoom/pan as visibly low frame rate. The local viewport transform remains on
+  the UIKit/Metal hot path, but remote content changes behind that transform
+  can still look frozen when only 15 redraw slots per second are allowed.
+- RFC 6143 treats updates as rectangle batches and commonly deployed clients
+  rely on encoding/pixel-format selection to trade bandwidth, CPU, and
+  interaction feel. TigerVNC documents this as starting conservative and
+  switching to less expensive generation when the link can support it. A 30 Hz
+  gesture redraw cap follows the same middle path: improve perceived motion
+  without reopening an unbounded 60 Hz texture-upload path.
+- Prior physical feedback showed that pushing too much stream/render work into
+  the gesture loop can make phones hot. Keeping this as a capped redraw trickle
+  instead of continuous uploads preserves diagnostics: `viewportStutterHint`,
+  redraw deferral ratios, renderer-upload buckets, stream pacing buckets, and
+  thermal pacing counts can decide whether 30 Hz is a net win on the device.
+
+**Privacy rule**: the change exports no new raw data. Gesture coordinates,
+raw timing samples, display dimensions, pixels, cursor pixels, byte counts,
+host identity, device identity, power state, and Compose draft text remain out
+of diagnostics and benchmark artifacts.

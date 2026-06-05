@@ -498,11 +498,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    // Let a small trickle of remote frames through during touch tracking.
+    // Let a bounded trickle of remote frames through during touch tracking.
     // Fully freezing uploads kept the compositor transform cheap, but made
     // real iPhone sessions feel like low-FPS remote video while zooming or
-    // panning. The latest deferred frame still flushes at gesture end.
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
+    // panning. 30 Hz keeps visible remote change moving without opening the
+    // 60 Hz content-frame flood that previously made phones run hot.
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 30.0
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {

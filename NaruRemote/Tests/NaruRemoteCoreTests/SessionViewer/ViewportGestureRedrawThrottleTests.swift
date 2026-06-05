@@ -21,6 +21,16 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 1.10), .requestNow)
     }
 
+    func testThirtyHertzCadenceRejectsSixtyHertzFloodButAllowsNextFrameSlot() {
+        var throttle = ViewportGestureRedrawThrottle(minimumInterval: 1.0 / 30.0)
+
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.000), .requestNow)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.016), .deferRedraw)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.034), .requestNow)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.050), .deferRedraw)
+        XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.068), .requestNow)
+    }
+
     func testStrictGestureModeDefersEveryFrameUntilGestureEnd() {
         var throttle = ViewportGestureRedrawThrottle(
             minimumInterval: .infinity,

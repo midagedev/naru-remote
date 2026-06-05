@@ -464,6 +464,11 @@ iPhone) and ships as its own PR.
   writes when the server has not confirmed Extended Clipboard UTF-8 support.
   Owns: Metal viewport host, text-injection policy, app model, tests, research
   note. **Done.**
+- **T368** Mid-gesture remote redraw cadence: raise the bounded incoming-frame
+  redraw trickle during active viewport gestures from 15 Hz to 30 Hz so zoom
+  and pan keep visible remote changes moving while still rejecting 60 Hz
+  upload/redraw floods that can heat phones. Owns: Metal viewport host,
+  viewport redraw throttle test, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
