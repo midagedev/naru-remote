@@ -16,7 +16,11 @@ Run after adding core helper state and fake-helper routing:
 
 ```bash
 swift test --filter HelperTextBridge
+swift test --filter HelperTextBridgeTests/testHelperTextBridgePathUsesStableDiagnosticValue
 swift test --filter TextInjectionAdapterTests
+swift test --filter NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed
+swift test --filter NaruRemoteAppModelTests/testModelRejectsMismatchedHelperInsertResultID
+swift test --filter NaruRemoteAppModelTests/testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed
 swift test --filter NaruRemoteAppModelTests
 swift test --filter DiagnosticExportTests
 ```

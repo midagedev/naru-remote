@@ -25,6 +25,21 @@ private struct RemoteClipboardTextClientBox: @unchecked Sendable {
     }
 }
 
+private struct HelperTextInsertClientBox: @unchecked Sendable {
+    let client: any HelperTextInsertClient
+    private let identity: ObjectIdentifier
+
+    init(client: any HelperTextInsertClient) {
+        self.client = client
+        self.identity = ObjectIdentifier(client)
+    }
+
+    func matches(_ other: (any HelperTextInsertClient)?) -> Bool {
+        guard let other else { return false }
+        return ObjectIdentifier(other) == identity
+    }
+}
+
 private struct DeferredViewportStreamFrame {
     let frame: RFBFramePumpFrame
     let serverInit: RFBServerInit
@@ -73,6 +88,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var latestServerCursor: RFBServerCursor?
     @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
     @Published public private(set) var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
+    @Published public private(set) var helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState]
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -149,6 +165,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let settingsPersistence: AppSettingsPersisting?
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
+    private let helperTextInsertClient: (any HelperTextInsertClient)?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
@@ -288,6 +305,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         reachabilityProbeMaximumConcurrency: Int = 2,
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
+        helperTextInsertClient: (any HelperTextInsertClient)? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
             SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
@@ -329,6 +347,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestServerCursor = snapshot.latestServerCursor
         self.profilePreviews = snapshot.profilePreviews
         self.profileReachability = snapshot.profileReachability
+        self.helperTextBridgeState = snapshot.helperTextBridgeState
         self.appSettings = AppSettings()
         self.settingsPersistenceError = nil
         self.profileStore = profileStore
@@ -342,6 +361,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.reachabilityProbeMaximumConcurrency = max(1, reachabilityProbeMaximumConcurrency)
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
+        self.helperTextInsertClient = helperTextInsertClient
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
@@ -517,6 +537,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestServerCursor: latestServerCursor,
             profilePreviews: profilePreviews,
             profileReachability: profileReachability,
+            helperTextBridgeState: helperTextBridgeState,
             directKeystrokeMode: directKeystrokeMode,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -525,6 +546,17 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public var selectedProfile: ConnectionProfile? {
         snapshot.selectedProfile
+    }
+
+    private func helperTextBridgeState(for profileID: ConnectionProfile.ID?) -> HelperTextBridgeProfileState? {
+        guard let profileID else {
+            return nil
+        }
+        return helperTextBridgeState[profileID] ?? HelperTextBridgeProfileState()
+    }
+
+    private func setHelperTextBridgeState(_ state: HelperTextBridgeProfileState, for profileID: ConnectionProfile.ID) {
+        helperTextBridgeState[profileID] = state
     }
 
     public var canStartPiPWatch: Bool {
@@ -809,7 +841,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         let input = DiagnosticInputReport(
             composeDraft: composeDraft,
             latestInjectionAttempt: latestInjectionAttempt,
-            directKeystrokeModeActive: directKeystrokeMode.isActive
+            directKeystrokeModeActive: directKeystrokeMode.isActive,
+            helperTextBridgeState: helperTextBridgeState(for: selectedProfileID)
         )
         guard let run = diagnosticRun else {
             return DiagnosticExport(
@@ -3062,7 +3095,46 @@ public final class NaruRemoteAppModel: ObservableObject {
             payloadEncoding: payloadEncoding,
             utf8Support: utf8Support
         ) {
-            draft.markFailed(reason: message, at: now)
+            let profileID = session?.profileID ?? selectedProfileID
+            let helperState = helperTextBridgeState(for: profileID)
+            if let profileID,
+               let helperState,
+               let helperTextInsertClient,
+               Self.canRouteThroughHelperTextBridge(
+                    state: helperState,
+                    client: helperTextInsertClient
+               ) {
+                sendComposedTextThroughHelper(
+                    draft: draft,
+                    payloadEncoding: payloadEncoding,
+                    transferMode: transferMode,
+                    utf8Support: utf8Support,
+                    profileID: profileID,
+                    helperState: helperState,
+                    helperTextInsertClient: helperTextInsertClient,
+                    now: now
+                )
+                return
+            }
+
+            let helperFailureCode = Self.helperFailureCode(
+                state: helperState,
+                client: helperTextInsertClient
+            )
+            let helperAwareMessage = Self.helperUnavailableMessage(
+                vncMessage: message,
+                helperFailureCode: helperFailureCode
+            )
+            if let profileID {
+                setHelperTextBridgeState(
+                    Self.updatedHelperTextBridgeState(
+                        helperState ?? HelperTextBridgeProfileState(),
+                        failureCode: helperFailureCode
+                    ),
+                    for: profileID
+                )
+            }
+            draft.markFailed(reason: helperAwareMessage, at: now)
             composeDraft = draft
             latestInjectionAttempt = TextInjectionAttempt(
                 draftID: draft.id,
@@ -3076,7 +3148,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 finishedAt: now,
                 status: .failed,
                 remoteClipboardRestore: .unsupported,
-                safeMessage: message
+                safeMessage: helperAwareMessage
             )
             return
         }
@@ -3222,6 +3294,235 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    private func sendComposedTextThroughHelper(
+        draft: ComposeDraft,
+        payloadEncoding: TextInjectionPayloadEncoding,
+        transferMode: TextClipboardTransferMode,
+        utf8Support: RemoteClipboardUTF8Support,
+        profileID: ConnectionProfile.ID,
+        helperState: HelperTextBridgeProfileState,
+        helperTextInsertClient: any HelperTextInsertClient,
+        now: Date
+    ) {
+        var sendingDraft = draft
+        let metadata = HelperTextInsertRequestMetadata(
+            sessionID: sendingDraft.sessionID,
+            payloadEncoding: payloadEncoding,
+            payloadSizeBucket: HelperTextPayloadSizeBucket.bucket(
+                utf8ByteCount: sendingDraft.text.utf8.count
+            )
+        )
+        let helperBox = HelperTextInsertClientBox(client: helperTextInsertClient)
+        let draftID = sendingDraft.id
+        let sessionID = sendingDraft.sessionID
+
+        sendingDraft.markSending(path: .helperTextBridge, at: now)
+        composeDraft = sendingDraft
+        latestInjectionAttempt = TextInjectionAttempt(
+            draftID: sendingDraft.id,
+            sessionID: sendingDraft.sessionID,
+            path: .helperTextBridge,
+            payloadEncoding: payloadEncoding,
+            clipboardTransferMode: transferMode,
+            utf8ClipboardSupport: utf8Support,
+            startedAt: now,
+            status: .unknown,
+            remoteClipboardRestore: .notAttempted,
+            safeMessage: "Sending through helperTextBridge"
+        )
+
+        Task.detached(priority: .userInitiated) { [weak self, helperBox, sendingDraft, metadata, now, profileID, helperState] in
+            var draft = sendingDraft
+            var attempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .helperTextBridge,
+                payloadEncoding: metadata.payloadEncoding,
+                clipboardTransferMode: transferMode,
+                utf8ClipboardSupport: utf8Support,
+                startedAt: now,
+                remoteClipboardRestore: .notAttempted
+            )
+
+            guard await Self.isCurrentHelperTextInjection(
+                self,
+                draftID: draftID,
+                sessionID: sessionID,
+                profileID: profileID,
+                helperBox: helperBox
+            ) else {
+                await Self.cancelTextInjection(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            do {
+                let helperResult = try await helperBox.client.insertText(draft.text, metadata: metadata)
+                let result = helperResult.requestID == metadata.id
+                    ? helperResult
+                    : HelperTextInsertResult(
+                        requestID: metadata.id,
+                        strategyUsed: .unsupported,
+                        status: .failed,
+                        safeFailureCode: .insertRejected
+                    )
+                let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
+                attempt.finishedAt = Date()
+                attempt.status = result.status
+                attempt.safeMessage = message
+                attempt.remoteClipboardRestore = Self.remoteClipboardRestoreStatus(for: result)
+                let nextState = Self.updatedHelperTextBridgeState(
+                    helperState,
+                    result: result
+                )
+
+                switch result.status {
+                case .sent:
+                    draft.markSent(message: message, at: attempt.finishedAt ?? now)
+                case .failed:
+                    draft.markFailed(reason: message, at: attempt.finishedAt ?? now)
+                case .unknown:
+                    draft.markUnknown(message: message, at: attempt.finishedAt ?? now)
+                }
+
+                await Self.finishTextInjection(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    helperTextBridgeState: nextState,
+                    helperProfileID: profileID
+                )
+            } catch {
+                let failureCode = Self.helperFailureCode(from: error)
+                let message = HelperTextBridgeError.safeMessage(for: failureCode)
+                attempt.finishedAt = Date()
+                attempt.status = .failed
+                attempt.safeMessage = message
+                draft.markFailed(reason: message, at: attempt.finishedAt ?? now)
+
+                await Self.finishTextInjection(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    helperTextBridgeState: Self.updatedHelperTextBridgeState(
+                        helperState,
+                        failureCode: failureCode
+                    ),
+                    helperProfileID: profileID
+                )
+            }
+        }
+    }
+
+    nonisolated private static func canRouteThroughHelperTextBridge(
+        state: HelperTextBridgeProfileState,
+        client: any HelperTextInsertClient
+    ) -> Bool {
+        state.isEnabled &&
+            state.availability == .reachable &&
+            client.availability == .reachable
+    }
+
+    nonisolated private static func helperFailureCode(
+        state: HelperTextBridgeProfileState?,
+        client: (any HelperTextInsertClient)?
+    ) -> HelperTextBridgeFailureCode {
+        guard let state else {
+            return .notConfigured
+        }
+        guard state.isEnabled else {
+            return state.availability == .notConfigured ? .notConfigured : .disabled
+        }
+
+        switch state.availability {
+        case .reachable:
+            return client?.availability == .reachable ? .none : .unreachable
+        case .notConfigured:
+            return .notConfigured
+        case .disabled:
+            return .disabled
+        case .checking, .unreachable:
+            return .unreachable
+        case .permissionMissing:
+            return .permissionMissing
+        case .revoked:
+            return .revoked
+        case .versionUnsupported:
+            return .versionUnsupported
+        }
+    }
+
+    nonisolated private static func helperFailureCode(from error: Error) -> HelperTextBridgeFailureCode {
+        if case let HelperTextBridgeError.unavailable(code) = error {
+            return code
+        }
+        return .insertRejected
+    }
+
+    nonisolated private static func helperUnavailableMessage(
+        vncMessage: String,
+        helperFailureCode: HelperTextBridgeFailureCode
+    ) -> String {
+        "\(vncMessage) \(HelperTextBridgeError.safeMessage(for: helperFailureCode))"
+    }
+
+    nonisolated private static func updatedHelperTextBridgeState(
+        _ state: HelperTextBridgeProfileState,
+        result: HelperTextInsertResult
+    ) -> HelperTextBridgeProfileState {
+        updatedHelperTextBridgeState(state, failureCode: result.safeFailureCode)
+    }
+
+    nonisolated private static func updatedHelperTextBridgeState(
+        _ state: HelperTextBridgeProfileState,
+        failureCode: HelperTextBridgeFailureCode
+    ) -> HelperTextBridgeProfileState {
+        var next = state
+        next.lastFailureCode = failureCode
+        next.lastCheckedBucket = .recent
+        next.availability = availability(for: failureCode)
+        return next
+    }
+
+    nonisolated private static func availability(
+        for failureCode: HelperTextBridgeFailureCode
+    ) -> HelperTextBridgeAvailability {
+        switch failureCode {
+        case .none, .focusUnavailable, .insertRejected, .restoreFailed:
+            return .reachable
+        case .notConfigured:
+            return .notConfigured
+        case .disabled:
+            return .disabled
+        case .unreachable, .insertTimedOut:
+            return .unreachable
+        case .revoked:
+            return .revoked
+        case .permissionMissing:
+            return .permissionMissing
+        case .versionUnsupported:
+            return .versionUnsupported
+        }
+    }
+
+    nonisolated private static func remoteClipboardRestoreStatus(
+        for result: HelperTextInsertResult
+    ) -> RemoteClipboardRestoreStatus {
+        guard result.strategyUsed == .pasteboardPasteWithRestore else {
+            return .notAttempted
+        }
+        return result.safeFailureCode == .restoreFailed ? .failed : .succeeded
+    }
+
     private static func isCurrentTextInjection(
         _ model: NaruRemoteAppModel?,
         draftID: ComposeDraft.ID,
@@ -3240,18 +3541,43 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    private static func isCurrentHelperTextInjection(
+        _ model: NaruRemoteAppModel?,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID,
+        helperBox: HelperTextInsertClientBox
+    ) async -> Bool {
+        await MainActor.run {
+            guard let model,
+                  model.session?.id == sessionID,
+                  model.session?.profileID == profileID,
+                  model.session?.state == .active,
+                  helperBox.matches(model.helperTextInsertClient)
+            else {
+                return false
+            }
+            return model.composeDraft?.id == draftID
+        }
+    }
+
     private static func finishTextInjection(
         _ model: NaruRemoteAppModel?,
         draft: ComposeDraft,
         attempt: TextInjectionAttempt,
         draftID: ComposeDraft.ID,
-        sessionID: RemoteSession.ID
+        sessionID: RemoteSession.ID,
+        helperTextBridgeState: HelperTextBridgeProfileState? = nil,
+        helperProfileID: ConnectionProfile.ID? = nil
     ) async {
         await MainActor.run {
             guard let model,
                   model.session?.id == sessionID
             else {
                 return
+            }
+            if let helperProfileID, let helperTextBridgeState {
+                model.helperTextBridgeState[helperProfileID] = helperTextBridgeState
             }
             if model.composeDraft?.id == draftID,
                model.composeDraft?.sessionID == sessionID {

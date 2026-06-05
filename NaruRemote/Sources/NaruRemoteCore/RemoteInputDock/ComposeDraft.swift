@@ -62,11 +62,15 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
         self.lastStatusMessage = "Sending through \(path.rawValue)"
     }
 
-    public mutating func markSent(clearAfterConfirmation: Bool = false, at date: Date = Date()) {
+    public mutating func markSent(
+        clearAfterConfirmation: Bool = false,
+        message: String = "Sent",
+        at date: Date = Date()
+    ) {
         self.sendState = .sent
         self.updatedAt = date
         self.lastFailureReason = nil
-        self.lastStatusMessage = "Sent"
+        self.lastStatusMessage = message
         if clearAfterConfirmation {
             self.text = ""
         }

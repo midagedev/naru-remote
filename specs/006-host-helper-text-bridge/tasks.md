@@ -22,10 +22,10 @@ description: "Tasks: Host Helper Text Bridge"
 ## Phase 2: Foundation / Test Harness
 
 - [x] T005 [US1] Add `HelperTextBridgeAvailability`, `HelperTextBridgeFailureCode`, and helper request/result value types in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/`; verify with `swift test --filter HelperTextBridge`. **Done.**
-- [ ] T006 [US1] Add a fake helper text client in `NaruRemote/Tests/NaruRemoteCoreTests/` or `NaruRemote/Tests/NaruRemoteAppTests/`; verify routing without a real helper.
+- [x] T006 [US1] Add a fake helper text client in `NaruRemote/Tests/NaruRemoteCoreTests/` or `NaruRemote/Tests/NaruRemoteAppTests/`; verify routing without a real helper. **Done.**
 - [x] T007 [US3] Extend diagnostic export model with helper text bridge state in `NaruRemote/Sources/NaruRemoteCore/Diagnostics/` and tests in `NaruRemote/Tests/NaruRemoteCoreTests/DiagnosticExportTests.swift`. **Done.**
 - [ ] T008 [US2] Add profile-level helper enabled/revoked state tests in `NaruRemote/Tests/NaruRemoteAppTests/`.
-- [ ] T009 Update `specs/006-host-helper-text-bridge/quickstart.md` with exact implementation commands after test names exist.
+- [x] T009 Update `specs/006-host-helper-text-bridge/quickstart.md` with exact implementation commands after test names exist. **Done.**
 
 **Checkpoint**: Verification tools exist and fail for missing routing implementation where applicable.
 
@@ -40,14 +40,14 @@ description: "Tasks: Host Helper Text Bridge"
 ### Tests First
 
 - [ ] T010 [P] [US1] Add failing text-injection routing tests for UTF-8-required payload + reachable helper in `NaruRemote/Tests/NaruRemoteCoreTests/`.
-- [ ] T011 [P] [US1] Add failing app-model test for helper route and no VNC clipboard write in `NaruRemote/Tests/NaruRemoteAppTests/NaruRemoteAppModelTests.swift`.
+- [x] T011 [P] [US1] Add failing app-model test for helper route and no VNC clipboard write in `NaruRemote/Tests/NaruRemoteAppTests/NaruRemoteAppModelTests.swift`. **Done.**
 
 ### Implementation
 
-- [ ] T012 [US1] Extend `TextInjectionPath` and `TextInjectionAttempt` in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/TextInjectionAdapter.swift` with helper-native path metadata.
-- [ ] T013 [US1] Add helper-aware Compose routing in `NaruRemote/App/AppShell/NaruRemoteAppModel.swift`.
-- [ ] T014 [US1] Keep confirmed Extended Clipboard UTF-8 as the no-helper preferred path when available.
-- [ ] T015 [US1] Add safe helper success/failure status messages without raw text.
+- [x] T012 [US1] Extend `TextInjectionPath` and `TextInjectionAttempt` in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/TextInjectionAdapter.swift` with helper-native path metadata. **Done.**
+- [x] T013 [US1] Add helper-aware Compose routing in `NaruRemote/App/AppShell/NaruRemoteAppModel.swift`. **Done.**
+- [x] T014 [US1] Keep confirmed Extended Clipboard UTF-8 as the no-helper preferred path when available. **Done.**
+- [x] T015 [US1] Add safe helper success/failure status messages without raw text. **Done.**
 
 **Checkpoint**: US1 works independently with fake helper.
 

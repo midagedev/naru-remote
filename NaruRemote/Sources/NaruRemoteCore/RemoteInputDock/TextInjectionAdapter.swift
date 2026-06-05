@@ -2,6 +2,7 @@ import Foundation
 
 public enum TextInjectionPath: String, Codable, Equatable, CaseIterable, Sendable {
     case vncClipboardPaste
+    case helperTextBridge
 }
 
 public enum PasteCommand: String, Codable, Equatable, CaseIterable, Sendable {

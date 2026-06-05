@@ -36,4 +36,19 @@ final class HelperTextBridgeTests: XCTestCase {
         XCTAssertFalse(json.contains("한글"))
         XCTAssertFalse(json.contains("emoji"))
     }
+
+    func testHelperTextBridgePathUsesStableDiagnosticValue() {
+        XCTAssertEqual(TextInjectionPath.helperTextBridge.rawValue, "helperTextBridge")
+    }
+
+    func testHelperFailureMessagesStaySafeCatalogOnly() {
+        XCTAssertEqual(
+            HelperTextBridgeError.safeMessage(for: .permissionMissing),
+            "Helper text bridge needs permission on the Mac."
+        )
+        XCTAssertFalse(
+            HelperTextBridgeError.safeMessage(for: .insertRejected)
+                .localizedCaseInsensitiveContains("AXError")
+        )
+    }
 }
