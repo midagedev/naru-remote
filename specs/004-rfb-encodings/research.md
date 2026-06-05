@@ -1750,3 +1750,31 @@ schema v29 and add ZRLE compression-0 cursor/clipboard isolation profiles.
 aggregate counts, permille ratios, and latency summaries. They must not emit
 host identity, credentials, framebuffer dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw samples, or raw error text.
+
+## D53 — Report tail position without raw samples
+
+**Decision**: extend `BenchmarkStreamShapeTailSummary` with optional ordinal
+aggregates for the first slow and first very-slow update, plus their
+content-update ordinals. Bump `VNCLiveBenchmark` to schema v30 and print the
+first very-slow ordinal in the human report.
+
+**Why**:
+- After T382, the remaining practical-baseline failure is not renderer upload
+  pressure or a clearly bad encoding profile. The next question is whether the
+  1000 ms-class tail is a cold first-content-frame event, a late recurring
+  decode/apply stall, or profile-order variance.
+- Raw per-frame samples remain intentionally absent from benchmark JSON. A
+  one-based ordinal aggregate gives enough diagnostic shape for PR-level
+  decisions without exporting timestamps, frame dimensions, coordinates, pixels,
+  byte counts, or raw payloads.
+
+**Evidence**:
+- Existing v29 runs can show one very-slow sample, but cannot say where it
+  occurred without inspecting non-exported local scratch data.
+- The new unit test covers mixed content/empty updates and proves the ordinal
+  counts are based on safe received-update and content-update sequence numbers.
+
+**Privacy rule**: tail-position telemetry may report only one-based ordinals
+and aggregate counts. It must not include per-frame arrays, raw timestamps,
+dimensions, coordinates, pixels, cursor pixels, byte counts, host identity,
+credentials, or raw error text.

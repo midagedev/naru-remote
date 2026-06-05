@@ -129,6 +129,9 @@ after one 1000 ms-class decode/apply spike. Schema v29 splits the recovery
 windows so a single very-slow spike reports
 `streamShapeClientPressureVerySlowRecoveryUpdateCount`, while repeated lag or
 full-upload pressure still reports `streamShapeClientPressureRecoveryUpdateCount`.
+Schema v30 adds optional `tailLatency` ordinal aggregates for the first slow and
+very-slow update/content update, so cold-start tails can be distinguished from
+later sustained tails without exporting raw per-frame samples.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive

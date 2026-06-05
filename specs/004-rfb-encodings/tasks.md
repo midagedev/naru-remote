@@ -587,6 +587,13 @@ iPhone) and ships as its own PR.
   Screen Sharing benchmark evidence. Owns: Core pacing defaults, app pressure
   state, benchmark pacing/report/profile list, focused tests, benchmark
   artifact, research note. **Done.**
+- **T383** Tail-position benchmark telemetry: after the cold-spike cooldown
+  split, expose safe ordinal aggregates for the first slow and very-slow
+  update/content update inside `tailLatency`, bump `VNCLiveBenchmark` to schema
+  v30, and print the first very-slow ordinal in human output so future PRs can
+  distinguish cold first-content-frame tails from later recurring decode/apply
+  stalls without exporting raw per-frame samples. Owns: benchmark summary kit,
+  CLI report output, focused tests, benchmark docs, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

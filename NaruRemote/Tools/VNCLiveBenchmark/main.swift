@@ -1146,7 +1146,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 29
+        self.schemaVersion = 30
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1620,6 +1620,14 @@ private func renderStreamShapeSummary(
             + ">=\(summary.tailLatency.verySlowUpdateThresholdMilliseconds)ms: "
             + "\(summary.tailLatency.verySlowUpdateSamples)"
     )
+    if let firstVerySlow = summary.tailLatency.firstVerySlowUpdateOrdinal {
+        let contentOrdinal = summary.tailLatency.firstVerySlowContentUpdateOrdinal
+            .map(String.init) ?? "n/a"
+        print(
+            "\(indentation)  first very-slow update ordinal/content ordinal: "
+                + "\(firstVerySlow)/\(contentOrdinal)"
+        )
+    }
     print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
     if let adaptivePermille = summary.adaptiveClientPressurePacingPermille,
        summary.adaptiveClientPressurePacingSamples > 0 {
