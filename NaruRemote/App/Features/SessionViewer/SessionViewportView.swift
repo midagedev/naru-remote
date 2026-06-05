@@ -1597,6 +1597,12 @@ public struct SessionViewportView: View {
         showsControlBar && !isViewportInteractionActive
     }
 
+    nonisolated static func trackpadDragOwnsViewportInteraction(
+        transform: ViewportTransform
+    ) -> Bool {
+        transform.isPannable
+    }
+
     /// Maps a framebuffer-pixel cursor position into the container's
     /// view-space point using the same fit × zoom × pan transform as the
     /// framebuffer preview.  This keeps the soft/server cursor aligned
