@@ -11,6 +11,8 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
+    nonisolated static let composeSendFastSnapshotCount = 3
+    nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
     nonisolated static let composeSendStabilizationSnapshotCount = 20
     nonisolated static let composeSendStabilizationDelayNanoseconds: UInt64 = 16_000_000
 
@@ -517,16 +519,23 @@ public struct RemoteInputDockView: View {
         #if os(iOS) && canImport(UIKit)
         guard !isPreparingComposeSend else { return }
         isPreparingComposeSend = true
+        let hadMarkedTextBeforeSend = composeCommitController.hasMarkedText
         let immediateText = composeCommitController.commitMarkedTextAndRead(fallback: text)
         if immediateText != text {
             text = immediateText
         }
         propagateComposeTextToModelIfNeeded(immediateText)
         Task { @MainActor in
+            let snapshotCount = hadMarkedTextBeforeSend
+                ? Self.composeSendStabilizationSnapshotCount
+                : Self.composeSendFastSnapshotCount
+            let snapshotDelayNanoseconds = hadMarkedTextBeforeSend
+                ? Self.composeSendStabilizationDelayNanoseconds
+                : Self.composeSendFastDelayNanoseconds
             let finalText = await composeCommitController.readStabilizedCurrentText(
                 fallback: immediateText,
-                snapshotCount: Self.composeSendStabilizationSnapshotCount,
-                snapshotDelayNanoseconds: Self.composeSendStabilizationDelayNanoseconds
+                snapshotCount: snapshotCount,
+                snapshotDelayNanoseconds: snapshotDelayNanoseconds
             )
             if finalText != text {
                 text = finalText

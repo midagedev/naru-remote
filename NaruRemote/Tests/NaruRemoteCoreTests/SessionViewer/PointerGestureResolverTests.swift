@@ -186,7 +186,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 775, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 764, y: 500)
         ])
     }
 
@@ -203,12 +203,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -62.5,
+            -35,
             accuracy: 1e-6,
             "Zoomed trackpad movement should pan with the cursor without dragging the background too aggressively."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 656, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 643, y: 500)
         ])
     }
 
@@ -252,7 +252,30 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 775, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 764, y: 500)
+        ])
+    }
+
+    func testZoomedTrackpadPanCouplingStaysSubtleAwayFromEdge() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
+        let touchTranslation = CGSize(width: 180, height: 0)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: touchTranslation),
+            transform: zoomed,
+            cursor: cursor
+        )
+
+        XCTAssertEqual(
+            outcome.transform.panOffset.width,
+            -25.2,
+            accuracy: 1e-6,
+            "Central zoomed trackpad motion should follow the cursor without making the viewport feel over-dragged."
+        )
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 603, y: 500)
         ])
     }
 
