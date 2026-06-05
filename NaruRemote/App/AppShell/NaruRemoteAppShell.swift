@@ -133,6 +133,10 @@ public struct NaruRemoteAppShell: View {
             onToggleStreamPowerMode: {
                 model.toggleStreamPowerMode()
             },
+            startupPreflightMode: model.appSettings.startupPreflightMode,
+            onToggleStartupPreflightMode: {
+                model.toggleStartupPreflightMode()
+            },
             connectionQuality: model.connectionQuality,
             fillsAvailableHeight: fillsAvailableHeight
         )

@@ -17,6 +17,32 @@ public enum StreamPowerMode: String, Codable, Equatable, Sendable, CaseIterable 
     }
 }
 
+/// Explicit experiment gate for app-side startup stream warm-up.
+public enum StreamStartupPreflightMode: String, Codable, Equatable, Sendable, CaseIterable {
+    /// Do not consume any hidden post-first-frame updates.
+    case disabled
+    /// After the first visible frame, consume one hidden incremental update.
+    case oneHiddenFrame = "one-hidden-frame"
+
+    public var toggled: StreamStartupPreflightMode {
+        switch self {
+        case .disabled:
+            return .oneHiddenFrame
+        case .oneHiddenFrame:
+            return .disabled
+        }
+    }
+
+    public var requestedHiddenFrameCount: Int {
+        switch self {
+        case .disabled:
+            return 0
+        case .oneHiddenFrame:
+            return 1
+        }
+    }
+}
+
 /// App-level user preferences that are not tied to a single
 /// `ConnectionProfile` and never carry secrets.  Stored as plain
 /// JSON via `AppSettingsPersisting` (no Keychain).
@@ -34,9 +60,14 @@ public enum StreamPowerMode: String, Codable, Equatable, Sendable, CaseIterable 
 /// constitution §V.
 public struct AppSettings: Codable, Equatable, Sendable {
     public var streamPowerMode: StreamPowerMode
+    public var startupPreflightMode: StreamStartupPreflightMode
 
-    public init(streamPowerMode: StreamPowerMode = .balanced) {
+    public init(
+        streamPowerMode: StreamPowerMode = .balanced,
+        startupPreflightMode: StreamStartupPreflightMode = .disabled
+    ) {
         self.streamPowerMode = streamPowerMode
+        self.startupPreflightMode = startupPreflightMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,7 +76,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
             StreamPowerMode.self,
             forKey: .streamPowerMode
         ) ?? .balanced
-        self.init(streamPowerMode: streamPowerMode)
+        let startupPreflightMode = try container.decodeIfPresent(
+            StreamStartupPreflightMode.self,
+            forKey: .startupPreflightMode
+        ) ?? .disabled
+        self.init(
+            streamPowerMode: streamPowerMode,
+            startupPreflightMode: startupPreflightMode
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -53,9 +91,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if streamPowerMode != .balanced {
             try container.encode(streamPowerMode, forKey: .streamPowerMode)
         }
+        if startupPreflightMode != .disabled {
+            try container.encode(startupPreflightMode, forKey: .startupPreflightMode)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case streamPowerMode
+        case startupPreflightMode
     }
 }

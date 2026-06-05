@@ -2438,3 +2438,60 @@ bucket fields. They must not include host identity, credentials, framebuffer
 dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
 timings, raw samples, raw payloads, draft text, marked text, IME state, or raw
 errors.
+
+## D65 — Gate app-side startup preflight through persisted viewer settings
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: keep startup preflight disabled by default, but expose the
+one-hidden-frame app preflight as a persisted `startupPreflightMode` viewer
+setting and bump Diagnostic JSON to schema v26. The app stream loop uses the
+setting when no test override is injected, consumes at most one hidden
+post-first-frame incremental update, and records only safe startup preflight
+mode, requested/consumed hidden-frame counts, and fixed outcome labels
+(`notRequested`, `consumed`, `timedOut`, `cancelled`, `staleSession`, `failed`).
+
+**Why**:
+- T390 needs a physical iPhone comparison before changing production defaults,
+  but an initializer-only gate is not enough for real-device hand-feel testing.
+  A persisted viewer setting lets the same installed build compare disabled vs
+  one-hidden-frame warm-up without rebuilding.
+- D59/D61 showed hidden preflight can remove a cold startup tail but is not a
+  complete sustained-FPS fix. Keeping the default disabled prevents a hidden
+  warm-up from masking stale startup perception or thermal regressions before
+  T390 evidence exists.
+- Reporting fixed outcome labels makes physical logs actionable: a run can show
+  whether warm-up was not requested, actually consumed, timed out, cancelled by
+  navigation/session change, or failed without leaking raw errors or hidden
+  frame data.
+
+**Evidence**:
+- `AppSettingsCodableTests` cover default `{}` encoding, persisted
+  `startupPreflightMode`, and toggle/count semantics.
+- `NaruRemoteAppModelTests` cover settings load/persist, settings-driven
+  hidden preflight with no injected override, hidden-frame consumption after
+  the first visible frame, continued visible streaming after preflight, and
+  active-session diagnostic export.
+- `DiagnosticExportTests` cover schema v26, safe top-level
+  `viewerStartupPreflightMode`, stream preflight requested/consumed/outcome
+  fields, legacy decode defaults, and unsafe catalog clamping.
+
+**Interpretation**:
+- If a physical T390 log shows `viewerStartupPreflightMode` =
+  `one-hidden-frame` and `startupPreflightOutcome` = `consumed`, compare
+  sustained assessment issue codes against a disabled run. If content FPS or
+  receive/apply/renderer issues do not improve, the next large unit should
+  attack request cadence, server stimulus, encoding mix, or renderer upload
+  pressure instead of promoting preflight.
+- `timedOut`, `cancelled`, `staleSession`, or `failed` means the experiment did
+  not actually warm the stream. Do not use that run as evidence for changing
+  production defaults.
+
+**Privacy rule**: startup preflight diagnostics may report only fixed mode
+labels, bounded hidden-frame counts, fixed outcome labels, safe test names, and
+existing aggregate buckets. They must not include host identity, credentials,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+FPS, hidden frame timings, hidden frame contents, raw samples, raw payloads,
+raw errors, draft text, marked text, IME state, or external command output.

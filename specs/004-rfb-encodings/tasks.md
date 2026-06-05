@@ -698,6 +698,17 @@ iPhone) and ships as its own PR.
   coordinates, pixels, byte counts, draft text, or IME state. Owns: Core
   diagnostic schema/tests, app stats/export wiring, benchmark artifact,
   research note. **Done.**
+- **T396** Settings-backed startup preflight experiment gate: expose the
+  off-by-default one-hidden-frame app startup preflight as an explicit persisted
+  viewer setting, wire it into live app stream policy when no test override is
+  injected, and bump diagnostic JSON to v26 with safe startup preflight mode,
+  requested/consumed hidden-frame counts, and fixed outcome labels. Keep
+  production default disabled until T390 physical iPhone evidence passes; do
+  not export hidden frame contents, hidden frame timings, host identity,
+  dimensions, coordinates, pixels, byte counts, raw FPS, raw errors, draft
+  text, marked text, or IME state. Owns: AppSettings, session controls, app
+  stream policy, diagnostics/tests, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -216,6 +216,14 @@ Diagnostic JSON v25 adds top-level `sustainedSessionAssessment` for
 The app may use exact FPS in memory to choose those labels, but artifacts must
 not include raw FPS, raw timings, host identity, dimensions, coordinates, pixels,
 byte counts, draft text, or IME state.
+Diagnostic JSON v26 adds app-side startup preflight experiment fields:
+top-level `viewerStartupPreflightMode` plus safe stream-performance
+`startupPreflightRequestedHiddenFrameCount`,
+`startupPreflightConsumedHiddenFrameCount`, and `startupPreflightOutcome`.
+Use these only to compare disabled vs one-hidden-frame physical-device runs;
+do not include hidden frame contents, hidden frame timings, raw errors, host
+identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
+marked text, or IME state in artifacts.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
