@@ -80,7 +80,9 @@ enum VNCLiveBenchmark {
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
             durationLimit: options.streamShapeDuration,
-            pacingPolicy: streamShapePacingPolicy
+            pacingPolicy: streamShapePacingPolicy,
+            stimulusMode: options.streamShapeStimulusMode,
+            stimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds
         )
         let streamShapeProfileProbes = options.streamShapeProfiles.profiles.flatMap { profile in
             options.streamShapeTransportModes.modes.map { transportMode in
@@ -101,7 +103,9 @@ enum VNCLiveBenchmark {
                     idleTimeout: options.idleTimeout,
                     maxSamples: options.streamShapeSamples,
                     durationLimit: options.streamShapeDuration,
-                    pacingPolicy: streamShapePacingPolicy
+                    pacingPolicy: streamShapePacingPolicy,
+                    stimulusMode: options.streamShapeStimulusMode,
+                    stimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds
                 )
             }
         }
@@ -127,6 +131,8 @@ enum VNCLiveBenchmark {
             streamShapeClientPressureMode: options.streamShapeClientPressureMode,
             streamShapeViewportInteractionMode: options.streamShapeViewportInteractionMode,
             streamShapeViewportInteractionPauseSeconds: options.streamShapeViewportInteractionPauseSeconds,
+            streamShapeStimulusMode: options.streamShapeStimulusMode,
+            streamShapeStimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
@@ -331,7 +337,9 @@ enum VNCLiveBenchmark {
         idleTimeout: TimeInterval,
         maxSamples: Int,
         durationLimit: TimeInterval?,
-        pacingPolicy: BenchmarkStreamShapePacingPolicy
+        pacingPolicy: BenchmarkStreamShapePacingPolicy,
+        stimulusMode: BenchmarkStreamShapeStimulusMode,
+        stimulusWarmupSeconds: TimeInterval
     ) -> StreamShapeProbeReport {
         guard maxSamples > 0 || durationLimit != nil else {
             return StreamShapeProbeReport(
@@ -385,6 +393,38 @@ enum VNCLiveBenchmark {
                 firstTimeoutMilliseconds: firstTimeoutMilliseconds,
                 failureLabel: failureLabel
             )
+        }
+
+        let stimulusStart = startStreamShapeStimulus(
+            mode: stimulusMode,
+            profile: profile,
+            transportMode: transportMode,
+            maxSamples: maxSamples,
+            durationLimit: durationLimit,
+            idleTimeout: idleTimeout,
+            warmupSeconds: stimulusWarmupSeconds
+        )
+        guard stimulusStart.failureLabel == nil else {
+            return StreamShapeProbeReport(
+                transportMode: transportMode,
+                requestedSamples: streamShapeRequestedSamples(
+                    maxSamples: maxSamples,
+                    durationLimit: durationLimit,
+                    receivedSamples: samples.count
+                ),
+                firstFrameMilliseconds: firstFrameMilliseconds,
+                samples: samples,
+                elapsedMilliseconds: elapsedMilliseconds,
+                firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+                failureLabel: stimulusStart.failureLabel
+            )
+        }
+        let runningStimulus = stimulusStart.runningStimulus
+        defer {
+            runningStimulus?.stop()
+        }
+        if runningStimulus != nil, stimulusWarmupSeconds > 0 {
+            Thread.sleep(forTimeInterval: stimulusWarmupSeconds)
         }
 
         do {
@@ -514,7 +554,9 @@ enum VNCLiveBenchmark {
         idleTimeout: TimeInterval,
         maxSamples: Int,
         durationLimit: TimeInterval?,
-        pacingPolicy: BenchmarkStreamShapePacingPolicy
+        pacingPolicy: BenchmarkStreamShapePacingPolicy,
+        stimulusMode: BenchmarkStreamShapeStimulusMode,
+        stimulusWarmupSeconds: TimeInterval
     ) -> BenchmarkStreamShapeProfileReport {
         let probe = measureStreamShapeProbe(
             profile: profile,
@@ -524,7 +566,9 @@ enum VNCLiveBenchmark {
             idleTimeout: idleTimeout,
             maxSamples: maxSamples,
             durationLimit: durationLimit,
-            pacingPolicy: pacingPolicy
+            pacingPolicy: pacingPolicy,
+            stimulusMode: stimulusMode,
+            stimulusWarmupSeconds: stimulusWarmupSeconds
         )
         return BenchmarkStreamShapeProfileReport(
             label: profile.label,
@@ -532,6 +576,82 @@ enum VNCLiveBenchmark {
             firstFrameMilliseconds: probe.firstFrameMilliseconds,
             summary: probe.summary
         )
+    }
+
+    private static func startStreamShapeStimulus(
+        mode: BenchmarkStreamShapeStimulusMode,
+        profile: BenchmarkProfile,
+        transportMode: BenchmarkStreamShapeTransportMode,
+        maxSamples: Int,
+        durationLimit: TimeInterval?,
+        idleTimeout: TimeInterval,
+        warmupSeconds: TimeInterval
+    ) -> StreamShapeStimulusStart {
+        switch mode {
+        case .off:
+            return StreamShapeStimulusStart(runningStimulus: nil, failureLabel: nil)
+        case .externalCommand:
+            guard
+                let command = ProcessInfo.processInfo.environment[BenchmarkStreamShapeStimulusEnvironment.commandKey]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !command.isEmpty
+            else {
+                return StreamShapeStimulusStart(
+                    runningStimulus: nil,
+                    failureLabel: streamShapeStimulusCommandMissingLabel
+                )
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            process.environment = BenchmarkStreamShapeStimulusEnvironment.make(
+                parent: ProcessInfo.processInfo.environment,
+                durationSeconds: formatSeconds(
+                    streamShapeStimulusDurationHint(
+                        maxSamples: maxSamples,
+                        durationLimit: durationLimit,
+                        idleTimeout: idleTimeout,
+                        warmupSeconds: warmupSeconds
+                    )
+                ),
+                profileLabel: profile.label,
+                transportMode: transportMode.rawValue
+            )
+
+            let nullOutput = FileHandle(forWritingAtPath: "/dev/null")
+            process.standardOutput = nullOutput
+            process.standardError = nullOutput
+
+            do {
+                try process.run()
+                return StreamShapeStimulusStart(
+                    runningStimulus: RunningStreamShapeStimulus(process: process, nullOutput: nullOutput),
+                    failureLabel: nil
+                )
+            } catch {
+                try? nullOutput?.close()
+                return StreamShapeStimulusStart(
+                    runningStimulus: nil,
+                    failureLabel: streamShapeStimulusCommandLaunchFailedLabel
+                )
+            }
+        }
+    }
+
+    private static func streamShapeStimulusDurationHint(
+        maxSamples: Int,
+        durationLimit: TimeInterval?,
+        idleTimeout: TimeInterval,
+        warmupSeconds: TimeInterval
+    ) -> TimeInterval {
+        let streamDuration: TimeInterval
+        if let durationLimit {
+            streamDuration = durationLimit
+        } else {
+            streamDuration = Double(max(maxSamples, 1)) * max(idleTimeout, 0.001)
+        }
+        return max(streamDuration + warmupSeconds + idleTimeout + 1, 1)
     }
 
     private static func streamShapeSample(
@@ -658,6 +778,8 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode = .off
     var streamShapeViewportInteractionPauseSeconds: TimeInterval = BenchmarkStreamShapePacingPolicy
         .appViewportInteractionSyntheticPauseSeconds
+    var streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode = .off
+    var streamShapeStimulusWarmupSeconds: TimeInterval = 0.25
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
@@ -754,6 +876,22 @@ private struct BenchmarkOptions: Equatable {
             case "--stream-shape-viewport-interaction-pause-seconds":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeViewportInteractionPauseSeconds = try nonNegativeTimeInterval(
+                    value,
+                    option: argument
+                )
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-stimulus":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkStreamShapeStimulusMode(rawValue: value) else {
+                    throw UsageError(
+                        "stream-shape-stimulus must be \(BenchmarkStreamShapeStimulusMode.usageDescription)."
+                    )
+                }
+                options.streamShapeStimulusMode = mode
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-stimulus-warmup-seconds":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.streamShapeStimulusWarmupSeconds = try nonNegativeTimeInterval(
                     value,
                     option: argument
                 )
@@ -947,6 +1085,40 @@ private func readPasswordFromTerminal() throws -> String {
     return password
 }
 
+private let streamShapeStimulusCommandMissingLabel = "stream-stimulus-command-missing"
+private let streamShapeStimulusCommandLaunchFailedLabel = "stream-stimulus-command-launch-failed"
+private let streamShapeStimulusTerminationGraceSeconds: TimeInterval = 0.1
+private let streamShapeStimulusTerminationPollSeconds: TimeInterval = 0.01
+
+private struct StreamShapeStimulusStart {
+    let runningStimulus: RunningStreamShapeStimulus?
+    let failureLabel: String?
+}
+
+private final class RunningStreamShapeStimulus {
+    private let process: Process
+    private let nullOutput: FileHandle?
+
+    init(process: Process, nullOutput: FileHandle?) {
+        self.process = process
+        self.nullOutput = nullOutput
+    }
+
+    func stop() {
+        if process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(streamShapeStimulusTerminationGraceSeconds)
+            while process.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: streamShapeStimulusTerminationPollSeconds)
+            }
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        try? nullOutput?.close()
+    }
+}
+
 private enum BenchmarkProfile: CaseIterable, Equatable {
     case localLowLatency
     case tightFirst
@@ -1096,6 +1268,8 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapePowerMode: BenchmarkStreamShapePowerMode
     let streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode
     let streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode
+    let streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode
+    let streamShapeStimulusWarmupSeconds: TimeInterval
     let streamShapeViewportInteractionPauseSeconds: TimeInterval
     let streamShapeViewportInteractionRequestPausePollSeconds: TimeInterval
     let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
@@ -1142,6 +1316,8 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode,
         streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode,
         streamShapeViewportInteractionPauseSeconds _: TimeInterval,
+        streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode,
+        streamShapeStimulusWarmupSeconds: TimeInterval,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -1151,7 +1327,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 31
+        self.schemaVersion = 32
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1164,6 +1340,8 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapePowerMode = streamShapePowerMode
         self.streamShapeClientPressureMode = streamShapeClientPressureMode
         self.streamShapeViewportInteractionMode = streamShapeViewportInteractionMode
+        self.streamShapeStimulusMode = streamShapeStimulusMode
+        self.streamShapeStimulusWarmupSeconds = streamShapeStimulusWarmupSeconds
         self.streamShapeViewportInteractionPauseSeconds = 0
         self.streamShapeViewportInteractionRequestPausePollSeconds = 0
         self.streamShapeLowPowerContentFrameIntervalSeconds =
@@ -1209,6 +1387,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "renderer upload metrics emit aggregate strategy counts only",
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
             "zrle decode phase timing metrics emit aggregate millisecond summaries only",
+            "stream-shape stimulus reports emit only fixed mode labels and warmup seconds; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
         ]
@@ -1431,6 +1610,8 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape power mode: \(report.streamShapePowerMode.rawValue)")
     print("stream-shape client pressure: \(report.streamShapeClientPressureMode.rawValue)")
     print("stream-shape viewport interaction: \(report.streamShapeViewportInteractionMode.rawValue)")
+    print("stream-shape stimulus: \(report.streamShapeStimulusMode.rawValue)")
+    print("stream-shape stimulus warmup seconds: \(formatSeconds(report.streamShapeStimulusWarmupSeconds))")
     if report.streamShapePowerMode == .lowPower {
         print(
             "stream-shape low-power floors: content "
@@ -1794,7 +1975,7 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
@@ -1813,6 +1994,10 @@ private func printUsage() {
                                 Adaptive client-processing pressure pacing. Defaults to off; app mirrors the app's repeated lagging content-frame trigger.
       --stream-shape-viewport-interaction off|app
                                 Viewport-interaction cadence parity. Defaults to off; app applies the same bounded live content/idle floors as active local zoom and pan.
+      --stream-shape-stimulus \(BenchmarkStreamShapeStimulusMode.usageDescription)
+                                Optional dynamic-content stimulus for stream-shape probes. Defaults to off. external-command runs NARU_LIVE_STIMULUS_COMMAND once per stream-shape probe and never emits the command text or output.
+      --stream-shape-stimulus-warmup-seconds SECONDS
+                                Delay after launching the external stimulus before starting stream-shape samples. Defaults to 0.25 seconds.
       --stream-shape-viewport-interaction-pause-seconds SECONDS
                                 Deprecated compatibility option; current app parity no longer pauses requests during viewport interaction.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
@@ -1829,6 +2014,8 @@ private func printUsage() {
       NARU_LIVE_MAC_HOST       redacted from output
       NARU_LIVE_MAC_PASSWORD   redacted from output; optional when --ask-password is used
       NARU_LIVE_MAC_PORT       optional, defaults to 5900
+      NARU_LIVE_STIMULUS_COMMAND
+                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, and NARU_LIVE_STIMULUS_TRANSPORT_MODE.
 
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.

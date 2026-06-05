@@ -106,7 +106,10 @@ For practical optimization PRs, start with the shorter named matrix before an
 exhaustive all-profile sweep:
 
 ```bash
+swift build --product VNCLiveStimulusWindow
+
 NARU_LIVE_MAC_HOST=127.0.0.1 \
+NARU_LIVE_STIMULUS_COMMAND='.build/debug/VNCLiveStimulusWindow --duration "$NARU_LIVE_STIMULUS_DURATION_SECONDS"' \
 swift run VNCLiveBenchmark \
   --attempts 1 \
   --full-refresh-samples 0 \
@@ -118,6 +121,8 @@ swift run VNCLiveBenchmark \
   --stream-shape-power-mode normal \
   --stream-shape-client-pressure app \
   --stream-shape-viewport-interaction app \
+  --stream-shape-stimulus external-command \
+  --stream-shape-stimulus-warmup-seconds 0.25 \
   --first-frame-profiles stream-shape-profiles \
   --stream-shape-profiles core-matrix \
   --stream-shape-transport both \
@@ -163,6 +168,13 @@ Schema v31 adds optional aggregate ZRLE decode phase summaries
 actual encoding mix includes ZRLE. These fields split local zlib inflate from
 local tile parsing/framebuffer apply work without exporting dimensions,
 coordinates, pixels, byte counts, raw payloads, or per-frame sample arrays.
+Schema v32 adds `--stream-shape-stimulus off|external-command`,
+`streamShapeStimulusMode`, and `streamShapeStimulusWarmupSeconds` so live
+duration runs can measure content FPS against repeatable screen motion. In
+`external-command` mode the benchmark launches `NARU_LIVE_STIMULUS_COMMAND`
+once per stream-shape probe, starts the child with a minimal launch environment
+plus duration/profile/transport hints, strips VNC target environment variables,
+and does not emit the command text or command output.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate

@@ -57,6 +57,13 @@ final class BenchmarkFailureLabelTests: XCTestCase {
             ),
             "continuous-probe-enable-write-timeout"
         )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBNetworkClientError.connectionFailed,
+                phase: .streamStimulus
+            ),
+            "stream-stimulus-connection-failed"
+        )
     }
 }
 

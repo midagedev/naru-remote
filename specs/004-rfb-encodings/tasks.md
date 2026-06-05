@@ -612,6 +612,15 @@ iPhone) and ships as its own PR.
   identify controlled dynamic-content stimulus as the next large benchmark
   unit. Owns: benchmark profile selection kit/tests, CLI docs, benchmark
   artifact, research note. **Done.**
+- **T386** Dynamic-content live stimulus: extend `VNCLiveBenchmark` schema v32
+  with `--stream-shape-stimulus off|external-command`, add a repo-native
+  `VNCLiveStimulusWindow` macOS helper for local Screen Sharing runs, launch the
+  stimulus before each stream-shape first full frame, use a minimal child launch
+  environment without forwarding VNC target variables, and record a redacted
+  stimulated `core-matrix` request/response baseline. Use the result to pick
+  profile/extension isolation as the next large unit rather than changing the
+  production default immediately. Owns: benchmark kit/CLI, SwiftPM helper
+  target, tests, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

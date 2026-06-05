@@ -26,6 +26,10 @@ let package = Package(
             targets: ["VNCLiveBenchmark"]
         ),
         .executable(
+            name: "VNCLiveStimulusWindow",
+            targets: ["VNCLiveStimulusWindow"]
+        ),
+        .executable(
             name: "NaruHelper",
             targets: ["NaruHelper"]
         )
@@ -58,6 +62,10 @@ let package = Package(
             name: "VNCLiveBenchmark",
             dependencies: ["NaruRemoteCore", "VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tools/VNCLiveBenchmark"
+        ),
+        .executableTarget(
+            name: "VNCLiveStimulusWindow",
+            path: "NaruRemote/Tools/VNCLiveStimulusWindow"
         ),
         .target(
             name: "NaruHelperKit",
