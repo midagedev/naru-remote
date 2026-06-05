@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 21"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 22"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 21)
+        XCTAssertEqual(decoded.schemaVersion, 22)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -388,7 +388,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 21)
+        XCTAssertEqual(decoded.schemaVersion, 22)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -405,6 +405,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"viewportInteractionRequestPausePollCount\" : 31"))
         XCTAssertTrue(rendered.contains("\"averageViewportInteractionRequestPauseBucket\" : \"lagging\""))
         XCTAssertTrue(rendered.contains("\"maxViewportInteractionRequestPauseBucket\" : \"stalled\""))
+        XCTAssertTrue(rendered.contains("\"viewportRequestPauseHint\" : \"activeGestureLoopPressure\""))
         XCTAssertTrue(rendered.contains("\"viewportGestureSampleCount\" : 17"))
         XCTAssertTrue(rendered.contains("\"viewportGestureLongFramePermille\" : 235"))
         XCTAssertTrue(rendered.contains("\"viewportStutterHint\" : \"gestureLoopPressure\""))
@@ -480,7 +481,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 21)
+        XCTAssertEqual(decoded.schemaVersion, 22)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -727,6 +728,7 @@ final class DiagnosticExportTests: XCTestCase {
             viewportInteractionRequestPausePollCount: -23,
             averageViewportInteractionRequestPauseBucket: "timing=SECRET",
             maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket.stalled.rawValue,
+            viewportRequestPauseHint: "hint=SECRET",
             actualEncodingMix: RFBFramebufferEncodingMix(
                 rawRectangles: -100,
                 copyRectRectangles: 2,
@@ -803,6 +805,10 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticTimingBucket.notMeasured.rawValue
         )
         XCTAssertEqual(
+            performance.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.notMeasured.rawValue
+        )
+        XCTAssertEqual(
             performance.actualEncodingMix,
             RFBFramebufferEncodingMix(copyRectRectangles: 2, endOfContinuousUpdatesEvents: 1)
         )
@@ -831,6 +837,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.viewportGestureLongFramePermille, 250)
         XCTAssertEqual(performance.viewportIncomingFrameDeferredPermille, 250)
         XCTAssertEqual(performance.viewportStutterHint, DiagnosticViewportStutterHint.mixedViewportPressure.rawValue)
+        XCTAssertEqual(performance.viewportRequestPauseHint, DiagnosticViewportRequestPauseHint.notMeasured.rawValue)
     }
 
     func testViewportStutterHintClassifiesFixedCatalogSignals() {
@@ -868,6 +875,63 @@ final class DiagnosticExportTests: XCTestCase {
                 incomingFrameDeferredPermille: 200
             ),
             .mixedViewportPressure
+        )
+    }
+
+    func testViewportRequestPauseHintClassifiesFixedCatalogSignals() {
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 0,
+                viewportInteractionRequestPauseCount: 0,
+                gestureLongFramePermille: nil,
+                incomingFrameDeferredPermille: nil
+            ),
+            .notMeasured
+        )
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 2,
+                viewportInteractionRequestPauseCount: 0,
+                gestureLongFramePermille: 250,
+                incomingFrameDeferredPermille: 0
+            ),
+            .notObservedDuringInteraction
+        )
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 2,
+                viewportInteractionRequestPauseCount: 1,
+                gestureLongFramePermille: 199,
+                incomingFrameDeferredPermille: 0
+            ),
+            .activeNoViewportPressure
+        )
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 2,
+                viewportInteractionRequestPauseCount: 1,
+                gestureLongFramePermille: 200,
+                incomingFrameDeferredPermille: 0
+            ),
+            .activeGestureLoopPressure
+        )
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 2,
+                viewportInteractionRequestPauseCount: 1,
+                gestureLongFramePermille: 0,
+                incomingFrameDeferredPermille: 200
+            ),
+            .activeIncomingFrameDeferral
+        )
+        XCTAssertEqual(
+            DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: 2,
+                viewportInteractionRequestPauseCount: 1,
+                gestureLongFramePermille: 200,
+                incomingFrameDeferredPermille: 200
+            ),
+            .activeMixedViewportPressure
         )
     }
 
@@ -994,8 +1058,49 @@ final class DiagnosticExportTests: XCTestCase {
             performance.maxViewportInteractionRequestPauseBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
         )
+        XCTAssertEqual(
+            performance.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.notMeasured.rawValue
+        )
         XCTAssertEqual(performance.actualEncodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(performance.thermalState, "fair")
+    }
+
+    func testStreamPerformanceReportDerivesRequestPauseHintFromV21Payload() throws {
+        let payload = """
+        {
+          "observedDurationBucket": "threeToTenSeconds",
+          "deliveredFramesPerSecondBucket": "fiveToFifteen",
+          "deliveredFrameCount": 20,
+          "contentFrameCount": 18,
+          "emptyUpdateCount": 2,
+          "transportIdleTimeoutCount": 0,
+          "dirtyRectangleSampleCount": 18,
+          "dirtyRectangleCountMax": 2,
+          "dirtyAreaPermilleMax": 80,
+          "changedPixelsPermilleMax": 70,
+          "viewportInteractionCount": 2,
+          "viewportGestureSampleCount": 10,
+          "viewportGestureLongFrameCount": 3,
+          "viewportIncomingFrameDeferredCount": 1,
+          "viewportRedrawRequestCount": 9,
+          "viewportInteractionRequestPauseCount": 1,
+          "viewportInteractionRequestPausePollCount": 6,
+          "averageViewportInteractionRequestPauseBucket": "interactive",
+          "maxViewportInteractionRequestPauseBucket": "interactive",
+          "thermalState": "fair"
+        }
+        """
+
+        let performance = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(
+            performance.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.activeGestureLoopPressure.rawValue
+        )
     }
 
     func testStreamPerformanceReportSanitizesDecodedEncodingMixCounts() throws {
@@ -1068,8 +1173,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v21 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 21"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v22 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 22"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

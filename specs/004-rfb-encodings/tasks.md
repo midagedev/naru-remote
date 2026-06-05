@@ -516,6 +516,13 @@ iPhone) and ships as its own PR.
   IME composition commits so Korean/CJK Compose does not round-trip through the
   app model mid-composition. Owns: app model pointer cadence, Remote Input Dock
   sync policy/tests, research note. **Done.**
+- **T375** Request-pause diagnostic interpretation hint: bump diagnostic export
+  schema v22 with a fixed-catalog `viewportRequestPauseHint` derived from
+  viewport interactions, request-pause activity, gesture long-frame pressure,
+  and incoming-frame deferral pressure so physical iPhone reports can show
+  whether request suppression was missing, active-but-local-pressure-bound, or
+  active-with-incoming-frame deferral. Owns: diagnostic export/tests, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -128,6 +128,10 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             DiagnosticTimingBucket.stalled.rawValue
         )
         XCTAssertEqual(
+            report.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.activeMixedViewportPressure.rawValue
+        )
+        XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)
         )

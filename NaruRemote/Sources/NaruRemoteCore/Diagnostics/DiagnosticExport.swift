@@ -297,6 +297,47 @@ public enum DiagnosticViewportStutterHint: String, Codable, Equatable, Sendable,
     }
 }
 
+public enum DiagnosticViewportRequestPauseHint: String, Codable, Equatable, Sendable, CaseIterable {
+    case notMeasured
+    case notObservedDuringInteraction
+    case activeNoViewportPressure
+    case activeGestureLoopPressure
+    case activeIncomingFrameDeferral
+    case activeMixedViewportPressure
+
+    public static func classify(
+        viewportInteractionCount: Int,
+        viewportInteractionRequestPauseCount: Int,
+        gestureLongFramePermille: Int?,
+        incomingFrameDeferredPermille: Int?
+    ) -> DiagnosticViewportRequestPauseHint {
+        let interactions = max(viewportInteractionCount, 0)
+        let pauseCount = max(viewportInteractionRequestPauseCount, 0)
+
+        guard interactions > 0 || pauseCount > 0 else {
+            return .notMeasured
+        }
+
+        guard pauseCount > 0 else {
+            return .notObservedDuringInteraction
+        }
+
+        let longFramePressure = (gestureLongFramePermille ?? 0) >= 200
+        let deferralPressure = (incomingFrameDeferredPermille ?? 0) >= 200
+
+        switch (longFramePressure, deferralPressure) {
+        case (true, true):
+            return .activeMixedViewportPressure
+        case (true, false):
+            return .activeGestureLoopPressure
+        case (false, true):
+            return .activeIncomingFrameDeferral
+        case (false, false):
+            return .activeNoViewportPressure
+        }
+    }
+}
+
 public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case observedDurationBucket
@@ -359,6 +400,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case viewportInteractionRequestPausePollCount
         case averageViewportInteractionRequestPauseBucket
         case maxViewportInteractionRequestPauseBucket
+        case viewportRequestPauseHint
         case actualEncodingMix
         case thermalState
     }
@@ -423,6 +465,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let viewportInteractionRequestPausePollCount: Int
     public let averageViewportInteractionRequestPauseBucket: String
     public let maxViewportInteractionRequestPauseBucket: String
+    public let viewportRequestPauseHint: String
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -487,6 +530,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         viewportInteractionRequestPausePollCount: Int = 0,
         averageViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        viewportRequestPauseHint: String? = nil,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -637,6 +681,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 maxViewportInteractionRequestPauseBucket
             )
         }
+        self.viewportRequestPauseHint = Self.safeViewportRequestPauseHint(viewportRequestPauseHint)
+            ?? DiagnosticViewportRequestPauseHint.classify(
+                viewportInteractionCount: self.viewportInteractionCount,
+                viewportInteractionRequestPauseCount: self.viewportInteractionRequestPauseCount,
+                gestureLongFramePermille: self.viewportGestureLongFramePermille,
+                incomingFrameDeferredPermille: self.viewportIncomingFrameDeferredPermille
+            ).rawValue
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
     }
@@ -848,6 +899,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .maxViewportInteractionRequestPauseBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            viewportRequestPauseHint: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewportRequestPauseHint
+            ),
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .actualEncodingMix
@@ -885,6 +940,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             return nil
         }
         return DiagnosticViewportStutterHint(rawValue: value)?.rawValue
+    }
+
+    private static func safeViewportRequestPauseHint(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        return DiagnosticViewportRequestPauseHint(rawValue: value)?.rawValue
     }
 
     private static func safeEncodingMix(_ value: RFBFramebufferEncodingMix) -> RFBFramebufferEncodingMix {
@@ -1180,7 +1242,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 21
+    public static let currentSchemaVersion = 22
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
