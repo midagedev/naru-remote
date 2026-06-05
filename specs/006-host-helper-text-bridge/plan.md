@@ -41,6 +41,10 @@ Use a layered helper text bridge:
 2. App routing: Compose send policy chooses confirmed VNC UTF-8 first, then helper-native insert for UTF-8-required payloads, then safe failure with retained draft.
 3. Fake helper: in-process test client proves routing, privacy, and failure behavior before any real helper target exists.
 4. macOS helper: a logged-in-user LaunchAgent/LoginItem style helper is introduced only after model/contract tests are stable.
+5. Helper transport: the first real app/helper transport uses authenticated
+   length-prefixed JSON over a private-network TCP endpoint. The pairing secret
+   remains process-local/keychain-only; diagnostics expose only fixed catalog
+   states and optional fingerprints.
 
 The helper-native insert strategy should avoid the general pasteboard when possible. If an implementation must temporarily use `NSPasteboard`, it must restore contents or return a fixed restore-failure code.
 

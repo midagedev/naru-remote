@@ -8,6 +8,10 @@ Fields:
 - `profileID`: existing profile identifier.
 - `isEnabled`: user-controlled helper use for this profile.
 - `pairingFingerprint`: non-secret stable fingerprint for diagnostics and UI matching. Raw endpoint/token is never exported.
+- `helperEndpoint`: private-network host/port for the paired helper. This is
+  required for transport but must not appear in diagnostic export.
+- `pairingSecretRef`: secure-storage reference for the raw pairing secret. The
+  raw secret must not be stored in profile JSON.
 - `availability`: `HelperTextBridgeAvailability`.
 - `lastFailureCode`: optional `HelperTextBridgeFailureCode`.
 - `lastCheckedBucket`: coarse recency bucket such as `never`, `recent`, `stale`.

@@ -5,6 +5,11 @@ import NaruRemoteCore
 
 private enum NaruHelperCLI {
     static func run() throws {
+        if CommandLine.arguments.contains("--listen") {
+            try listen()
+            return
+        }
+
         if CommandLine.arguments.contains("--capability") {
             try writeCapabilityResponse()
             return
@@ -17,6 +22,10 @@ private enum NaruHelperCLI {
     }
 
     private static func writeCapabilityResponse() throws {
+        try writeJSON(capabilityResponse())
+    }
+
+    private static func capabilityResponse() -> NaruHelperCapabilityResponse {
         #if os(macOS)
         let poster = MacPasteCommandPoster()
         let availability: HelperTextBridgeAvailability = poster.canPostPasteCommand
@@ -28,7 +37,7 @@ private enum NaruHelperCLI {
         let accessibility = "unsupported"
         #endif
 
-        let response = NaruHelperCapabilityResponse(
+        return NaruHelperCapabilityResponse(
             availability: availability,
             permissionState: NaruHelperPermissionState(
                 accessibility: accessibility,
@@ -38,7 +47,6 @@ private enum NaruHelperCLI {
             ),
             supportedStrategies: [.pasteboardPasteWithRestore]
         )
-        try writeJSON(response)
     }
 
     private static func insert(
@@ -66,6 +74,40 @@ private enum NaruHelperCLI {
         let data = try encoder.encode(value)
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private static func listen() throws {
+        guard let token = optionValue(after: "--token"), !token.isEmpty else {
+            FileHandle.standardError.write(Data("NaruHelper listen requires --token.\n".utf8))
+            Darwin.exit(2)
+        }
+
+        let port = optionValue(after: "--port")
+            .flatMap(UInt16.init)
+            ?? UInt16(naruHelperTextBridgeDefaultPort)
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: token,
+            capabilityProvider: {
+                capabilityResponse()
+            },
+            insertHandler: { request in
+                insert(request: request)
+            }
+        )
+        let server = try NaruHelperNetworkServer(port: port, handler: handler)
+        server.start()
+        RunLoop.main.run()
+    }
+
+    private static func optionValue(after name: String) -> String? {
+        guard let index = CommandLine.arguments.firstIndex(of: name) else {
+            return nil
+        }
+        let valueIndex = CommandLine.arguments.index(after: index)
+        guard valueIndex < CommandLine.arguments.endIndex else {
+            return nil
+        }
+        return CommandLine.arguments[valueIndex]
     }
 }
 

@@ -36,14 +36,21 @@ Run after adding the macOS helper target:
 
 ```bash
 swift test --filter NaruHelper
+swift test --filter NaruHelperNetwork
 swift run NaruHelper --capability
+swift run NaruHelper --listen --port 5974 --token '<manual-pairing-token>'
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' test
 ```
 
 Expected:
 - `swift test --filter NaruHelper` passes helper contract and pasteboard-restore tests.
+- `swift test --filter NaruHelperNetwork` proves length-prefixed authenticated
+  helper transport, insert routing, and in-process revocation.
 - `swift run NaruHelper --capability` emits fixed-catalog JSON. On a Mac without
   Accessibility post-event permission, `availability` should be `permissionMissing`.
+- `swift run NaruHelper --listen ...` opens a logged-in-user helper TCP endpoint
+  for private-network manual pairing tests; the token must not be committed,
+  logged, or exported.
 
 Manual evidence required before declaring completion:
 - Physical iPhone sends Korean/CJK/emoji Compose text to a focused app on the paired Mac.
