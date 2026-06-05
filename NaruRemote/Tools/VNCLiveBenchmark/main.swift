@@ -891,7 +891,7 @@ private struct BenchmarkOptions: Equatable {
         .appViewportInteractionSyntheticPauseSeconds
     var streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode = .off
     var streamShapeStimulusWarmupSeconds: TimeInterval = 0.25
-    var streamShapePreflightFrames = 0
+    var streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.defaultValue
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
@@ -1012,10 +1012,11 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-preflight-frames":
                 let value = try nextValue(after: index, in: arguments, option: argument)
-                guard let frames = Int(value), (0...5).contains(frames) else {
-                    throw UsageError("stream-shape-preflight-frames must be an integer from 0 to 5.")
+                do {
+                    options.streamShapePreflightFrames = try BenchmarkStreamShapePreflightFrames.parse(value)
+                } catch let error as BenchmarkStreamShapePreflightFramesError {
+                    throw UsageError(error.message)
                 }
-                options.streamShapePreflightFrames = frames
                 index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -1495,7 +1496,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeViewportInteractionMode = streamShapeViewportInteractionMode
         self.streamShapeStimulusMode = streamShapeStimulusMode
         self.streamShapeStimulusWarmupSeconds = streamShapeStimulusWarmupSeconds
-        self.streamShapePreflightFrames = max(streamShapePreflightFrames, 0)
+        self.streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.clamped(streamShapePreflightFrames)
         self.streamShapeProfileIterations = max(streamShapeProfileIterations, 1)
         self.streamShapeProfileOrderMode = streamShapeProfileOrderMode
         self.streamShapeViewportInteractionPauseSeconds = 0

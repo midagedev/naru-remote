@@ -100,8 +100,10 @@ Order-neutral recommendation:
   - Result: passed; usage includes `--stream-shape-preflight-frames`.
 - `swift test --filter BenchmarkStreamShapeSummaryTests --filter BenchmarkStreamShapeProfileSelectionTests --filter BenchmarkStreamShapeProfileOrderModeTests`
   - Result: passed, 37 tests, 0 failures.
+- `swift test --filter BenchmarkStreamShapePreflightFramesTests`
+  - Result: passed, 5 tests, 0 failures.
 - `swift test`
-  - Result: passed, 811 tests, 10 skipped, 0 failures.
+  - Result: passed, 816 tests, 10 skipped, 0 failures.
 - `xcodegen generate --spec project.yml`
   - Result: passed.
 - `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' build`
