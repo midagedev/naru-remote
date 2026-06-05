@@ -557,6 +557,14 @@ cursor pixels, raw errors, stimulus command text, draft text, marked text, or
 IME state. The first v49 live artifact is
 `2026-06-06-request-update-phase-budget-summary.md`; it routes the next large
 unit to request/response update-wait and network-read tail inspection.
+Schema v50 splits the v49 `network-read` bucket into first-byte wait and
+payload-read subphases. Read `network-read subphase dominant/slow-dominant` and
+`network-read split permille first-byte/payload` before changing socket payload
+or decoder work: first-byte dominance means the current blocker is server/update
+wait, while payload-read dominance would route to socket buffering, byte volume,
+or payload-copy work. The first v50 live artifact is
+`2026-06-06-first-byte-wait-split-summary.md`; it shows the current localhost
+macOS Screen Sharing tail is almost entirely first-byte wait.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

@@ -135,18 +135,24 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
     func testFramebufferUpdateTimingClampsAndDerivesClientProcessing() {
         let timing = RFBFramebufferUpdateTiming(
             totalMilliseconds: 18,
-            networkReadMilliseconds: 11
+            networkReadMilliseconds: 11,
+            firstByteWaitMilliseconds: 8
         )
         let clamped = RFBFramebufferUpdateTiming(
             totalMilliseconds: -5,
-            networkReadMilliseconds: 20
+            networkReadMilliseconds: 20,
+            firstByteWaitMilliseconds: 25
         )
 
         XCTAssertEqual(timing.totalMilliseconds, 18)
         XCTAssertEqual(timing.networkReadMilliseconds, 11)
+        XCTAssertEqual(timing.firstByteWaitMilliseconds, 8)
+        XCTAssertEqual(timing.payloadReadMilliseconds, 3)
         XCTAssertEqual(timing.clientProcessingMilliseconds, 7)
         XCTAssertEqual(clamped.totalMilliseconds, 0)
         XCTAssertEqual(clamped.networkReadMilliseconds, 20)
+        XCTAssertEqual(clamped.firstByteWaitMilliseconds, 20)
+        XCTAssertEqual(clamped.payloadReadMilliseconds, 0)
         XCTAssertEqual(clamped.clientProcessingMilliseconds, 0)
     }
 
@@ -259,7 +265,8 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
             changedPixelCount: 0,
             timing: RFBFramebufferUpdateTiming(
                 totalMilliseconds: 42,
-                networkReadMilliseconds: 40
+                networkReadMilliseconds: 40,
+                firstByteWaitMilliseconds: 31
             )
         )
 
@@ -270,6 +277,8 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
 
         XCTAssertEqual(decoded.timing?.totalMilliseconds, 42)
         XCTAssertEqual(decoded.timing?.networkReadMilliseconds, 40)
+        XCTAssertEqual(decoded.timing?.firstByteWaitMilliseconds, 31)
+        XCTAssertEqual(decoded.timing?.payloadReadMilliseconds, 9)
         XCTAssertEqual(decoded.timing?.clientProcessingMilliseconds, 2)
     }
 

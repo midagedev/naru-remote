@@ -964,6 +964,17 @@ iPhone) and ships as its own PR.
   timings, raw TCP/RFB errors, raw payloads, command text, command output, draft
   text, marked text, or IME state. Owns: benchmark summary kit/tests, CLI
   schema/text report, README, benchmark artifact, research note. **Done.**
+- **T425** First-byte wait split diagnostics: bump `VNCLiveBenchmark` to schema
+  v50 and split measured network-read time into first-byte wait and payload-read
+  subphases. Surface fixed subphase labels, subphase latency summaries, and
+  network-read split permille ratios on stream-shape summaries, profile
+  aggregates, and request cadence health so the v49 network-read tail can be
+  routed to server/update-production work instead of socket payload read work.
+  Keep older reports decoding safely and do not export host identity, dimensions,
+  coordinates, pixels, cursor pixels, byte counts, raw timings, raw TCP/RFB
+  errors, raw payloads, command text, command output, draft text, marked text, or
+  IME state. Owns: core receive timing, benchmark summary kit/tests, CLI
+  schema/text report, README, benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

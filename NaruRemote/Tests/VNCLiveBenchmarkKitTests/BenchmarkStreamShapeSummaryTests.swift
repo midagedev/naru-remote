@@ -31,6 +31,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     rendererUploadRegionCount: 2,
                     receiveTotalMilliseconds: 25,
                     networkReadMilliseconds: 20,
+                    firstByteWaitMilliseconds: 18,
                     clientProcessingMilliseconds: 5,
                     zrleInflateMilliseconds: 3,
                     zrleTileApplyMilliseconds: 7,
@@ -44,6 +45,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     changedPixelsPermille: 0,
                     receiveTotalMilliseconds: 48,
                     networkReadMilliseconds: 47,
+                    firstByteWaitMilliseconds: 40,
                     clientProcessingMilliseconds: 1,
                     actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1)
                 )
@@ -76,16 +78,24 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.changedPixelsPermille).maxMilliseconds, 90)
         XCTAssertEqual(try XCTUnwrap(summary.receiveTotalLatency).averageMilliseconds, 36)
         XCTAssertEqual(try XCTUnwrap(summary.networkReadLatency).averageMilliseconds, 33)
+        XCTAssertEqual(try XCTUnwrap(summary.firstByteWaitLatency).averageMilliseconds, 29)
+        XCTAssertEqual(try XCTUnwrap(summary.firstByteWaitLatency).p95Milliseconds, 40)
+        XCTAssertEqual(try XCTUnwrap(summary.payloadReadLatency).averageMilliseconds, 4)
+        XCTAssertEqual(try XCTUnwrap(summary.payloadReadLatency).p95Milliseconds, 7)
         XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
         XCTAssertEqual(try XCTUnwrap(summary.zrleInflateLatency).averageMilliseconds, 3)
         XCTAssertEqual(try XCTUnwrap(summary.zrleTileApplyLatency).p95Milliseconds, 7)
         XCTAssertEqual(summary.phaseBudget.sampleCount, 2)
         XCTAssertEqual(summary.phaseBudget.networkReadSharePermille, 838)
+        XCTAssertEqual(summary.phaseBudget.firstByteWaitSharePermille, 866)
+        XCTAssertEqual(summary.phaseBudget.payloadReadSharePermille, 134)
         XCTAssertEqual(summary.phaseBudget.clientProcessingSharePermille, 75)
         XCTAssertEqual(summary.phaseBudget.requestLoopSharePermille, 88)
         XCTAssertEqual(summary.phaseBudget.dominantPhase, .networkRead)
+        XCTAssertEqual(summary.phaseBudget.networkReadDominantSubphase, .firstByteWait)
         XCTAssertEqual(summary.phaseBudget.slowUpdateSampleCount, 0)
         XCTAssertEqual(summary.phaseBudget.slowDominantPhase, .unknown)
+        XCTAssertNil(summary.phaseBudget.slowNetworkReadDominantSubphase)
         XCTAssertEqual(try XCTUnwrap(summary.phaseBudget.requestLoopLatency).averageMilliseconds, 3)
         XCTAssertEqual(try XCTUnwrap(summary.phaseBudget.requestLoopLatency).p95Milliseconds, 5)
         XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 0)
@@ -164,6 +174,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             rendererUploadRegionCount: -3,
             receiveTotalMilliseconds: -4,
             networkReadMilliseconds: -5,
+            firstByteWaitMilliseconds: -6,
+            payloadReadMilliseconds: -7,
             clientProcessingMilliseconds: -6,
             zrleInflateMilliseconds: -7,
             zrleTileApplyMilliseconds: -8
@@ -176,6 +188,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.rendererUploadRegionCount, 0)
         XCTAssertEqual(sample.receiveTotalMilliseconds, 0)
         XCTAssertEqual(sample.networkReadMilliseconds, 0)
+        XCTAssertEqual(sample.firstByteWaitMilliseconds, 0)
+        XCTAssertEqual(sample.payloadReadMilliseconds, 0)
         XCTAssertEqual(sample.clientProcessingMilliseconds, 0)
         XCTAssertEqual(sample.zrleInflateMilliseconds, 0)
         XCTAssertEqual(sample.zrleTileApplyMilliseconds, 0)
@@ -1372,6 +1386,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                             duration: 116,
                             receiveTotal: 100,
                             networkRead: 90,
+                            firstByteWait: 80,
                             clientProcessing: 10
                         )
                     } + [
@@ -1379,6 +1394,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                             duration: 508,
                             receiveTotal: 120,
                             networkRead: 100,
+                            firstByteWait: 95,
                             clientProcessing: 20
                         )
                     ],
@@ -1402,7 +1418,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(health.sampleStatus, .highContentHit)
         XCTAssertEqual(health.latencyStatus, .p95Failed)
         XCTAssertEqual(health.dominantPhase, .networkRead)
+        XCTAssertEqual(health.networkReadDominantSubphase, .firstByteWait)
         XCTAssertEqual(health.slowDominantPhase, .requestLoop)
+        XCTAssertEqual(health.slowNetworkReadDominantSubphase, .firstByteWait)
         XCTAssertEqual(health.recommendedNextProbe, .inspectUpdateWaitTiming)
         XCTAssertEqual(health.requestResponseGateCount, 1)
         XCTAssertEqual(health.requestResponseBlockedGateCount, 1)
@@ -1413,6 +1431,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(health.averageContentResponsePermille, 1_000)
         XCTAssertEqual(health.averageUnansweredSamplePermille, 0)
         XCTAssertEqual(health.maxP95UpdateMilliseconds, 508)
+        XCTAssertEqual(health.averageFirstByteWaitSharePermille, 897)
+        XCTAssertEqual(health.averagePayloadReadSharePermille, 103)
+        XCTAssertEqual(health.maxFirstByteWaitP95Milliseconds, 95)
+        XCTAssertEqual(health.maxPayloadReadP95Milliseconds, 10)
     }
 
     func testRequestCadenceHealthRoutesUnansweredWaitsToUpdateWaitInspection() throws {
@@ -1978,6 +2000,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertNil(summary.receiveTotalLatency)
         XCTAssertNil(summary.networkReadLatency)
+        XCTAssertNil(summary.firstByteWaitLatency)
+        XCTAssertNil(summary.payloadReadLatency)
         XCTAssertNil(summary.clientProcessingLatency)
         XCTAssertNil(summary.zrleInflateLatency)
         XCTAssertNil(summary.zrleTileApplyLatency)
@@ -2017,6 +2041,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         duration: Int,
         receiveTotal: Int,
         networkRead: Int,
+        firstByteWait: Int? = nil,
         clientProcessing: Int
     ) -> BenchmarkStreamShapeSample {
         BenchmarkStreamShapeSample(
@@ -2029,6 +2054,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             rendererUploadRegionCount: 1,
             receiveTotalMilliseconds: receiveTotal,
             networkReadMilliseconds: networkRead,
+            firstByteWaitMilliseconds: firstByteWait,
             clientProcessingMilliseconds: clientProcessing,
             zrleTileApplyMilliseconds: 7
         )

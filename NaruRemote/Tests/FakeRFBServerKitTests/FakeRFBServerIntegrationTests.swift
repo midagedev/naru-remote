@@ -417,7 +417,11 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertNotNil(idle.timing)
         XCTAssertGreaterThanOrEqual(first.timing?.totalMilliseconds ?? -1, 0)
         XCTAssertGreaterThanOrEqual(first.timing?.networkReadMilliseconds ?? -1, 0)
+        XCTAssertNotNil(first.timing?.firstByteWaitMilliseconds)
+        XCTAssertNotNil(first.timing?.payloadReadMilliseconds)
         XCTAssertGreaterThanOrEqual(first.timing?.clientProcessingMilliseconds ?? -1, 0)
+        XCTAssertNil(idle.timing?.firstByteWaitMilliseconds)
+        XCTAssertNil(idle.timing?.payloadReadMilliseconds)
         XCTAssertEqual(client.state, .receivingFrames)
 
         try await client.sendPointerEvent(buttonMask: 0, x: 1, y: 1)

@@ -105,7 +105,8 @@ final class RFBFramePumpTests: XCTestCase {
             serverCursor: cursor,
             timing: RFBFramebufferUpdateTiming(
                 totalMilliseconds: 21,
-                networkReadMilliseconds: 17
+                networkReadMilliseconds: 17,
+                firstByteWaitMilliseconds: 14
             ),
             decodeMetrics: RFBFramebufferDecodeMetrics(
                 zrleInflateMilliseconds: 2,
@@ -126,6 +127,8 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(frame.serverCursor, cursor)
         XCTAssertEqual(frame.timing?.totalMilliseconds, 21)
         XCTAssertEqual(frame.timing?.networkReadMilliseconds, 17)
+        XCTAssertEqual(frame.timing?.firstByteWaitMilliseconds, 14)
+        XCTAssertEqual(frame.timing?.payloadReadMilliseconds, 3)
         XCTAssertEqual(frame.timing?.clientProcessingMilliseconds, 4)
         XCTAssertEqual(frame.decodeMetrics.zrleInflateMilliseconds, 2)
         XCTAssertEqual(frame.decodeMetrics.zrleTileApplyMilliseconds, 3)
