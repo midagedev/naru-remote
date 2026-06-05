@@ -2495,3 +2495,63 @@ existing aggregate buckets. They must not include host identity, credentials,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 FPS, hidden frame timings, hidden frame contents, raw samples, raw payloads,
 raw errors, draft text, marked text, IME state, or external command output.
+
+## D66 — Add stream-shape hit-rate diagnostics before changing cadence again
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: bump `VNCLiveBenchmark` to schema v36 and add safe aggregate
+hit-rate fields to each stream-shape summary:
+`attemptedSamples`, `receivedSamplePermille`, `unansweredSamplePermille`,
+`contentSamplePermille`, `emptyResponsePermille`, and
+`contentResponsePermille`. Also carry content hit-rate permille into per-profile
+aggregates and recommendations.
+
+**Why**:
+- RFC 6143 makes incremental updates client-request driven and explicitly notes
+  that a fast client may regulate request rate to avoid excess traffic. Naru
+  therefore needs to know whether a low content-FPS result comes from slow
+  responses, unanswered waits, or responses that mostly contain no content.
+- TigerVNC exposes automatic encoding/pixel-format selection plus compression,
+  quality, preferred encoding, and pointer-rate knobs. That reinforces that
+  cadence and profile changes should be based on measured server/link behavior,
+  not a single global default.
+- Apple documents that warm iPhone conditions can reduce frame rates or
+  increase processing times. Before raising request cadence on a hot physical
+  iPhone, benchmark reports should show whether the existing cadence is actually
+  receiving content-bearing updates efficiently.
+
+**Evidence**:
+- `BenchmarkStreamShapeSummaryTests` cover mixed content/empty updates,
+  timeout-only runs, explicit attempted-sample hit-rate calculation, legacy JSON
+  decode defaults, aggregate hit-rate fields, and safe permille clamping.
+- `swift build --product VNCLiveBenchmark` passes.
+- Live benchmark execution was not run in this increment because the current
+  environment did not provide redacted `NARU_LIVE_MAC_HOST`,
+  `NARU_LIVE_MAC_PASSWORD`, or `NARU_LIVE_STIMULUS_COMMAND` values. The next
+  T390/T397 physical or localhost run should use schema v36 so the same report
+  can distinguish content-hit-rate failures from slow-response failures.
+
+**Interpretation**:
+- Low `receivedSamplePermille` or high `unansweredSamplePermille` points toward
+  request timeout, server wait, transport compatibility, or stimulus/control
+  problems rather than renderer upload pressure.
+- High `receivedSamplePermille` but low `contentResponsePermille` means the
+  client is getting responses, but the server is often reporting empty updates;
+  the next benchmark unit should improve controlled stimulus or request region
+  assumptions before changing app defaults.
+- High `contentResponsePermille` with low content FPS points back to update
+  latency, network/server wait, decode/apply, or local thermal pressure.
+
+**Privacy rule**: hit-rate diagnostics may report only aggregate sample counts
+and permille ratios. They must not include per-frame request arrays, raw
+timestamps, target identity, credentials, framebuffer dimensions, coordinates,
+pixels, cursor pixels, byte counts, raw samples, raw payloads, external command
+text, command output, hidden frame contents, hidden frame timings, raw errors,
+draft text, marked text, or IME state.
