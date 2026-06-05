@@ -2077,3 +2077,72 @@ verdict codes, and safe failure labels. They must not include host identity,
 credentials, framebuffer dimensions, rectangle coordinates, pixels, cursor
 pixels, byte counts, raw samples, raw payloads, external command text, command
 output, or raw error text.
+
+## D59 — Test hidden stream-shape preflight before app default changes
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add `VNCLiveBenchmark` schema v34 with
+`--stream-shape-preflight-frames N`. The benchmark consumes the requested
+number of hidden incremental frames after the stream-shape first frame and
+before measured samples. Keep the production app default unchanged until a
+physical iPhone run proves that hiding one incremental update improves hand
+feel without making the just-connected screen feel stale.
+
+**Why**:
+- D58 showed that order-neutral scoring can identify cold-start tails, but it
+  does not tell whether the tail can be absorbed before the user starts
+  interacting.
+- Hidden preflight is a bounded experiment: it warms the server/client stream
+  state without logging hidden frame contents, dimensions, byte counts, raw
+  timings, or payloads.
+
+**Evidence**:
+- `swift build --product VNCLiveBenchmark` passes.
+- Focused stream-shape summary, profile-selection, and profile-order tests
+  pass.
+- v34 local Screen Sharing request/response run with external animated-window
+  stimulus, `zrle-isolation`, 5 iterations, rotated order, and
+  `--stream-shape-preflight-frames 1`:
+  - `local-low-latency`: 5/5 usable runs, average update 200 ms, max p95
+    update 506 ms, average content FPS 1.80, max client p95 172 ms, max ZRLE
+    tile/apply p95 162 ms, full-upload pressure 0 permille, no very-slow
+    updates.
+  - `zrle-compression-0`: 5/5 usable runs, average update 243 ms, max p95
+    update 502 ms, average content FPS 1.73, max client p95 171 ms, max ZRLE
+    tile/apply p95 166 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor`: 5/5 usable runs, average update 204 ms, max
+    p95 update 419 ms, average content FPS 1.93, max client p95 15 ms, max
+    ZRLE tile/apply p95 10 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-clipboard`: 5/5 usable runs, average update 203 ms,
+    max p95 update 380 ms, average content FPS 1.73, max client p95 8 ms, max
+    ZRLE tile/apply p95 7 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor-clipboard`: 5/5 usable runs, average update
+    217 ms, max p95 update 497 ms, average content FPS 1.66, max client p95
+    14 ms, max ZRLE tile/apply p95 13 ms, full-upload pressure 0 permille.
+
+**Interpretation**:
+- One hidden preflight frame removed the previous `local-low-latency`
+  very-slow cold tail: v33 had 447 ms average update, 2452 ms max p95 update,
+  2139 ms max client-processing p95, and one very-slow update; v34 preflight
+  had 200 ms average update, 506 ms max p95 update, 172 ms max
+  client-processing p95, and zero very-slow updates.
+- The order-neutral recommendation selects `local-low-latency`, reinforcing
+  that production encoding defaults should not change yet.
+- Preflight does not solve the practical-use target by itself. Content FPS is
+  still below 2 fps under controlled stimulus, so the next large unit should
+  combine physical iPhone thermal hand-feel testing with request/server cadence
+  work.
+
+**Privacy rule**: preflight artifacts may report only fixed
+stimulus/profile/transport labels, fixed requested preflight counts, fixed
+iteration/order ordinals, aggregate timing summaries, aggregate FPS, aggregate
+renderer/upload counts, practical verdict codes, and safe failure labels. They
+must not include host identity, credentials, framebuffer dimensions, rectangle
+coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
+external command text, command output, hidden preflight frame contents, hidden
+preflight timings, or raw error text.

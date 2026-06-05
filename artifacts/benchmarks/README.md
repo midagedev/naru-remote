@@ -181,6 +181,11 @@ ordinals, `streamShapeProfileAggregates`, and
 `streamShapeOrderNeutralRecommendation` so default-changing benchmark runs can
 rotate candidates and score aggregates instead of overfitting to first-profile
 cold-start behavior.
+Schema v34 adds `--stream-shape-preflight-frames N`, which consumes a bounded
+number of hidden incremental frames after the stream-shape first frame and
+before measured samples. Use it only for warm-up/preflight experiments and keep
+the production app default unchanged until a physical iPhone run confirms the
+hand-feel trade-off.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
