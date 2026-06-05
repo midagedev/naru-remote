@@ -68,6 +68,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
                 observedMaximumFramesPerSecond: 120
             )
         )
+        stats.recordViewportInteractionRequestPause(pollCount: 3, milliseconds: 40)
+        stats.recordViewportInteractionRequestPause(pollCount: 12, milliseconds: 260)
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -115,6 +117,16 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(report.emptyBackoffPacingSampleCount, 1)
         XCTAssertEqual(report.viewportInteractionPacingSampleCount, 1)
+        XCTAssertEqual(report.viewportInteractionRequestPauseCount, 2)
+        XCTAssertEqual(report.viewportInteractionRequestPausePollCount, 15)
+        XCTAssertEqual(
+            report.averageViewportInteractionRequestPauseBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertEqual(
+            report.maxViewportInteractionRequestPauseBucket,
+            DiagnosticTimingBucket.stalled.rawValue
+        )
         XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)

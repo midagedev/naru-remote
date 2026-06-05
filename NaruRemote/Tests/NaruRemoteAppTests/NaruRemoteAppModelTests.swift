@@ -1392,6 +1392,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.streamPacingDelaySampleCount, 3)
         XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 0)
+        XCTAssertEqual(performance.viewportInteractionRequestPauseCount, 1)
+        XCTAssertGreaterThan(performance.viewportInteractionRequestPausePollCount, 0)
+        XCTAssertNotEqual(
+            performance.averageViewportInteractionRequestPauseBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertNotEqual(
+            performance.maxViewportInteractionRequestPauseBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
         model.disconnect()
@@ -2410,7 +2420,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 20)
+        XCTAssertEqual(report.schemaVersion, 21)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -2481,7 +2491,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 20)
+        XCTAssertEqual(report.schemaVersion, 21)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

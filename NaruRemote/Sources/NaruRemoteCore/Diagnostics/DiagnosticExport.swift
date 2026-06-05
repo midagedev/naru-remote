@@ -355,6 +355,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case powerSaverPacingSampleCount
         case emptyBackoffPacingSampleCount
         case viewportInteractionPacingSampleCount
+        case viewportInteractionRequestPauseCount
+        case viewportInteractionRequestPausePollCount
+        case averageViewportInteractionRequestPauseBucket
+        case maxViewportInteractionRequestPauseBucket
         case actualEncodingMix
         case thermalState
     }
@@ -415,6 +419,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let powerSaverPacingSampleCount: Int
     public let emptyBackoffPacingSampleCount: Int
     public let viewportInteractionPacingSampleCount: Int
+    public let viewportInteractionRequestPauseCount: Int
+    public let viewportInteractionRequestPausePollCount: Int
+    public let averageViewportInteractionRequestPauseBucket: String
+    public let maxViewportInteractionRequestPauseBucket: String
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -475,6 +483,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
+        viewportInteractionRequestPauseCount: Int = 0,
+        viewportInteractionRequestPausePollCount: Int = 0,
+        averageViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -611,6 +623,20 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             max(viewportInteractionPacingSampleCount, 0),
             streamPacingDelaySampleCount
         )
+        let viewportInteractionRequestPauseCount = max(viewportInteractionRequestPauseCount, 0)
+        self.viewportInteractionRequestPauseCount = viewportInteractionRequestPauseCount
+        self.viewportInteractionRequestPausePollCount = max(viewportInteractionRequestPausePollCount, 0)
+        if viewportInteractionRequestPauseCount == 0 {
+            self.averageViewportInteractionRequestPauseBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxViewportInteractionRequestPauseBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageViewportInteractionRequestPauseBucket = Self.safeTimingBucket(
+                averageViewportInteractionRequestPauseBucket
+            )
+            self.maxViewportInteractionRequestPauseBucket = Self.safeTimingBucket(
+                maxViewportInteractionRequestPauseBucket
+            )
+        }
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
     }
@@ -806,6 +832,22 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .viewportInteractionPacingSampleCount
             ) ?? 0,
+            viewportInteractionRequestPauseCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionRequestPauseCount
+            ) ?? 0,
+            viewportInteractionRequestPausePollCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .viewportInteractionRequestPausePollCount
+            ) ?? 0,
+            averageViewportInteractionRequestPauseBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageViewportInteractionRequestPauseBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxViewportInteractionRequestPauseBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxViewportInteractionRequestPauseBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .actualEncodingMix
@@ -1138,7 +1180,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 20
+    public static let currentSchemaVersion = 21
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
