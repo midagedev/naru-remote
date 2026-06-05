@@ -858,6 +858,12 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             TextInjectionPayloadEncoding.classify(draft.text) == .utf8ExtensionRequired
         } ?? false
         let latestAttemptNeedsUTF8 = latestInjectionAttempt?.payloadEncoding == .utf8ExtensionRequired
+        let latestLegacyUTF8PasteWasDispatched =
+            latestInjectionAttempt?.path == .vncClipboardPaste
+            && latestInjectionAttempt?.payloadEncoding == .utf8ExtensionRequired
+            && latestInjectionAttempt?.clipboardTransferMode == .legacyClientCutText
+            && latestInjectionAttempt?.clipboardSetStatus == .succeeded
+            && latestInjectionAttempt?.pasteCommandStatus == .succeeded
         let helperHasVisibleState = helperState.isEnabled
             || helperState.pairingFingerprint != nil
             || helperState.availability != .notConfigured
@@ -865,6 +871,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
 
         guard composeNeedsUTF8 || latestAttemptNeedsUTF8 || helperHasVisibleState else {
             return nil
+        }
+
+        if latestLegacyUTF8PasteWasDispatched {
+            return "Legacy paste sent; helper is more reliable for Korean/CJK"
         }
 
         if !helperState.isEnabled,

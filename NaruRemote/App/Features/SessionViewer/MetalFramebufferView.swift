@@ -517,8 +517,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case gestureEnd
     }
 
+    private static let viewportStatePublishPreferredFramesPerSecond: Float = 30
     private static let interactiveViewportStatePublishCadence: ViewportStatePublishCadence =
-        .gestureEnd
+        .nextDisplayLink
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
@@ -1236,6 +1237,19 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
     }
 
+    private func configureViewportStateDisplayLink(_ displayLink: CADisplayLink) {
+        let screenMaximum = window?.screen.maximumFramesPerSecond
+            ?? UIScreen.main.maximumFramesPerSecond
+        let maximum = Float(max(60, screenMaximum))
+        let preferred = min(maximum, Self.viewportStatePublishPreferredFramesPerSecond)
+        recordViewportDisplayRefreshRate()
+        displayLink.preferredFrameRateRange = CAFrameRateRange(
+            minimum: preferred,
+            maximum: maximum,
+            preferred: preferred
+        )
+    }
+
     @MainActor
     @objc
     private func handleViewportDecelerationFrame(_ displayLink: CADisplayLink) {
@@ -1415,7 +1429,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         let displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFlushPendingViewportState(_:)))
-        configureViewportDisplayLink(displayLink)
+        configureViewportStateDisplayLink(displayLink)
         displayLink.add(to: .main, forMode: .common)
         viewportStateDisplayLink = displayLink
     }

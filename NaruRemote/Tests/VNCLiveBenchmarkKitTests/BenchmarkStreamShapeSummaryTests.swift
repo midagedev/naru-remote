@@ -442,6 +442,117 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(BenchmarkStreamShapeTransportMode.continuousUpdates.rawValue, "continuous-updates")
     }
 
+    func testPracticalAssessmentPassesWhenTargetsAreMet() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 8,
+            samples: (0..<8).map { _ in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 40,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    clientProcessingMilliseconds: 8
+                )
+            },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-practical-baseline-v1")
+        XCTAssertEqual(summary.practicalAssessment.verdict, .pass)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.isEmpty)
+    }
+
+    func testPracticalAssessmentWarnsForCurrentMacScreenSharingClassContentFPS() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 5,
+            samples: (0..<5).map { _ in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 150,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    clientProcessingMilliseconds: 8
+                )
+            },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.contentFramesPerSecond, 5)
+        XCTAssertEqual(summary.practicalAssessment.verdict, .warning)
+        XCTAssertEqual(summary.practicalAssessment.issueCodes, [.contentFPSWarning])
+    }
+
+    func testPracticalAssessmentFailsForVerySlowOrFullUploadPressure() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 4,
+            samples: [
+                streamShapeSample(duration: 1_100, rendererUploadStrategy: .full),
+                streamShapeSample(duration: 40, rendererUploadStrategy: .full),
+                streamShapeSample(duration: 40, rendererUploadStrategy: .full),
+                streamShapeSample(duration: 40, rendererUploadStrategy: .partial)
+            ],
+            elapsedMilliseconds: 1_220,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.verySlowUpdate))
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.fullUploadFailed))
+    }
+
+    func testPracticalAssessmentIsEncodedIntoBenchmarkJSON() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 0,
+            samples: [],
+            elapsedMilliseconds: nil,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(summary)) as? [String: Any]
+        )
+        let assessment = try XCTUnwrap(object["practicalAssessment"] as? [String: Any])
+
+        XCTAssertEqual(assessment["targetName"] as? String, "iphone-practical-baseline-v1")
+        XCTAssertEqual(assessment["verdict"] as? String, "disabled")
+    }
+
+    func testPracticalAssessmentDecodesWhenLegacyJSONOmitsField() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 3,
+            samples: [
+                streamShapeSample(duration: 40, rendererUploadStrategy: .partial),
+                streamShapeSample(duration: 40, rendererUploadStrategy: .partial),
+                streamShapeSample(duration: 40, rendererUploadStrategy: .partial)
+            ],
+            elapsedMilliseconds: 120,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(summary)) as? [String: Any]
+        )
+        object.removeValue(forKey: "practicalAssessment")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacyData)
+
+        XCTAssertEqual(decoded.contentUpdateSamples, 3)
+        XCTAssertEqual(decoded.practicalAssessment.verdict, .pass)
+    }
+
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 1,

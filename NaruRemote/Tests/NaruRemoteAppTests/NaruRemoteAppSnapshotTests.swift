@@ -241,6 +241,35 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         )
     }
 
+    func testInputHelperStatusExplainsLegacyUTF8PasteAfterDispatch() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let attempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            pasteCommand: .commandV,
+            payloadEncoding: .utf8ExtensionRequired,
+            clipboardTransferMode: .legacyClientCutText,
+            utf8ClipboardSupport: .unknown,
+            status: .unknown,
+            clipboardSetStatus: .succeeded,
+            pasteCommandStatus: .succeeded,
+            safeMessage: "Paste command sent through legacy VNC clipboard."
+        )
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "한글과 English"),
+            latestInjectionAttempt: attempt
+        )
+
+        XCTAssertEqual(
+            snapshot.inputHelperStatusText,
+            "Legacy paste sent; helper is more reliable for Korean/CJK"
+        )
+    }
+
     func testInputHelperStatusHidesForAsciiDraftWithoutHelperState() throws {
         let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
