@@ -1135,6 +1135,15 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
         }
 
+        if utf8Support == .unknown {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .vncClipboardPaste,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
         return ComposeRouteDiagnosticSnapshot(
             plannedPath: nil,
             utf8ClipboardSupport: utf8Support,
@@ -4280,9 +4289,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             return false
         }
         switch state.availability {
-        case .checking, .reachable, .unreachable, .permissionMissing, .versionUnsupported:
+        case .checking, .reachable:
             return true
         case .notConfigured, .disabled, .revoked:
+            return false
+        case .unreachable, .permissionMissing, .versionUnsupported:
             return false
         }
     }

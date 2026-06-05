@@ -41,7 +41,7 @@ final class TextInjectionAdapterTests: XCTestCase {
         )
     }
 
-    func testAdapterRejectsUTF8ComposeWhenServerSupportIsUnknown() {
+    func testAdapterAllowsBestEffortUTF8ComposeWhenServerSupportIsUnknown() {
         let client = FakeClipboardClient()
         let adapter = TextInjectionAdapter()
         var draft = ComposeDraft(sessionID: UUID(), text: "한글과 English 😊")
@@ -52,18 +52,19 @@ final class TextInjectionAdapterTests: XCTestCase {
             pasteCommand: .commandV
         )
 
-        XCTAssertTrue(client.clipboardPayloads.isEmpty)
-        XCTAssertTrue(client.pasteCommands.isEmpty)
-        XCTAssertEqual(attempt.status, .failed)
+        XCTAssertEqual(client.clipboardPayloads, ["한글과 English 😊"])
+        XCTAssertEqual(client.pasteCommands, [.commandV])
+        XCTAssertEqual(attempt.status, .unknown)
         XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(attempt.clipboardTransferMode, .legacyClientCutText)
         XCTAssertEqual(attempt.utf8ClipboardSupport, .unknown)
-        XCTAssertEqual(attempt.clipboardSetStatus, .notAttempted)
-        XCTAssertEqual(attempt.pasteCommandStatus, .notAttempted)
-        XCTAssertEqual(draft.sendState, .failed)
+        XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
+        XCTAssertEqual(draft.sendState, .unknown)
+        XCTAssertNil(draft.lastFailureReason)
         XCTAssertEqual(
-            draft.lastFailureReason,
-            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text needs a confirmed UTF-8 clipboard or helper text bridge."
+            draft.lastStatusMessage,
+            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
         )
     }
 

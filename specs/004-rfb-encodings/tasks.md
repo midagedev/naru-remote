@@ -551,6 +551,18 @@ iPhone) and ships as its own PR.
   helper-not-configured from helper-ready and confirmed UTF-8 paths without raw
   draft text. Owns: diagnostic export schema/tests, app-model route
   classification tests, helper spec task note, diagnostic artifact. **Done.**
+- **T380** Practical iPhone VNC baseline v1: stop treating each zoom/pan and
+  Compose complaint as an isolated tweak and establish a larger pass/warn/fail
+  target for sustained iPhone sessions. Add a safe `VNCLiveBenchmark` practical
+  assessment covering content FPS, p95 update latency, client processing tail,
+  renderer full-upload pressure, and adaptive pacing pressure; publish it in
+  schema v27 JSON and human output. Fold in the matching app-side fixes by
+  keeping Metal viewport transforms immediate while mirroring viewport state at
+  a bounded 30 Hz cadence, and by allowing unconfirmed UTF-8 VNC clipboard
+  Compose to take the explicit best-effort legacy paste path while known
+  unsupported UTF-8 still fails with helper-aware diagnostics. Owns: benchmark
+  kit/CLI/tests, Metal viewport host, text-injection policy, app model/snapshot
+  tests, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

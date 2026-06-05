@@ -1115,7 +1115,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 26
+        self.schemaVersion = 27
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1546,6 +1546,14 @@ private func renderStreamShapeSummary(
     }
 
     print("\(indentation)- status: \(summary.status.rawValue), received: \(summary.receivedSamples)/\(summary.requestedSamples)")
+    let assessment = summary.practicalAssessment
+    print(
+        "\(indentation)  practical target: \(assessment.targetName) "
+            + "\(assessment.verdict.rawValue)"
+            + (assessment.issueCodes.isEmpty
+                ? ""
+                : " (\(assessment.issueCodes.map(\.rawValue).joined(separator: ",")))")
+    )
     if let firstFrameMilliseconds {
         print("\(indentation)  first-frame ms: \(firstFrameMilliseconds)")
     }

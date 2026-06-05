@@ -20,6 +20,118 @@ public enum BenchmarkStreamShapeTransportMode: String, Codable, Equatable, Senda
     case continuousUpdates = "continuous-updates"
 }
 
+public enum BenchmarkStreamShapePracticalVerdict: String, Codable, Equatable, Sendable {
+    case disabled
+    case pass
+    case warning
+    case fail
+}
+
+public enum BenchmarkStreamShapePracticalIssueCode: String, Codable, Equatable, Sendable, CaseIterable {
+    case probeDisabled = "probe-disabled"
+    case probeFailed = "probe-failed"
+    case noContentUpdates = "no-content-updates"
+    case insufficientContentSamples = "insufficient-content-samples"
+    case contentFPSWarning = "content-fps-warning"
+    case contentFPSFailed = "content-fps-failed"
+    case p95UpdateWarning = "p95-update-warning"
+    case p95UpdateFailed = "p95-update-failed"
+    case clientProcessingWarning = "client-processing-warning"
+    case clientProcessingFailed = "client-processing-failed"
+    case verySlowUpdate = "very-slow-update"
+    case fullUploadWarning = "full-upload-warning"
+    case fullUploadFailed = "full-upload-failed"
+    case adaptivePressureWarning = "adaptive-pressure-warning"
+    case adaptivePressureFailed = "adaptive-pressure-failed"
+}
+
+public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable {
+    public static let iPhonePracticalBaseline = BenchmarkStreamShapePracticalTargets(
+        name: "iphone-practical-baseline-v1",
+        passContentFramesPerSecond: 8,
+        failContentFramesPerSecond: 4,
+        passP95UpdateMilliseconds: 500,
+        failP95UpdateMilliseconds: 1_000,
+        passClientProcessingP95Milliseconds: 24,
+        failClientProcessingP95Milliseconds: 50,
+        passRendererFullUploadPermille: 50,
+        failRendererFullUploadPermille: 150,
+        passAdaptivePressurePermille: 100,
+        failAdaptivePressurePermille: 500,
+        minimumContentUpdateSamples: 3
+    )
+
+    public let name: String
+    public let passContentFramesPerSecond: Double
+    public let failContentFramesPerSecond: Double
+    public let passP95UpdateMilliseconds: Int
+    public let failP95UpdateMilliseconds: Int
+    public let passClientProcessingP95Milliseconds: Int
+    public let failClientProcessingP95Milliseconds: Int
+    public let passRendererFullUploadPermille: Int
+    public let failRendererFullUploadPermille: Int
+    public let passAdaptivePressurePermille: Int
+    public let failAdaptivePressurePermille: Int
+    public let minimumContentUpdateSamples: Int
+
+    public init(
+        name: String,
+        passContentFramesPerSecond: Double,
+        failContentFramesPerSecond: Double,
+        passP95UpdateMilliseconds: Int,
+        failP95UpdateMilliseconds: Int,
+        passClientProcessingP95Milliseconds: Int,
+        failClientProcessingP95Milliseconds: Int,
+        passRendererFullUploadPermille: Int,
+        failRendererFullUploadPermille: Int,
+        passAdaptivePressurePermille: Int,
+        failAdaptivePressurePermille: Int,
+        minimumContentUpdateSamples: Int
+    ) {
+        self.name = name
+        self.passContentFramesPerSecond = max(passContentFramesPerSecond, 0)
+        self.failContentFramesPerSecond = max(failContentFramesPerSecond, 0)
+        self.passP95UpdateMilliseconds = max(passP95UpdateMilliseconds, 0)
+        self.failP95UpdateMilliseconds = max(failP95UpdateMilliseconds, self.passP95UpdateMilliseconds)
+        self.passClientProcessingP95Milliseconds = max(passClientProcessingP95Milliseconds, 0)
+        self.failClientProcessingP95Milliseconds = max(
+            failClientProcessingP95Milliseconds,
+            self.passClientProcessingP95Milliseconds
+        )
+        self.passRendererFullUploadPermille = Self.clampPermille(passRendererFullUploadPermille)
+        self.failRendererFullUploadPermille = max(
+            Self.clampPermille(failRendererFullUploadPermille),
+            self.passRendererFullUploadPermille
+        )
+        self.passAdaptivePressurePermille = Self.clampPermille(passAdaptivePressurePermille)
+        self.failAdaptivePressurePermille = max(
+            Self.clampPermille(failAdaptivePressurePermille),
+            self.passAdaptivePressurePermille
+        )
+        self.minimumContentUpdateSamples = max(minimumContentUpdateSamples, 0)
+    }
+
+    private static func clampPermille(_ value: Int) -> Int {
+        min(max(value, 0), 1_000)
+    }
+}
+
+public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Sendable {
+    public let targetName: String
+    public let verdict: BenchmarkStreamShapePracticalVerdict
+    public let issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+
+    public init(
+        targetName: String,
+        verdict: BenchmarkStreamShapePracticalVerdict,
+        issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) {
+        self.targetName = targetName
+        self.verdict = verdict
+        self.issueCodes = issueCodes
+    }
+}
+
 public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let kind: BenchmarkStreamUpdateKind
     public let durationMilliseconds: Int
@@ -143,6 +255,19 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let viewportInteractionPausedMilliseconds: Int
     public let firstTimeoutMilliseconds: Int?
     public let failureLabel: String?
+    public var practicalAssessment: BenchmarkStreamShapePracticalAssessment {
+        Self.practicalAssessment(
+            status: status,
+            failureLabel: failureLabel,
+            contentUpdateSamples: contentUpdateSamples,
+            contentFramesPerSecond: contentFramesPerSecond,
+            updateLatency: updateLatency,
+            clientProcessingLatency: clientProcessingLatency,
+            tailLatency: tailLatency,
+            rendererFullUploadPermille: rendererFullUploadPermille,
+            adaptiveClientPressurePacingPermille: adaptiveClientPressurePacingPermille
+        )
+    }
 
     private enum CodingKeys: String, CodingKey {
         case status
@@ -179,6 +304,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case viewportInteractionPausedMilliseconds
         case firstTimeoutMilliseconds
         case failureLabel
+        case practicalAssessment
     }
 
     public init(
@@ -456,6 +582,157 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         }
         let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
         return value > 0 ? max(rounded, 1) : 0
+    }
+
+    private static func practicalAssessment(
+        status: BenchmarkStreamShapeStatus,
+        failureLabel: String?,
+        contentUpdateSamples: Int,
+        contentFramesPerSecond: Double?,
+        updateLatency: BenchmarkLatencySummary?,
+        clientProcessingLatency: BenchmarkLatencySummary?,
+        tailLatency: BenchmarkStreamShapeTailSummary,
+        rendererFullUploadPermille: Int?,
+        adaptiveClientPressurePacingPermille: Int?,
+        targets: BenchmarkStreamShapePracticalTargets = .iPhonePracticalBaseline
+    ) -> BenchmarkStreamShapePracticalAssessment {
+        if status == .disabled {
+            return BenchmarkStreamShapePracticalAssessment(
+                targetName: targets.name,
+                verdict: .disabled,
+                issueCodes: [.probeDisabled]
+            )
+        }
+        if failureLabel != nil || status == .failed {
+            return BenchmarkStreamShapePracticalAssessment(
+                targetName: targets.name,
+                verdict: .fail,
+                issueCodes: [.probeFailed]
+            )
+        }
+
+        var issues: [BenchmarkStreamShapePracticalIssueCode] = []
+        if contentUpdateSamples == 0 {
+            issues.append(.noContentUpdates)
+        } else if contentUpdateSamples < targets.minimumContentUpdateSamples {
+            issues.append(.insufficientContentSamples)
+        }
+
+        if let contentFramesPerSecond {
+            if contentFramesPerSecond < targets.failContentFramesPerSecond {
+                issues.append(.contentFPSFailed)
+            } else if contentFramesPerSecond < targets.passContentFramesPerSecond {
+                issues.append(.contentFPSWarning)
+            }
+        } else if contentUpdateSamples > 0 {
+            issues.append(.contentFPSWarning)
+        }
+
+        if let updateLatency {
+            if updateLatency.p95Milliseconds > targets.failP95UpdateMilliseconds {
+                issues.append(.p95UpdateFailed)
+            } else if updateLatency.p95Milliseconds > targets.passP95UpdateMilliseconds {
+                issues.append(.p95UpdateWarning)
+            }
+        }
+
+        if let clientProcessingLatency {
+            if clientProcessingLatency.p95Milliseconds > targets.failClientProcessingP95Milliseconds {
+                issues.append(.clientProcessingFailed)
+            } else if clientProcessingLatency.p95Milliseconds > targets.passClientProcessingP95Milliseconds {
+                issues.append(.clientProcessingWarning)
+            }
+        }
+
+        if tailLatency.verySlowUpdateSamples > 0 {
+            issues.append(.verySlowUpdate)
+        }
+
+        if let rendererFullUploadPermille {
+            if rendererFullUploadPermille > targets.failRendererFullUploadPermille {
+                issues.append(.fullUploadFailed)
+            } else if rendererFullUploadPermille > targets.passRendererFullUploadPermille {
+                issues.append(.fullUploadWarning)
+            }
+        }
+
+        if let adaptiveClientPressurePacingPermille {
+            if adaptiveClientPressurePacingPermille > targets.failAdaptivePressurePermille {
+                issues.append(.adaptivePressureFailed)
+            } else if adaptiveClientPressurePacingPermille > targets.passAdaptivePressurePermille {
+                issues.append(.adaptivePressureWarning)
+            }
+        }
+
+        return BenchmarkStreamShapePracticalAssessment(
+            targetName: targets.name,
+            verdict: verdict(for: issues),
+            issueCodes: issues
+        )
+    }
+
+    private static func verdict(
+        for issues: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalVerdict {
+        let failures: Set<BenchmarkStreamShapePracticalIssueCode> = [
+            .probeFailed,
+            .noContentUpdates,
+            .contentFPSFailed,
+            .p95UpdateFailed,
+            .clientProcessingFailed,
+            .verySlowUpdate,
+            .fullUploadFailed,
+            .adaptivePressureFailed
+        ]
+        if issues.contains(where: failures.contains) {
+            return .fail
+        }
+        return issues.isEmpty ? .pass : .warning
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(status, forKey: .status)
+        try container.encode(requestedSamples, forKey: .requestedSamples)
+        try container.encode(receivedSamples, forKey: .receivedSamples)
+        try container.encode(emptyUpdateSamples, forKey: .emptyUpdateSamples)
+        try container.encode(contentUpdateSamples, forKey: .contentUpdateSamples)
+        try container.encode(timedOutSamples, forKey: .timedOutSamples)
+        try container.encodeIfPresent(elapsedMilliseconds, forKey: .elapsedMilliseconds)
+        try container.encodeIfPresent(deliveredFramesPerSecond, forKey: .deliveredFramesPerSecond)
+        try container.encodeIfPresent(contentFramesPerSecond, forKey: .contentFramesPerSecond)
+        try container.encodeIfPresent(updateLatency, forKey: .updateLatency)
+        try container.encodeIfPresent(dirtyRectangleCount, forKey: .dirtyRectangleCount)
+        try container.encodeIfPresent(dirtyAreaPermille, forKey: .dirtyAreaPermille)
+        try container.encodeIfPresent(changedPixelsPermille, forKey: .changedPixelsPermille)
+        try container.encodeIfPresent(receiveTotalLatency, forKey: .receiveTotalLatency)
+        try container.encodeIfPresent(networkReadLatency, forKey: .networkReadLatency)
+        try container.encodeIfPresent(clientProcessingLatency, forKey: .clientProcessingLatency)
+        try container.encode(tailLatency, forKey: .tailLatency)
+        try container.encode(rendererUploadSampleCount, forKey: .rendererUploadSampleCount)
+        try container.encode(rendererPartialUploadSamples, forKey: .rendererPartialUploadSamples)
+        try container.encode(rendererFullUploadSamples, forKey: .rendererFullUploadSamples)
+        try container.encodeIfPresent(rendererPartialUploadPermille, forKey: .rendererPartialUploadPermille)
+        try container.encodeIfPresent(rendererFullUploadPermille, forKey: .rendererFullUploadPermille)
+        try container.encodeIfPresent(rendererUploadRegionCount, forKey: .rendererUploadRegionCount)
+        try container.encode(actualEncodingMix, forKey: .actualEncodingMix)
+        try container.encode(adaptiveClientPressurePacingSamples, forKey: .adaptiveClientPressurePacingSamples)
+        try container.encodeIfPresent(
+            adaptiveClientPressurePacingPermille,
+            forKey: .adaptiveClientPressurePacingPermille
+        )
+        try container.encode(viewportInteractionPacingSamples, forKey: .viewportInteractionPacingSamples)
+        try container.encodeIfPresent(viewportInteractionPacingPermille, forKey: .viewportInteractionPacingPermille)
+        try container.encode(viewportInteractionPausedRequestCount, forKey: .viewportInteractionPausedRequestCount)
+        try container.encodeIfPresent(
+            viewportInteractionPausedRequestPermille,
+            forKey: .viewportInteractionPausedRequestPermille
+        )
+        try container.encode(viewportInteractionPausePollCount, forKey: .viewportInteractionPausePollCount)
+        try container.encode(viewportInteractionPausedMilliseconds, forKey: .viewportInteractionPausedMilliseconds)
+        try container.encodeIfPresent(firstTimeoutMilliseconds, forKey: .firstTimeoutMilliseconds)
+        try container.encodeIfPresent(failureLabel, forKey: .failureLabel)
+        try container.encode(practicalAssessment, forKey: .practicalAssessment)
     }
 }
 
