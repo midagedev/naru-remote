@@ -802,6 +802,18 @@ iPhone) and ships as its own PR.
   timings, raw payloads, command text, command output, draft text, marked text,
   and IME state out of reports. Owns: benchmark summary kit/tests, CLI
   schema/text report, benchmark docs/artifact, research note. **Done.**
+- **T408** Report-level transport/cadence diagnosis: bump
+  `VNCLiveBenchmark` to schema v43 and add
+  `streamShapeTransportCadenceDiagnosis` with fixed per-transport status labels,
+  aggregate blocked/total gate counts, per-transport constraint/failure-label
+  counts, a recommended transport label, and a fixed next-action label. Use the
+  v42 sustained-v2-core live baseline to route repeated ContinuousUpdates
+  connection failures to `inspectContinuousUpdatesConnection` while preserving
+  request-response as the current usable transport. Do not export host
+  identity, dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+  timings, raw TCP/RFB errors, raw payloads, command text, command output,
+  draft text, marked text, or IME state. Owns: benchmark summary kit/tests, CLI
+  schema/text report, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
