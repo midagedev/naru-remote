@@ -2797,3 +2797,66 @@ fields. They must not include host identity, credentials, port value, stimulus
 command text, command output, TCP errors, RFB errors, framebuffer dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, draft text,
 marked text, or IME state.
+
+## D71 — Add a benchmark-only pixel-format isolation gate
+
+References:
+- RFC 6143 SetPixelFormat and framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: bump `VNCLiveBenchmark` output to schema v39 and add
+benchmark-only RGB565-in-32 pixel-format profiles. The new
+`--stream-shape-profiles pixel-format-isolation` selection compares:
+
+- `local-low-latency`
+- `local-low-latency-rgb565`
+- `zrle-compression-0`
+- `zrle-compression-0-rgb565`
+
+The new `--stream-shape-gate-preset sustained-v2-pixel-format` uses the same
+large-unit gate shape as `sustained-v2-core`: controlled stimulus, both
+transports, five rotated iterations, app client-pressure/viewport pacing, ten
+second duration, zero hidden stream-shape preflight frames, first-frame
+profiles disabled, and the `iphone-sustained-usability-v2` target.
+
+**Why**:
+- Low-color VNC modes can reduce server encode and client decode/upload
+  pressure only when the server honors `SetPixelFormat`. That is server-specific
+  behavior, so app defaults should not change from a code-only assumption.
+- Keeping the format 32 bits per pixel with 16-bit RGB565 channel precision lets
+  Naru stay on the existing supported true-color framebuffer path while testing
+  lower channel precision under live RFB negotiation.
+- The same v2 gate shape keeps pixel-format comparisons from being confused by
+  different stimulus, transport, pacing, or profile-order conditions.
+
+**Evidence**:
+- `RFBEncodingTests` cover full-color and RGB565 SetPixelFormat wire bytes.
+- `RFBRawFramebufferDecoderTests` cover non-byte-aligned RGB565 channel decode
+  through the existing 32-bit true-color path.
+- `BenchmarkStreamShapeProfileSelectionTests` cover
+  `pixel-format-isolation` expansion and missing-profile failures.
+- `BenchmarkStreamShapeGatePresetTests` cover stable
+  `sustained-v2-pixel-format` CLI contract.
+- `swift build --product VNCLiveBenchmark` passes with schema v39 report
+  wiring.
+
+**Interpretation**:
+- Use `sustained-v2-pixel-format` only after the core gate shows profile or
+  transport pressure that might benefit from lower color precision.
+- Treat any RGB565 win as a candidate for physical iPhone verification, not a
+  production default change by itself.
+- If RGB565 produces decode failures, color artifacts, or worse hit-rate/gate
+  results, keep the current app default and continue with cadence, transport,
+  or server-side alternatives.
+
+**Privacy rule**: pixel-format benchmark reports may emit only fixed profile
+labels, fixed preset labels, aggregate gate counts, aggregate permille ratios,
+aggregate timing summaries, and existing safe benchmark fields. They must not
+include host identity, credentials, port value, stimulus command text, command
+output, TCP errors, RFB errors, framebuffer dimensions, coordinates, pixels,
+cursor pixels, byte counts, raw payloads, draft text, marked text, or IME
+state.

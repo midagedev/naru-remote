@@ -184,7 +184,10 @@ enum VNCLiveBenchmark {
         var failures: [String: Int] = [:]
 
         for _ in 0..<attempts {
-            let client = RFBNetworkClient(encodingPreference: profile.preference)
+            let client = RFBNetworkClient(
+                encodingPreference: profile.preference,
+                pixelFormatPreference: profile.pixelFormatPreference
+            )
             let startedAt = Date()
             do {
                 _ = try client.connectSession(
@@ -385,7 +388,8 @@ enum VNCLiveBenchmark {
         }
 
         let client = RFBNetworkClient(
-            encodingPreference: profile.preference.applying(streamShapeTransportMode: transportMode)
+            encodingPreference: profile.preference.applying(streamShapeTransportMode: transportMode),
+            pixelFormatPreference: profile.pixelFormatPreference
         )
         let pump = RFBFramePump(source: client)
         var samples: [BenchmarkStreamShapeSample] = []
@@ -1141,35 +1145,49 @@ private struct BenchmarkOptions: Equatable {
         case .none:
             return
         case .sustainedV2Core:
-            attempts = 1
-            fullRefreshSamples = 0
-            continuousUpdateSamples = 1
-            streamShapeSamples = 0
-            streamShapeDuration = 10
-            streamShapeFrameInterval = 1.0 / 60.0
-            streamShapeIdleFrameInterval = 0.05
-            streamShapeEmptyBackoffMode = .app
-            streamShapePowerMode = .normal
-            streamShapeClientPressureMode = .app
-            streamShapeViewportInteractionMode = .app
-            streamShapeStimulusMode = .externalCommand
-            streamShapeStimulusWarmupSeconds = 0.25
-            streamShapePreflightFrames = 0
-            streamShapePracticalTarget = .iPhoneSustainedUsability
-            firstFrameProfiles = .none
-            do {
-                streamShapeProfiles = try StreamShapeProfileSelection.parse(
-                    BenchmarkStreamShapeProfileSelection.coreMatrixSelection
-                )
-            } catch {
-                throw UsageError("internal sustained-v2-core preset profile selection is invalid.")
-            }
-            streamShapeTransportModes = .both
-            streamShapeProfileIterations = 5
-            streamShapeProfileOrderMode = .rotate
-            timeout = 6
-            idleTimeout = 1
+            try applySustainedV2Gate(
+                profileSelection: BenchmarkStreamShapeProfileSelection.coreMatrixSelection,
+                invalidProfileSelectionMessage: "internal sustained-v2-core preset profile selection is invalid."
+            )
+        case .sustainedV2PixelFormat:
+            try applySustainedV2Gate(
+                profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
+                invalidProfileSelectionMessage:
+                    "internal sustained-v2-pixel-format preset profile selection is invalid."
+            )
         }
+    }
+
+    private mutating func applySustainedV2Gate(
+        profileSelection: String,
+        invalidProfileSelectionMessage: String
+    ) throws {
+        attempts = 1
+        fullRefreshSamples = 0
+        continuousUpdateSamples = 1
+        streamShapeSamples = 0
+        streamShapeDuration = 10
+        streamShapeFrameInterval = 1.0 / 60.0
+        streamShapeIdleFrameInterval = 0.05
+        streamShapeEmptyBackoffMode = .app
+        streamShapePowerMode = .normal
+        streamShapeClientPressureMode = .app
+        streamShapeViewportInteractionMode = .app
+        streamShapeStimulusMode = .externalCommand
+        streamShapeStimulusWarmupSeconds = 0.25
+        streamShapePreflightFrames = 0
+        streamShapePracticalTarget = .iPhoneSustainedUsability
+        firstFrameProfiles = .none
+        do {
+            streamShapeProfiles = try StreamShapeProfileSelection.parse(profileSelection)
+        } catch {
+            throw UsageError(invalidProfileSelectionMessage)
+        }
+        streamShapeTransportModes = .both
+        streamShapeProfileIterations = 5
+        streamShapeProfileOrderMode = .rotate
+        timeout = 6
+        idleTimeout = 1
     }
 
     private static func nextValue(
@@ -1365,9 +1383,11 @@ private final class RunningStreamShapeStimulus {
 
 private enum BenchmarkProfile: CaseIterable, Equatable {
     case localLowLatency
+    case localLowLatencyRGB565
     case tightFirst
     case zrleFirst
     case zrleCompressionZero
+    case zrleCompressionZeroRGB565
     case zrleCompressionZeroCursor
     case zrleCompressionZeroClipboard
     case zrleCompressionZeroCursorClipboard
@@ -1380,12 +1400,16 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
         switch self {
         case .localLowLatency:
             "local-low-latency"
+        case .localLowLatencyRGB565:
+            "local-low-latency-rgb565"
         case .tightFirst:
             "tight-first"
         case .zrleFirst:
             "zrle-first"
         case .zrleCompressionZero:
             "zrle-compression-0"
+        case .zrleCompressionZeroRGB565:
+            "zrle-compression-0-rgb565"
         case .zrleCompressionZeroCursor:
             "zrle-compression-0-cursor"
         case .zrleCompressionZeroClipboard:
@@ -1412,7 +1436,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
 
     var preference: RFBEncodingPreference {
         switch self {
-        case .localLowLatency:
+        case .localLowLatency, .localLowLatencyRGB565:
             return .localLowLatency
         case .tightFirst:
             return RFBEncodingPreference(
@@ -1422,7 +1446,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
             )
         case .zrleFirst:
             return .increment2
-        case .zrleCompressionZero:
+        case .zrleCompressionZero, .zrleCompressionZeroRGB565:
             return RFBEncodingPreference(zrle: true, compressionLevel: 0)
         case .zrleCompressionZeroCursor:
             return RFBEncodingPreference(
@@ -1459,6 +1483,15 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
                 requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
                 connectionQuality: .poor
             )
+        }
+    }
+
+    var pixelFormatPreference: RFBPixelFormat? {
+        switch self {
+        case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
+            return .rgb565In32LittleEndian
+        default:
+            return nil
         }
     }
 }
@@ -1584,7 +1617,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 38
+        self.schemaVersion = 39
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1657,6 +1690,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, and aggregate threshold outcomes",
             "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
             "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, aggregate run counts, and permille ratios",
+            "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
         ]
@@ -2388,13 +2422,13 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset none|sustained-v2-core] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|zrle-isolation|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix, both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v38 gate reporting. Use individual stream-shape options without this preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v39 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
@@ -2424,7 +2458,7 @@ private func printUsage() {
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))
-                                Profile set for stream-shape probes. Defaults to local-low-latency; use core-matrix for the practical baseline candidate set, zrle-isolation for ZRLE extension isolation, all to compare every encoding profile, or a comma-separated list for targeted long runs.
+                                Profile set for stream-shape probes. Defaults to local-low-latency; use core-matrix for the practical baseline candidate set, zrle-isolation for ZRLE extension isolation, pixel-format-isolation for benchmark-only full-color/RGB565 pairs, all to compare every encoding profile, or a comma-separated list for targeted long runs.
       --stream-shape-transport request-response|continuous-updates|both
                                 Transport mode for stream-shape probes. Defaults to request-response; use both to compare request/response with the ContinuousUpdates overlay.
       --stream-shape-profile-iterations N

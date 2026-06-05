@@ -7,7 +7,8 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             BenchmarkStreamShapeProfileSelection.usageDescription(
                 allProfileLabels: ["local-low-latency", "tight-first"]
             ),
-            "local-low-latency|core-matrix|zrle-isolation|all|comma-separated labels (local-low-latency,tight-first)"
+            "local-low-latency|core-matrix|zrle-isolation|pixel-format-isolation|"
+                + "all|comma-separated labels (local-low-latency,tight-first)"
         )
     }
 
@@ -134,6 +135,52 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
                 (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
                 "zrle-isolation stream-shape profile selection is unavailable because "
                     + "required profile label(s) are missing: zrle-compression-0-cursor-clipboard."
+            )
+        }
+    }
+
+    func testPixelFormatIsolationSelectsFullColorAndRGB565Pairs() throws {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: " pixel-format-isolation ",
+            allProfileLabels: [
+                "local-low-latency",
+                "local-low-latency-rgb565",
+                "zrle-compression-0",
+                "zrle-compression-0-rgb565",
+                "tight-first"
+            ]
+        )
+
+        XCTAssertEqual(
+            labels,
+            [
+                "local-low-latency",
+                "local-low-latency-rgb565",
+                "zrle-compression-0",
+                "zrle-compression-0-rgb565"
+            ]
+        )
+    }
+
+    func testPixelFormatIsolationThrowsWhenAPairProfileIsMissing() {
+        XCTAssertThrowsError(
+            try BenchmarkStreamShapeProfileSelection.selectedLabels(
+                from: "pixel-format-isolation",
+                allProfileLabels: [
+                    "local-low-latency",
+                    "local-low-latency-rgb565",
+                    "zrle-compression-0"
+                ]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BenchmarkStreamShapeProfileSelectionError,
+                .missingPixelFormatIsolationLabels(["zrle-compression-0-rgb565"])
+            )
+            XCTAssertEqual(
+                (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
+                "pixel-format-isolation stream-shape profile selection is unavailable because "
+                    + "required profile label(s) are missing: zrle-compression-0-rgb565."
             )
         }
     }
