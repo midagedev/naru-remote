@@ -29,6 +29,32 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertTrue(candidates.allSatisfy { $0.emptyBackoffMode == .app })
     }
 
+    func testPacingWindowCandidateBuildsRequestLoopPolicy() {
+        let candidate = BenchmarkStreamShapePacingWindowCandidate(
+            label: .stimulusAligned12Hz,
+            contentFrameInterval: 1.0 / 12.0,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app
+        )
+
+        let policy = candidate.policy(
+            powerMode: .normal,
+            clientPressureMode: .off,
+            viewportInteractionMode: .off
+        )
+
+        XCTAssertEqual(
+            policy.delay(isEmptyUpdate: false, emptyUpdateStreak: 0),
+            1.0 / 12.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            policy.delay(isEmptyUpdate: true, emptyUpdateStreak: 1),
+            0.05,
+            accuracy: 0.0001
+        )
+    }
+
     func testBenchmarkBalancedCadenceMatchesAppDefault() {
         XCTAssertEqual(
             BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,

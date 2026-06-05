@@ -84,6 +84,8 @@ enum VNCLiveBenchmark {
             orderMode: options.streamShapeProfileOrderMode
         )
         let streamShapeProfileProbes = streamShapeSchedule.map { scheduledProbe in
+            // Keep the report label and the request-loop pacing policy coupled
+            // so a sweep cannot accidentally relabel identical measurements.
             let streamShapePacingPolicy = scheduledProbe.pacingWindow.policy(
                 powerMode: options.streamShapePowerMode,
                 clientPressureMode: options.streamShapeClientPressureMode,
