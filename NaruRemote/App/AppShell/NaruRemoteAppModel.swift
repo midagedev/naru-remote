@@ -1659,6 +1659,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
+                    guard try await waitForViewportInteractionToSettle(
+                        streamID: streamID,
+                        sessionID: pendingSession.id,
+                        profileID: profile.id
+                    ) else {
+                        pump.cancel()
+                        return
+                    }
 
                     let requestTimeout = configuration.requestTimeout
                     // Sample the request→frame round-trip so the
@@ -1909,6 +1917,30 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         isViewportInteractionActive = false
         flushDeferredViewportStreamFrameIfNeeded()
+    }
+
+    private func waitForViewportInteractionToSettle(
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) async throws -> Bool {
+        while shouldPauseFrameRequestsForViewportInteraction() {
+            guard !Task.isCancelled,
+                  isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
+            else {
+                return false
+            }
+            try await Task.sleep(
+                for: .seconds(StreamPressurePacingDefaults.viewportInteractionRequestPausePollSeconds)
+            )
+        }
+
+        return !Task.isCancelled
+            && isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
+    }
+
+    private func shouldPauseFrameRequestsForViewportInteraction() -> Bool {
+        isViewportInteractionActive && latestFramebuffer != nil
     }
 
     private func flushDeferredViewportStreamFrameIfNeeded() {

@@ -187,7 +187,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
             thermalState: .nominal,
             usesViewportInteractionPacing: true
         )
-        XCTAssertEqual(contentDecision.delay, 1.0 / 15.0, accuracy: 0.0001)
+        XCTAssertEqual(
+            contentDecision.delay,
+            StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
         XCTAssertFalse(contentDecision.usesThermalPacing)
         XCTAssertFalse(contentDecision.usesPowerSaverPacing)
         XCTAssertFalse(contentDecision.usesEmptyBackoffPacing)
@@ -200,7 +204,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
             usesViewportInteractionPacing: true,
             emptyUpdateStreak: 1
         )
-        XCTAssertEqual(emptyDecision.delay, 0.125, accuracy: 0.0001)
+        XCTAssertEqual(
+            emptyDecision.delay,
+            StreamPressurePacingDefaults.viewportInteractionIdleFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
         XCTAssertTrue(emptyDecision.usesViewportInteractionPacing)
 
         XCTAssertEqual(
@@ -1324,7 +1332,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(10))
     }
 
-    func testModelAppliesViewportInteractionPacingInFrameLoop() async throws {
+    func testModelPausesFrameRequestsDuringViewportInteraction() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
             width: 1,
@@ -1367,20 +1375,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
             in: pacingSleepRecorder
         )
         model.setViewportInteractionActive(true)
+        try await Task.sleep(for: .milliseconds(140))
 
-        let delays = try await waitForRecordedPacingDelays(
-            3,
-            in: pacingSleepRecorder
+        XCTAssertEqual(
+            connector.frameUpdateRequests.count,
+            1,
+            "Touch-first viewport interaction should pause new RFB update requests while an existing frame is visible."
         )
+        XCTAssertEqual(pacingSleepRecorder.delays.count, 1)
+
+        model.setViewportInteractionActive(false)
+        let delays = try await waitForRecordedPacingDelays(3, in: pacingSleepRecorder)
         XCTAssertEqual(delays[0], 1.0 / 60.0, accuracy: 0.0001)
-        XCTAssertEqual(delays[1], 1.0 / 15.0, accuracy: 0.0001)
-        XCTAssertEqual(delays[2], 1.0 / 15.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[1], 1.0 / 60.0, accuracy: 0.0001)
+        XCTAssertEqual(delays[2], 1.0 / 60.0, accuracy: 0.0001)
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.streamPacingDelaySampleCount, 3)
-        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 2)
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 0)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
-        model.setViewportInteractionActive(false)
         model.disconnect()
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -2287,12 +2300,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         model.setViewportInteractionActive(true)
+        let requestCountAtGestureStart = connector.frameUpdateRequests.count
         try await Task.sleep(for: .milliseconds(140))
 
-        XCTAssertGreaterThanOrEqual(connector.frameUpdateRequests.count, 3)
+        XCTAssertEqual(connector.frameUpdateRequests.count, requestCountAtGestureStart)
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         model.setViewportInteractionActive(false)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != thirdFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
     }

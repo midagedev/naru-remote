@@ -574,7 +574,8 @@ public struct RemoteInputDockView: View {
         isDirectModeActive: Bool,
         hasMarkedText: Bool
     ) -> Bool {
-        !isDirectModeActive && !hasMarkedText
+        _ = hasMarkedText
+        return !isDirectModeActive
     }
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
