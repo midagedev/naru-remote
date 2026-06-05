@@ -2673,3 +2673,56 @@ identity, credentials, framebuffer dimensions from a live target, coordinates,
 pixels, cursor pixels, byte counts, raw live samples, raw live payloads, raw
 errors, external command text, command output, draft text, marked text, or IME
 state.
+
+## D69 — Add a redacted live benchmark environment preflight
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: add `VNCLiveBenchmark --environment-preflight` as a safe
+readiness report before live v37 gate runs. The command emits only fixed
+readiness labels for host, port, credential source, stimulus mode, stimulus
+command requirement, `canRunLiveBenchmark`, and stable issue codes. It exits
+before opening a VNC socket and before reading a password prompt.
+
+**Why**:
+- The next larger units depend on live schema v37 profile gates, but local
+  shells can be missing target, credential, or stimulus setup. A redacted
+  preflight lets a diagnostic summary show exactly why a live gate was not
+  attempted without requiring the user to paste secrets or raw target values.
+- `--ask-password` is still useful for real benchmark runs, but a preflight
+  should never block waiting for secret input. It reports `promptRequested`
+  instead, making the runbook actionable while preserving the secret boundary.
+- RFC 6143 compatibility work still needs real connection attempts after
+  readiness passes. This preflight does not replace TCP/RFB probing; it only
+  separates local benchmark setup failures from live protocol behavior.
+
+**Evidence**:
+- `BenchmarkLiveEnvironmentPreflightTests` cover configured environments,
+  missing required fields, prompt-requested credential source without reading a
+  password, invalid port labels, and JSON redaction of host/password/command
+  values.
+- CLI smoke with current empty live environment:
+  `VNCLiveBenchmark --environment-preflight --stream-shape-stimulus
+  external-command --json` reported fixed issues `missing-host`,
+  `missing-credential`, and `missing-stimulus-command`.
+- CLI smoke with `--environment-preflight --ask-password` did not prompt and
+  reported credential status `promptRequested`.
+
+**Interpretation**:
+- `missing-host` means configure the benchmark target before interpreting any
+  stream-shape result.
+- `missing-credential` means provide a password source through the environment
+  or use `--ask-password` for the real run.
+- `missing-stimulus-command` means controlled-stimulus v37 gates cannot be
+  compared yet.
+- `invalid-port` means the configured port value is malformed before any TCP or
+  RFB question can be answered.
+
+**Privacy rule**: environment preflight reports may emit only fixed status
+labels, fixed issue codes, `canRunLiveBenchmark`, fixed stimulus mode labels,
+and schema version. They must not include host identity, credentials, port
+value, stimulus command text, command output, TCP errors, RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, draft text, marked text, or IME state.

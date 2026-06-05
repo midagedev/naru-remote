@@ -89,6 +89,23 @@ Use the existing live benchmark for real VNC server behavior. Configure
 the target only through environment variables or the hidden password
 prompt.
 
+Before running a live gate, use the environment preflight to confirm local
+setup without connecting or prompting for a password:
+
+```bash
+swift run VNCLiveBenchmark \
+  --environment-preflight \
+  --stream-shape-stimulus external-command \
+  --ask-password \
+  --json
+```
+
+The preflight reports only fixed readiness labels and issue codes such as
+`missing-host`, `missing-credential`, `missing-stimulus-command`, and
+`invalid-port`. It does not print host identity, credential values, port value,
+or stimulus command text. `--ask-password` is reported as `promptRequested`
+without reading from the terminal.
+
 ```bash
 NARU_LIVE_MAC_HOST=127.0.0.1 \
 NARU_LIVE_MAC_PASSWORD='...' \
@@ -257,6 +274,9 @@ Use these only to compare disabled vs one-hidden-frame physical-device runs;
 do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
+`--environment-preflight` is a separate benchmark setup check. It emits schema
+v1 readiness labels before connecting or prompting for a password, and is meant
+to explain why a live v37 profile gate could not be attempted.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
