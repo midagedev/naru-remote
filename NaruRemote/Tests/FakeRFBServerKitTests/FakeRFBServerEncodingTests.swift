@@ -183,6 +183,62 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         XCTAssertEqual(Data(recorded.suffix(expected.count)), expected)
     }
 
+    func testClientSendsFramebufferUpdateRequestRegionAfterSessionConnect() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 4, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Self.rawFourByTwoFirstFrame()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        defer { client.disconnect() }
+        _ = try recorder.waitForControlMessages(1)
+
+        _ = try client.requestFramebufferUpdate(
+            incremental: true,
+            region: RFBFramebufferUpdateRegion(x: 1, y: 0, width: 2, height: 1)
+        )
+
+        let expected = Data([3, 1, 0, 1, 0, 0, 0, 2, 0, 1])
+        let recorded = try recorder.waitForByteCount(expected.count)
+        XCTAssertEqual(Data(recorded.prefix(expected.count)), expected)
+    }
+
+    func testClientClampsFramebufferUpdateRequestRegionToServerBounds() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 4, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthServerMessages([
+                Self.rawFourByTwoFirstFrame()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        defer { client.disconnect() }
+        _ = try recorder.waitForControlMessages(1)
+
+        _ = try client.requestFramebufferUpdate(
+            incremental: true,
+            region: RFBFramebufferUpdateRegion(x: 3, y: 1, width: 100, height: 100)
+        )
+
+        let expected = Data([3, 1, 0, 3, 0, 1, 0, 1, 0, 1])
+        let recorded = try recorder.waitForByteCount(expected.count)
+        XCTAssertEqual(Data(recorded.prefix(expected.count)), expected)
+    }
+
     func testTransportControlThrowsWhenDisconnected() throws {
         let client = RFBNetworkClient()
 

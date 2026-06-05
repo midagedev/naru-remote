@@ -565,6 +565,14 @@ wait, while payload-read dominance would route to socket buffering, byte volume,
 or payload-copy work. The first v50 live artifact is
 `2026-06-06-first-byte-wait-split-summary.md`; it shows the current localhost
 macOS Screen Sharing tail is almost entirely first-byte wait.
+Schema v51 adds fixed `streamShapeRequestRegions` labels to compare incremental
+FramebufferUpdateRequest regions without exporting coordinates or dimensions.
+The first v51 live artifact is
+`2026-06-06-request-region-sweep-summary.md`; it shows full-screen incremental
+requests remained the only usable candidate while static `center-half` and
+`center-third` requests starved with incremental read timeouts. Treat this as a
+guardrail: request-region optimization must be viewport-aware and carry a
+full-request fallback or heartbeat before any production default changes.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

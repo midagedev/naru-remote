@@ -78,6 +78,14 @@ public protocol RFBDamageTrackingFramebufferUpdating: RFBFramebufferUpdating {
     ) throws -> RFBFramebufferUpdateResult
 }
 
+public protocol RFBRegionFramebufferUpdating: RFBDamageTrackingFramebufferUpdating {
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws -> RFBFramebufferUpdateResult
+}
+
 /// Capability boundary for server-initiated framebuffer updates, used
 /// by continuous-update style transports after the client has already
 /// enabled the server extension. No `FramebufferUpdateRequest` is sent

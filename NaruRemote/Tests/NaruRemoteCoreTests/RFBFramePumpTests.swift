@@ -276,6 +276,26 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
     }
 
+    func testPumpPassesRequestRegionOnlyAfterInitialFrame() throws {
+        let region = RFBFramebufferUpdateRegion(x: 1, y: 2, width: 3, height: 4)
+        let source = FakeRegionFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255)),
+                .fullFrame(framebuffer: Self.framebuffer(red: 128))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 2, requestRegion: region)
+        ) { _ in
+            .continue
+        }
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertEqual(source.requestedRegions, [nil, region])
+    }
+
     func testPumpFallsBackToRequestResponseUntilContinuousUpdatesAreAdvertised() throws {
         let source = FakeContinuousFramebufferUpdateSource(
             requestedResults: [
@@ -296,6 +316,34 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.receivedFrameCount, 0)
         XCTAssertEqual(source.enableContinuousUpdatesCallCount, 0)
         XCTAssertTrue(source.continuousUpdatesEnabledFlags.isEmpty)
+    }
+
+    func testPumpPassesRequestRegionWhenEnablingContinuousUpdates() throws {
+        let region = RFBFramebufferUpdateRegion(x: 1, y: 2, width: 3, height: 4)
+        let source = FakeContinuousFramebufferUpdateSource(
+            requestedResults: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255))
+            ],
+            receivedResults: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 128))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.nextFrame(
+            requestTimeout: 1,
+            updateMode: .continuousUpdates,
+            requestRegion: region
+        )
+        _ = try pump.nextFrame(
+            requestTimeout: 1,
+            updateMode: .continuousUpdates,
+            requestRegion: region
+        )
+
+        XCTAssertEqual(source.continuousUpdatesEnabledFlags, [true])
+        XCTAssertEqual(source.continuousUpdatesRegions, [region])
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
     }
 
     func testPumpFallsBackToRequestResponseAfterContinuousUpdatesEnd() throws {
@@ -335,6 +383,68 @@ final class RFBFramePumpTests: XCTestCase {
             height: 1,
             fill: RFBColor(red: red, green: 0, blue: 0)
         )
+    }
+}
+
+private final class FakeRegionFramebufferUpdateSource: RFBRegionFramebufferUpdating {
+    enum Error: Swift.Error, Equatable {
+        case noFrame
+    }
+
+    private struct State {
+        var results: [RFBFramebufferUpdateResult]
+        var incrementalFlags: [Bool] = []
+        var regions: [RFBFramebufferUpdateRegion?] = []
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(results: [RFBFramebufferUpdateResult]) {
+        self.state = OSAllocatedUnfairLock(initialState: State(results: results))
+    }
+
+    var requestedIncrementalFlags: [Bool] {
+        state.withLock { $0.incrementalFlags }
+    }
+
+    var requestedRegions: [RFBFramebufferUpdateRegion?] {
+        state.withLock { $0.regions }
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout
+        ).framebuffer
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout,
+            region: nil
+        )
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws -> RFBFramebufferUpdateResult {
+        try state.withLock { state in
+            state.incrementalFlags.append(incremental)
+            state.regions.append(region)
+            guard !state.results.isEmpty else {
+                throw Error.noFrame
+            }
+            return state.results.removeFirst()
+        }
     }
 }
 
@@ -430,6 +540,7 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
         var enableContinuousUpdatesCallCount = 0
         var disableContinuousUpdatesCallCount = 0
         var continuousUpdatesEnabledFlags: [Bool] = []
+        var continuousUpdatesRegions: [RFBFramebufferUpdateRegion?] = []
         var canEnableContinuousUpdates: Bool
     }
 
@@ -471,6 +582,10 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
 
     var continuousUpdatesEnabledFlags: [Bool] {
         state.withLock { $0.continuousUpdatesEnabledFlags }
+    }
+
+    var continuousUpdatesRegions: [RFBFramebufferUpdateRegion?] {
+        state.withLock { $0.continuousUpdatesRegions }
     }
 
     func requestRawFramebufferUpdate(
@@ -518,6 +633,7 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
     ) throws {
         state.withLock { state in
             state.continuousUpdatesEnabledFlags.append(enabled)
+            state.continuousUpdatesRegions.append(region)
             if enabled {
                 state.enableContinuousUpdatesCallCount += 1
             } else {

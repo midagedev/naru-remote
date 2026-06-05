@@ -324,6 +324,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             label: "local-low-latency",
             transportMode: .continuousUpdates,
             pacingWindow: .zeroContentDelay,
+            requestRegion: .centerHalf,
             iterationOrdinal: 2,
             orderOrdinal: 3,
             firstFrameMilliseconds: 1_234,
@@ -336,11 +337,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded, report)
         XCTAssertEqual(decoded.transportMode, .continuousUpdates)
         XCTAssertEqual(decoded.pacingWindow, .zeroContentDelay)
+        XCTAssertEqual(decoded.requestRegion, .centerHalf)
         XCTAssertEqual(decoded.iterationOrdinal, 2)
         XCTAssertEqual(decoded.orderOrdinal, 3)
     }
 
-    func testProfileReportDecodesLegacyPayloadWithoutPacingWindowAsSingle() throws {
+    func testProfileReportDecodesLegacyPayloadWithoutPacingWindowAndRequestRegionAsDefaults() throws {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 1,
             samples: [
@@ -360,14 +362,16 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             label: "local-low-latency",
             transportMode: .requestResponse,
             pacingWindow: .appBalanced30Hz,
+            requestRegion: .centerThird,
             firstFrameMilliseconds: 120,
             summary: summary
         )
-        let legacyData = try Self.encodedPayload(from: report, removingKeys: ["pacingWindow"])
+        let legacyData = try Self.encodedPayload(from: report, removingKeys: ["pacingWindow", "requestRegion"])
 
         let decoded = try JSONDecoder().decode(BenchmarkStreamShapeProfileReport.self, from: legacyData)
 
         XCTAssertEqual(decoded.pacingWindow, .single)
+        XCTAssertEqual(decoded.requestRegion, .full)
         XCTAssertEqual(decoded.label, "local-low-latency")
         XCTAssertEqual(decoded.transportMode, .requestResponse)
     }
@@ -510,6 +514,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let zrle = BenchmarkStreamShapeProfileReport(
             label: "zrle-compression-0",
             pacingWindow: .zeroContentDelay,
+            requestRegion: .centerHalf,
             firstFrameMilliseconds: 3_073,
             summary: BenchmarkStreamShapeSummary(
                 requestedSamples: 3,
@@ -545,6 +550,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(recommendation.label, "zrle-compression-0")
         XCTAssertEqual(recommendation.transportMode, .requestResponse)
         XCTAssertEqual(recommendation.pacingWindow, .zeroContentDelay)
+        XCTAssertEqual(recommendation.requestRegion, .centerHalf)
         XCTAssertEqual(
             recommendation.reason,
             "lowest-average-update-latency-among-request-response-profiles"
@@ -633,6 +639,37 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(aggregates[0].averageUpdateMilliseconds, 89)
         XCTAssertEqual(aggregates[1].runCount, 1)
         XCTAssertEqual(aggregates[1].averageUpdateMilliseconds, 155)
+    }
+
+    func testProfileAggregatesKeepRequestRegionsSeparate() {
+        let reports = [
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [90, 100],
+                iteration: 1,
+                requestRegion: .full
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [120, 130],
+                iteration: 1,
+                requestRegion: .centerHalf
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [80, 85],
+                iteration: 2,
+                requestRegion: .full
+            )
+        ]
+
+        let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports)
+
+        XCTAssertEqual(aggregates.map(\.requestRegion), [.full, .centerHalf])
+        XCTAssertEqual(aggregates[0].runCount, 2)
+        XCTAssertEqual(aggregates[0].averageUpdateMilliseconds, 89)
+        XCTAssertEqual(aggregates[1].runCount, 1)
+        XCTAssertEqual(aggregates[1].averageUpdateMilliseconds, 125)
     }
 
     func testProfileGatesSummarizePracticalVerdictsByProfile() {
@@ -752,6 +789,29 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let gates = BenchmarkStreamShapeProfileGateReport.gates(from: reports)
 
         XCTAssertEqual(gates.map(\.pacingWindow), [.zeroContentDelay, .appBalanced30Hz])
+        XCTAssertEqual(gates[0].verdict, .pass)
+        XCTAssertEqual(gates[1].verdict, .fail)
+    }
+
+    func testProfileGatesKeepRequestRegionsSeparate() {
+        let reports = [
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [90, 95, 100],
+                iteration: 1,
+                requestRegion: .full
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [520, 530, 540],
+                iteration: 1,
+                requestRegion: .centerHalf
+            )
+        ]
+
+        let gates = BenchmarkStreamShapeProfileGateReport.gates(from: reports)
+
+        XCTAssertEqual(gates.map(\.requestRegion), [.full, .centerHalf])
         XCTAssertEqual(gates[0].verdict, .pass)
         XCTAssertEqual(gates[1].verdict, .fail)
     }
@@ -1603,9 +1663,19 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(
             from: [
                 profileReport(label: "local-low-latency", durations: [1_200, 40], iteration: 1),
-                profileReport(label: "zrle-compression-0", durations: [180, 220], iteration: 1),
+                profileReport(
+                    label: "zrle-compression-0",
+                    durations: [180, 220],
+                    iteration: 1,
+                    requestRegion: .centerThird
+                ),
                 profileReport(label: "local-low-latency", durations: [80, 90], iteration: 2),
-                profileReport(label: "zrle-compression-0", durations: [120, 140], iteration: 2)
+                profileReport(
+                    label: "zrle-compression-0",
+                    durations: [120, 140],
+                    iteration: 2,
+                    requestRegion: .centerThird
+                )
             ]
         )
 
@@ -1616,6 +1686,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.label, "zrle-compression-0")
+        XCTAssertEqual(recommendation.requestRegion, .centerThird)
         XCTAssertEqual(recommendation.reason, "lowest-average-update-latency-across-order-neutral-request-response-runs")
         XCTAssertEqual(recommendation.runCount, 2)
         XCTAssertEqual(recommendation.usableRunCount, 2)
@@ -2075,12 +2146,14 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         label: String,
         durations: [Int],
         iteration: Int,
-        pacingWindow: BenchmarkStreamShapePacingWindow = .single
+        pacingWindow: BenchmarkStreamShapePacingWindow = .single,
+        requestRegion: BenchmarkStreamShapeRequestRegion = .full
     ) -> BenchmarkStreamShapeProfileReport {
         BenchmarkStreamShapeProfileReport(
             label: label,
             transportMode: .requestResponse,
             pacingWindow: pacingWindow,
+            requestRegion: requestRegion,
             iterationOrdinal: iteration,
             orderOrdinal: 1,
             firstFrameMilliseconds: 100,

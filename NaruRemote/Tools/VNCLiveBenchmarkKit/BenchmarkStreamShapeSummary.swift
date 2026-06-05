@@ -1633,6 +1633,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
     public let pacingWindow: BenchmarkStreamShapePacingWindow
+    public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let iterationOrdinal: Int?
     public let orderOrdinal: Int?
     public let firstFrameMilliseconds: Int?
@@ -1642,6 +1643,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         case label
         case transportMode
         case pacingWindow
+        case requestRegion
         case iterationOrdinal
         case orderOrdinal
         case firstFrameMilliseconds
@@ -1652,6 +1654,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode = .requestResponse,
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
+        requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         iterationOrdinal: Int? = nil,
         orderOrdinal: Int? = nil,
         firstFrameMilliseconds: Int?,
@@ -1660,6 +1663,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         self.label = label
         self.transportMode = transportMode
         self.pacingWindow = pacingWindow
+        self.requestRegion = requestRegion
         self.iterationOrdinal = iterationOrdinal.map { max($0, 1) }
         self.orderOrdinal = orderOrdinal.map { max($0, 1) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
@@ -1678,6 +1682,10 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
                 BenchmarkStreamShapePacingWindow.self,
                 forKey: .pacingWindow
             ) ?? .single,
+            requestRegion: try container.decodeIfPresent(
+                BenchmarkStreamShapeRequestRegion.self,
+                forKey: .requestRegion
+            ) ?? .full,
             iterationOrdinal: try container.decodeIfPresent(Int.self, forKey: .iterationOrdinal),
             orderOrdinal: try container.decodeIfPresent(Int.self, forKey: .orderOrdinal),
             firstFrameMilliseconds: try container.decodeIfPresent(Int.self, forKey: .firstFrameMilliseconds),
@@ -1690,6 +1698,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
     public let pacingWindow: BenchmarkStreamShapePacingWindow
+    public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let runCount: Int
     public let usableRunCount: Int
     public let failedRunCount: Int
@@ -1723,6 +1732,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         case label
         case transportMode
         case pacingWindow
+        case requestRegion
         case runCount
         case usableRunCount
         case failedRunCount
@@ -1757,6 +1767,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode,
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
+        requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         runCount: Int,
         usableRunCount: Int,
         failedRunCount: Int,
@@ -1789,6 +1800,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         self.label = label
         self.transportMode = transportMode
         self.pacingWindow = pacingWindow
+        self.requestRegion = requestRegion
         self.runCount = max(runCount, 0)
         self.usableRunCount = max(usableRunCount, 0)
         self.failedRunCount = max(failedRunCount, 0)
@@ -1830,6 +1842,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
                 BenchmarkStreamShapePacingWindow.self,
                 forKey: .pacingWindow
             ) ?? .single,
+            requestRegion: try container.decodeIfPresent(
+                BenchmarkStreamShapeRequestRegion.self,
+                forKey: .requestRegion
+            ) ?? .full,
             runCount: try container.decode(Int.self, forKey: .runCount),
             usableRunCount: try container.decode(Int.self, forKey: .usableRunCount),
             failedRunCount: try container.decode(Int.self, forKey: .failedRunCount),
@@ -1929,7 +1945,12 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     ) -> [BenchmarkStreamShapeProfileAggregateReport] {
         let orderedKeys = orderedAggregateKeys(from: reports)
         let grouped = Dictionary(grouping: reports) {
-            AggregateKey(label: $0.label, transportMode: $0.transportMode, pacingWindow: $0.pacingWindow)
+            AggregateKey(
+                label: $0.label,
+                transportMode: $0.transportMode,
+                pacingWindow: $0.pacingWindow,
+                requestRegion: $0.requestRegion
+            )
         }
         return orderedKeys.compactMap { key in
             grouped[key].map { aggregate(key: key, reports: $0) }
@@ -1963,6 +1984,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             label: key.label,
             transportMode: key.transportMode,
             pacingWindow: key.pacingWindow,
+            requestRegion: key.requestRegion,
             runCount: reports.count,
             usableRunCount: usableReports.count,
             failedRunCount: reports.count - usableReports.count,
@@ -2027,7 +2049,8 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             let key = AggregateKey(
                 label: report.label,
                 transportMode: report.transportMode,
-                pacingWindow: report.pacingWindow
+                pacingWindow: report.pacingWindow,
+                requestRegion: report.requestRegion
             )
             if seen.insert(key).inserted {
                 keys.append(key)
@@ -2093,6 +2116,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let label: String
         let transportMode: BenchmarkStreamShapeTransportMode
         let pacingWindow: BenchmarkStreamShapePacingWindow
+        let requestRegion: BenchmarkStreamShapeRequestRegion
     }
 }
 
@@ -2100,6 +2124,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
     public let pacingWindow: BenchmarkStreamShapePacingWindow
+    public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let targetName: String
     public let verdict: BenchmarkStreamShapePracticalVerdict
     public let runCount: Int
@@ -2123,6 +2148,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         case label
         case transportMode
         case pacingWindow
+        case requestRegion
         case targetName
         case verdict
         case runCount
@@ -2147,6 +2173,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode,
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
+        requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         targetName: String,
         verdict: BenchmarkStreamShapePracticalVerdict,
         runCount: Int,
@@ -2169,6 +2196,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         self.label = label
         self.transportMode = transportMode
         self.pacingWindow = pacingWindow
+        self.requestRegion = requestRegion
         self.targetName = targetName
         self.verdict = verdict
         self.runCount = max(runCount, 0)
@@ -2216,6 +2244,10 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 BenchmarkStreamShapePacingWindow.self,
                 forKey: .pacingWindow
             ) ?? .single,
+            requestRegion: try container.decodeIfPresent(
+                BenchmarkStreamShapeRequestRegion.self,
+                forKey: .requestRegion
+            ) ?? .full,
             targetName: try container.decode(String.self, forKey: .targetName),
             verdict: try container.decode(BenchmarkStreamShapePracticalVerdict.self, forKey: .verdict),
             runCount: try container.decode(Int.self, forKey: .runCount),
@@ -2263,6 +2295,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         try container.encode(label, forKey: .label)
         try container.encode(transportMode, forKey: .transportMode)
         try container.encode(pacingWindow, forKey: .pacingWindow)
+        try container.encode(requestRegion, forKey: .requestRegion)
         try container.encode(targetName, forKey: .targetName)
         try container.encode(verdict, forKey: .verdict)
         try container.encode(runCount, forKey: .runCount)
@@ -2292,6 +2325,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 label: $0.label,
                 transportMode: $0.transportMode,
                 pacingWindow: $0.pacingWindow,
+                requestRegion: $0.requestRegion,
                 targetName: $0.summary.practicalAssessment.targetName
             )
         }
@@ -2319,6 +2353,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             label: key.label,
             transportMode: key.transportMode,
             pacingWindow: key.pacingWindow,
+            requestRegion: key.requestRegion,
             targetName: key.targetName,
             verdict: verdict(
                 passRunCount: passRunCount,
@@ -2382,6 +2417,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 label: report.label,
                 transportMode: report.transportMode,
                 pacingWindow: report.pacingWindow,
+                requestRegion: report.requestRegion,
                 targetName: report.summary.practicalAssessment.targetName
             )
             if seen.insert(key).inserted {
@@ -2413,6 +2449,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         let label: String
         let transportMode: BenchmarkStreamShapeTransportMode
         let pacingWindow: BenchmarkStreamShapePacingWindow
+        let requestRegion: BenchmarkStreamShapeRequestRegion
         let targetName: String
     }
 }
@@ -3287,6 +3324,7 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
     public let pacingWindow: BenchmarkStreamShapePacingWindow
+    public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let reason: String
     public let runCount: Int?
     public let usableRunCount: Int?
@@ -3304,6 +3342,7 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode,
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
+        requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         reason: String,
         runCount: Int? = nil,
         usableRunCount: Int? = nil,
@@ -3320,6 +3359,7 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         self.label = label
         self.transportMode = transportMode
         self.pacingWindow = pacingWindow
+        self.requestRegion = requestRegion
         self.reason = reason
         self.runCount = runCount.map { max($0, 0) }
         self.usableRunCount = usableRunCount.map { max($0, 0) }
@@ -3369,6 +3409,7 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             label: report.label,
             transportMode: report.transportMode,
             pacingWindow: report.pacingWindow,
+            requestRegion: report.requestRegion,
             reason: "lowest-average-update-latency-among-request-response-profiles",
             runCount: report.iterationOrdinal == nil ? nil : 1,
             usableRunCount: report.iterationOrdinal == nil ? nil : 1,
@@ -3400,6 +3441,7 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             label: aggregate.label,
             transportMode: aggregate.transportMode,
             pacingWindow: aggregate.pacingWindow,
+            requestRegion: aggregate.requestRegion,
             reason: "lowest-average-update-latency-across-order-neutral-request-response-runs",
             runCount: aggregate.runCount,
             usableRunCount: aggregate.usableRunCount,
