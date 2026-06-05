@@ -663,6 +663,15 @@ iPhone) and ships as its own PR.
   comparison, record a redacted v35 `zrle-isolation` run, and use v2 as the
   default gate for T390 and subsequent cadence/default changes. Owns:
   benchmark kit/CLI/tests, benchmark docs/artifact, research note. **Done.**
+- **T392** App-side startup preflight foundation: add an injectable,
+  off-by-default app stream startup preflight policy that can consume at most
+  one hidden post-first-frame incremental update after the first visible frame
+  has already been published. Prove with fake-stream app model tests that the
+  hidden frame is requested but not surfaced through framebuffer state or stream
+  stats, and that the next visible incremental frame still continues normally.
+  Keep production defaults unchanged until T390's physical iPhone gate passes.
+  Owns: app stream policy, app model tests, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

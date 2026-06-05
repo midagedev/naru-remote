@@ -21,6 +21,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
     }
 
+    func testStartupPreflightPolicyClampsHiddenFramesForAppSafety() {
+        XCTAssertEqual(SessionStreamStartupPreflightPolicy.disabled.hiddenFrameCount, 0)
+        XCTAssertEqual(SessionStreamStartupPreflightPolicy.maximumHiddenFrameCount, 1)
+        XCTAssertEqual(SessionStreamStartupPreflightPolicy(hiddenFrameCount: -1).hiddenFrameCount, 0)
+        XCTAssertEqual(SessionStreamStartupPreflightPolicy(hiddenFrameCount: 2).hiddenFrameCount, 1)
+        XCTAssertEqual(SessionStreamStartupPreflightPolicy(hiddenFrameCount: 1, requestTimeout: -1).requestTimeout, 0)
+    }
+
     func testSessionStreamPacingPolicyBacksOffForThermalPressure() {
         XCTAssertEqual(
             SessionStreamPacingPolicy.delay(
@@ -2923,6 +2931,83 @@ final class NaruRemoteAppModelTests: XCTestCase {
             model.snapshot.latestInjectionAttempt?.safeMessage,
             "Text send cancelled because the remote session changed."
         )
+    }
+
+    func testStartupPreflightConsumesHiddenIncrementalAfterFirstVisibleFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hiddenFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hiddenFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector },
+            streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy(hiddenFrameCount: 1),
+            lowPowerModeProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
+    }
+
+    func testStartupPreflightContinuesVisibleStreamAfterHiddenIncremental() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hiddenFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let nextVisibleFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hiddenFramebuffer, nextVisibleFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 0),
+            connectorFactory: { connector },
+            streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy(hiddenFrameCount: 1),
+            lowPowerModeProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true, true])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, nextVisibleFramebuffer)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
     }
 
     func testModelRetainsComposedTextWhenSendHasNoActiveConnection() throws {
