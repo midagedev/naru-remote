@@ -2022,6 +2022,193 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
     }
 }
 
+public enum BenchmarkStreamShapeTransportCadenceStatus: String, Codable, Equatable, Sendable {
+    case notTested = "not-tested"
+    case disabled
+    case pass
+    case belowTarget = "below-target"
+    case failedBeforeSamples = "failed-before-samples"
+}
+
+public enum BenchmarkStreamShapeTransportCadenceNextAction: String, Codable, Equatable, Sendable {
+    case none
+    case inspectContinuousUpdatesConnection
+    case tuneTransportCadence
+    case compareRequestResponseEncodingProfiles
+    case runPhysicalDeviceSustainedGate
+}
+
+public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable, Sendable {
+    public let targetName: String
+    public let recommendedTransportMode: BenchmarkStreamShapeTransportMode?
+    public let recommendedNextAction: BenchmarkStreamShapeTransportCadenceNextAction
+    public let requestResponseStatus: BenchmarkStreamShapeTransportCadenceStatus
+    public let continuousUpdatesStatus: BenchmarkStreamShapeTransportCadenceStatus
+    public let requestResponseGateCount: Int
+    public let requestResponseBlockedGateCount: Int
+    public let continuousUpdatesGateCount: Int
+    public let continuousUpdatesBlockedGateCount: Int
+    public let requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let continuousUpdatesPrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let continuousUpdatesFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
+
+    public init(
+        targetName: String,
+        recommendedTransportMode: BenchmarkStreamShapeTransportMode? = nil,
+        recommendedNextAction: BenchmarkStreamShapeTransportCadenceNextAction,
+        requestResponseStatus: BenchmarkStreamShapeTransportCadenceStatus,
+        continuousUpdatesStatus: BenchmarkStreamShapeTransportCadenceStatus,
+        requestResponseGateCount: Int,
+        requestResponseBlockedGateCount: Int,
+        continuousUpdatesGateCount: Int,
+        continuousUpdatesBlockedGateCount: Int,
+        requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        continuousUpdatesPrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        continuousUpdatesFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = []
+    ) {
+        self.targetName = targetName
+        self.recommendedTransportMode = recommendedTransportMode
+        self.recommendedNextAction = recommendedNextAction
+        self.requestResponseStatus = requestResponseStatus
+        self.continuousUpdatesStatus = continuousUpdatesStatus
+        self.requestResponseGateCount = max(requestResponseGateCount, 0)
+        self.requestResponseBlockedGateCount = max(requestResponseBlockedGateCount, 0)
+        self.continuousUpdatesGateCount = max(continuousUpdatesGateCount, 0)
+        self.continuousUpdatesBlockedGateCount = max(continuousUpdatesBlockedGateCount, 0)
+        self.requestResponsePrimaryConstraintCounts = BenchmarkStreamShapeTriage
+            .mergedPrimaryConstraintCounts(from: requestResponsePrimaryConstraintCounts)
+        self.continuousUpdatesPrimaryConstraintCounts = BenchmarkStreamShapeTriage
+            .mergedPrimaryConstraintCounts(from: continuousUpdatesPrimaryConstraintCounts)
+        self.requestResponseFailureLabelCounts = BenchmarkStreamShapeTriage
+            .mergedFailureLabelCounts(from: requestResponseFailureLabelCounts)
+        self.continuousUpdatesFailureLabelCounts = BenchmarkStreamShapeTriage
+            .mergedFailureLabelCounts(from: continuousUpdatesFailureLabelCounts)
+    }
+
+    public static func diagnosis(
+        from gates: [BenchmarkStreamShapeProfileGateReport]
+    ) -> BenchmarkStreamShapeTransportCadenceDiagnosis? {
+        guard let firstGate = gates.first else {
+            return nil
+        }
+        let requestResponseGates = gates.filter { $0.transportMode == .requestResponse }
+        let continuousUpdatesGates = gates.filter { $0.transportMode == .continuousUpdates }
+        let requestResponseStatus = status(for: requestResponseGates)
+        let continuousUpdatesStatus = status(for: continuousUpdatesGates)
+        let requestResponseConstraints = BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(
+            from: requestResponseGates.flatMap(\.primaryConstraintCounts)
+        )
+        let continuousUpdatesConstraints = BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(
+            from: continuousUpdatesGates.flatMap(\.primaryConstraintCounts)
+        )
+        let requestResponseFailures = BenchmarkStreamShapeTriage.mergedFailureLabelCounts(
+            from: requestResponseGates.flatMap(\.failureLabelCounts)
+        )
+        let continuousUpdatesFailures = BenchmarkStreamShapeTriage.mergedFailureLabelCounts(
+            from: continuousUpdatesGates.flatMap(\.failureLabelCounts)
+        )
+        return BenchmarkStreamShapeTransportCadenceDiagnosis(
+            targetName: targetName(from: gates, fallback: firstGate.targetName),
+            recommendedTransportMode: recommendedTransportMode(
+                requestResponseStatus: requestResponseStatus,
+                continuousUpdatesStatus: continuousUpdatesStatus
+            ),
+            recommendedNextAction: recommendedNextAction(
+                requestResponseStatus: requestResponseStatus,
+                continuousUpdatesStatus: continuousUpdatesStatus,
+                requestResponsePrimaryConstraintCounts: requestResponseConstraints,
+                continuousUpdatesFailureLabelCounts: continuousUpdatesFailures
+            ),
+            requestResponseStatus: requestResponseStatus,
+            continuousUpdatesStatus: continuousUpdatesStatus,
+            requestResponseGateCount: requestResponseGates.count,
+            requestResponseBlockedGateCount: blockedGateCount(for: requestResponseGates),
+            continuousUpdatesGateCount: continuousUpdatesGates.count,
+            continuousUpdatesBlockedGateCount: blockedGateCount(for: continuousUpdatesGates),
+            requestResponsePrimaryConstraintCounts: requestResponseConstraints,
+            continuousUpdatesPrimaryConstraintCounts: continuousUpdatesConstraints,
+            requestResponseFailureLabelCounts: requestResponseFailures,
+            continuousUpdatesFailureLabelCounts: continuousUpdatesFailures
+        )
+    }
+
+    private static func status(
+        for gates: [BenchmarkStreamShapeProfileGateReport]
+    ) -> BenchmarkStreamShapeTransportCadenceStatus {
+        guard !gates.isEmpty else {
+            return .notTested
+        }
+        if gates.allSatisfy({ $0.verdict == .disabled }) {
+            return .disabled
+        }
+        let activeGates = gates.filter { $0.verdict != .disabled }
+        if !activeGates.isEmpty,
+           activeGates.allSatisfy({ !$0.failureLabelCounts.isEmpty }) {
+            return .failedBeforeSamples
+        }
+        if gates.allSatisfy({ $0.verdict == .pass }) {
+            return .pass
+        }
+        if gates.contains(where: { $0.verdict == .warning || $0.verdict == .fail }) {
+            return .belowTarget
+        }
+        return .disabled
+    }
+
+    private static func recommendedTransportMode(
+        requestResponseStatus: BenchmarkStreamShapeTransportCadenceStatus,
+        continuousUpdatesStatus: BenchmarkStreamShapeTransportCadenceStatus
+    ) -> BenchmarkStreamShapeTransportMode? {
+        if requestResponseStatus == .pass || requestResponseStatus == .belowTarget {
+            return .requestResponse
+        }
+        if continuousUpdatesStatus == .pass || continuousUpdatesStatus == .belowTarget {
+            return .continuousUpdates
+        }
+        return nil
+    }
+
+    private static func recommendedNextAction(
+        requestResponseStatus: BenchmarkStreamShapeTransportCadenceStatus,
+        continuousUpdatesStatus: BenchmarkStreamShapeTransportCadenceStatus,
+        requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount],
+        continuousUpdatesFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> BenchmarkStreamShapeTransportCadenceNextAction {
+        if continuousUpdatesStatus == .failedBeforeSamples,
+           !continuousUpdatesFailureLabelCounts.isEmpty {
+            return .inspectContinuousUpdatesConnection
+        }
+        if requestResponsePrimaryConstraintCounts.contains(where: {
+            $0.label == DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue
+        }) {
+            return .compareRequestResponseEncodingProfiles
+        }
+        if requestResponseStatus == .belowTarget || continuousUpdatesStatus == .belowTarget {
+            return .tuneTransportCadence
+        }
+        if requestResponseStatus == .pass || continuousUpdatesStatus == .pass {
+            return .runPhysicalDeviceSustainedGate
+        }
+        return .none
+    }
+
+    private static func blockedGateCount(
+        for gates: [BenchmarkStreamShapeProfileGateReport]
+    ) -> Int {
+        gates.filter { $0.verdict == .warning || $0.verdict == .fail }.count
+    }
+
+    private static func targetName(
+        from gates: [BenchmarkStreamShapeProfileGateReport],
+        fallback: String
+    ) -> String {
+        let targetNames = Set(gates.map(\.targetName))
+        return targetNames.count <= 1 ? fallback : "mixed-targets"
+    }
+}
+
 public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode

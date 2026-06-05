@@ -56,6 +56,10 @@ Current live routing artifact:
 `artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
 That run uses schema v41's report-level decision to choose
 `inspectServerTransportCadence` as the next large benchmark unit.
+Current transport/cadence artifact:
+`artifacts/benchmarks/2026-06-06-sustained-v2-core-v42-transport-cadence-baseline.md`.
+That run confirms v42 exposes repeated ContinuousUpdates connection failure at
+the top level and motivates the schema v43 transport/cadence diagnosis.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -319,6 +323,17 @@ surface, so repeated ContinuousUpdates or request/response failures can be
 triaged without opening raw JSON. Do not add raw TCP/RFB errors, host identity,
 dimensions, coordinates, pixels, cursor pixels, byte counts, payloads, command
 text, command output, draft text, marked text, or IME state to these counts.
+Schema v43 adds top-level `streamShapeTransportCadenceDiagnosis` with fixed
+request-response and ContinuousUpdates status labels, aggregate blocked/total
+gate counts, per-transport constraint/failure-label counts, a recommended
+transport label, and a fixed next-action label. Use it after
+`streamShapeOptimizationDecision.recommendedNextProbe=inspectServerTransportCadence`
+to decide whether the next large unit should inspect ContinuousUpdates
+connection/receive behavior, tune transport cadence, compare
+request-response encoding profiles, or move to a physical-device sustained
+gate. Do not add raw timings, raw TCP/RFB errors, host identity, dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, command text,
+command output, draft text, marked text, or IME state to this diagnosis.
 Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw

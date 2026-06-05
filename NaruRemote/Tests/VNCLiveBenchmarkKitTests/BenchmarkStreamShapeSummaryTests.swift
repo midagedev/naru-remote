@@ -893,6 +893,165 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         ])
     }
 
+    func testTransportCadenceDiagnosisRoutesContinuousUpdateConnectionFailures() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.contentFPSFailed, .averageUpdateFailed],
+                primaryIssueCode: .averageUpdateFailed,
+                primaryConstraintCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue,
+                        count: 5
+                    )
+                ]
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.probeFailed],
+                failureLabelCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: "stream-continuous-updates-connection-failed",
+                        count: 5
+                    )
+                ]
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.targetName, "iphone-sustained-usability-v2")
+        XCTAssertEqual(diagnosis.requestResponseStatus, .belowTarget)
+        XCTAssertEqual(diagnosis.continuousUpdatesStatus, .failedBeforeSamples)
+        XCTAssertEqual(diagnosis.recommendedTransportMode, .requestResponse)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .inspectContinuousUpdatesConnection)
+        XCTAssertEqual(diagnosis.requestResponseGateCount, 1)
+        XCTAssertEqual(diagnosis.requestResponseBlockedGateCount, 1)
+        XCTAssertEqual(diagnosis.continuousUpdatesGateCount, 1)
+        XCTAssertEqual(diagnosis.continuousUpdatesBlockedGateCount, 1)
+        XCTAssertEqual(diagnosis.continuousUpdatesFailureLabelCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: "stream-continuous-updates-connection-failed",
+                count: 5
+            )
+        ])
+    }
+
+    func testTransportCadenceDiagnosisRoutesRequestResponseDecodePressure() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "zrle-compression-0",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.clientProcessingFailed],
+                primaryIssueCode: .clientProcessingFailed,
+                primaryConstraintCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                        count: 5
+                    )
+                ]
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.requestResponseStatus, .belowTarget)
+        XCTAssertEqual(diagnosis.continuousUpdatesStatus, .notTested)
+        XCTAssertEqual(diagnosis.recommendedTransportMode, .requestResponse)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .compareRequestResponseEncodingProfiles)
+        XCTAssertEqual(diagnosis.requestResponsePrimaryConstraintCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                count: 5
+            )
+        ])
+    }
+
+    func testTransportCadenceDiagnosisKeepsMixedTransportBelowTarget() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .pass,
+                runCount: 5,
+                passRunCount: 5,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "zrle-compression-0",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.probeFailed],
+                failureLabelCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: "stream-continuous-updates-connection-failed",
+                        count: 5
+                    )
+                ]
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.continuousUpdatesStatus, .belowTarget)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .tuneTransportCadence)
+    }
+
+    func testTransportCadenceDiagnosisRoutesPassingGateToPhysicalDevice() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .pass,
+                runCount: 5,
+                passRunCount: 5,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.requestResponseStatus, .pass)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
+    }
+
     func testProfileGateDecodesMissingFailureLabelCountsAsEmpty() throws {
         let json = Data(
             """

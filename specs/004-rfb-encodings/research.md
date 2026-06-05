@@ -3109,3 +3109,51 @@ benchmark failure labels and aggregate counts. They must not include host
 identity, credentials, port value, raw TCP/RFB errors, framebuffer dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
 timings, command text, command output, draft text, marked text, or IME state.
+
+## D76 — Add a transport/cadence diagnosis above profile recommendations
+
+References:
+- D75 failure-label counts.
+- `artifacts/benchmarks/2026-06-06-sustained-v2-core-v42-transport-cadence-baseline.md`.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v43 and add top-level
+`streamShapeTransportCadenceDiagnosis`.
+
+**Why**:
+- The v42 live baseline made repeated ContinuousUpdates connection failures
+  visible at the top level: `stream-continuous-updates-connection-failed=20`.
+- Request-response gates had usable aggregate samples but remained below the
+  sustained v2 target. ContinuousUpdates gates failed before useful samples.
+- The report-level `streamShapeOptimizationDecision` correctly routes to
+  `inspectServerTransportCadence`, but it still leaves an operator to manually
+  split request-response cadence from ContinuousUpdates connection/receive
+  behavior. A diagnosis layer should make that next action explicit.
+
+**Decision shape**:
+- Emit fixed per-transport statuses: `not-tested`, `disabled`, `pass`,
+  `below-target`, or `failed-before-samples`.
+- Emit aggregate blocked/total gate counts per transport.
+- Emit per-transport primary-constraint counts and failure-label counts.
+- Emit a fixed recommended transport label when one transport is still usable.
+- Emit a fixed next-action label:
+  `inspectContinuousUpdatesConnection`,
+  `tuneTransportCadence`,
+  `compareRequestResponseEncodingProfiles`,
+  `runPhysicalDeviceSustainedGate`, or `none`.
+
+**Interpretation**:
+- If ContinuousUpdates fails before samples with repeated failure labels, inspect
+  ContinuousUpdates connection/receive behavior before promoting it.
+- If request-response is below target and client-decode constraints dominate,
+  compare request-response encoding profiles before changing cadence.
+- If a tested transport is below target without decode pressure, tune transport
+  cadence.
+- If a transport passes the sustained v2 gate, move to physical iPhone
+  sustained hand-feel/thermal verification before changing production defaults.
+
+**Privacy rule**: transport/cadence diagnosis may emit only fixed transport,
+status, action, constraint, and failure-label strings plus aggregate gate/count
+values. It must not include host identity, credentials, port value, raw TCP/RFB
+errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
+counts, raw payloads, raw FPS, raw timings, command text, command output, draft
+text, marked text, or IME state.

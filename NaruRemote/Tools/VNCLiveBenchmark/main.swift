@@ -1583,6 +1583,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeProfileAggregates: [BenchmarkStreamShapeProfileAggregateReport]
     let streamShapeProfileGates: [BenchmarkStreamShapeProfileGateReport]
     let streamShapeOptimizationDecision: BenchmarkStreamShapeOptimizationDecision?
+    let streamShapeTransportCadenceDiagnosis: BenchmarkStreamShapeTransportCadenceDiagnosis?
     let streamShapeRecommendation: BenchmarkStreamShapeRecommendation?
     let streamShapeOrderNeutralRecommendation: BenchmarkStreamShapeRecommendation?
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
@@ -1618,7 +1619,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 42
+        self.schemaVersion = 43
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1691,6 +1692,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, and aggregate threshold outcomes",
             "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
             "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, aggregate run counts, and permille ratios",
+            "stream-shape transport cadence diagnosis emits only fixed transport/status/action labels and aggregate gate/failure counts",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -1703,6 +1705,9 @@ private struct BenchmarkReport: Codable, Equatable {
         let streamShapeProfileGates = BenchmarkStreamShapeProfileGateReport.gates(from: streamShapeProfileProbes)
         self.streamShapeProfileGates = streamShapeProfileGates
         self.streamShapeOptimizationDecision = BenchmarkStreamShapeOptimizationDecision.decision(
+            from: streamShapeProfileGates
+        )
+        self.streamShapeTransportCadenceDiagnosis = BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(
             from: streamShapeProfileGates
         )
         self.streamShapeRecommendation = BenchmarkStreamShapeRecommendation
@@ -2132,6 +2137,44 @@ private func renderText(_ report: BenchmarkReport) {
         print("  next-probe counts: \(formatTriageCounts(decision.recommendedNextProbeCounts))")
         print("  failure labels: \(formatTriageCounts(decision.failureLabelCounts))")
     }
+    if let diagnosis = report.streamShapeTransportCadenceDiagnosis {
+        print("")
+        print("stream-shape transport cadence diagnosis:")
+        print("- target: \(diagnosis.targetName)")
+        print(
+            "  status request-response/continuous-updates: "
+                + "\(diagnosis.requestResponseStatus.rawValue)/\(diagnosis.continuousUpdatesStatus.rawValue)"
+        )
+        print(
+            "  gates request-response blocked/total: "
+                + "\(diagnosis.requestResponseBlockedGateCount)/\(diagnosis.requestResponseGateCount)"
+        )
+        print(
+            "  gates continuous-updates blocked/total: "
+                + "\(diagnosis.continuousUpdatesBlockedGateCount)/\(diagnosis.continuousUpdatesGateCount)"
+        )
+        print(
+            "  recommended transport/action: "
+                + "\(diagnosis.recommendedTransportMode?.rawValue ?? "none")/"
+                + "\(diagnosis.recommendedNextAction.rawValue)"
+        )
+        print(
+            "  request-response constraints: "
+                + "\(formatTriageCounts(diagnosis.requestResponsePrimaryConstraintCounts))"
+        )
+        print(
+            "  continuous-updates constraints: "
+                + "\(formatTriageCounts(diagnosis.continuousUpdatesPrimaryConstraintCounts))"
+        )
+        print(
+            "  request-response failure labels: "
+                + "\(formatTriageCounts(diagnosis.requestResponseFailureLabelCounts))"
+        )
+        print(
+            "  continuous-updates failure labels: "
+                + "\(formatTriageCounts(diagnosis.continuousUpdatesFailureLabelCounts))"
+        )
+    }
     if let recommendation = report.streamShapeRecommendation {
         print("")
         print("stream-shape recommendation:")
@@ -2468,7 +2511,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v42 gate reporting. Use individual stream-shape options without a preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v43 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
