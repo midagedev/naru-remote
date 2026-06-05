@@ -194,6 +194,11 @@ of 180 ms pass / 250 ms fail, tightens post-warm-up p95 to 350 ms pass /
 500 ms fail, expects 0 permille renderer full-upload pressure, and still
 requires a physical iPhone 10 minute hand-feel/thermal pass before production
 defaults change. Use v1 only for legacy artifact comparison.
+The app stream startup preflight gate is separate from the benchmark-only v34
+flag: the runtime policy is injectable and off by default, may consume at most
+one hidden incremental update after the first visible frame, and must not be
+enabled by default until the physical iPhone gate confirms that it improves
+hand feel without stale startup perception or thermal regressions.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate

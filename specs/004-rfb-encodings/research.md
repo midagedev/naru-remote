@@ -2233,3 +2233,58 @@ labels. They must not include host identity, credentials, framebuffer
 dimensions, rectangle coordinates, pixels, cursor pixels, byte counts, raw
 samples, raw payloads, external command text, command output, hidden preflight
 frame contents, hidden preflight timings, or raw error text.
+
+## D61 — Stage app-side startup preflight behind an explicit gate
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add an injectable `SessionStreamStartupPreflightPolicy` to the
+app model, default it to disabled, and cap it to one hidden incremental update
+after the first visible frame has already been published. The app stream loop
+may use this policy during controlled physical-device experiments, but
+production defaults remain unchanged until T390's 10 minute iPhone
+hand-feel/thermal gate and sustained v2 benchmark comparison pass.
+
+**Why**:
+- D59 showed that one hidden preflight frame can remove a cold-start tail in
+  the benchmark harness, while D60 showed that sustained content FPS still
+  fails the practical-use target. App-side preflight is therefore useful as a
+  controlled startup variable, not as a standalone production fix.
+- Publishing the first frame before preflight prevents the just-connected
+  screen from feeling blank or stale while still allowing a bounded hidden
+  incremental request to warm the stream.
+- Keeping the policy injectable avoids a silent runtime default change and
+  lets physical iPhone validation decide whether the gate should ever be
+  enabled by default.
+
+**Evidence**:
+- `swift test --filter NaruRemoteAppModelTests/testStartupPreflight` passes.
+- `swift test --filter
+  NaruRemoteAppModelTests/testModelKeepsStreamingFramesAfterFirstFramebuffer`
+  passes.
+- Fake-stream tests prove that a hidden incremental request does not update
+  `latestFramebuffer` or `sessionStreamStats`, and that a subsequent visible
+  incremental frame still publishes normally.
+- PR review feedback folded in a cancellation handler so disconnect or profile
+  change cancels the hidden preflight task and frame pump instead of waiting
+  only for the bounded request timeout.
+
+**Interpretation**:
+- This is an app-pipeline foundation PR, not a practical-usability pass claim.
+  The baseline target remains `iphone-sustained-usability-v2`; the next larger
+  unit should attack sustained content FPS, direct zoom/pan hand feel, and
+  deterministic Compose routing under the same target.
+- Before enabling app-side preflight by default, mirror the final runtime
+  boundary into the active app-stream spec/plan as well as this benchmark
+  feature note.
+
+**Privacy rule**: app-side preflight artifacts may report only fixed policy
+labels, fixed requested hidden-frame counts, safe test names, and pass/fail
+verification status. They must not include host identity, credentials,
+framebuffer dimensions, rectangle coordinates, pixels, cursor pixels, byte
+counts, raw samples, raw payloads, hidden preflight frame contents, hidden
+preflight timings, or raw error text.

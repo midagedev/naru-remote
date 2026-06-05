@@ -174,6 +174,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let helperTextInsertClient: (any HelperTextInsertClient)?
+    private let streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
@@ -321,6 +322,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         helperTextInsertClient: (any HelperTextInsertClient)? = nil,
+        streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy = .disabled,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
             SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
@@ -378,6 +380,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
         self.helperTextInsertClient = helperTextInsertClient
+        self.streamStartupPreflightPolicy = streamStartupPreflightPolicy
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
@@ -2243,6 +2246,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                         usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
                         appFrameApplyMilliseconds: appFrameApplyMilliseconds
                     )
+                    if frame.sequence == 1 {
+                        await performStartupPreflightFrames(
+                            policy: streamStartupPreflightPolicy,
+                            configuration: configuration,
+                            pump: pump,
+                            streamID: streamID,
+                            sessionID: pendingSession.id,
+                            profileID: profile.id
+                        )
+                    }
                     let usesPowerSaverPacing = lowPowerModeProvider()
                         || appSettings.streamPowerMode == .powerSaver
                         || usesAdaptiveClientPressurePacing
@@ -2364,6 +2377,63 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         return pump.deliveredFrameCount < maxFrames
+    }
+
+    private func performStartupPreflightFrames(
+        policy: SessionStreamStartupPreflightPolicy,
+        configuration: RFBFramePumpConfiguration,
+        pump: RFBFramePump,
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) async {
+        guard policy.hiddenFrameCount > 0 else {
+            return
+        }
+
+        let requestTimeout = min(
+            configuration.requestTimeout,
+            policy.requestTimeout
+        )
+        guard requestTimeout > 0 else {
+            return
+        }
+
+        for _ in 0..<policy.hiddenFrameCount {
+            if Task.isCancelled {
+                pump.cancel()
+                return
+            }
+            guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID) else {
+                pump.cancel()
+                return
+            }
+            do {
+                // `nextFrame` derives incremental=true from sequence > 1;
+                // updateMode only selects request/response vs continuous transport.
+                let frameTask = Task.detached(priority: Task.currentPriority) {
+                    try pump.nextFrame(
+                        requestTimeout: requestTimeout,
+                        updateMode: configuration.updateMode
+                    )
+                }
+                _ = try await withTaskCancellationHandler {
+                    try await frameTask.value
+                } onCancel: {
+                    frameTask.cancel()
+                    pump.cancel()
+                }
+            } catch RFBNetworkClientError.timedOut {
+                return
+            } catch RFBNetworkClientError.readTimedOut {
+                return
+            } catch is CancellationError {
+                pump.cancel()
+                return
+            } catch {
+                return
+            }
+        }
     }
 
     private static func elapsedMilliseconds(since start: Date) -> Int {
