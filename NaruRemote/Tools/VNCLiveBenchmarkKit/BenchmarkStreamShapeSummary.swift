@@ -358,6 +358,18 @@ fileprivate enum BenchmarkStreamShapeTriage {
         )
     }
 
+    static func failureLabelCounts(
+        for labels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        labelCountsPreservingOrder(for: labels)
+    }
+
+    static func mergedFailureLabelCounts(
+        from counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        mergedCountsPreservingOrder(counts)
+    }
+
     private static func labelCounts(
         for labels: [String],
         orderedLabels: [String]
@@ -381,6 +393,52 @@ fileprivate enum BenchmarkStreamShapeTriage {
         var rawCounts: [String: Int] = [:]
         for entry in counts where orderedLabels.contains(entry.label) {
             rawCounts[entry.label, default: 0] += entry.count
+        }
+        return orderedLabels.compactMap { label in
+            guard let count = rawCounts[label], count > 0 else {
+                return nil
+            }
+            return BenchmarkStreamShapeTriageLabelCount(label: label, count: count)
+        }
+    }
+
+    private static func labelCountsPreservingOrder(
+        for labels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        var orderedLabels: [String] = []
+        var rawCounts: [String: Int] = [:]
+        for rawLabel in labels {
+            let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else {
+                continue
+            }
+            if rawCounts[label] == nil {
+                orderedLabels.append(label)
+            }
+            rawCounts[label, default: 0] += 1
+        }
+        return orderedLabels.compactMap { label in
+            guard let count = rawCounts[label], count > 0 else {
+                return nil
+            }
+            return BenchmarkStreamShapeTriageLabelCount(label: label, count: count)
+        }
+    }
+
+    private static func mergedCountsPreservingOrder(
+        _ counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        var orderedLabels: [String] = []
+        var rawCounts: [String: Int] = [:]
+        for entry in counts where entry.count > 0 {
+            let label = entry.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else {
+                continue
+            }
+            if rawCounts[label] == nil {
+                orderedLabels.append(label)
+            }
+            rawCounts[label, default: 0] += entry.count
         }
         return orderedLabels.compactMap { label in
             guard let count = rawCounts[label], count > 0 else {
@@ -1476,10 +1534,34 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     public let recommendedNextProbe: String
     public let primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
     public let recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let failureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
     public let averageReceivedSamplePermille: Int?
     public let averageContentSamplePermille: Int?
     public let averageContentResponsePermille: Int?
     public let averageUnansweredSamplePermille: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case transportMode
+        case targetName
+        case verdict
+        case runCount
+        case passRunCount
+        case warningRunCount
+        case failRunCount
+        case disabledRunCount
+        case issueCodes
+        case primaryIssueCode
+        case primaryConstraint
+        case recommendedNextProbe
+        case primaryConstraintCounts
+        case recommendedNextProbeCounts
+        case failureLabelCounts
+        case averageReceivedSamplePermille
+        case averageContentSamplePermille
+        case averageContentResponsePermille
+        case averageUnansweredSamplePermille
+    }
 
     public init(
         label: String,
@@ -1497,6 +1579,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         recommendedNextProbe: String? = nil,
         primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
         recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        failureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
         averageReceivedSamplePermille: Int? = nil,
         averageContentSamplePermille: Int? = nil,
         averageContentResponsePermille: Int? = nil,
@@ -1534,10 +1617,83 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         self.recommendedNextProbeCounts = recommendedNextProbeCounts.isEmpty
             ? BenchmarkStreamShapeTriage.recommendedNextProbeCounts(for: [self.recommendedNextProbe])
             : BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(from: recommendedNextProbeCounts)
+        self.failureLabelCounts = BenchmarkStreamShapeTriage.mergedFailureLabelCounts(from: failureLabelCounts)
         self.averageReceivedSamplePermille = Self.clampOptionalPermille(averageReceivedSamplePermille)
         self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
         self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
         self.averageUnansweredSamplePermille = Self.clampOptionalPermille(averageUnansweredSamplePermille)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawPrimaryIssueCode = try container.decodeIfPresent(String.self, forKey: .primaryIssueCode)
+        self.init(
+            label: try container.decode(String.self, forKey: .label),
+            transportMode: try container.decode(BenchmarkStreamShapeTransportMode.self, forKey: .transportMode),
+            targetName: try container.decode(String.self, forKey: .targetName),
+            verdict: try container.decode(BenchmarkStreamShapePracticalVerdict.self, forKey: .verdict),
+            runCount: try container.decode(Int.self, forKey: .runCount),
+            passRunCount: try container.decode(Int.self, forKey: .passRunCount),
+            warningRunCount: try container.decode(Int.self, forKey: .warningRunCount),
+            failRunCount: try container.decode(Int.self, forKey: .failRunCount),
+            disabledRunCount: try container.decode(Int.self, forKey: .disabledRunCount),
+            issueCodes: try container.decode([BenchmarkStreamShapePracticalIssueCode].self, forKey: .issueCodes),
+            primaryIssueCode: rawPrimaryIssueCode.flatMap(BenchmarkStreamShapePracticalIssueCode.init(rawValue:)),
+            primaryConstraint: try container.decodeIfPresent(String.self, forKey: .primaryConstraint),
+            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe),
+            primaryConstraintCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .primaryConstraintCounts
+            ) ?? [],
+            recommendedNextProbeCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .recommendedNextProbeCounts
+            ) ?? [],
+            failureLabelCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .failureLabelCounts
+            ) ?? [],
+            averageReceivedSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageReceivedSamplePermille
+            ),
+            averageContentSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageContentSamplePermille
+            ),
+            averageContentResponsePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageContentResponsePermille
+            ),
+            averageUnansweredSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageUnansweredSamplePermille
+            )
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(label, forKey: .label)
+        try container.encode(transportMode, forKey: .transportMode)
+        try container.encode(targetName, forKey: .targetName)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(runCount, forKey: .runCount)
+        try container.encode(passRunCount, forKey: .passRunCount)
+        try container.encode(warningRunCount, forKey: .warningRunCount)
+        try container.encode(failRunCount, forKey: .failRunCount)
+        try container.encode(disabledRunCount, forKey: .disabledRunCount)
+        try container.encode(issueCodes, forKey: .issueCodes)
+        try container.encodeIfPresent(primaryIssueCode?.rawValue, forKey: .primaryIssueCode)
+        try container.encode(primaryConstraint, forKey: .primaryConstraint)
+        try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
+        try container.encode(primaryConstraintCounts, forKey: .primaryConstraintCounts)
+        try container.encode(recommendedNextProbeCounts, forKey: .recommendedNextProbeCounts)
+        try container.encode(failureLabelCounts, forKey: .failureLabelCounts)
+        try container.encodeIfPresent(averageReceivedSamplePermille, forKey: .averageReceivedSamplePermille)
+        try container.encodeIfPresent(averageContentSamplePermille, forKey: .averageContentSamplePermille)
+        try container.encodeIfPresent(averageContentResponsePermille, forKey: .averageContentResponsePermille)
+        try container.encodeIfPresent(averageUnansweredSamplePermille, forKey: .averageUnansweredSamplePermille)
     }
 
     public static func gates(
@@ -1595,6 +1751,9 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             ),
             recommendedNextProbeCounts: BenchmarkStreamShapeTriage.recommendedNextProbeCounts(
                 for: assessments.map(\.recommendedNextProbe)
+            ),
+            failureLabelCounts: BenchmarkStreamShapeTriage.failureLabelCounts(
+                for: reports.compactMap(\.summary.failureLabel)
             ),
             averageReceivedSamplePermille: roundedAverage(reports.compactMap(\.summary.receivedSamplePermille)),
             averageContentSamplePermille: roundedAverage(reports.compactMap(\.summary.contentSamplePermille)),
@@ -1681,6 +1840,7 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
     public let recommendedNextProbe: String
     public let primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
     public let recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let failureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
 
     private enum CodingKeys: String, CodingKey {
         case targetName
@@ -1696,6 +1856,7 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
         case recommendedNextProbe
         case primaryConstraintCounts
         case recommendedNextProbeCounts
+        case failureLabelCounts
     }
 
     public init(
@@ -1710,7 +1871,8 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
         primaryConstraint: String? = nil,
         recommendedNextProbe: String? = nil,
         primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
-        recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount] = []
+        recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        failureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = []
     ) {
         self.targetName = targetName
         self.verdict = verdict
@@ -1737,6 +1899,7 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
         self.recommendedNextProbeCounts = recommendedNextProbeCounts.isEmpty
             ? BenchmarkStreamShapeTriage.recommendedNextProbeCounts(for: [self.recommendedNextProbe])
             : BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(from: recommendedNextProbeCounts)
+        self.failureLabelCounts = BenchmarkStreamShapeTriage.mergedFailureLabelCounts(from: failureLabelCounts)
     }
 
     public init(from decoder: Decoder) throws {
@@ -1760,6 +1923,10 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
             recommendedNextProbeCounts: try container.decodeIfPresent(
                 [BenchmarkStreamShapeTriageLabelCount].self,
                 forKey: .recommendedNextProbeCounts
+            ) ?? [],
+            failureLabelCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .failureLabelCounts
             ) ?? []
         )
     }
@@ -1779,6 +1946,7 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
         try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
         try container.encode(primaryConstraintCounts, forKey: .primaryConstraintCounts)
         try container.encode(recommendedNextProbeCounts, forKey: .recommendedNextProbeCounts)
+        try container.encode(failureLabelCounts, forKey: .failureLabelCounts)
     }
 
     public static func decision(
@@ -1817,6 +1985,9 @@ public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Send
             ),
             recommendedNextProbeCounts: BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(
                 from: gates.flatMap(\.recommendedNextProbeCounts)
+            ),
+            failureLabelCounts: BenchmarkStreamShapeTriage.mergedFailureLabelCounts(
+                from: gates.flatMap(\.failureLabelCounts)
             )
         )
     }
