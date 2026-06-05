@@ -107,6 +107,10 @@ final class RFBFramePumpTests: XCTestCase {
                 totalMilliseconds: 21,
                 networkReadMilliseconds: 17
             ),
+            decodeMetrics: RFBFramebufferDecodeMetrics(
+                zrleInflateMilliseconds: 2,
+                zrleTileApplyMilliseconds: 3
+            ),
             encodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1)
         )
         let source = FakeDamageTrackingFramebufferUpdateSource(results: [result])
@@ -123,6 +127,8 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(frame.timing?.totalMilliseconds, 21)
         XCTAssertEqual(frame.timing?.networkReadMilliseconds, 17)
         XCTAssertEqual(frame.timing?.clientProcessingMilliseconds, 4)
+        XCTAssertEqual(frame.decodeMetrics.zrleInflateMilliseconds, 2)
+        XCTAssertEqual(frame.decodeMetrics.zrleTileApplyMilliseconds, 3)
         XCTAssertEqual(frame.encodingMix.tightRectangles, 1)
         XCTAssertEqual(frame.encodingMix.cursorRectangles, 1)
     }

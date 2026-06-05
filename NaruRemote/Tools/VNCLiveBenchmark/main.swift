@@ -551,6 +551,7 @@ enum VNCLiveBenchmark {
             changedPixelCount: frame.isIncremental ? frame.changedPixelCount : nil,
             shouldUpload: kind == .contentUpdate
         )
+        let hasZRLEMeasurement = frame.encodingMix.zrleRectangles > 0
 
         return BenchmarkStreamShapeSample(
             kind: kind,
@@ -563,6 +564,8 @@ enum VNCLiveBenchmark {
             receiveTotalMilliseconds: frame.timing?.totalMilliseconds,
             networkReadMilliseconds: frame.timing?.networkReadMilliseconds,
             clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds,
+            zrleInflateMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleInflateMilliseconds : nil,
+            zrleTileApplyMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleTileApplyMilliseconds : nil,
             actualEncodingMix: frame.encodingMix
         )
     }
@@ -1146,7 +1149,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 30
+        self.schemaVersion = 31
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1203,6 +1206,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape metrics emit aggregate counts and permille ratios only",
             "renderer upload metrics emit aggregate strategy counts only",
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
+            "zrle decode phase timing metrics emit aggregate millisecond summaries only",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
         ]
@@ -1710,6 +1714,22 @@ private func renderStreamShapeSummary(
                 + "\(clientProcessing.averageMilliseconds)/\(clientProcessing.p50Milliseconds)/"
                 + "\(clientProcessing.p95Milliseconds)/\(clientProcessing.minMilliseconds)/"
                 + "\(clientProcessing.maxMilliseconds)"
+        )
+    }
+    if let zrleInflate = summary.zrleInflateLatency {
+        print(
+            "\(indentation)  zrle inflate ms avg/p50/p95/min/max: "
+                + "\(zrleInflate.averageMilliseconds)/\(zrleInflate.p50Milliseconds)/"
+                + "\(zrleInflate.p95Milliseconds)/\(zrleInflate.minMilliseconds)/"
+                + "\(zrleInflate.maxMilliseconds)"
+        )
+    }
+    if let zrleTileApply = summary.zrleTileApplyLatency {
+        print(
+            "\(indentation)  zrle tile/apply ms avg/p50/p95/min/max: "
+                + "\(zrleTileApply.averageMilliseconds)/\(zrleTileApply.p50Milliseconds)/"
+                + "\(zrleTileApply.p95Milliseconds)/\(zrleTileApply.minMilliseconds)/"
+                + "\(zrleTileApply.maxMilliseconds)"
         )
     }
     if summary.rendererUploadSampleCount > 0 {

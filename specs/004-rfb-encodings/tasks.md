@@ -594,6 +594,15 @@ iPhone) and ships as its own PR.
   distinguish cold first-content-frame tails from later recurring decode/apply
   stalls without exporting raw per-frame samples. Owns: benchmark summary kit,
   CLI report output, focused tests, benchmark docs, research note. **Done.**
+- **T384** ZRLE decode phase baseline: establish a larger practical baseline
+  unit for sustained iPhone-class VNC streaming by splitting safe aggregate
+  ZRLE decode timings into inflate and tile/apply phases, threading them from
+  the framebuffer decoder through `RFBFramePumpFrame`, and publishing
+  `VNCLiveBenchmark` schema v31 summaries. Use the first v31 localhost Screen
+  Sharing run to decide whether the next optimization axis is local decode,
+  renderer upload, request pacing, or server/network wait. Owns: decoder
+  metrics, frame pump metadata, benchmark kit/CLI/tests, benchmark artifact,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 

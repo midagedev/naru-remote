@@ -32,6 +32,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     receiveTotalMilliseconds: 25,
                     networkReadMilliseconds: 20,
                     clientProcessingMilliseconds: 5,
+                    zrleInflateMilliseconds: 3,
+                    zrleTileApplyMilliseconds: 7,
                     actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1)
                 ),
                 BenchmarkStreamShapeSample(
@@ -69,6 +71,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.receiveTotalLatency).averageMilliseconds, 36)
         XCTAssertEqual(try XCTUnwrap(summary.networkReadLatency).averageMilliseconds, 33)
         XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
+        XCTAssertEqual(try XCTUnwrap(summary.zrleInflateLatency).averageMilliseconds, 3)
+        XCTAssertEqual(try XCTUnwrap(summary.zrleTileApplyLatency).p95Milliseconds, 7)
         XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 0)
         XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 0)
         XCTAssertEqual(summary.rendererUploadSampleCount, 1)
@@ -139,7 +143,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             rendererUploadRegionCount: -3,
             receiveTotalMilliseconds: -4,
             networkReadMilliseconds: -5,
-            clientProcessingMilliseconds: -6
+            clientProcessingMilliseconds: -6,
+            zrleInflateMilliseconds: -7,
+            zrleTileApplyMilliseconds: -8
         )
 
         XCTAssertEqual(sample.durationMilliseconds, 0)
@@ -150,6 +156,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(sample.receiveTotalMilliseconds, 0)
         XCTAssertEqual(sample.networkReadMilliseconds, 0)
         XCTAssertEqual(sample.clientProcessingMilliseconds, 0)
+        XCTAssertEqual(sample.zrleInflateMilliseconds, 0)
+        XCTAssertEqual(sample.zrleTileApplyMilliseconds, 0)
     }
 
     func testAdaptiveClientPressurePacingSamplesClampToReceivedSamples() {
@@ -318,6 +326,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             from: summary,
             removingKeys: [
                 "actualEncodingMix",
+                "zrleInflateLatency",
+                "zrleTileApplyLatency",
                 "adaptiveClientPressurePacingSamples",
                 "adaptiveClientPressurePacingPermille",
                 "viewportInteractionPacingSamples",
@@ -331,6 +341,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
 
         XCTAssertEqual(decodedSummary.actualEncodingMix, RFBFramebufferEncodingMix())
+        XCTAssertNil(decodedSummary.zrleInflateLatency)
+        XCTAssertNil(decodedSummary.zrleTileApplyLatency)
         XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingSamples, 0)
         XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPacingSamples, 0)
@@ -577,6 +589,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertNil(summary.receiveTotalLatency)
         XCTAssertNil(summary.networkReadLatency)
         XCTAssertNil(summary.clientProcessingLatency)
+        XCTAssertNil(summary.zrleInflateLatency)
+        XCTAssertNil(summary.zrleTileApplyLatency)
     }
 
     private func streamShapeSample(

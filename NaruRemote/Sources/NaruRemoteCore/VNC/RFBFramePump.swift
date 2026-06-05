@@ -61,6 +61,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
     public let serverCursor: RFBServerCursor?
     public let transportIdleTimedOut: Bool
     public let timing: RFBFramebufferUpdateTiming?
+    public let decodeMetrics: RFBFramebufferDecodeMetrics
     public let encodingMix: RFBFramebufferEncodingMix
 
     public init(
@@ -74,6 +75,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         serverCursor: RFBServerCursor? = nil,
         transportIdleTimedOut: Bool = false,
         timing: RFBFramebufferUpdateTiming? = nil,
+        decodeMetrics: RFBFramebufferDecodeMetrics = RFBFramebufferDecodeMetrics(),
         encodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
     ) {
         self.sequence = sequence
@@ -93,6 +95,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.serverCursor = serverCursor
         self.transportIdleTimedOut = transportIdleTimedOut
         self.timing = timing
+        self.decodeMetrics = decodeMetrics
         self.encodingMix = encodingMix
     }
 
@@ -111,6 +114,7 @@ public struct RFBFramePumpFrame: Equatable, Sendable {
         self.serverCursor = updateResult.serverCursor
         self.transportIdleTimedOut = updateResult.transportIdleTimedOut
         self.timing = updateResult.timing
+        self.decodeMetrics = updateResult.decodeMetrics
         self.encodingMix = updateResult.encodingMix
     }
 }

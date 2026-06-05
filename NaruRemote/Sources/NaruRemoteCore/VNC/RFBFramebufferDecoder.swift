@@ -1,4 +1,5 @@
 import CoreGraphics
+import Dispatch
 import Foundation
 #if canImport(ImageIO)
 import ImageIO
@@ -57,6 +58,38 @@ public enum RFBFramebufferDecoder {
             }
             dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
             self.changedPixelCount += changedPixelCount
+        }
+    }
+
+    private struct DecodeMetricsAccumulator {
+        var zrleInflateNanoseconds: UInt64 = 0
+        var zrleTileApplyNanoseconds: UInt64 = 0
+
+        mutating func recordZRLEInflate<T>(_ body: () throws -> T) rethrows -> T {
+            try record(into: \.zrleInflateNanoseconds, body)
+        }
+
+        var metrics: RFBFramebufferDecodeMetrics {
+            RFBFramebufferDecodeMetrics(
+                zrleInflateMilliseconds: Self.milliseconds(fromNanoseconds: zrleInflateNanoseconds),
+                zrleTileApplyMilliseconds: Self.milliseconds(fromNanoseconds: zrleTileApplyNanoseconds)
+            )
+        }
+
+        private mutating func record<T>(
+            into keyPath: WritableKeyPath<DecodeMetricsAccumulator, UInt64>,
+            _ body: () throws -> T
+        ) rethrows -> T {
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            defer {
+                let endedAt = DispatchTime.now().uptimeNanoseconds
+                self[keyPath: keyPath] += endedAt >= startedAt ? endedAt - startedAt : 0
+            }
+            return try body()
+        }
+
+        private static func milliseconds(fromNanoseconds nanoseconds: UInt64) -> Int {
+            Int((Double(nanoseconds) / 1_000_000).rounded())
         }
     }
 
@@ -127,6 +160,7 @@ public enum RFBFramebufferDecoder {
         var serverCursor: RFBServerCursor?
         var processed = 0
         var encodingMix = RFBFramebufferEncodingMix()
+        var decodeMetrics = DecodeMetricsAccumulator()
         // A ZRLE rectangle uses the session's single persistent zlib
         // stream. If the caller did not supply one (the offline `Data`
         // shim / single-update tests), lazily create one shared across
@@ -251,7 +285,9 @@ public enum RFBFramebufferDecoder {
                     into: &framebuffer,
                     x: x, y: y, width: width, height: height,
                     currentWidth: currentWidth, currentHeight: currentHeight,
-                    pixelFormat: pixelFormat, zlib: stream
+                    pixelFormat: pixelFormat,
+                    zlib: stream,
+                    decodeMetrics: &decodeMetrics
                 )
                 dirtyRectangles.append(contentsOf: damage.dirtyRectangles)
                 changedPixelCount += damage.changedPixelCount
@@ -289,6 +325,7 @@ public enum RFBFramebufferDecoder {
             capturedAt: capturedAt,
             didResizeDesktop: didResizeDesktop,
             serverCursor: serverCursor,
+            decodeMetrics: decodeMetrics.metrics,
             encodingMix: encodingMix
         )
     }
@@ -633,7 +670,9 @@ public enum RFBFramebufferDecoder {
         into framebuffer: inout RFBRawFramebuffer,
         x: Int, y: Int, width: Int, height: Int,
         currentWidth: Int, currentHeight: Int,
-        pixelFormat: RFBPixelFormat, zlib: RFBZlibInflateStream
+        pixelFormat: RFBPixelFormat,
+        zlib: RFBZlibInflateStream,
+        decodeMetrics: inout DecodeMetricsAccumulator
     ) throws -> DecodedFrameDamage {
         try validateRectangle(x: x, y: y, width: width, height: height, currentWidth: currentWidth, currentHeight: currentHeight)
 
@@ -645,12 +684,22 @@ public enum RFBFramebufferDecoder {
             throw RFBRawFramebufferDecoderError.malformedZRLE
         }
         let compressed = try reader.readBytes(length)
+        let inflated = try decodeMetrics.recordZRLEInflate {
+            try zlib.inflate(compressed)
+        }
         guard width > 0, height > 0 else {
-            _ = try zlib.inflate(compressed)
             return DecodedFrameDamage()
         }
 
-        let tiles = RFBDataReader(try zlib.inflate(compressed))
+        let tileApplyStartedAt = DispatchTime.now().uptimeNanoseconds
+        defer {
+            let endedAt = DispatchTime.now().uptimeNanoseconds
+            decodeMetrics.zrleTileApplyNanoseconds += endedAt >= tileApplyStartedAt
+                ? endedAt - tileApplyStartedAt
+                : 0
+        }
+
+        let tiles = RFBDataReader(inflated)
         let cpixelSize = pixelFormat.cpixelByteCount
         var damage = DecodedFrameDamage()
 
