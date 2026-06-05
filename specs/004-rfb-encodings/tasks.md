@@ -449,6 +449,14 @@ iPhone) and ships as its own PR.
   slower Korean/CJK marked-text commits. Owns: Metal viewport host, app model
   pointer cadence, Remote Input Dock send policy, tests, research note.
   **Done.**
+- **T366** Physical viewport state and Mac paste stability: keep visible Metal
+  viewport transforms immediate, but publish the coalesced viewport transform to
+  SwiftUI/PiP state on a display-link cadence instead of gesture end only; align
+  `.commandV` paste with documented Mac VNC `Alt_L+v` mapping and increase the
+  remote clipboard settle window to 300 ms with regression tests proving paste
+  is not sent during the old 180 ms optimistic window. Owns: Metal viewport
+  host, RFB paste encoder, app model Compose send, tests, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -35,7 +35,11 @@ private struct DeferredViewportStreamFrame {
 
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
-    private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.12
+    /// macOS Screen Sharing and other VNC servers apply ClientCutText
+    /// asynchronously from key events. Keep the Send button responsive,
+    /// but give the remote clipboard enough time to adopt the payload
+    /// before the paste shortcut arrives.
+    private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.30
 
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?

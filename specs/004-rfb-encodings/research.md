@@ -1122,3 +1122,41 @@ send stabilization to cover slower Korean/CJK marked-text commits.
 **Privacy rule**: the change exports no new raw data. Gesture timings,
 coordinates, pixels, cursor pixels, dimensions, byte counts, host identity,
 device identity, and Compose draft text remain out of diagnostics.
+
+## D38 — Physical viewport state should not lag until gesture end, and Mac paste should use documented VNC modifier mapping
+
+References:
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- RealVNC Mac keyboard mapping:
+  https://help.realvnc.com/hc/en-us/articles/360002250597-Keyboard-Mapping-To-and-From-a-Mac
+- RFC 6143 KeyEvent:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: keep visible pinch, zoomed-pan, deceleration, and trackpad
+auto-pan transforms immediate on the UIKit/Core Animation path, but publish the
+coalesced viewport transform to SwiftUI/PiP state on a display-link cadence
+instead of waiting exclusively for gesture end. For Compose & Send to macOS VNC
+targets, emit `Alt_L+v` for `.commandV` and wait 300 ms after clipboard set
+before the paste shortcut.
+
+**Why**:
+- Physical iPhone feedback still reports zoom/pan as stepped and unnatural.
+  Deferring every SwiftUI/PiP viewport-state update until gesture end keeps the
+  visible layer responsive, but leaves surrounding state one gesture behind.
+  A display-link publish keeps state fresh at screen cadence while avoiding
+  per-sample SwiftUI churn.
+- RealVNC's Mac mapping documentation lists the default left Command mapping
+  as `Alt_L` and the right Command path as Windows/Super keysyms. `Meta_L` is a
+  protocol keysym in RFC 6143, but it is not the documented Mac Command default
+  mapping for common VNC viewer/server combinations. Using `Alt_L+v` therefore
+  better matches Mac Screen Sharing paste behavior.
+- `ClientCutText` and paste key events are independent RFB client messages, so
+  the server may apply clipboard text asynchronously. A 300 ms local-only
+  settle window is still short to the user, but protects slower macOS Screen
+  Sharing paths better than a 120 ms window.
+
+**Privacy rule**: this change exports no new raw data. It must not log or
+export gesture coordinates, timing samples, display dimensions, pixels, cursor
+pixels, byte counts, host identity, device identity, raw key events, or Compose
+draft text.

@@ -1689,6 +1689,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sending)
         try await Task.sleep(for: .milliseconds(180))
+        XCTAssertEqual(
+            connector.pasteCommands,
+            [],
+            "Paste should wait for the production remote clipboard settle window."
+        )
+        try await waitForPasteCommands(connector, count: 1)
 
         XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
         XCTAssertEqual(connector.pasteCommands, [.controlV])
@@ -1776,7 +1782,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.clipboardPayloads, ["첫 문장"])
 
         model.updateComposeDraftText("새로 쓰는 문장")
-        try await Task.sleep(for: .milliseconds(180))
+        try await waitForPasteCommands(connector, count: 1)
 
         XCTAssertNotEqual(model.snapshot.composeDraft?.id, sendingDraftID)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "새로 쓰는 문장")
@@ -1807,7 +1813,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.clipboardPayloads, ["중단되어야 하는 paste"])
 
         model.disconnect()
-        try await Task.sleep(for: .milliseconds(180))
+        try await Task.sleep(for: .milliseconds(420))
 
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
@@ -2292,6 +2298,22 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let delays = pacingSleepRecorder.delays
         XCTAssertEqual(delays.count, expectedCount, file: file, line: line)
         return delays
+    }
+
+    private func waitForPasteCommands(
+        _ connector: FakeFirstFrameConnector,
+        count expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<60 {
+            if connector.pasteCommands.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(connector.pasteCommands.count, expectedCount, file: file, line: line)
     }
 }
 

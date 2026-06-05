@@ -511,7 +511,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     }
 
     private static let interactiveViewportStatePublishCadence: ViewportStatePublishCadence =
-        .gestureEnd
+        .nextDisplayLink
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator
