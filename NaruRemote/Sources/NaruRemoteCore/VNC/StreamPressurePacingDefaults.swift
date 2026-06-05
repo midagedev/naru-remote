@@ -27,5 +27,9 @@ public enum StreamPressurePacingDefaults {
     public static let sustainedLaggingLocalWorkThresholdMilliseconds = 34
     public static let consecutiveSustainedLaggingContentFrameThreshold = 8
     public static let consecutiveFullUploadContentFrameThreshold = 30
+    /// A single 1000 ms-class local-work spike often appears during live
+    /// connection/profile warm-up. Cool briefly, but keep the long recovery
+    /// window for repeated lag/full-upload pressure below.
+    public static let verySlowAdaptiveRecoveryUpdateCount = 8
     public static let adaptiveRecoveryUpdateCount = 120
 }

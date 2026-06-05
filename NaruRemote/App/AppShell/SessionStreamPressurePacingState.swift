@@ -16,6 +16,8 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         .consecutiveFullUploadContentFrameThreshold
     static let laggingClientProcessingThresholdMilliseconds = severeLaggingLocalWorkThresholdMilliseconds
     static let consecutiveLaggingContentFrameThreshold = consecutiveSevereLaggingContentFrameThreshold
+    static let verySlowAdaptiveRecoveryUpdateCount = StreamPressurePacingDefaults
+        .verySlowAdaptiveRecoveryUpdateCount
     static let adaptiveRecoveryUpdateCount = StreamPressurePacingDefaults.adaptiveRecoveryUpdateCount
 
     private var consecutiveSevereLaggingContentFrames = 0
@@ -68,7 +70,7 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         )
 
         if localWorkMilliseconds >= Self.verySlowLocalWorkThresholdMilliseconds {
-            activatePowerSaverPacing()
+            activatePowerSaverPacing(recoveryUpdateCount: Self.verySlowAdaptiveRecoveryUpdateCount)
             return
         }
 
@@ -117,13 +119,13 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         else {
             return
         }
-        activatePowerSaverPacing()
+        activatePowerSaverPacing(recoveryUpdateCount: Self.adaptiveRecoveryUpdateCount)
     }
 
-    private mutating func activatePowerSaverPacing() {
+    private mutating func activatePowerSaverPacing(recoveryUpdateCount: Int) {
         adaptiveRecoveryUpdatesRemaining = max(
             adaptiveRecoveryUpdatesRemaining,
-            Self.adaptiveRecoveryUpdateCount
+            recoveryUpdateCount
         )
         resetContentPressureStreaks()
     }

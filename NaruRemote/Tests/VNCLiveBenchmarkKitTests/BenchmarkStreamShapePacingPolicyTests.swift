@@ -243,6 +243,22 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
             1.0 / 30.0,
             accuracy: 0.0001
         )
+
+        let fastContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: 15
+        )
+        for _ in 0..<BenchmarkStreamShapePacingPolicy.appVerySlowClientPressureRecoveryUpdateCount {
+            state.record(sample: fastContent, mode: policy.clientPressureMode)
+        }
+
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        XCTAssertLessThan(
+            BenchmarkStreamShapePacingPolicy.appVerySlowClientPressureRecoveryUpdateCount,
+            BenchmarkStreamShapePacingPolicy.appClientPressureRecoveryUpdateCount
+        )
     }
 
     func testClientPressureStateActivatesAppFloorAfterSustainedModerateContentSamples() {

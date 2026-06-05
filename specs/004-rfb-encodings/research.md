@@ -1704,3 +1704,49 @@ not from raw Compose text or remote pixels.
 booleans. They must not emit raw draft text, host identity, helper endpoint,
 pairing fingerprint, clipboard bytes, key events, coordinates, pixels, timing
 samples, or byte counts.
+
+## D52 — Split single-spike pressure cooldown from sustained pressure recovery
+
+References:
+- RFC 6143 framebuffer update requests and Cursor pseudo-encoding:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer protocol/encoding auto-selection and cursor/compression
+  options: https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: keep `local-low-latency` as the default encoding profile for now,
+but split adaptive client-pressure recovery into two windows. A single
+1000 ms-class local-work spike enters an 8 update-decision cooldown, while
+repeated severe/moderate lag or sustained full renderer uploads keep the
+existing 120 update-decision recovery. Mirror the split in `VNCLiveBenchmark`
+schema v29 and add ZRLE compression-0 cursor/clipboard isolation profiles.
+
+**Why**:
+- Post-ZRLE changed-bounds benchmarks showed full renderer upload pressure at
+  0 permille, so long low-FPS periods were no longer explained by GPU upload
+  pressure.
+- 20 second pseudo-encoding isolation runs showed the first measured stream
+  profile could receive a 2 second-class cold/profile-warm-up spike regardless
+  of whether Cursor or ExtendedClipboard was requested. Dropping those
+  pseudo-encodings would lose real-cursor/Compose capability without a stable
+  performance win.
+- One cold spike should briefly cool the request loop, but it should not borrow
+  the same long recovery window reserved for repeated lag or full-upload
+  pressure. On a target producing about two content updates per second, 120
+  update decisions can keep adaptive pressure active for most of a sustained
+  run.
+
+**Evidence**:
+- v28 order-isolation baseline with `zrle-compression-0-cursor-clipboard`
+  first: adaptive pressure 972 permille, one very-slow sample, full-upload
+  pressure 0.
+- v29 default `local-low-latency` single-profile run: adaptive pressure 395
+  permille, one very-slow sample, full-upload pressure 0.
+- v29 cursor-only run did not beat the default: adaptive pressure 711 permille.
+- Focused app and benchmark pacing tests assert single very-slow cooldown
+  recovers faster than the sustained pressure window while repeated lag still
+  uses the long recovery.
+
+**Privacy rule**: benchmark artifacts may include only fixed labels,
+aggregate counts, permille ratios, and latency summaries. They must not emit
+host identity, credentials, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw samples, or raw error text.
