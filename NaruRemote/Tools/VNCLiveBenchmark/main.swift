@@ -493,6 +493,29 @@ enum VNCLiveBenchmark {
             )
         }
 
+        if transportMode == .continuousUpdates,
+           !client.canEnableContinuousUpdates {
+            failureLabel = safeFailureLabel(
+                for: RFBNetworkClientError.continuousUpdatesNotConfirmed,
+                phase: transportMode.streamFailurePhase
+            )
+            return StreamShapeProbeReport(
+                transportMode: transportMode,
+                requestedSamples: streamShapeRequestedSamples(
+                    maxSamples: maxSamples,
+                    durationLimit: durationLimit,
+                    receivedSamples: samples.count
+                ),
+                attemptedSamples: attemptedSamples,
+                firstFrameMilliseconds: firstFrameMilliseconds,
+                samples: samples,
+                elapsedMilliseconds: elapsedMilliseconds,
+                firstTimeoutMilliseconds: firstTimeoutMilliseconds,
+                failureLabel: failureLabel,
+                practicalTargets: practicalTargets
+            )
+        }
+
         performStreamShapePreflightFrames(
             count: preflightFrames,
             pump: pump,

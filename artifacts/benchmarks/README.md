@@ -65,6 +65,10 @@ Current operating target artifact:
 Use this promotion ladder for larger PRs: benchmark green first, 10 minute
 physical iPhone green second, and production default changes only after both
 passes.
+Current ContinuousUpdates confirmation artifact:
+`artifacts/benchmarks/2026-06-06-continuous-updates-confirmation-gate-smoke.md`.
+That smoke verifies unconfirmed ContinuousUpdates support is reported as a fixed
+compatibility label instead of being hidden behind request/response fallback.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -419,6 +423,11 @@ interval is zero for a deterministic test run.
 Use `--stream-shape-transport both` when comparing request/response
 polling against the ContinuousUpdates/Fence overlay before changing the
 production transport gate.
+ContinuousUpdates probes are only treated as that transport after the active
+RFB session observes server confirmation. If confirmation never arrives, schema
+v43 reports the fixed safe label
+`stream-continuous-updates-continuous-updates-not-confirmed` and keeps
+request/response as the usable fallback candidate.
 In `both` mode, the top-level `streamShapeProbe` remains the first
 selected profile/transport as a compatibility summary; use
 `streamShapeProfileProbes` for the full profile-by-transport matrix.

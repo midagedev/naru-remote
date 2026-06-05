@@ -26,6 +26,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     private var clientFramebuffer: RFBRawFramebuffer?
     private var clientEncodingPreference: RFBEncodingPreference
     private var clientPixelFormatPreference: RFBPixelFormat?
+    private var clientContinuousUpdatesConfirmed = false
     /// Per-session persistent zlib inflate for ZRLE (spec 004 FR-005).
     /// Created fresh on each connect, torn down with the connection — a
     /// new session must start a fresh zlib window.
@@ -72,7 +73,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
     public var canEnableContinuousUpdates: Bool {
         lock.withRFBClientLock {
-            activeConnection != nil && clientEncodingPreference.continuousUpdates
+            activeConnection != nil
+                && clientEncodingPreference.continuousUpdates
+                && clientContinuousUpdatesConfirmed
         }
     }
 
@@ -123,7 +126,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 Self.framebufferUpdateRequest(width: serverInit.width, height: serverInit.height),
                 timeout: timeout
             )
-            try receiveFramebufferUpdateHeader(
+            let continuousUpdatesConfirmed = try receiveFramebufferUpdateHeader(
                 connection: connection,
                 reader: ConnectionByteReader(connection: connection, timeout: timeout),
                 timeout: timeout
@@ -137,6 +140,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientFramebuffer = nil
                 clientZlibStream = zlibStream
                 clientTightZlibStreams = tightZlibStreams
+                clientContinuousUpdatesConfirmed = continuousUpdatesConfirmed
+                    && clientEncodingPreference.continuousUpdates
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
             }
@@ -158,6 +163,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
             clientPixelFormatPreference = initialPixelFormatPreference
+            clientContinuousUpdatesConfirmed = false
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientUTF8ClipboardSupport = .unknown
@@ -213,6 +219,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientFramebuffer = nil
                 clientZlibStream = zlibStream
                 clientTightZlibStreams = tightZlibStreams
+                clientContinuousUpdatesConfirmed = false
                 clientUTF8ClipboardSupport = .unknown
                 clientLastFrame = nil
                 clientState = .authenticated
@@ -400,6 +407,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 // EndOfContinuousUpdates is a one-byte TigerVNC server
                 // control message. It is also the server's support
                 // confirmation for the ContinuousUpdates pseudo-encoding.
+                markContinuousUpdatesConfirmed(for: connection)
                 // Once a framebuffer exists, surface it as a zero-change
                 // liveness frame so the frame pump can stop waiting for
                 // pushed updates and fall back to request/response.
@@ -430,7 +438,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         connection: RFBNetworkConnection,
         reader: RFBByteReader,
         timeout: TimeInterval
-    ) throws {
+    ) throws -> Bool {
+        var continuousUpdatesConfirmed = false
         while true {
             let messageType = try reader.readUInt8()
             switch messageType {
@@ -440,7 +449,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 let rectangleCount = Int(Self.uint16(Array(updatePrefix), at: 2))
                 let updateData = try updatePrefix + Data(reader.readBytes(rectangleCount * 12))
                 _ = try RFBProtocolDecoder.parseFramebufferUpdateHeader(updateData)
-                return
+                return continuousUpdatesConfirmed
             case 2:
                 continue
             case 3:
@@ -451,6 +460,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 )
                 continue
             case 150:
+                continuousUpdatesConfirmed = true
                 continue
             case 248:
                 try handleServerFence(
@@ -498,6 +508,18 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             ),
             timeout: timeout
         )
+    }
+
+    private func markContinuousUpdatesConfirmed(for connection: RFBNetworkConnection) {
+        lock.withRFBClientLock {
+            guard let activeConnection,
+                  activeConnection === connection,
+                  clientEncodingPreference.continuousUpdates else {
+                return
+            }
+
+            clientContinuousUpdatesConfirmed = true
+        }
     }
 
     private func handleServerCutText(
@@ -630,6 +652,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
         lock.withRFBClientLock {
             if activeConnection === connection {
+                clientContinuousUpdatesConfirmed = clientContinuousUpdatesConfirmed
+                    && preference.continuousUpdates
                 clientEncodingPreference = preference
             }
         }
@@ -646,10 +670,13 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         timeout: TimeInterval = 2
     ) throws {
         let context = lock.withRFBClientLock {
-            (activeConnection, clientServerInit)
+            (activeConnection, clientServerInit, clientContinuousUpdatesConfirmed)
         }
         guard let connection = context.0 else {
             throw RFBNetworkClientError.notConnected
+        }
+        guard !enabled || context.2 else {
+            throw RFBNetworkClientError.continuousUpdatesNotConfirmed
         }
 
         let updateRegion = region ?? RFBFramebufferUpdateRegion(
@@ -762,6 +789,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 clientFramebuffer = nil
                 clientZlibStream = zlibStream
                 clientTightZlibStreams = tightZlibStreams
+                clientContinuousUpdatesConfirmed = false
                 clientUTF8ClipboardSupport = .unknown
                 clientLastFrame = serverInit.frameMetadata()
                 clientState = .receivingFrames
@@ -781,6 +809,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientServerInit = nil
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
+            clientContinuousUpdatesConfirmed = false
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientUTF8ClipboardSupport = .unknown
@@ -809,6 +838,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientServerInit = nil
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
+            clientContinuousUpdatesConfirmed = false
             clientZlibStream = nil
             clientTightZlibStreams = nil
             clientUTF8ClipboardSupport = .unknown
@@ -1025,6 +1055,7 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case unsupportedSecurityTypes([UInt8])
     case unsupportedFramebufferEncoding(Int32)
     case notConnected
+    case continuousUpdatesNotConfirmed
 
     public var errorDescription: String? {
         switch self {
@@ -1052,6 +1083,8 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
             return "Unsupported RFB framebuffer encoding: \(encoding)"
         case .notConnected:
             return "No active RFB connection is available."
+        case .continuousUpdatesNotConfirmed:
+            return "RFB server has not confirmed ContinuousUpdates support."
         }
     }
 }
@@ -1070,7 +1103,8 @@ private extension RFBNetworkClientError {
              .authenticationRequired,
              .unsupportedSecurityTypes,
              .unsupportedFramebufferEncoding,
-             .notConnected:
+             .notConnected,
+             .continuousUpdatesNotConfirmed:
             return false
         }
     }

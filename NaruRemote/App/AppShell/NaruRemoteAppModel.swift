@@ -1374,7 +1374,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch error {
         case .invalidPort, .connectTimedOut, .timedOut, .connectionFailed, .writeTimedOut, .writeFailed, .notConnected:
             return .tcp
-        case .readTimedOut, .incompleteTranscript, .unsupportedFramebufferEncoding:
+        case .readTimedOut,
+             .incompleteTranscript,
+             .unsupportedFramebufferEncoding,
+             .continuousUpdatesNotConfirmed:
             return .rfbHandshake
         case .authenticationRequired, .unsupportedSecurityTypes:
             return .authentication
@@ -1817,6 +1820,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return "rfb.unsupportedFramebufferEncoding"
             case .notConnected:
                 return "network.notConnected"
+            case .continuousUpdatesNotConfirmed:
+                return "rfb.continuousUpdatesNotConfirmed"
             }
         }
 

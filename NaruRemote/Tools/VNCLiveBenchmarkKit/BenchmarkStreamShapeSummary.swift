@@ -2224,6 +2224,7 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
             || label.hasPrefix("continuous-probe-enable-")
             || label == "stream-continuous-updates-connect-timeout"
             || label == "stream-continuous-updates-connection-failed"
+            || label == "stream-continuous-updates-continuous-updates-not-confirmed"
             || label == "stream-continuous-updates-not-connected"
             || label == "stream-incremental-connect-timeout"
             || label == "stream-incremental-connection-failed"

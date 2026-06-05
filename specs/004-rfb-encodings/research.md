@@ -3194,3 +3194,42 @@ counts, and redacted pass/fail judgments. They must not include host identity,
 credentials, port value, raw TCP/RFB errors, framebuffer dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
 timings, command text, command output, draft text, marked text, or IME state.
+
+## D78 — Gate ContinuousUpdates behind server confirmation
+
+References:
+- D76 transport/cadence diagnosis.
+- D77 sustained usability promotion ladder.
+- `RFBNetworkClient.canEnableContinuousUpdates`.
+
+**Decision**: treat ContinuousUpdates as unavailable until the active RFB
+session observes the server-side ContinuousUpdates confirmation path. The client
+must not send `EnableContinuousUpdates(true, ...)` before that confirmation, and
+stream-shape benchmarks must report an explicit not-confirmed safe label instead
+of silently measuring request/response fallback as a ContinuousUpdates run.
+
+**Why**:
+- The current v43 evidence says request-response is the usable fallback, while
+  ContinuousUpdates still fails before useful sustained samples.
+- Without a confirmation gate, a "continuous-updates" benchmark can fall back to
+  request/response in the frame pump and make the transport label misleading.
+- A fixed `continuous-updates-not-confirmed` label distinguishes an unsupported
+  extension path from connect, first-frame, receive, timeout, and decode
+  failures, which makes the next large unit easier to choose.
+
+**Interpretation**:
+- Production frame streaming should continue through request/response unless
+  the server has confirmed the ContinuousUpdates extension in the active
+  session.
+- Live benchmarks should keep ContinuousUpdates in the comparison matrix, but a
+  not-confirmed result means the next task is compatibility investigation rather
+  than cadence tuning.
+- This does not change production defaults; it narrows the evidence surface so
+  the larger promotion ladder can decide from real transport behavior.
+
+**Privacy rule**: confirmation-gate diagnostics and benchmark reports may emit
+only fixed stage/failure labels and aggregate pass/fail counts. They must not
+include host identity, credentials, port value, raw TCP/RFB errors, framebuffer
+dimensions, coordinates, pixels, cursor pixels, byte counts, raw payloads, raw
+FPS, raw timings, command text, command output, draft text, marked text, or IME
+state.

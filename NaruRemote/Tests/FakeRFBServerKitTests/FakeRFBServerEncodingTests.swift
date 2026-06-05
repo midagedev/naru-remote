@@ -91,7 +91,7 @@ final class FakeRFBServerEncodingTests: XCTestCase {
             connectionQuality: .poor
         )
         try client.renegotiateEncodings(preference)
-        XCTAssertTrue(client.canEnableContinuousUpdates)
+        XCTAssertFalse(client.canEnableContinuousUpdates)
 
         let expected = RFBClientMessageEncoder.setEncodings(preference.encodingList())
         let recorded = try recorder.waitForByteCount(expected.count)
@@ -138,20 +138,28 @@ final class FakeRFBServerEncodingTests: XCTestCase {
     }
 
     func testClientSendsContinuousUpdatesAndFenceControlFramesAfterSessionConnect() throws {
-        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 4, height: 2))
         let recorder = FakeRFBClientMessageRecorder()
         let server = try FakeRFBServer(
             transcript: transcript,
-            mode: .noAuthFramebufferUpdates([]),
+            mode: .noAuthServerMessages([
+                Data([150]),
+                Self.rawFourByTwoFirstFrame()
+            ]),
             clientMessageRecorder: recorder
         )
         let port = try server.start()
         defer { server.stop() }
 
-        let client = RFBNetworkClient()
+        let client = RFBNetworkClient(encodingPreference: RFBEncodingPreference(continuousUpdates: true))
         try client.connectNoAuthSession(host: "127.0.0.1", port: port)
         defer { client.disconnect() }
         _ = try recorder.waitForControlMessages(1)
+        XCTAssertFalse(client.canEnableContinuousUpdates)
+
+        _ = try client.requestFramebufferUpdate()
+        XCTAssertTrue(client.canEnableContinuousUpdates)
+        _ = try recorder.waitForByteCount(10)
 
         try client.enableContinuousUpdates(
             true,
@@ -171,8 +179,8 @@ final class FakeRFBServerEncodingTests: XCTestCase {
             payload: Data([0x6e, 0x72])
         ))
 
-        let recorded = try recorder.waitForByteCount(expected.count)
-        XCTAssertEqual(Data(recorded.prefix(expected.count)), expected)
+        let recorded = try recorder.waitForByteCount(10 + expected.count)
+        XCTAssertEqual(Data(recorded.suffix(expected.count)), expected)
     }
 
     func testTransportControlThrowsWhenDisconnected() throws {
@@ -186,6 +194,28 @@ final class FakeRFBServerEncodingTests: XCTestCase {
         }
         XCTAssertThrowsError(try client.sendFence(flags: .request)) { error in
             XCTAssertEqual(error as? RFBNetworkClientError, .notConnected)
+        }
+    }
+
+    func testContinuousUpdatesEnableRequiresServerConfirmation() throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient(encodingPreference: RFBEncodingPreference(continuousUpdates: true))
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        defer { client.disconnect() }
+        _ = try recorder.waitForControlMessages(1)
+
+        XCTAssertFalse(client.canEnableContinuousUpdates)
+        XCTAssertThrowsError(try client.enableContinuousUpdates(true)) { error in
+            XCTAssertEqual(error as? RFBNetworkClientError, .continuousUpdatesNotConfirmed)
         }
     }
 
