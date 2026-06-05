@@ -848,7 +848,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             return nil
         }
 
-        return "Multilingual Compose needs helper or UTF-8 clipboard"
+        return "Multilingual Compose needs Mac helper"
     }
 
     public var inputHelperStatusText: String? {
@@ -874,7 +874,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
 
         switch helperState.availability {
         case .notConfigured:
-            return "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+            return "Korean/CJK/emoji needs Mac helper setup"
         case .disabled:
             return "Helper disabled for this profile"
         case .checking:

@@ -86,9 +86,12 @@ public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
 /// Closure invoked when the user starts or finishes a local viewport
 /// manipulation (pinch, zoomed pan, or a trackpad cursor drag that
 /// actually pans the local viewport). The app model uses this signal
-/// to defer SwiftUI framebuffer publication while the Metal surface
-/// stays on the compositor transform path.
-public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (Bool) -> Void
+/// to decide whether streamed frames should stay deferred until the
+/// gesture settles or be admitted at a bounded cursor-follow cadence.
+public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (
+    _ isActive: Bool,
+    _ frameStrategy: ViewportInteractionFrameStrategy
+) -> Void
 
 /// Closure invoked with safe aggregate local viewport redraw counters.
 /// The host batches these counters locally and reports them at gesture
@@ -496,6 +499,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval,
         allowsFirstRedrawDuringGesture: true
     )
+    private var viewportGestureFrameStrategy: ViewportInteractionFrameStrategy = .deferUntilSettled
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
@@ -752,6 +756,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
         if isViewportTransformGestureActive {
+            guard viewportGestureFrameStrategy.allowsLiveFramebufferPublication else {
+                deferredFramebufferRedrawDuringViewportGesture = true
+                pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
+                return
+            }
+
             switch viewportGestureRedrawThrottle.recordIncomingFrame(
                 isGestureActive: true,
                 now: now
@@ -1096,7 +1106,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                     )
                 )
             if trackpadDragOwnsViewportInteraction {
-                beginViewportTransformGesture()
+                beginViewportTransformGesture(frameStrategy: .liveRemoteFrames)
             }
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
@@ -1307,6 +1317,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private func finishViewportTransformGesture() {
         let wasActive = isViewportTransformGestureActive
         isViewportTransformGestureActive = false
+        viewportGestureFrameStrategy = .deferUntilSettled
         viewportGestureLastSampleTimestamp = nil
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
         let shouldFlushRedraw = viewportGestureRedrawThrottle.flushAfterGesture()
@@ -1320,24 +1331,30 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             requestRedraw()
         }
         if wasActive {
-            viewportInteractionHandler?(false)
+            viewportInteractionHandler?(false, .deferUntilSettled)
         }
         flushViewportRedrawDiagnosticsIfNeeded()
     }
 
     @MainActor
-    private func beginViewportTransformGesture() {
+    private func beginViewportTransformGesture(
+        frameStrategy: ViewportInteractionFrameStrategy = .deferUntilSettled
+    ) {
         let wasInactive = !isViewportTransformGestureActive
+        let previousFrameStrategy = viewportGestureFrameStrategy
         if wasInactive {
             deferredFramebufferRedrawDuringViewportGesture = false
         }
+        viewportGestureFrameStrategy = frameStrategy
         isViewportTransformGestureActive = true
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
         if wasInactive {
             viewportGestureLastSampleTimestamp = nil
             pendingViewportRedrawDiagnostics.interactionCount += 1
             recordViewportDisplayRefreshRate()
-            viewportInteractionHandler?(true)
+            viewportInteractionHandler?(true, frameStrategy)
+        } else if previousFrameStrategy != frameStrategy {
+            viewportInteractionHandler?(true, frameStrategy)
         }
     }
 

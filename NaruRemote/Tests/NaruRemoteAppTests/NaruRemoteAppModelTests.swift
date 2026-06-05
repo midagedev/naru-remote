@@ -1509,6 +1509,81 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(10))
     }
 
+    func testDirectViewportInteractionDefersPartialFramesUntilGestureSettles() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 10,
+            height: 10,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 10,
+            height: 10,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let thirdFramebuffer = RFBRawFramebuffer(
+            width: 10,
+            height: 10,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let updates = [firstFramebuffer, secondFramebuffer, thirdFramebuffer].map { framebuffer in
+            RFBFramebufferUpdateResult(
+                framebuffer: framebuffer,
+                dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                changedPixelCount: 1
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 10,
+            height: 10,
+            name: "Desk",
+            updateResults: updates
+        )
+        let pacingSleepRecorder = PacingSleepRecorder()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 3,
+                frameInterval: 1.0 / 60.0,
+                idleFrameInterval: 0.05
+            ),
+            connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                pacingSleepRecorder.record(delay)
+                try await Task.sleep(for: .milliseconds(40))
+            }
+        )
+
+        await model.connectSelectedProfile()
+        _ = try await waitForRecordedPacingDelays(1, in: pacingSleepRecorder)
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.setViewportInteractionActive(true, frameStrategy: .deferUntilSettled)
+        let delays = try await waitForRecordedPacingDelays(3, in: pacingSleepRecorder)
+
+        XCTAssertEqual(
+            delays[1],
+            ViewportInteractionFramePublishPolicy.fullUploadContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            model.snapshot.latestFramebuffer,
+            firstFramebuffer,
+            "Direct pinch/pan should keep even partial remote frames deferred so texture uploads and SwiftUI publication do not compete with local navigation."
+        )
+
+        model.setViewportInteractionActive(false)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != thirdFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
+        model.disconnect()
+        try await Task.sleep(for: .milliseconds(10))
+    }
+
     func testViewportInteractionFramePublishPolicyPublishesOnlyBoundedPartialFrames() {
         let current = RFBRawFramebuffer(
             width: 10,

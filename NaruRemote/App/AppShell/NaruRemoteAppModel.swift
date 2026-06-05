@@ -242,7 +242,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
-    private var isViewportInteractionActive = false
+    private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
+    private var isViewportInteractionActive: Bool {
+        viewportInteractionFrameStrategy != nil
+    }
     private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
     private var lastViewportInteractionFramePublishedAt: Date?
     private var viewportInteractionStartedAt: Date?
@@ -2008,7 +2011,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         ? StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
                         : Self.viewportInteractionContentFrameInterval(
                             for: frame,
-                            currentFramebuffer: latestFramebuffer
+                            currentFramebuffer: latestFramebuffer,
+                            frameStrategy: viewportInteractionFrameStrategy
                         )
 
                     // Adaptive pacing: request the next content frame as
@@ -2160,12 +2164,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionStreamStats.recordViewportRedrawDiagnostics(diagnostics)
     }
 
-    public func setViewportInteractionActive(_ isActive: Bool) {
+    public func setViewportInteractionActive(
+        _ isActive: Bool,
+        frameStrategy: ViewportInteractionFrameStrategy = .liveRemoteFrames
+    ) {
         if isActive {
-            guard !isViewportInteractionActive else {
+            if isViewportInteractionActive {
+                viewportInteractionFrameStrategy = frameStrategy
                 return
             }
-            isViewportInteractionActive = true
+            viewportInteractionFrameStrategy = frameStrategy
             viewportInteractionStartedAt = Date()
             lastViewportInteractionFramePublishedAt = nil
             return
@@ -2174,7 +2182,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isViewportInteractionActive else {
             return
         }
-        isViewportInteractionActive = false
+        viewportInteractionFrameStrategy = nil
         viewportInteractionStartedAt = nil
         lastViewportInteractionFramePublishedAt = nil
         flushDeferredViewportInteractionFrame()
@@ -2339,6 +2347,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func shouldPublishFrameDuringViewportInteraction(_ frame: RFBFramePumpFrame) -> Bool {
+        guard viewportInteractionFrameStrategy?.allowsLiveFramebufferPublication == true else {
+            return false
+        }
+
         let uploadPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
             for: frame,
             currentFramebuffer: latestFramebuffer
@@ -2353,8 +2365,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private static func viewportInteractionContentFrameInterval(
         for frame: RFBFramePumpFrame,
-        currentFramebuffer: RFBRawFramebuffer?
+        currentFramebuffer: RFBRawFramebuffer?,
+        frameStrategy: ViewportInteractionFrameStrategy?
     ) -> TimeInterval {
+        guard frameStrategy?.allowsLiveFramebufferPublication == true else {
+            return ViewportInteractionFramePublishPolicy.fullUploadContentFrameIntervalSeconds
+        }
+
         let uploadPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
             for: frame,
             currentFramebuffer: currentFramebuffer
@@ -2804,7 +2821,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameStreamTask = nil
         activeFramePump = nil
         activeFrameStreamID = nil
-        isViewportInteractionActive = false
+        viewportInteractionFrameStrategy = nil
         deferredViewportInteractionFrame = nil
         lastViewportInteractionFramePublishedAt = nil
         viewportInteractionStartedAt = nil

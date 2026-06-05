@@ -116,8 +116,8 @@ public struct NaruRemoteAppShell: View {
             onTrackpadGesture: { gesture, transform in
                 model.handleTrackpadGesture(gesture, transform: transform)
             },
-            onViewportInteractionChange: { isActive in
-                model.setViewportInteractionActive(isActive)
+            onViewportInteractionChange: { isActive, frameStrategy in
+                model.setViewportInteractionActive(isActive, frameStrategy: frameStrategy)
             },
             onViewportRedrawDiagnostics: { diagnostics in
                 model.recordViewportRedrawDiagnostics(diagnostics)

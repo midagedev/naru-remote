@@ -59,7 +59,10 @@ public struct SessionViewportView: View {
     /// Reports local viewport manipulation lifecycle to the app model
     /// so it can coalesce incoming streaming frames while the Metal
     /// view redraws the current texture locally.
-    private let onViewportInteractionChange: ((Bool) -> Void)?
+    private let onViewportInteractionChange: ((
+        Bool,
+        ViewportInteractionFrameStrategy
+    ) -> Void)?
     private let onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler?
     /// Reports actual Metal texture upload timing back to the app
     /// model. Raw milliseconds stay memory-only; diagnostics export
@@ -172,7 +175,10 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
-        onViewportInteractionChange: ((Bool) -> Void)? = nil,
+        onViewportInteractionChange: ((
+            Bool,
+            ViewportInteractionFrameStrategy
+        ) -> Void)? = nil,
         onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler? = nil,
         onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
@@ -237,7 +243,10 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
-        onViewportInteractionChange: ((Bool) -> Void)? = nil,
+        onViewportInteractionChange: ((
+            Bool,
+            ViewportInteractionFrameStrategy
+        ) -> Void)? = nil,
         onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler? = nil,
         onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
@@ -1085,7 +1094,7 @@ public struct SessionViewportView: View {
                     // iPhone drags fight the fast UIKit path.
                     onTrackpadGesture?(gesture, transform)
                 },
-                onViewportInteractionChange: handleViewportInteractionChange(_:),
+                onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
                 onUploadTiming: onRendererUploadTiming
             )
@@ -1354,11 +1363,14 @@ public struct SessionViewportView: View {
         applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
 
-    private func handleViewportInteractionChange(_ isActive: Bool) {
+    private func handleViewportInteractionChange(
+        _ isActive: Bool,
+        frameStrategy: ViewportInteractionFrameStrategy
+    ) {
         if isViewportInteractionActive != isActive {
             isViewportInteractionActive = isActive
         }
-        onViewportInteractionChange?(isActive)
+        onViewportInteractionChange?(isActive, frameStrategy)
     }
 
     private var statusText: String {

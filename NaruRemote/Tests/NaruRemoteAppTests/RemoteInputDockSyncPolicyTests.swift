@@ -580,9 +580,9 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
             RemoteInputDockView.resolvedCompactStatusText(
                 hasStatus: false,
                 statusText: "Ready to compose locally",
-                helperStatusText: "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+                helperStatusText: "Korean/CJK/emoji needs Mac helper setup"
             ),
-            "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+            "Korean/CJK/emoji needs Mac helper setup"
         )
     }
 
