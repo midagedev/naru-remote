@@ -724,6 +724,16 @@ iPhone) and ships as its own PR.
   single benchmark decision surface before physical iPhone verification. Owns:
   benchmark summary kit, CLI report output, tests, benchmark docs/artifact,
   research note. **Done.**
+- **T399** Practical usability baseline goals: consolidate the next work from
+  small tuning increments into a larger `iphone-sustained-usability-v2` gate by
+  recording a current simulator frame-pipeline baseline, declaring profile-gate
+  pass/warning/fail interpretation as the first large-unit decision surface,
+  and making physical iPhone 10 minute hand-feel/thermal verification required
+  before production streaming defaults change. Use the baseline to steer the
+  next implementation unit toward live stream hit-rate, request cadence,
+  encoding profile, or physical-device thermal behavior rather than renderer
+  upload alone. Owns: benchmark artifact, benchmark README, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -2603,3 +2603,73 @@ ratios. They must not include host identity, credentials, framebuffer
 dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
 timings, raw samples, raw payloads, raw errors, external command text, command
 output, draft text, marked text, or IME state.
+
+## D68 — Use the v2 gate as the next larger-unit goal
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: treat `iphone-sustained-usability-v2` plus schema v37
+`streamShapeProfileGates` as the standard entry gate for larger optimization
+PRs. A production default change must have:
+
+- A redacted live v37 profile-gate run with controlled stimulus.
+- A clear artifact judgment for every `fail` or intentionally accepted
+  `warning` gate.
+- A physical iPhone 10 minute hand-feel and thermal pass before enabling the
+  change by default.
+
+Keep simulator synthetic frame-pipeline benchmarks as a local renderer
+regression guard, not as the final usability proof.
+
+**Why**:
+- Recent work already removed obvious renderer full-upload pressure from the
+  selected profiles. The latest iPhone simulator run also shows the local Metal
+  upload path completing well below a frame budget for 1920x1080 test frames:
+  steady-state full upload averaged about 4 ms, small dirty upload averaged
+  about 0.5 ms, and same-frame upload-gate skip was effectively zero-cost.
+- The remaining practical failures have been content-FPS, update latency,
+  hit-rate, cold-tail, Compose preparation, and thermal hand-feel. Those are
+  live-stream and device-behavior questions, so the next larger units should
+  start from v37 profile gates and then close on a physical iPhone.
+- RFC 6143's client-driven update requests make low content FPS ambiguous
+  without hit-rate evidence. TigerVNC's exposed encoding and pointer-rate
+  controls reinforce that cadence/profile decisions should be profile-level.
+  Apple's thermal guidance means a simulator pass cannot approve a sustained
+  phone default by itself.
+
+**Evidence**:
+- `NARU_RUN_SIM_BENCHMARKS=1` simulator benchmark on iPhone 17 Pro simulator,
+  1920x1080, 10 iterations:
+  - Full framebuffer allocation plus upload: 9 ms clock, 5 ms CPU.
+  - Steady-state full upload: 4 ms clock, 2 ms CPU.
+  - Small dirty-rectangle upload: about 0.5 ms clock, about 0.6 ms CPU.
+  - Same-frame upload-gate skip: about 0.003 ms clock, about 0.3 ms CPU.
+- The final clean benchmark run succeeded. A redacted live v37 run was not
+  executed in this increment because the current shell did not provide live
+  target or stimulus environment values.
+
+**Interpretation**:
+- If a future v37 gate fails with low received/content hit-rate, prioritize
+  server request cadence, transport, stimulus assumptions, or target
+  reachability before renderer work.
+- If a future v37 gate passes but the physical iPhone feels hot or stepped,
+  prioritize device pacing, thermal policy, viewport interaction scheduling, or
+  input/Compose routing before promoting defaults.
+- Renderer upload work should re-enter the main path only when simulator
+  benchmarks regress materially or live diagnostics show renderer full-upload
+  pressure above the v2 gate.
+
+**Privacy rule**: large-unit artifacts may report fixed target names, fixed
+profile/transport labels, fixed verdicts, fixed issue-code labels, aggregate
+run counts, aggregate permille ratios, aggregate timing buckets, simulator test
+names, and simulator aggregate benchmark means. They must not include host
+identity, credentials, framebuffer dimensions from a live target, coordinates,
+pixels, cursor pixels, byte counts, raw live samples, raw live payloads, raw
+errors, external command text, command output, draft text, marked text, or IME
+state.
