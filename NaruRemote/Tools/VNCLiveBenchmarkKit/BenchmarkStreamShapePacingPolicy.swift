@@ -56,8 +56,10 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
         appConsecutiveSevereLaggingContentFrameThreshold
     public static let appClientPressureRecoveryUpdateCount = StreamPressurePacingDefaults
         .adaptiveRecoveryUpdateCount
-    public static let appViewportInteractionContentFrameInterval: TimeInterval = 1.0 / 15.0
-    public static let appViewportInteractionIdleFrameInterval: TimeInterval = 0.125
+    public static let appViewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults
+        .viewportInteractionContentFrameIntervalSeconds
+    public static let appViewportInteractionIdleFrameInterval: TimeInterval = StreamPressurePacingDefaults
+        .viewportInteractionIdleFrameIntervalSeconds
     private static let pacingFloorComparisonTolerance: TimeInterval = 0.000_001
 
     public let contentFrameInterval: TimeInterval

@@ -130,7 +130,8 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
 
     func testViewportInteractionModeReportsTiedAppFloorAsActive() {
         let policy = BenchmarkStreamShapePacingPolicy(
-            contentFrameInterval: 1.0 / 15.0,
+            contentFrameInterval: BenchmarkStreamShapePacingPolicy
+                .appViewportInteractionContentFrameInterval,
             idleFrameInterval: 0.05,
             emptyBackoffMode: .app,
             viewportInteractionMode: .app
@@ -155,7 +156,8 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
 
     func testViewportInteractionModeToleratesRoundedFloorValues() {
         let policy = BenchmarkStreamShapePacingPolicy(
-            contentFrameInterval: 0.066667,
+            contentFrameInterval: BenchmarkStreamShapePacingPolicy
+                .appViewportInteractionContentFrameInterval + 0.000_000_5,
             idleFrameInterval: 0.05,
             emptyBackoffMode: .app,
             viewportInteractionMode: .app
@@ -163,7 +165,11 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
 
         let decision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
 
-        XCTAssertEqual(decision.delay, 0.066667, accuracy: 0.0001)
+        XCTAssertEqual(
+            decision.delay,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval + 0.000_000_5,
+            accuracy: 0.0001
+        )
         XCTAssertTrue(decision.usesViewportInteractionPacing)
     }
 

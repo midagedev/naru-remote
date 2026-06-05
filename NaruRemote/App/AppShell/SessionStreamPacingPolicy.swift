@@ -1,4 +1,5 @@
 import Foundation
+import NaruRemoteCore
 
 enum SessionStreamPacingEvent: Equatable, Sendable {
     case contentFrame
@@ -176,9 +177,9 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
 
         switch event {
         case .contentFrame:
-            return 1.0 / 15.0
+            return StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
         case .emptyUpdate:
-            return 0.125
+            return StreamPressurePacingDefaults.viewportInteractionIdleFrameIntervalSeconds
         }
     }
 }

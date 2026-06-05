@@ -478,6 +478,22 @@ iPhone) and ships as its own PR.
   legacy paste with `unknown` status. Owns: Metal viewport host, session
   viewport chrome, text-injection policy, app model, tests, research note.
   **Done.**
+- **T370** Viewport-interaction stream cooldown: after redacted local
+  Screen Sharing stream-shape benchmarks showed request/response ZRLE with
+  partial uploads but ContinuousUpdates failure and occasional full-dirty
+  tails, lower the active viewport-interaction stream pacing floor to an
+  8 Hz-class content cadence with 200 ms idle polling. Share the constants
+  between the app and `VNCLiveBenchmark`, and update app/benchmark tests plus
+  research evidence. Owns: Core pacing defaults, app pacing policy, benchmark
+  pacing parity, tests, research note. **Done.**
+- **T371** Touch-first viewport request pause and live Compose draft sync:
+  after physical iPhone feedback still reported stepped zoom/pan and unreliable
+  Compose input, pause new RFB framebuffer update requests while a local
+  viewport gesture is active and an existing frame is visible, keeping only
+  already-in-flight frame deferral for the gesture-end flush. Also propagate
+  marked-text Compose changes to the app model draft while still deferring
+  UIKit binding writes so IME composition is not overwritten. Owns: app frame
+  stream loop, Remote Input Dock sync policy, tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

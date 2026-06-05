@@ -1279,3 +1279,82 @@ attempt a legacy VNC clipboard paste as best-effort and leave the result
 raw timing samples, display dimensions, pixels, cursor pixels, byte counts,
 host identity, device identity, power state, paste payload bytes, and Compose
 draft text remain out of diagnostics and benchmark artifacts.
+
+## D42 — Cool the RFB stream more aggressively during local viewport gestures
+
+References:
+- RFB 3.8 framebuffer update flow:
+  https://vnc.alice.ws/novnc/docs/rfbproto-3.8.pdf
+- TigerVNC automatic protocol selection and pointer event pacing:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: while a local viewport gesture is active, keep strict
+framebuffer publish/upload deferral from D41 and also lower the app-side
+RFB request/decode cadence floor from the previous 15 Hz-class interaction
+floor to an 8 Hz-class content floor, with idle polls no faster than 200 ms.
+Mirror these values in `VNCLiveBenchmark` through shared Core defaults so
+future stream-shape probes continue to match production.
+
+**Why**:
+- D41 means incoming VNC frames are not published to SwiftUI or uploaded to
+  Metal until the gesture settles. Sampling remote content at 15 Hz during the
+  gesture therefore spends network/decode/allocator work mostly to replace the
+  single deferred "latest" frame. On a physical iPhone this can still compete
+  with touch tracking and contribute to heat.
+- RFB is request-driven: a `FramebufferUpdate` is sent in response to a
+  `FramebufferUpdateRequest`, and the client can regulate how often it asks
+  for more. TigerVNC's documented auto-selection does the same kind of
+  link/device trade-off by choosing encodings and pixel formats from measured
+  speed rather than assuming one global optimum.
+- Redacted local Screen Sharing benchmarks on 2026-06-05 showed actual ZRLE
+  stream-shape updates with small dirty areas and partial renderer uploads,
+  but ContinuousUpdates overlay failed on this server. The same run family also
+  showed occasional full-dirty / full-upload tails when interaction pacing was
+  off. This supports keeping the universal request/response path and giving
+  local gestures a stricter stream-pressure budget instead of trying to push
+  more mid-gesture remote frames.
+
+**Privacy rule**: no new raw data is exported. Benchmark and diagnostics may
+continue to report only aggregate frame/update counts, coarse latency
+summaries, renderer-upload strategy counts, fixed pacing constants, and
+permille ratios. Host identity, password, framebuffer dimensions, coordinates,
+pixels, cursor pixels, byte counts, exact per-frame timings, and Compose draft
+text remain out of artifacts.
+
+## D43 — Pause new RFB requests during local viewport gestures and keep Compose draft live
+
+References:
+- RFB 3.8 framebuffer update flow:
+  https://vnc.alice.ws/novnc/docs/rfbproto-3.8.pdf
+
+**Decision**: supersede the D42 "8 Hz-class mid-gesture request cadence" as the
+default iPhone behavior. While a local viewport gesture is active and an
+existing framebuffer is visible, pause new `FramebufferUpdateRequest` work
+entirely and poll only the local gesture-active flag. If a request was already
+in flight when the gesture began, keep D41's strict deferred publish/upload and
+flush the latest frame once the gesture settles.
+
+For Compose, keep the UIKit rule that SwiftUI must not write binding text back
+into a `UITextView` while marked text is active, but allow local marked-text
+changes to propagate to the app model draft. This keeps the field, send button,
+diagnostic input summary, and model state aligned without injecting text into
+the remote session until the user taps Send.
+
+**Why**:
+- Fresh physical iPhone feedback after D42 still reports stepped, unnatural
+  zoom/pan. Because RFB is client-request-driven, the cleanest way to protect
+  the touch loop is to stop asking the server for new framebuffer work while
+  the user is manipulating the already-visible texture.
+- The app already presents local viewport navigation from the current Metal
+  texture and coalesces the latest remote frame for gesture-end presentation.
+  Continuing decode/request work during the gesture primarily consumes CPU,
+  memory bandwidth, and socket work for pixels that will not be shown
+  immediately.
+- Compose feedback indicates that protecting UIKit marked text is not enough if
+  the app model draft remains stale. One-way local propagation keeps state
+  current while the existing stale-binding guard still prevents SwiftUI from
+  clobbering IME composition.
+
+**Privacy rule**: no new raw data is exported. The request pause exports no
+gesture coordinates, timestamps, dimensions, pixels, cursor pixels, byte counts,
+host identity, device identity, power state, or Compose draft text.
