@@ -861,6 +861,13 @@ iPhone) and ships as its own PR.
   and the contract artifact is the source of truth for those promotion
   requirements. Owns: benchmark artifact, README, spec/plan links, research
   note. **Done.**
+- **T414** Live preflight action hints: bump environment preflight schema to v2
+  with fixed setup action labels so missing host, credential, port, or stimulus
+  setup routes to the next safe operator action before the sustained v2 live
+  gate runs. Keep v1 JSON decodable and do not expose host identity,
+  credentials, port values, stimulus command text, raw TCP/RFB errors, or
+  command output. Owns: benchmark kit, CLI text output, tests, README,
+  benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

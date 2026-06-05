@@ -83,6 +83,10 @@ Current sustained usability candidate contract:
 Use this as the merge contract for larger default-changing PRs: benchmark-green
 first, physical iPhone green second, rollback note before production default
 changes.
+Current live preflight action artifact:
+`artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
+Schema v2 adds fixed setup action labels so missing benchmark inputs route to a
+next action without exposing host, credential, port, or stimulus command values.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -351,8 +355,11 @@ do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
-v1 readiness labels before connecting or prompting for a password, and is meant
-to explain why a live profile gate could not be attempted.
+v2 readiness labels before connecting or prompting for a password, including
+fixed `setupActionLabels` such as `set-naru-live-mac-host`,
+`set-naru-live-stimulus-command`, and `run-live-gate`. It is meant to explain
+why a live profile gate could not be attempted without printing configured
+target values.
 Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
 `streamShapeGatePreset` in benchmark reports. Schema v39 adds
 `sustained-v2-pixel-format` and `--stream-shape-profiles
