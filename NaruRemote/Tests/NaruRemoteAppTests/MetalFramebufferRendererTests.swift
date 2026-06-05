@@ -328,6 +328,43 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(bytes[outsideDirtyRectOffset + 2], 222)
     }
 
+    func testSparseLargeDirtyAreaUsesPartialUploadWhenChangedPixelCountIsLow() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        let baseline = RFBRawFramebuffer(
+            width: 4,
+            height: 4,
+            fill: RFBColor(red: 200, green: 0, blue: 0, alpha: 255)
+        )
+        renderer.enqueue(baseline)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        // 12/16 pixels are in the dirty rect (75%), but the decoder
+        // counted only one changed pixel inside that server damage
+        // region. Uploading that rect is still cheaper than copying the
+        // whole texture, and pixels outside the dirty rect must remain
+        // the prior baseline color.
+        let dirtyRect = RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 3)
+        let next = try makeHeterogeneousFramebuffer(
+            width: 4,
+            height: 4,
+            dirtyColor: RFBColor(red: 0, green: 220, blue: 0, alpha: 255),
+            otherColor: RFBColor(red: 0, green: 0, blue: 222, alpha: 255),
+            dirtyRect: dirtyRect
+        )
+
+        renderer.enqueue(next, dirtyRectangles: [dirtyRect], changedPixelCount: 1)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(renderer.lastUploadRegionCount, 1)
+
+        let bytes = try XCTUnwrap(renderer.readbackTextureForTesting())
+        let outsideDirtyRectOffset = ((3 * 4) + 0) * 4
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 0], 200)
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 1], 0)
+        XCTAssertEqual(bytes[outsideDirtyRectOffset + 2], 0)
+    }
+
     func testTooManyDirtyRectsFallsBackToFullUpload() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))

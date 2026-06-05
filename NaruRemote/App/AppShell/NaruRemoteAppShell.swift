@@ -79,6 +79,7 @@ public struct NaruRemoteAppShell: View {
             session: snapshot.session,
             framebuffer: snapshot.latestFramebuffer,
             frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
+            frameChangedPixelCount: snapshot.latestFrameChangedPixelCount,
             serverCursor: snapshot.latestServerCursor,
             isPiPWatchAvailable: model.canStartPiPWatch,
             pipWatchStatusText: model.pipWatchStatusText,

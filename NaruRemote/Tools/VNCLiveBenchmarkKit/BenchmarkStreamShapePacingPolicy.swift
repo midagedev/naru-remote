@@ -60,6 +60,8 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
         .consecutiveSevereLaggingContentFrameThreshold
     public static let appSustainedLaggingClientProcessingThresholdMilliseconds = StreamPressurePacingDefaults
         .sustainedLaggingLocalWorkThresholdMilliseconds
+    public static let appVerySlowClientProcessingThresholdMilliseconds = StreamPressurePacingDefaults
+        .verySlowLocalWorkThresholdMilliseconds
     public static let appConsecutiveSustainedLaggingContentFrameThreshold = StreamPressurePacingDefaults
         .consecutiveSustainedLaggingContentFrameThreshold
     public static let appConsecutiveFullUploadContentFrameThreshold = StreamPressurePacingDefaults
@@ -283,12 +285,20 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             return
         }
 
+        let verySlowThreshold = BenchmarkStreamShapePacingPolicy
+            .appVerySlowClientProcessingThresholdMilliseconds
+        if clientProcessingMilliseconds >= verySlowThreshold {
+            activatePowerSaverPacing()
+            return
+        }
+
         let sustainedLaggingThreshold = BenchmarkStreamShapePacingPolicy
             .appSustainedLaggingClientProcessingThresholdMilliseconds
         if clientProcessingMilliseconds >= sustainedLaggingThreshold {
             consecutiveSustainedLaggingContentFrames += 1
         } else {
             resetLaggingContentStreaks()
+            activatePowerSaverPacingIfNeeded()
             return
         }
 
@@ -317,6 +327,10 @@ public struct BenchmarkStreamShapeClientPressureState: Equatable, Sendable {
             return
         }
 
+        activatePowerSaverPacing()
+    }
+
+    private mutating func activatePowerSaverPacing() {
         adaptiveRecoveryUpdatesRemaining = max(
             adaptiveRecoveryUpdatesRemaining,
             BenchmarkStreamShapePacingPolicy.appClientPressureRecoveryUpdateCount

@@ -593,7 +593,8 @@ public struct SessionStreamStats: Equatable, Sendable {
             framebufferWidth: frame.framebuffer.width,
             framebufferHeight: frame.framebuffer.height,
             dirtyRectangles: dirtyRectangles,
-            requiresTextureRecreation: requiresTextureRecreation
+            requiresTextureRecreation: requiresTextureRecreation,
+            changedPixelCount: frame.isIncremental ? frame.changedPixelCount : nil
         )
 
         guard uploadPlan.strategy != .none else {
@@ -722,6 +723,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// this is the right default for first frames, the fallback path,
     /// and snapshot-driven previews that have no damage history.
     public var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    /// Changed-pixel count paired with `latestFrameDirtyRectangles`.
+    /// Used only for local upload planning; diagnostics export only
+    /// aggregate permille buckets from `sessionStreamStats`.
+    public var latestFrameChangedPixelCount: Int?
     /// Safe aggregate stream counters for the active session. These
     /// counters never include target identity, coordinates, dimensions,
     /// pixels, byte counts, raw latency/timing samples, or raw errors.
@@ -769,6 +774,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        latestFrameChangedPixelCount: Int? = nil,
         sessionStreamStats: SessionStreamStats = SessionStreamStats(),
         latestServerCursor: RFBServerCursor? = nil,
         profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
@@ -787,6 +793,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
+        self.latestFrameChangedPixelCount = latestFrameChangedPixelCount.map { max($0, 0) }
         self.sessionStreamStats = sessionStreamStats
         self.latestServerCursor = latestServerCursor
         self.profilePreviews = profilePreviews

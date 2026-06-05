@@ -9,6 +9,8 @@ public enum FramebufferUploadStrategy: String, Codable, Equatable, Sendable {
 public struct FramebufferUploadPlan: Codable, Equatable, Sendable {
     public static let maximumPartialUploadRegionCount = 64
     public static let maximumPartialUploadAreaFraction = 0.60
+    public static let maximumSparsePartialUploadAreaFraction = 0.85
+    public static let maximumSparsePartialChangedPixelFraction = 0.10
 
     public let strategy: FramebufferUploadStrategy
     public let uploadRegionCount: Int
@@ -23,6 +25,7 @@ public struct FramebufferUploadPlan: Codable, Equatable, Sendable {
         framebufferHeight: Int,
         dirtyRectangles: [RFBFrameDamageRect]?,
         requiresTextureRecreation: Bool,
+        changedPixelCount: Int? = nil,
         shouldUpload: Bool = true
     ) -> FramebufferUploadPlan {
         guard shouldUpload, framebufferWidth > 0, framebufferHeight > 0 else {
@@ -43,11 +46,18 @@ public struct FramebufferUploadPlan: Codable, Equatable, Sendable {
             return FramebufferUploadPlan(strategy: .full, uploadRegionCount: 1)
         }
 
-        guard dirtyAreaFraction(
+        let dirtyAreaFraction = dirtyAreaFraction(
             validDirtyRectangles,
             textureWidth: framebufferWidth,
             textureHeight: framebufferHeight
-        ) <= maximumPartialUploadAreaFraction else {
+        )
+        let canUseSparsePartialUpload = sparseDamageCanUsePartialUpload(
+            dirtyAreaFraction: dirtyAreaFraction,
+            changedPixelCount: changedPixelCount,
+            textureWidth: framebufferWidth,
+            textureHeight: framebufferHeight
+        )
+        guard dirtyAreaFraction <= maximumPartialUploadAreaFraction || canUseSparsePartialUpload else {
             return FramebufferUploadPlan(strategy: .full, uploadRegionCount: 1)
         }
 
@@ -89,5 +99,24 @@ public struct FramebufferUploadPlan: Codable, Equatable, Sendable {
             total + rect.width * rect.height
         }
         return Double(dirtyArea) / Double(fullArea)
+    }
+
+    private static func sparseDamageCanUsePartialUpload(
+        dirtyAreaFraction: Double,
+        changedPixelCount: Int?,
+        textureWidth: Int,
+        textureHeight: Int
+    ) -> Bool {
+        guard dirtyAreaFraction <= maximumSparsePartialUploadAreaFraction,
+              let changedPixelCount
+        else {
+            return false
+        }
+        let fullArea = textureWidth * textureHeight
+        guard fullArea > 0 else {
+            return false
+        }
+        let changedFraction = Double(max(changedPixelCount, 0)) / Double(fullArea)
+        return changedFraction <= maximumSparsePartialChangedPixelFraction
     }
 }

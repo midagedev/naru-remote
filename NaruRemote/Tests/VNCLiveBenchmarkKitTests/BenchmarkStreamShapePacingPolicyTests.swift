@@ -217,6 +217,34 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         )
     }
 
+    func testClientPressureStateActivatesAppFloorAfterSingleVerySlowContentSample() {
+        let policy = BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: 1.0 / 60.0,
+            idleFrameInterval: 0.05,
+            clientPressureMode: .app
+        )
+        var state = BenchmarkStreamShapeClientPressureState()
+        let verySlowContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 1_240,
+            networkReadMilliseconds: 20,
+            clientProcessingMilliseconds: 1_220
+        )
+
+        state.record(sample: verySlowContent, mode: policy.clientPressureMode)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+        XCTAssertEqual(
+            policy.delay(
+                isEmptyUpdate: false,
+                emptyUpdateStreak: 0,
+                usesAdaptiveClientPressure: state.usesAdaptivePowerSaverPacing
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+    }
+
     func testClientPressureStateActivatesAppFloorAfterSustainedModerateContentSamples() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,
@@ -330,6 +358,26 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
             receiveTotalMilliseconds: 25,
             networkReadMilliseconds: 10,
             clientProcessingMilliseconds: nil,
+            rendererUploadStrategy: .full
+        )
+
+        for _ in 0..<(BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold - 1) {
+            state.record(sample: fullUploadContent, mode: .app)
+            XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+        }
+
+        state.record(sample: fullUploadContent, mode: .app)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testClientPressureStateActivatesAfterSustainedFullUploadContentSamplesWithTiming() {
+        var state = BenchmarkStreamShapeClientPressureState()
+        let fullUploadContent = streamShapeSample(
+            kind: .contentUpdate,
+            receiveTotalMilliseconds: 25,
+            networkReadMilliseconds: 10,
+            clientProcessingMilliseconds: 15,
             rendererUploadStrategy: .full
         )
 

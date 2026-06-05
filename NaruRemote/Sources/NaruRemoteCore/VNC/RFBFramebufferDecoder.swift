@@ -33,6 +33,61 @@ public enum RFBFramebufferDecoder {
     private static let maxCursorDimension = 1_024
     private static let maxCursorPixels = 1_048_576
 
+    private struct DecodedFrameDamage {
+        var dirtyRectangles: [RFBFrameDamageRect] = []
+        var changedPixelCount = 0
+
+        mutating func append(_ accumulator: FrameDamageAccumulator) {
+            guard let rectangle = accumulator.boundingRectangle else {
+                return
+            }
+            dirtyRectangles.append(rectangle)
+            changedPixelCount += accumulator.changedPixelCount
+        }
+
+        mutating func appendConservativeRectangle(
+            x: Int,
+            y: Int,
+            width: Int,
+            height: Int,
+            changedPixelCount: Int
+        ) {
+            guard width > 0, height > 0, changedPixelCount > 0 else {
+                return
+            }
+            dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
+            self.changedPixelCount += changedPixelCount
+        }
+    }
+
+    private struct FrameDamageAccumulator {
+        private var minX: Int?
+        private var minY: Int?
+        private var maxX: Int?
+        private var maxY: Int?
+        private(set) var changedPixelCount = 0
+
+        mutating func recordPixel(x: Int, y: Int) {
+            changedPixelCount += 1
+            minX = min(minX ?? x, x)
+            minY = min(minY ?? y, y)
+            maxX = max(maxX ?? x, x)
+            maxY = max(maxY ?? y, y)
+        }
+
+        var boundingRectangle: RFBFrameDamageRect? {
+            guard let minX, let minY, let maxX, let maxY else {
+                return nil
+            }
+            return RFBFrameDamageRect(
+                x: minX,
+                y: minY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1
+            )
+        }
+    }
+
     public static func decodeUpdate(
         reader: RFBByteReader,
         serverInit: RFBServerInit,
@@ -191,17 +246,15 @@ public enum RFBFramebufferDecoder {
                     stream = try RFBZlibInflateStream()
                     activeZlibStream = stream
                 }
-                let changed = try decodeZRLE(
+                let damage = try decodeZRLE(
                     reader: reader,
                     into: &framebuffer,
                     x: x, y: y, width: width, height: height,
                     currentWidth: currentWidth, currentHeight: currentHeight,
                     pixelFormat: pixelFormat, zlib: stream
                 )
-                if width > 0, height > 0 {
-                    dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
-                    changedPixelCount += changed
-                }
+                dirtyRectangles.append(contentsOf: damage.dirtyRectangles)
+                changedPixelCount += damage.changedPixelCount
 
             case RFBEncoding.tight:
                 let tightStreams: RFBTightZlibStreams
@@ -581,7 +634,7 @@ public enum RFBFramebufferDecoder {
         x: Int, y: Int, width: Int, height: Int,
         currentWidth: Int, currentHeight: Int,
         pixelFormat: RFBPixelFormat, zlib: RFBZlibInflateStream
-    ) throws -> Int {
+    ) throws -> DecodedFrameDamage {
         try validateRectangle(x: x, y: y, width: width, height: height, currentWidth: currentWidth, currentHeight: currentHeight)
 
         // The compressed length is read (and the bytes consumed off the
@@ -594,12 +647,12 @@ public enum RFBFramebufferDecoder {
         let compressed = try reader.readBytes(length)
         guard width > 0, height > 0 else {
             _ = try zlib.inflate(compressed)
-            return 0
+            return DecodedFrameDamage()
         }
 
         let tiles = RFBDataReader(try zlib.inflate(compressed))
         let cpixelSize = pixelFormat.cpixelByteCount
-        var changed = 0
+        var damage = DecodedFrameDamage()
 
         var tileY = 0
         while tileY < height {
@@ -612,22 +665,43 @@ public enum RFBFramebufferDecoder {
                 let pixelCount = tileWidth * tileHeight
 
                 let subencoding = try tiles.readUInt8()
+                var tileDamage = FrameDamageAccumulator()
                 switch subencoding {
                 case 0:
                     // Raw CPIXELs, raster order.
                     let bytes = try tiles.readBytes(pixelCount * cpixelSize)
                     for raster in 0..<pixelCount {
                         let color = pixelFormat.decodeCPixel(bytes, at: raster * cpixelSize, size: cpixelSize)
-                        if zrleWrite(&framebuffer, raster: raster, tileWidth: tileWidth, originX: originX, originY: originY, color: color) {
-                            changed += 1
-                        }
+                        recordZRLEWrite(
+                            &framebuffer,
+                            damage: &tileDamage,
+                            raster: raster,
+                            tileWidth: tileWidth,
+                            originX: originX,
+                            originY: originY,
+                            color: color
+                        )
                     }
+                    damage.append(tileDamage)
 
                 case 1:
                     // Solid tile — one CPIXEL fills it.
                     let bytes = try tiles.readBytes(cpixelSize)
                     let color = pixelFormat.decodeCPixel(bytes, at: 0, size: cpixelSize)
-                    changed += framebuffer.fillRegionTrackingChange(x: originX, y: originY, width: tileWidth, height: tileHeight, color: color)
+                    let changedPixelCount = framebuffer.fillRegionTrackingChange(
+                        x: originX,
+                        y: originY,
+                        width: tileWidth,
+                        height: tileHeight,
+                        color: color
+                    )
+                    damage.appendConservativeRectangle(
+                        x: originX,
+                        y: originY,
+                        width: tileWidth,
+                        height: tileHeight,
+                        changedPixelCount: changedPixelCount
+                    )
 
                 case 2...16:
                     // Packed palette: palette of `subencoding` CPIXELs, then
@@ -646,11 +720,18 @@ public enum RFBFramebufferDecoder {
                             guard index < palette.count else {
                                 throw RFBRawFramebufferDecoderError.malformedZRLE
                             }
-                            if zrleWrite(&framebuffer, raster: row * tileWidth + col, tileWidth: tileWidth, originX: originX, originY: originY, color: palette[index]) {
-                                changed += 1
-                            }
+                            recordZRLEWrite(
+                                &framebuffer,
+                                damage: &tileDamage,
+                                raster: row * tileWidth + col,
+                                tileWidth: tileWidth,
+                                originX: originX,
+                                originY: originY,
+                                color: palette[index]
+                            )
                         }
                     }
+                    damage.append(tileDamage)
 
                 case 128:
                     // Plain RLE: runs of <CPIXEL, length>.
@@ -663,12 +744,19 @@ public enum RFBFramebufferDecoder {
                             throw RFBRawFramebufferDecoderError.malformedZRLE
                         }
                         for _ in 0..<runLength {
-                            if zrleWrite(&framebuffer, raster: painted, tileWidth: tileWidth, originX: originX, originY: originY, color: color) {
-                                changed += 1
-                            }
+                            recordZRLEWrite(
+                                &framebuffer,
+                                damage: &tileDamage,
+                                raster: painted,
+                                tileWidth: tileWidth,
+                                originX: originX,
+                                originY: originY,
+                                color: color
+                            )
                             painted += 1
                         }
                     }
+                    damage.append(tileDamage)
 
                 case 130...255:
                     // Palette RLE: palette of `subencoding-128` CPIXELs, then
@@ -692,12 +780,19 @@ public enum RFBFramebufferDecoder {
                         }
                         let color = palette[paletteIndex]
                         for _ in 0..<runLength {
-                            if zrleWrite(&framebuffer, raster: painted, tileWidth: tileWidth, originX: originX, originY: originY, color: color) {
-                                changed += 1
-                            }
+                            recordZRLEWrite(
+                                &framebuffer,
+                                damage: &tileDamage,
+                                raster: painted,
+                                tileWidth: tileWidth,
+                                originX: originX,
+                                originY: originY,
+                                color: color
+                            )
                             painted += 1
                         }
                     }
+                    damage.append(tileDamage)
 
                 default:
                     // 17...127 and 129 are unused / invalid.
@@ -708,7 +803,7 @@ public enum RFBFramebufferDecoder {
             }
             tileY += 64
         }
-        return changed
+        return damage
     }
 
     private static func readPalette(
@@ -740,15 +835,20 @@ public enum RFBFramebufferDecoder {
         return length
     }
 
-    private static func zrleWrite(
+    private static func recordZRLEWrite(
         _ framebuffer: inout RFBRawFramebuffer,
+        damage: inout FrameDamageAccumulator,
         raster: Int,
         tileWidth: Int,
         originX: Int,
         originY: Int,
         color: RFBColor
-    ) -> Bool {
-        framebuffer.setPixelTrackingChange(color, x: originX + raster % tileWidth, y: originY + raster / tileWidth)
+    ) {
+        let x = originX + raster % tileWidth
+        let y = originY + raster / tileWidth
+        if framebuffer.setPixelTrackingChange(color, x: x, y: y) {
+            damage.recordPixel(x: x, y: y)
+        }
     }
 
     // MARK: - Tight (encoding 7, fill + basic filters + JPEG)

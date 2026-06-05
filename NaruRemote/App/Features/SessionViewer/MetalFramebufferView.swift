@@ -104,6 +104,7 @@ public typealias MetalFramebufferViewportRedrawDiagnosticsHandler = @MainActor @
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let dirtyRectangles: [RFBFrameDamageRect]?
+    private let changedPixelCount: Int?
     private let sessionID: RemoteSession.ID?
     private let device: MTLDevice?
     private let accessibilityIdentifier: String
@@ -140,6 +141,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     public init(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
+        changedPixelCount: Int? = nil,
         sessionID: RemoteSession.ID? = nil,
         device: MTLDevice? = MTLCreateSystemDefaultDevice(),
         accessibilityIdentifier: String = "naru.session.metalFramebuffer",
@@ -166,6 +168,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     ) {
         self.framebuffer = framebuffer
         self.dirtyRectangles = dirtyRectangles
+        self.changedPixelCount = changedPixelCount.map { max($0, 0) }
         self.sessionID = sessionID
         self.device = device
         self.accessibilityIdentifier = accessibilityIdentifier
@@ -242,7 +245,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         context.coordinator.updateUploadTimingHandler(onUploadTiming)
         let didEnqueueFramebuffer = context.coordinator.enqueue(
             framebuffer,
-            dirtyRectangles: dirtyRectangles
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount
         )
         uiView.tapHandler = onTap
         uiView.rightClickHandler = onRightClick
@@ -306,15 +310,21 @@ public struct MetalFramebufferView: UIViewRepresentable {
         @discardableResult
         func enqueue(
             _ framebuffer: RFBRawFramebuffer,
-            dirtyRectangles: [RFBFrameDamageRect]? = nil
+            dirtyRectangles: [RFBFrameDamageRect]? = nil,
+            changedPixelCount: Int? = nil
         ) -> Bool {
             guard uploadGate.shouldEnqueue(
                 framebuffer: framebuffer,
-                dirtyRectangles: dirtyRectangles
+                dirtyRectangles: dirtyRectangles,
+                changedPixelCount: changedPixelCount
             ) else {
                 return false
             }
-            renderer?.enqueue(framebuffer, dirtyRectangles: dirtyRectangles)
+            renderer?.enqueue(
+                framebuffer,
+                dirtyRectangles: dirtyRectangles,
+                changedPixelCount: changedPixelCount
+            )
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
             return true
         }

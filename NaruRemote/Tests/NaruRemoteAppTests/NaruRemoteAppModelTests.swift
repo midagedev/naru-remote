@@ -327,6 +327,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterSingleVerySlowLocalWorkFrame() {
+        var state = SessionStreamPressurePacingState()
+        let frame = pressureTestFrame(
+            totalMilliseconds: 1_240,
+            networkReadMilliseconds: 20
+        )
+
+        state.record(frame: frame)
+
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testSessionStreamPressurePacingStateActivatesAfterSustainedModerateClientProcessing() {
         var state = SessionStreamPressurePacingState()
         let moderateFrame = pressureTestFrame(

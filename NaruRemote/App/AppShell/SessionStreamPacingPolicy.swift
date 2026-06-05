@@ -205,7 +205,8 @@ struct ViewportInteractionFramePublishPolicy: Equatable, Sendable {
             dirtyRectangles: frame.isIncremental ? frame.dirtyRectangles : nil,
             requiresTextureRecreation: currentFramebuffer.map { current in
                 current.width != frame.framebuffer.width || current.height != frame.framebuffer.height
-            } ?? true
+            } ?? true,
+            changedPixelCount: frame.isIncremental ? frame.changedPixelCount : nil
         )
     }
 
