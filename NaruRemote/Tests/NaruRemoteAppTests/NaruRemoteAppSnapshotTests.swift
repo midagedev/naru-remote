@@ -222,7 +222,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.inputStatusText,
-            "Multilingual Compose needs helper or UTF-8 clipboard"
+            "Multilingual Compose needs Mac helper"
         )
     }
 
@@ -237,7 +237,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.inputHelperStatusText,
-            "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+            "Korean/CJK/emoji needs Mac helper setup"
         )
     }
 
