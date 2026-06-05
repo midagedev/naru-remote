@@ -636,15 +636,23 @@ iPhone) and ships as its own PR.
   unchanged, and use the evidence to target explicit warm-up/preflight behavior
   next. Owns: benchmark kit/CLI/tests, benchmark docs/artifact, research note.
   **Done.**
-- **T389** Warm-up/preflight practical-use gate: add an app and benchmark
-  warm-up/preflight policy that absorbs cold first-profile/server tails before
-  user-visible interaction when it improves schema v33 order-neutral scoring.
-  Verify the larger unit with a rotated `zrle-isolation` gate, a sustained
-  stimulated `core-matrix` run against the do-not-regress and practical-use
-  target bands, Compose route diagnostics, and a physical iPhone 10 minute
-  thermal/hand-feel pass before changing production defaults. Owns: stream
-  warm-up policy, benchmark mode or artifact, app pacing, focused tests,
-  physical-device verification note.
+- **T389** Benchmark warm-up/preflight gate: extend `VNCLiveBenchmark` schema
+  v34 with `--stream-shape-preflight-frames N`, consuming a bounded number of
+  hidden incremental frames after the stream-shape first frame and before
+  measured samples. Record a redacted stimulated `zrle-isolation` run with one
+  hidden preflight frame, keep the production app default unchanged, and use the
+  evidence to decide whether app-side hidden preflight deserves a physical
+  iPhone pass. Owns: benchmark CLI/report/docs, benchmark artifact, research
+  note. **Done.**
+- **T390** App-side preflight production gate: after v34 showed hidden
+  preflight can remove the `local-low-latency` very-slow cold tail but still
+  leaves content FPS below the practical target, test whether enabling one
+  hidden post-first-frame incremental preflight in the app improves physical
+  iPhone hand feel without making the just-connected screen feel stale. Verify
+  with a 10 minute physical iPhone thermal/hand-feel pass, Compose route
+  diagnostics, and a sustained stimulated `core-matrix` comparison before
+  changing production defaults. Owns: app stream policy, app model tests,
+  physical-device verification note, benchmark artifact.
 
 ## Cross-cutting (every increment)
 
