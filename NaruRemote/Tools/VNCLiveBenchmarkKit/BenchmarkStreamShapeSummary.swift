@@ -143,6 +143,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let receiveTotalMilliseconds: Int?
     public let networkReadMilliseconds: Int?
     public let clientProcessingMilliseconds: Int?
+    public let zrleInflateMilliseconds: Int?
+    public let zrleTileApplyMilliseconds: Int?
     public let actualEncodingMix: RFBFramebufferEncodingMix
 
     private enum CodingKeys: String, CodingKey {
@@ -156,6 +158,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         case receiveTotalMilliseconds
         case networkReadMilliseconds
         case clientProcessingMilliseconds
+        case zrleInflateMilliseconds
+        case zrleTileApplyMilliseconds
         case actualEncodingMix
     }
 
@@ -170,6 +174,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         receiveTotalMilliseconds: Int? = nil,
         networkReadMilliseconds: Int? = nil,
         clientProcessingMilliseconds: Int? = nil,
+        zrleInflateMilliseconds: Int? = nil,
+        zrleTileApplyMilliseconds: Int? = nil,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
     ) {
         self.kind = kind
@@ -182,6 +188,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         self.receiveTotalMilliseconds = Self.clampOptionalMilliseconds(receiveTotalMilliseconds)
         self.networkReadMilliseconds = Self.clampOptionalMilliseconds(networkReadMilliseconds)
         self.clientProcessingMilliseconds = Self.clampOptionalMilliseconds(clientProcessingMilliseconds)
+        self.zrleInflateMilliseconds = Self.clampOptionalMilliseconds(zrleInflateMilliseconds)
+        self.zrleTileApplyMilliseconds = Self.clampOptionalMilliseconds(zrleTileApplyMilliseconds)
         self.actualEncodingMix = actualEncodingMix
     }
 
@@ -203,6 +211,14 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
             clientProcessingMilliseconds: try container.decodeIfPresent(
                 Int.self,
                 forKey: .clientProcessingMilliseconds
+            ),
+            zrleInflateMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .zrleInflateMilliseconds
+            ),
+            zrleTileApplyMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .zrleTileApplyMilliseconds
             ),
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
@@ -237,6 +253,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let receiveTotalLatency: BenchmarkLatencySummary?
     public let networkReadLatency: BenchmarkLatencySummary?
     public let clientProcessingLatency: BenchmarkLatencySummary?
+    public let zrleInflateLatency: BenchmarkLatencySummary?
+    public let zrleTileApplyLatency: BenchmarkLatencySummary?
     public let tailLatency: BenchmarkStreamShapeTailSummary
     public let rendererUploadSampleCount: Int
     public let rendererPartialUploadSamples: Int
@@ -286,6 +304,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case receiveTotalLatency
         case networkReadLatency
         case clientProcessingLatency
+        case zrleInflateLatency
+        case zrleTileApplyLatency
         case tailLatency
         case rendererUploadSampleCount
         case rendererPartialUploadSamples
@@ -371,6 +391,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.receiveTotalLatency = BenchmarkLatencySummary(samples.compactMap(\.receiveTotalMilliseconds))
         self.networkReadLatency = BenchmarkLatencySummary(samples.compactMap(\.networkReadMilliseconds))
         self.clientProcessingLatency = BenchmarkLatencySummary(samples.compactMap(\.clientProcessingMilliseconds))
+        self.zrleInflateLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleInflateMilliseconds))
+        self.zrleTileApplyLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleTileApplyMilliseconds))
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
         self.rendererUploadSampleCount = rendererUploadSamples.count
         self.rendererPartialUploadSamples = rendererPartialUploadSamples
@@ -451,6 +473,14 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.clientProcessingLatency = try container.decodeIfPresent(
             BenchmarkLatencySummary.self,
             forKey: .clientProcessingLatency
+        )
+        self.zrleInflateLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .zrleInflateLatency
+        )
+        self.zrleTileApplyLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .zrleTileApplyLatency
         )
         self.tailLatency = try container.decode(BenchmarkStreamShapeTailSummary.self, forKey: .tailLatency)
         self.rendererUploadSampleCount = try container.decode(Int.self, forKey: .rendererUploadSampleCount)
@@ -708,6 +738,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         try container.encodeIfPresent(receiveTotalLatency, forKey: .receiveTotalLatency)
         try container.encodeIfPresent(networkReadLatency, forKey: .networkReadLatency)
         try container.encodeIfPresent(clientProcessingLatency, forKey: .clientProcessingLatency)
+        try container.encodeIfPresent(zrleInflateLatency, forKey: .zrleInflateLatency)
+        try container.encodeIfPresent(zrleTileApplyLatency, forKey: .zrleTileApplyLatency)
         try container.encode(tailLatency, forKey: .tailLatency)
         try container.encode(rendererUploadSampleCount, forKey: .rendererUploadSampleCount)
         try container.encode(rendererPartialUploadSamples, forKey: .rendererPartialUploadSamples)

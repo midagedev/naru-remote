@@ -1778,3 +1778,61 @@ first slow and first very-slow ordinals in the human report.
 and aggregate counts. It must not include per-frame arrays, raw timestamps,
 dimensions, coordinates, pixels, cursor pixels, byte counts, host identity,
 credentials, or raw error text.
+
+## D54 — Split ZRLE inflate from tile/apply before optimizing the next bottleneck
+
+References:
+- RFC 6143 ZRLE definition and single zlib stream requirement:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer preferred encoding / quality / compression options:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add safe aggregate ZRLE phase timing to the benchmark path before
+spending another large unit on decoder micro-optimization. `RFBFramebufferDecoder`
+now records coarse per-update ZRLE inflate time separately from ZRLE tile
+parse/framebuffer-apply time, and `VNCLiveBenchmark` schema v31 aggregates those
+fields as `zrleInflateLatency` and `zrleTileApplyLatency`.
+
+**Why**:
+- RFC 6143 defines ZRLE as a 4-byte compressed length followed by zlib data,
+  decoded through one session-lifetime zlib stream, then interpreted as 64x64
+  tiles. That makes inflate and tile/apply the two useful local decode phases
+  to separate.
+- TigerVNC exposes preferred encoding and compression/quality knobs, so a
+  practical viewer must be able to tell whether changing encoding profile or
+  compression level is actually helping local work rather than moving pressure
+  to server/network wait.
+- Prior v30 telemetry showed where slow/very-slow updates occur but still
+  grouped inflate, tile parsing, framebuffer mutation, and result construction
+  into one client-processing number. That was not enough to choose the next
+  large work unit.
+
+**Evidence**:
+- Focused decoder/frame-pump tests pass with decode metrics preserved through
+  legacy JSON, `withTiming`, and frame-pump metadata.
+- Focused benchmark summary tests pass with ZRLE phase latency aggregation and
+  legacy JSON omission handling.
+- v31 localhost Screen Sharing 20 second `local-low-latency` run:
+  practical verdict `warning`, issue `content-fps-warning`, 142 received
+  updates, 123 content updates, content FPS 6.15, update p50/p95/max
+  28/488/552 ms, network read p50/p95/max 21/487/549 ms, client processing
+  p50/p95/max 3/12/28 ms, 142 ZRLE rectangles, ZRLE inflate avg/p50/p95/max
+  0/0/0/23 ms, ZRLE tile/apply avg/p50/p95/max 3/3/11/18 ms, renderer
+  full-upload pressure 0 permille, adaptive client-pressure pacing 0 permille,
+  and no 1000 ms-class very-slow updates.
+
+**Interpretation**:
+- The first v31 run did not reproduce the earlier 2 second-class first-content
+  tail. In this baseline, local ZRLE decode is not the p95 bottleneck: client
+  processing and ZRLE tile/apply stay in the low-millisecond range while p95
+  update latency tracks receive/network wait.
+- The next larger unit should therefore compare request/response against
+  ContinuousUpdates/Fence and encoding profiles over longer sustained runs,
+  then repeat the same v31 shape on a physical iPhone to capture thermal/FPS
+  behavior.
+
+**Privacy rule**: ZRLE phase timing may report only aggregate millisecond
+summaries attached to fixed encoding labels. It must not include host identity,
+credentials, framebuffer dimensions, rectangle coordinates, tile coordinates,
+pixels, cursor pixels, compressed or decompressed byte counts, raw samples, raw
+payloads, or raw error text.

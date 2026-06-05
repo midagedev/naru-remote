@@ -132,6 +132,11 @@ full-upload pressure still reports `streamShapeClientPressureRecoveryUpdateCount
 Schema v30 adds optional `tailLatency` ordinal aggregates for the first slow and
 very-slow update/content update, so cold-start tails can be distinguished from
 later sustained tails without exporting raw per-frame samples.
+Schema v31 adds optional aggregate ZRLE decode phase summaries
+(`zrleInflateLatency` and `zrleTileApplyLatency`) for stream-shape samples whose
+actual encoding mix includes ZRLE. These fields split local zlib inflate from
+local tile parsing/framebuffer apply work without exporting dimensions,
+coordinates, pixels, byte counts, raw payloads, or per-frame sample arrays.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive

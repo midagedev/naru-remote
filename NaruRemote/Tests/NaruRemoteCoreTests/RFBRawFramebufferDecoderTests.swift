@@ -161,6 +161,24 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(clamped.clientProcessingMilliseconds, 0)
     }
 
+    func testFramebufferDecodeMetricsClampSafeAggregates() {
+        let metrics = RFBFramebufferDecodeMetrics(
+            zrleInflateMilliseconds: 12,
+            zrleTileApplyMilliseconds: 34
+        )
+        let clamped = RFBFramebufferDecodeMetrics(
+            zrleInflateMilliseconds: -1,
+            zrleTileApplyMilliseconds: -2
+        )
+
+        XCTAssertEqual(metrics.zrleInflateMilliseconds, 12)
+        XCTAssertEqual(metrics.zrleTileApplyMilliseconds, 34)
+        XCTAssertTrue(metrics.hasMeasurements)
+        XCTAssertEqual(clamped.zrleInflateMilliseconds, 0)
+        XCTAssertEqual(clamped.zrleTileApplyMilliseconds, 0)
+        XCTAssertFalse(clamped.hasMeasurements)
+    }
+
     func testFramebufferEncodingMixClampsAndAggregatesSafeCounts() {
         let mix = RFBFramebufferEncodingMix(
             rawRectangles: -1,
@@ -195,6 +213,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         object.removeValue(forKey: "endedContinuousUpdates")
         object.removeValue(forKey: "transportIdleTimedOut")
         object.removeValue(forKey: "timing")
+        object.removeValue(forKey: "decodeMetrics")
         object.removeValue(forKey: "encodingMix")
         let legacyPayload = try JSONSerialization.data(withJSONObject: object)
 
@@ -203,6 +222,7 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertFalse(decoded.endedContinuousUpdates)
         XCTAssertFalse(decoded.transportIdleTimedOut)
         XCTAssertNil(decoded.timing)
+        XCTAssertEqual(decoded.decodeMetrics, RFBFramebufferDecodeMetrics())
         XCTAssertEqual(decoded.encodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(decoded.framebuffer, original.framebuffer)
         XCTAssertEqual(decoded.dirtyRectangles, original.dirtyRectangles)
@@ -262,6 +282,46 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(decoded.timing?.totalMilliseconds, 42)
         XCTAssertEqual(decoded.timing?.networkReadMilliseconds, 40)
         XCTAssertEqual(decoded.timing?.clientProcessingMilliseconds, 2)
+    }
+
+    func testFramebufferUpdateResultRoundTripsDecodeMetrics() throws {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            decodeMetrics: RFBFramebufferDecodeMetrics(
+                zrleInflateMilliseconds: 11,
+                zrleTileApplyMilliseconds: 22
+            )
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RFBFramebufferUpdateResult.self,
+            from: try JSONEncoder().encode(original)
+        )
+
+        XCTAssertEqual(decoded.decodeMetrics.zrleInflateMilliseconds, 11)
+        XCTAssertEqual(decoded.decodeMetrics.zrleTileApplyMilliseconds, 22)
+    }
+
+    func testWithTimingPreservesDecodeMetrics() {
+        let original = RFBFramebufferUpdateResult(
+            framebuffer: RFBRawFramebuffer(width: 1, height: 1),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            decodeMetrics: RFBFramebufferDecodeMetrics(
+                zrleInflateMilliseconds: 3,
+                zrleTileApplyMilliseconds: 5
+            )
+        )
+
+        let updated = original.withTiming(
+            RFBFramebufferUpdateTiming(totalMilliseconds: 20, networkReadMilliseconds: 7)
+        )
+
+        XCTAssertEqual(updated.timing?.clientProcessingMilliseconds, 13)
+        XCTAssertEqual(updated.decodeMetrics.zrleInflateMilliseconds, 3)
+        XCTAssertEqual(updated.decodeMetrics.zrleTileApplyMilliseconds, 5)
     }
 
     func testRejectsUnsupportedFramebufferEncoding() throws {

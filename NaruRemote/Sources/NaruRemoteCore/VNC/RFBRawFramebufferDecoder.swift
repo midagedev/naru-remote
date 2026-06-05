@@ -220,6 +220,28 @@ public struct RFBFramebufferUpdateTiming: Codable, Equatable, Sendable {
     }
 }
 
+public struct RFBFramebufferDecodeMetrics: Codable, Equatable, Sendable {
+    /// Coarse aggregate time spent inflating ZRLE compressed payloads.
+    /// Safe for benchmark artifacts: it carries no target identity,
+    /// dimensions, coordinates, byte counts, pixels, or payload details.
+    public let zrleInflateMilliseconds: Int
+    /// Coarse aggregate time spent parsing ZRLE tiles and applying them
+    /// to the local framebuffer.
+    public let zrleTileApplyMilliseconds: Int
+
+    public init(
+        zrleInflateMilliseconds: Int = 0,
+        zrleTileApplyMilliseconds: Int = 0
+    ) {
+        self.zrleInflateMilliseconds = max(zrleInflateMilliseconds, 0)
+        self.zrleTileApplyMilliseconds = max(zrleTileApplyMilliseconds, 0)
+    }
+
+    public var hasMeasurements: Bool {
+        zrleInflateMilliseconds > 0 || zrleTileApplyMilliseconds > 0
+    }
+}
+
 public struct RFBFramebufferEncodingMix: Codable, Equatable, Sendable {
     public let rawRectangles: Int
     public let copyRectRectangles: Int
@@ -359,6 +381,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         case endedContinuousUpdates
         case transportIdleTimedOut
         case timing
+        case decodeMetrics
         case encodingMix
     }
 
@@ -389,6 +412,10 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
     /// remainder. It carries no target identity, dimensions, coordinates,
     /// byte counts, pixels, or raw payload details.
     public let timing: RFBFramebufferUpdateTiming?
+    /// Safe aggregate decode-phase timings captured by the framebuffer
+    /// decoder. This is diagnostic/benchmark metadata only; it stores no
+    /// pixels, coordinates, dimensions, byte counts, or raw payload.
+    public let decodeMetrics: RFBFramebufferDecodeMetrics
     /// Safe counts of actual framebuffer encodings observed in this
     /// update. Counts are fixed catalog labels only; no raw payload,
     /// rectangle coordinates, dimensions, byte counts, or pixels are
@@ -405,6 +432,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         endedContinuousUpdates: Bool = false,
         transportIdleTimedOut: Bool = false,
         timing: RFBFramebufferUpdateTiming? = nil,
+        decodeMetrics: RFBFramebufferDecodeMetrics = RFBFramebufferDecodeMetrics(),
         encodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
     ) {
         self.framebuffer = framebuffer
@@ -416,6 +444,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         self.endedContinuousUpdates = endedContinuousUpdates
         self.transportIdleTimedOut = transportIdleTimedOut
         self.timing = timing
+        self.decodeMetrics = decodeMetrics
         self.encodingMix = encodingMix
     }
 
@@ -431,6 +460,10 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             endedContinuousUpdates: try container.decodeIfPresent(Bool.self, forKey: .endedContinuousUpdates) ?? false,
             transportIdleTimedOut: try container.decodeIfPresent(Bool.self, forKey: .transportIdleTimedOut) ?? false,
             timing: try container.decodeIfPresent(RFBFramebufferUpdateTiming.self, forKey: .timing),
+            decodeMetrics: try container.decodeIfPresent(
+                RFBFramebufferDecodeMetrics.self,
+                forKey: .decodeMetrics
+            ) ?? RFBFramebufferDecodeMetrics(),
             encodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .encodingMix
@@ -449,6 +482,9 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
         try container.encode(endedContinuousUpdates, forKey: .endedContinuousUpdates)
         try container.encode(transportIdleTimedOut, forKey: .transportIdleTimedOut)
         try container.encodeIfPresent(timing, forKey: .timing)
+        if decodeMetrics.hasMeasurements {
+            try container.encode(decodeMetrics, forKey: .decodeMetrics)
+        }
         try container.encode(encodingMix, forKey: .encodingMix)
     }
 
@@ -486,6 +522,7 @@ public struct RFBFramebufferUpdateResult: Codable, Equatable, Sendable {
             endedContinuousUpdates: endedContinuousUpdates,
             transportIdleTimedOut: transportIdleTimedOut,
             timing: timing,
+            decodeMetrics: decodeMetrics,
             encodingMix: encodingMix
         )
     }
