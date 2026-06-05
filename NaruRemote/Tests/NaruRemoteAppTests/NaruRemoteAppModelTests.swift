@@ -1855,6 +1855,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(report.input?.hasComposeDraftText, true)
         XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
+        XCTAssertEqual(
+            report.input?.composeDraftPayloadEncoding,
+            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
+        XCTAssertEqual(report.input?.composePlannedPath, TextInjectionPath.vncClipboardPaste.rawValue)
+        XCTAssertEqual(
+            report.input?.composeUTF8ClipboardSupport,
+            RemoteClipboardUTF8Support.supported.rawValue
+        )
+        XCTAssertEqual(report.input?.composeRouteBlocker, DiagnosticComposeRouteBlocker.none.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
         XCTAssertEqual(
             report.input?.latestInjectionPayloadEncoding,
@@ -1870,6 +1880,49 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(report.input?.latestInjectionClipboardSetStatus, TextInjectionStepStatus.succeeded.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommandStatus, TextInjectionStepStatus.succeeded.rawValue)
+        XCTAssertFalse(json.contains("한글과 English"))
+        XCTAssertFalse(json.contains("😊"))
+    }
+
+    func testDiagnosticExportIncludesComposeRouteBlockerBeforeUTF8SendWithoutHelper() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("한글과 English 😊")
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(
+            report.input?.composeDraftPayloadEncoding,
+            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
+        XCTAssertEqual(
+            report.input?.composeUTF8ClipboardSupport,
+            RemoteClipboardUTF8Support.unknown.rawValue
+        )
+        XCTAssertNil(report.input?.composePlannedPath)
+        XCTAssertEqual(
+            report.input?.composeRouteBlocker,
+            DiagnosticComposeRouteBlocker.helperNotConfigured.rawValue
+        )
+        XCTAssertNil(report.input?.latestInjectionPath)
         XCTAssertFalse(json.contains("한글과 English"))
         XCTAssertFalse(json.contains("😊"))
     }
@@ -1901,6 +1954,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("한글과 English 😊")
+        let preflightJSON = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let preflightReport = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(preflightJSON.utf8)
+        )
+        XCTAssertEqual(preflightReport.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+        XCTAssertEqual(preflightReport.input?.composeRouteBlocker, DiagnosticComposeRouteBlocker.none.rawValue)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
         try await waitForHelperInsertRequests(helper, count: 1)
@@ -1934,6 +1999,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(report.input?.latestInjectionPath, TextInjectionPath.helperTextBridge.rawValue)
         XCTAssertEqual(report.input?.latestInjectionStatus, TextInjectionStatus.sent.rawValue)
+        XCTAssertEqual(
+            report.input?.composeDraftPayloadEncoding,
+            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
+        XCTAssertEqual(report.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+        XCTAssertEqual(
+            report.input?.composeUTF8ClipboardSupport,
+            RemoteClipboardUTF8Support.unknown.rawValue
+        )
+        XCTAssertEqual(report.input?.composeRouteBlocker, DiagnosticComposeRouteBlocker.none.rawValue)
         XCTAssertEqual(report.input?.helperTextBridgeAvailability, HelperTextBridgeAvailability.reachable.rawValue)
         XCTAssertEqual(report.input?.helperTextBridgeLastFailureCode, HelperTextBridgeFailureCode.none.rawValue)
         XCTAssertFalse(json.contains("한글과 English"))
@@ -2652,7 +2727,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 22)
+        XCTAssertEqual(report.schemaVersion, 23)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -2723,7 +2798,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 22)
+        XCTAssertEqual(report.schemaVersion, 23)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

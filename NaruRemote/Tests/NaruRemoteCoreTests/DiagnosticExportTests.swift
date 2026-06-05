@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 22"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 23"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 22)
+        XCTAssertEqual(decoded.schemaVersion, 23)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -388,7 +388,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 22)
+        XCTAssertEqual(decoded.schemaVersion, 23)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
@@ -462,6 +462,9 @@ final class DiagnosticExportTests: XCTestCase {
             composeDraft: draft,
             latestInjectionAttempt: attempt,
             directKeystrokeModeActive: false,
+            composePlannedPath: .helperTextBridge,
+            composeUTF8ClipboardSupport: .unknown,
+            composeRouteBlocker: .helperPermissionMissing,
             helperTextBridgeState: HelperTextBridgeProfileState(
                 isEnabled: true,
                 pairingFingerprint: "sha256:should-not-export",
@@ -481,10 +484,23 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 22)
+        XCTAssertEqual(decoded.schemaVersion, 23)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
+        XCTAssertEqual(
+            decoded.input?.composeDraftPayloadEncoding,
+            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+        )
+        XCTAssertEqual(decoded.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+        XCTAssertEqual(
+            decoded.input?.composeUTF8ClipboardSupport,
+            RemoteClipboardUTF8Support.unknown.rawValue
+        )
+        XCTAssertEqual(
+            decoded.input?.composeRouteBlocker,
+            DiagnosticComposeRouteBlocker.helperPermissionMissing.rawValue
+        )
         XCTAssertEqual(
             decoded.input?.helperTextBridgeAvailability,
             HelperTextBridgeAvailability.permissionMissing.rawValue
@@ -596,6 +612,10 @@ final class DiagnosticExportTests: XCTestCase {
             directKeystrokeModeActive: true,
             hasComposeDraftText: true,
             composeSendState: "state=SECRET",
+            composeDraftPayloadEncoding: "payload=SECRET",
+            composePlannedPath: "plannedPath=SECRET",
+            composeUTF8ClipboardSupport: "support=SECRET",
+            composeRouteBlocker: "blocker=SECRET",
             helperTextBridgeAvailability: "helper=SECRET",
             helperTextBridgeLastFailureCode: "helperFailure=SECRET",
             helperTextBridgeLastCheckedBucket: "helperChecked=SECRET",
@@ -614,6 +634,10 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(input.directKeystrokeModeActive, true)
         XCTAssertEqual(input.hasComposeDraftText, true)
         XCTAssertNil(input.composeSendState)
+        XCTAssertNil(input.composeDraftPayloadEncoding)
+        XCTAssertNil(input.composePlannedPath)
+        XCTAssertNil(input.composeUTF8ClipboardSupport)
+        XCTAssertNil(input.composeRouteBlocker)
         XCTAssertNil(input.helperTextBridgeAvailability)
         XCTAssertNil(input.helperTextBridgeLastFailureCode)
         XCTAssertNil(input.helperTextBridgeLastCheckedBucket)
@@ -1173,8 +1197,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v22 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 22"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v23 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 23"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

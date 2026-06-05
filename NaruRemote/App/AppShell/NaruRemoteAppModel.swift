@@ -48,6 +48,13 @@ private struct HelperTextInsertClientBox: @unchecked Sendable {
     }
 }
 
+private struct ComposeRouteDiagnosticSnapshot {
+    var plannedPath: TextInjectionPath?
+    var utf8ClipboardSupport: RemoteClipboardUTF8Support?
+    var routeBlocker: DiagnosticComposeRouteBlocker?
+    var helperProfileID: ConnectionProfile.ID?
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     /// macOS Screen Sharing and other VNC servers apply ClientCutText
@@ -1000,11 +1007,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func makeDiagnosticExport() -> DiagnosticExport {
         let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
         let viewerStreamPowerMode = appSettings.streamPowerMode
+        let composeRoute = composeRouteDiagnosticSnapshot()
         let input = DiagnosticInputReport(
             composeDraft: composeDraft,
             latestInjectionAttempt: latestInjectionAttempt,
             directKeystrokeModeActive: directKeystrokeMode.isActive,
-            helperTextBridgeState: helperTextBridgeState(for: selectedProfileID)
+            composePlannedPath: composeRoute.plannedPath,
+            composeUTF8ClipboardSupport: composeRoute.utf8ClipboardSupport,
+            composeRouteBlocker: composeRoute.routeBlocker,
+            helperTextBridgeState: helperTextBridgeState(for: composeRoute.helperProfileID)
         )
         guard let run = diagnosticRun else {
             return DiagnosticExport(
@@ -1022,6 +1033,110 @@ public final class NaruRemoteAppModel: ObservableObject {
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode,
             input: input
+        )
+    }
+
+    private func composeRouteDiagnosticSnapshot() -> ComposeRouteDiagnosticSnapshot {
+        let profileID = session?.profileID ?? selectedProfileID
+        let utf8Support = activeTextClient?.utf8ClipboardSupport
+        let helperState = helperTextBridgeState(for: profileID)
+        let profile = profileID.flatMap { id in
+            profiles.first { $0.id == id }
+        }
+        let payloadEncoding = composeDraft.map { TextInjectionPayloadEncoding.classify($0.text) }
+
+        guard let draft = composeDraft else {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: nil,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: .emptyDraft,
+                helperProfileID: profileID
+            )
+        }
+
+        guard !directKeystrokeMode.isActive else {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: nil,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: .directModeActive,
+                helperProfileID: profileID
+            )
+        }
+
+        guard !draft.text.isEmpty else {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: nil,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: .emptyDraft,
+                helperProfileID: profileID
+            )
+        }
+
+        guard let utf8Support else {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: nil,
+                utf8ClipboardSupport: nil,
+                routeBlocker: .noActiveTextClient,
+                helperProfileID: profileID
+            )
+        }
+
+        guard payloadEncoding == .utf8ExtensionRequired else {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .vncClipboardPaste,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
+        if utf8Support == .supported {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .vncClipboardPaste,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
+        if let helperState,
+           let helperTextInsertClient,
+           Self.canRouteThroughHelperTextBridge(
+                state: helperState,
+                client: helperTextInsertClient
+            ) {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .helperTextBridge,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
+        if let profile,
+           let helperState,
+           Self.canRouteThroughStoredHelperTextBridge(
+                state: helperState,
+                profile: profile
+           ) {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .helperTextBridge,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
+        return ComposeRouteDiagnosticSnapshot(
+            plannedPath: nil,
+            utf8ClipboardSupport: utf8Support,
+            routeBlocker: Self.diagnosticComposeRouteBlocker(
+                for: Self.helperFailureCode(
+                    state: helperState,
+                    client: helperTextInsertClient
+                )
+            ),
+            helperProfileID: profileID
         )
     }
 
@@ -3862,6 +3977,29 @@ public final class NaruRemoteAppModel: ObservableObject {
             return code
         }
         return .insertRejected
+    }
+
+    nonisolated private static func diagnosticComposeRouteBlocker(
+        for failureCode: HelperTextBridgeFailureCode
+    ) -> DiagnosticComposeRouteBlocker {
+        switch failureCode {
+        case .none:
+            return .none
+        case .notConfigured:
+            return .helperNotConfigured
+        case .disabled:
+            return .helperDisabled
+        case .unreachable, .insertTimedOut:
+            return .helperUnreachable
+        case .revoked:
+            return .helperRevoked
+        case .permissionMissing:
+            return .helperPermissionMissing
+        case .versionUnsupported:
+            return .helperVersionUnsupported
+        case .focusUnavailable, .insertRejected, .restoreFailed:
+            return .helperUnreachable
+        }
     }
 
     nonisolated private static func helperUnavailableMessage(

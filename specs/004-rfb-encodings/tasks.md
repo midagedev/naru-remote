@@ -545,6 +545,12 @@ iPhone) and ships as its own PR.
   move the visible cursor opposite the finger, then cap reveal-only follow pan
   to the current touch sample. Owns: pointer resolver/tests, session task note,
   research note, smoothness benchmark artifact. **Done.**
+- **T379** Compose route diagnostic v23: add pre-send diagnostic fields for
+  Compose payload encoding, planned injection path, active UTF-8 clipboard
+  support, and fixed route blocker so physical iPhone logs can distinguish
+  helper-not-configured from helper-ready and confirmed UTF-8 paths without raw
+  draft text. Owns: diagnostic export schema/tests, app-model route
+  classification tests, helper spec task note, diagnostic artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

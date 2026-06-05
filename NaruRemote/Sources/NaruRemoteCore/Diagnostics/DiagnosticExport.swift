@@ -971,11 +971,28 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     }
 }
 
+public enum DiagnosticComposeRouteBlocker: String, Codable, Equatable, CaseIterable, Sendable {
+    case none
+    case emptyDraft
+    case directModeActive
+    case noActiveTextClient
+    case helperNotConfigured
+    case helperDisabled
+    case helperUnreachable
+    case helperPermissionMissing
+    case helperRevoked
+    case helperVersionUnsupported
+}
+
 public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case directKeystrokeModeActive
         case hasComposeDraftText
         case composeSendState
+        case composeDraftPayloadEncoding
+        case composePlannedPath
+        case composeUTF8ClipboardSupport
+        case composeRouteBlocker
         case helperTextBridgeAvailability
         case helperTextBridgeLastFailureCode
         case helperTextBridgeLastCheckedBucket
@@ -994,6 +1011,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let directKeystrokeModeActive: Bool?
     public let hasComposeDraftText: Bool?
     public let composeSendState: String?
+    public let composeDraftPayloadEncoding: String?
+    public let composePlannedPath: String?
+    public let composeUTF8ClipboardSupport: String?
+    public let composeRouteBlocker: String?
     public let helperTextBridgeAvailability: String?
     public let helperTextBridgeLastFailureCode: String?
     public let helperTextBridgeLastCheckedBucket: String?
@@ -1012,6 +1033,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         directKeystrokeModeActive: Bool? = nil,
         hasComposeDraftText: Bool? = nil,
         composeSendState: String? = nil,
+        composeDraftPayloadEncoding: String? = nil,
+        composePlannedPath: String? = nil,
+        composeUTF8ClipboardSupport: String? = nil,
+        composeRouteBlocker: String? = nil,
         helperTextBridgeAvailability: String? = nil,
         helperTextBridgeLastFailureCode: String? = nil,
         helperTextBridgeLastCheckedBucket: String? = nil,
@@ -1029,6 +1054,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.directKeystrokeModeActive = directKeystrokeModeActive
         self.hasComposeDraftText = hasComposeDraftText
         self.composeSendState = Self.safeComposeSendState(composeSendState)
+        self.composeDraftPayloadEncoding = Self.safePayloadEncoding(composeDraftPayloadEncoding)
+        self.composePlannedPath = Self.safeInjectionPath(composePlannedPath)
+        self.composeUTF8ClipboardSupport = Self.safeUTF8ClipboardSupport(composeUTF8ClipboardSupport)
+        self.composeRouteBlocker = Self.safeComposeRouteBlocker(composeRouteBlocker)
         self.helperTextBridgeAvailability = Self.safeHelperTextBridgeAvailability(
             helperTextBridgeAvailability
         )
@@ -1060,12 +1089,21 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         composeDraft: ComposeDraft?,
         latestInjectionAttempt: TextInjectionAttempt?,
         directKeystrokeModeActive: Bool,
+        composePlannedPath: TextInjectionPath? = nil,
+        composeUTF8ClipboardSupport: RemoteClipboardUTF8Support? = nil,
+        composeRouteBlocker: DiagnosticComposeRouteBlocker? = nil,
         helperTextBridgeState: HelperTextBridgeProfileState? = nil
     ) {
         self.init(
             directKeystrokeModeActive: directKeystrokeModeActive,
             hasComposeDraftText: composeDraft.map { !$0.text.isEmpty },
             composeSendState: composeDraft?.sendState.rawValue,
+            composeDraftPayloadEncoding: composeDraft.map {
+                TextInjectionPayloadEncoding.classify($0.text).rawValue
+            },
+            composePlannedPath: composePlannedPath?.rawValue,
+            composeUTF8ClipboardSupport: composeUTF8ClipboardSupport?.rawValue,
+            composeRouteBlocker: composeRouteBlocker?.rawValue,
             helperTextBridgeAvailability: helperTextBridgeState?.availability.rawValue,
             helperTextBridgeLastFailureCode: helperTextBridgeState?.lastFailureCode?.rawValue,
             helperTextBridgeLastCheckedBucket: helperTextBridgeState?.lastCheckedBucket.rawValue,
@@ -1096,6 +1134,16 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             ),
             hasComposeDraftText: try container.decodeIfPresent(Bool.self, forKey: .hasComposeDraftText),
             composeSendState: try container.decodeIfPresent(String.self, forKey: .composeSendState),
+            composeDraftPayloadEncoding: try container.decodeIfPresent(
+                String.self,
+                forKey: .composeDraftPayloadEncoding
+            ),
+            composePlannedPath: try container.decodeIfPresent(String.self, forKey: .composePlannedPath),
+            composeUTF8ClipboardSupport: try container.decodeIfPresent(
+                String.self,
+                forKey: .composeUTF8ClipboardSupport
+            ),
+            composeRouteBlocker: try container.decodeIfPresent(String.self, forKey: .composeRouteBlocker),
             helperTextBridgeAvailability: try container.decodeIfPresent(
                 String.self,
                 forKey: .helperTextBridgeAvailability
@@ -1147,6 +1195,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safeComposeSendState(_ value: String?) -> String? {
         safe(value, allowed: Set(ComposeSendState.allCases.map(\.rawValue)))
+    }
+
+    private static func safeComposeRouteBlocker(_ value: String?) -> String? {
+        safe(value, allowed: Set(DiagnosticComposeRouteBlocker.allCases.map(\.rawValue)))
     }
 
     private static func safeHelperTextBridgeAvailability(_ value: String?) -> String? {
@@ -1242,7 +1294,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 22
+    public static let currentSchemaVersion = 23
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
