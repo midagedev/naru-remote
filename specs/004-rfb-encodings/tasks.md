@@ -563,6 +563,18 @@ iPhone) and ships as its own PR.
   unsupported UTF-8 still fails with helper-aware diagnostics. Owns: benchmark
   kit/CLI/tests, Metal viewport host, text-injection policy, app model/snapshot
   tests, benchmark artifact. **Done.**
+- **T381** ZRLE changed-bounds upload pressure cut: after the practical baseline
+  showed full-screen ZRLE wire rectangles with sparse actual pixel changes,
+  report tile-bounded actual ZRLE changed rectangles instead of treating every
+  ZRLE wire rectangle as renderer damage. Thread safe changed-pixel counts into
+  the Metal upload plan, let sparse large-damage frames stay on partial uploads,
+  and enter adaptive client-pressure pacing after one 1000 ms-class local
+  decode/apply spike. Bump `VNCLiveBenchmark` to schema v28 with the fixed
+  single-spike threshold, benchmark localhost Screen Sharing again, and record
+  that renderer full-upload pressure reaches 0 permille while the practical
+  baseline still fails on decode/update tail. Owns: RFB decoder damage
+  reporting, upload plan/renderer/view plumbing, app and benchmark pacing,
+  focused tests, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

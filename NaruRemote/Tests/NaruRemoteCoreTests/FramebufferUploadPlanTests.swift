@@ -41,6 +41,32 @@ final class FramebufferUploadPlanTests: XCTestCase {
         XCTAssertEqual(plan.uploadRegionCount, 1)
     }
 
+    func testSparseLargeDirtyAreaCanStillUsePartialUpload() {
+        let plan = FramebufferUploadPlan.plan(
+            framebufferWidth: 100,
+            framebufferHeight: 100,
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 100, height: 70)],
+            requiresTextureRecreation: false,
+            changedPixelCount: 500
+        )
+
+        XCTAssertEqual(plan.strategy, .partial)
+        XCTAssertEqual(plan.uploadRegionCount, 1)
+    }
+
+    func testSparseExceptionDoesNotCoverAlmostFullDirtyArea() {
+        let plan = FramebufferUploadPlan.plan(
+            framebufferWidth: 100,
+            framebufferHeight: 100,
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 100, height: 90)],
+            requiresTextureRecreation: false,
+            changedPixelCount: 500
+        )
+
+        XCTAssertEqual(plan.strategy, .full)
+        XCTAssertEqual(plan.uploadRegionCount, 1)
+    }
+
     func testTooManyDirtyRectsFallBackToFullUpload() {
         let rects = (0...FramebufferUploadPlan.maximumPartialUploadRegionCount).map { index in
             RFBFrameDamageRect(x: index, y: 0, width: 1, height: 1)

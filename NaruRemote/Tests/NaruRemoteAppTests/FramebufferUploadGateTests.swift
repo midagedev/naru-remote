@@ -33,6 +33,38 @@ final class FramebufferUploadGateTests: XCTestCase {
         )
     }
 
+    func testEnqueuesWhenChangedPixelCountChanges() {
+        var gate = FramebufferUploadGate()
+        let framebuffer = RFBRawFramebuffer(
+            width: 4,
+            height: 4,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let dirtyRectangles = [RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 3)]
+
+        XCTAssertTrue(
+            gate.shouldEnqueue(
+                framebuffer: framebuffer,
+                dirtyRectangles: dirtyRectangles,
+                changedPixelCount: 1
+            )
+        )
+        XCTAssertFalse(
+            gate.shouldEnqueue(
+                framebuffer: framebuffer,
+                dirtyRectangles: dirtyRectangles,
+                changedPixelCount: 1
+            )
+        )
+        XCTAssertTrue(
+            gate.shouldEnqueue(
+                framebuffer: framebuffer,
+                dirtyRectangles: dirtyRectangles,
+                changedPixelCount: 12
+            )
+        )
+    }
+
     func testEnqueuesNewFramebufferWithSameDimensions() {
         var gate = FramebufferUploadGate()
         let first = RFBRawFramebuffer(

@@ -42,6 +42,7 @@ public final class MetalFramebufferRenderer: NSObject {
     private var texture: MTLTexture?
     private var pendingFramebuffer: RFBRawFramebuffer?
     private var pendingDirtyRectangles: [RFBFrameDamageRect]?
+    private var pendingChangedPixelCount: Int?
     private var viewportZoomScale: CGFloat = 1
     private var viewportPanOffset: CGSize = .zero
     private var viewportMaxZoomScale: CGFloat = defaultMaximumViewportZoomScale
@@ -102,13 +103,15 @@ public final class MetalFramebufferRenderer: NSObject {
     /// path that does not have damage tracking from the RFB pump.
     public func enqueue(
         _ framebuffer: RFBRawFramebuffer,
-        dirtyRectangles: [RFBFrameDamageRect]? = nil
+        dirtyRectangles: [RFBFrameDamageRect]? = nil,
+        changedPixelCount: Int? = nil
     ) {
         guard framebuffer.width > 0, framebuffer.height > 0 else {
             return
         }
         pendingFramebuffer = framebuffer
         pendingDirtyRectangles = dirtyRectangles
+        pendingChangedPixelCount = changedPixelCount.map { max($0, 0) }
     }
 
     /// Updates the local viewport transform used for drawing the
@@ -193,8 +196,10 @@ public final class MetalFramebufferRenderer: NSObject {
         }
         let uploadStart = DispatchTime.now().uptimeNanoseconds
         let dirtyRectangles = pendingDirtyRectangles
+        let changedPixelCount = pendingChangedPixelCount
         pendingFramebuffer = nil
         pendingDirtyRectangles = nil
+        pendingChangedPixelCount = nil
         lastUploadRegionCount = 0
         lastUploadMilliseconds = nil
 
@@ -251,7 +256,8 @@ public final class MetalFramebufferRenderer: NSObject {
             dirtyRectangles: validDirtyRectangles,
             requiresTextureRecreation: textureWasRecreated
                 || texture.width != framebuffer.width
-                || texture.height != framebuffer.height
+                || texture.height != framebuffer.height,
+            changedPixelCount: changedPixelCount
         )
 
         framebuffer.pixels.withUnsafeBytes { rawBuffer in

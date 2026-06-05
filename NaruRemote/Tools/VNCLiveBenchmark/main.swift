@@ -548,6 +548,7 @@ enum VNCLiveBenchmark {
             framebufferHeight: frame.framebuffer.height,
             dirtyRectangles: frame.isIncremental ? frame.dirtyRectangles : nil,
             requiresTextureRecreation: false,
+            changedPixelCount: frame.isIncremental ? frame.changedPixelCount : nil,
             shouldUpload: kind == .contentUpdate
         )
 
@@ -1072,6 +1073,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeClientPressureConsecutiveContentFrameThreshold: Int
     let streamShapeClientPressureSustainedLaggingThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveSustainedContentFrameThreshold: Int
+    let streamShapeClientPressureVerySlowThresholdMilliseconds: Int
     let streamShapeClientPressureConsecutiveFullUploadFrameThreshold: Int
     let streamShapeClientPressureRecoveryUpdateCount: Int
     let streamShapeEmptyBackoffMediumStreakThreshold: Int
@@ -1115,7 +1117,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 27
+        self.schemaVersion = 28
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1146,6 +1148,8 @@ private struct BenchmarkReport: Codable, Equatable {
             BenchmarkStreamShapePacingPolicy.appSustainedLaggingClientProcessingThresholdMilliseconds
         self.streamShapeClientPressureConsecutiveSustainedContentFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveSustainedLaggingContentFrameThreshold
+        self.streamShapeClientPressureVerySlowThresholdMilliseconds =
+            BenchmarkStreamShapePacingPolicy.appVerySlowClientProcessingThresholdMilliseconds
         self.streamShapeClientPressureConsecutiveFullUploadFrameThreshold =
             BenchmarkStreamShapePacingPolicy.appConsecutiveFullUploadContentFrameThreshold
         self.streamShapeClientPressureRecoveryUpdateCount =
@@ -1405,6 +1409,8 @@ private func renderText(_ report: BenchmarkReport) {
                 + "or client-processing >= "
                 + "\(report.streamShapeClientPressureSustainedLaggingThresholdMilliseconds)ms for "
                 + "\(report.streamShapeClientPressureConsecutiveSustainedContentFrameThreshold) content frames, "
+                + "or client-processing >= "
+                + "\(report.streamShapeClientPressureVerySlowThresholdMilliseconds)ms once, "
                 + "or full renderer uploads for "
                 + "\(report.streamShapeClientPressureConsecutiveFullUploadFrameThreshold) content frames, "
                 + "recovery \(report.streamShapeClientPressureRecoveryUpdateCount) updates"

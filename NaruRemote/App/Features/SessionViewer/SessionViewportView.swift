@@ -26,6 +26,7 @@ public struct SessionViewportView: View {
     private let session: RemoteSession?
     private let framebuffer: RFBRawFramebuffer?
     private let frameDirtyRectangles: [RFBFrameDamageRect]?
+    private let frameChangedPixelCount: Int?
     private let serverCursor: RFBServerCursor?
     private let isPiPWatchAvailable: Bool
     private let pipWatchStatusText: String
@@ -157,6 +158,7 @@ public struct SessionViewportView: View {
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        frameChangedPixelCount: Int? = nil,
         serverCursor: RFBServerCursor? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
@@ -192,6 +194,7 @@ public struct SessionViewportView: View {
         self.session = session
         self.framebuffer = framebuffer
         self.frameDirtyRectangles = frameDirtyRectangles
+        self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
         self.serverCursor = serverCursor
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
@@ -226,6 +229,7 @@ public struct SessionViewportView: View {
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
+        frameChangedPixelCount: Int? = nil,
         serverCursor: RFBServerCursor? = nil,
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
@@ -260,6 +264,7 @@ public struct SessionViewportView: View {
         self.session = session
         self.framebuffer = framebuffer
         self.frameDirtyRectangles = frameDirtyRectangles
+        self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
         self.serverCursor = serverCursor
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
@@ -1051,6 +1056,7 @@ public struct SessionViewportView: View {
             let preview = MetalFramebufferView(
                 framebuffer: framebuffer,
                 dirtyRectangles: frameDirtyRectangles,
+                changedPixelCount: frameChangedPixelCount,
                 sessionID: session?.id,
                 zoomScale: zoomScale,
                 panOffset: panOffset,

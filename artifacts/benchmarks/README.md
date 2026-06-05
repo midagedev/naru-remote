@@ -123,7 +123,9 @@ only the fixed mode label and threshold constants. Schema v22 adds aggregate
 `adaptiveClientPressurePacingSamples` and
 `adaptiveClientPressurePacingPermille` fields to each stream-shape summary so
 heat/FPS comparisons can tell whether the adaptive client-pressure floor
-actually affected update pacing. By default
+actually affected update pacing. Schema v28 adds the app-mirrored single
+very-slow local-work threshold used to enter adaptive client-pressure pacing
+after one 1000 ms-class decode/apply spike. By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.

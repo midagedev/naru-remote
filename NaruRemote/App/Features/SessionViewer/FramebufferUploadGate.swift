@@ -9,11 +9,13 @@ struct FramebufferUploadGate {
 
     mutating func shouldEnqueue(
         framebuffer: RFBRawFramebuffer,
-        dirtyRectangles: [RFBFrameDamageRect]? = nil
+        dirtyRectangles: [RFBFrameDamageRect]? = nil,
+        changedPixelCount: Int? = nil
     ) -> Bool {
         let signature = FramebufferUploadSignature(
             framebuffer: framebuffer,
-            dirtyRectangles: dirtyRectangles
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount
         )
         guard signature != lastUploadSignature else {
             return false
@@ -29,10 +31,12 @@ private struct FramebufferUploadSignature: Equatable {
     let pixelCount: Int
     let pixelStorageAddress: UInt
     let dirtyRectangles: [RFBFrameDamageRect]?
+    let changedPixelCount: Int?
 
     init(
         framebuffer: RFBRawFramebuffer,
-        dirtyRectangles: [RFBFrameDamageRect]?
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?
     ) {
         self.width = framebuffer.width
         self.height = framebuffer.height
@@ -44,5 +48,6 @@ private struct FramebufferUploadSignature: Equatable {
             return UInt(bitPattern: baseAddress)
         }
         self.dirtyRectangles = dirtyRectangles
+        self.changedPixelCount = changedPixelCount.map { max($0, 0) }
     }
 }

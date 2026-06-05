@@ -21,6 +21,7 @@ public enum StreamPressurePacingDefaults {
     public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 4.0
     public static let viewportInteractionIdleFrameIntervalSeconds: Double = 0.20
     public static let viewportInteractionRequestPausePollSeconds: Double = 1.0 / 60.0
+    public static let verySlowLocalWorkThresholdMilliseconds = 1_000
     public static let severeLaggingLocalWorkThresholdMilliseconds = 80
     public static let consecutiveSevereLaggingContentFrameThreshold = 3
     public static let sustainedLaggingLocalWorkThresholdMilliseconds = 34

@@ -8,6 +8,8 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         .consecutiveSevereLaggingContentFrameThreshold
     static let sustainedLaggingLocalWorkThresholdMilliseconds = StreamPressurePacingDefaults
         .sustainedLaggingLocalWorkThresholdMilliseconds
+    static let verySlowLocalWorkThresholdMilliseconds = StreamPressurePacingDefaults
+        .verySlowLocalWorkThresholdMilliseconds
     static let consecutiveSustainedLaggingContentFrameThreshold = StreamPressurePacingDefaults
         .consecutiveSustainedLaggingContentFrameThreshold
     static let consecutiveFullUploadContentFrameThreshold = StreamPressurePacingDefaults
@@ -65,6 +67,11 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             appFrameApplyMilliseconds ?? 0
         )
 
+        if localWorkMilliseconds >= Self.verySlowLocalWorkThresholdMilliseconds {
+            activatePowerSaverPacing()
+            return
+        }
+
         if localWorkMilliseconds >= Self.sustainedLaggingLocalWorkThresholdMilliseconds {
             consecutiveSustainedLaggingContentFrames += 1
         } else {
@@ -98,7 +105,8 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
             framebufferWidth: frame.framebuffer.width,
             framebufferHeight: frame.framebuffer.height,
             dirtyRectangles: frame.dirtyRectangles,
-            requiresTextureRecreation: false
+            requiresTextureRecreation: false,
+            changedPixelCount: frame.changedPixelCount
         ).strategy == .full
     }
 
@@ -109,6 +117,10 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         else {
             return
         }
+        activatePowerSaverPacing()
+    }
+
+    private mutating func activatePowerSaverPacing() {
         adaptiveRecoveryUpdatesRemaining = max(
             adaptiveRecoveryUpdatesRemaining,
             Self.adaptiveRecoveryUpdateCount

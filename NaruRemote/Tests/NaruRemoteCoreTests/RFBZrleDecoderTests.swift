@@ -43,6 +43,26 @@ final class RFBZrleDecoderTests: XCTestCase {
         XCTAssertEqual(second.changedPixelCount, 0)
     }
 
+    func testReportsActualChangedPixelBoundsForZRLETile() throws {
+        let update = try fixture("zrle-raw")
+        let init2x2 = serverInit(width: 2, height: 2)
+        var previous = RFBRawFramebuffer(width: 2, height: 2)
+        previous.setPixelTrackingChange(red, x: 0, y: 0)
+        previous.setPixelTrackingChange(green, x: 1, y: 0)
+        previous.setPixelTrackingChange(blue, x: 0, y: 1)
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: update,
+            serverInit: init2x2,
+            previousFramebuffer: previous
+        )
+
+        XCTAssertEqual(result.changedPixelCount, 1)
+        XCTAssertEqual(result.dirtyRectangles, [
+            RFBFrameDamageRect(x: 1, y: 1, width: 1, height: 1)
+        ])
+    }
+
     func testDecodesRawTile() throws {
         let result = try RFBRawFramebufferDecoder.apply(
             updateData: try fixture("zrle-raw"),
