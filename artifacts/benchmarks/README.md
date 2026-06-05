@@ -139,6 +139,15 @@ separate sample-hit health from p95 update tail. The first live v47 zero-delay
 run reports high content hit, low unanswered-request pressure, and p95-failed
 latency, so the next unit should tune or instrument the request pacing window
 and update-wait timing rather than changing production defaults.
+Current request pacing window sweep artifact:
+`artifacts/benchmarks/2026-06-06-request-pacing-window-sweep-summary.md`.
+Schema v48 adds fixed `streamShapePacingWindows` labels to stream-shape probes,
+aggregates, gates, and recommendations. Use
+`sustained-v2-zrle-pacing-sweep` to hold `zrle-compression-0-clipboard`
+constant and compare `zero-content-delay`, `app-balanced-30hz`, and
+`stimulus-aligned-12hz`. The first live v48 sweep keeps zero-content-delay as
+the best candidate by average update latency and FPS, but still misses the v2
+target, so the next unit should inspect request/update wait-tail timing.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -436,7 +445,9 @@ transport/cadence diagnosis route receive-path-majority mixed failures to
 `tuneTransportCadence`. Schema v47 adds top-level
 `streamShapeRequestCadenceHealth`, derived from request/response aggregates and
 gates, so reports can distinguish high content hit with p95 tail from
-unanswered waits or empty responses before changing app defaults. For
+unanswered waits or empty responses before changing app defaults. Schema v48
+adds fixed `streamShapePacingWindows` labels so request pacing windows can be
+compared without mixing them into one profile aggregate. For
 request/response-only presets the standalone ContinuousUpdates probe is also
 skipped:
 `continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
@@ -528,10 +539,14 @@ Example:
 `--stream-shape-gate-preset sustained-v2-zrle-isolation`.
 For zero post-content request delay comparison, use:
 `--stream-shape-gate-preset sustained-v2-zrle-zero-delay`.
+For the fixed request pacing window comparison, use:
+`--stream-shape-gate-preset sustained-v2-zrle-pacing-sweep`.
 The preset already applies
 `--stream-shape-profile-iterations 5 --stream-shape-profile-order rotate` so
-each `zrle-isolation` candidate leads one iteration. Use custom commands only
-when intentionally changing that shape.
+each selected candidate leads one iteration. The pacing sweep intentionally
+holds the profile at `zrle-compression-0-clipboard` and rotates fixed pacing
+windows instead of the full `zrle-isolation` profile list. Use custom commands
+only when intentionally changing that shape.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

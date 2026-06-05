@@ -17,6 +17,10 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
             BenchmarkStreamShapeGatePreset.sustainedV2ZrleZeroDelay.rawValue,
             "sustained-v2-zrle-zero-delay"
         )
+        XCTAssertEqual(
+            BenchmarkStreamShapeGatePreset.sustainedV2ZrlePacingSweep.rawValue,
+            "sustained-v2-zrle-pacing-sweep"
+        )
         XCTAssertEqual(BenchmarkStreamShapeGatePreset.sustainedV2PixelFormat.rawValue, "sustained-v2-pixel-format")
     }
 
@@ -25,7 +29,7 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
             BenchmarkStreamShapeGatePreset.usageDescription,
             "none|sustained-v2-core|sustained-v2-request-response|"
                 + "sustained-v2-zrle-isolation|sustained-v2-zrle-zero-delay|"
-                + "sustained-v2-pixel-format"
+                + "sustained-v2-zrle-pacing-sweep|sustained-v2-pixel-format"
         )
     }
 }

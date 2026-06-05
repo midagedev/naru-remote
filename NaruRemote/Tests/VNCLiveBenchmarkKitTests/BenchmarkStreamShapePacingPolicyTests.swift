@@ -3,6 +3,32 @@ import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
+    func testPacingWindowRawValuesAreStableForReports() {
+        XCTAssertEqual(BenchmarkStreamShapePacingWindow.single.rawValue, "single")
+        XCTAssertEqual(BenchmarkStreamShapePacingWindow.appBalanced30Hz.rawValue, "app-balanced-30hz")
+        XCTAssertEqual(BenchmarkStreamShapePacingWindow.zeroContentDelay.rawValue, "zero-content-delay")
+        XCTAssertEqual(BenchmarkStreamShapePacingWindow.stimulusAligned12Hz.rawValue, "stimulus-aligned-12hz")
+    }
+
+    func testRequestPacingSweepUsesFixedCandidateWindows() {
+        let candidates = BenchmarkStreamShapePacingWindowCandidate.requestPacingSweep
+
+        XCTAssertEqual(candidates.map(\.label), [
+            .zeroContentDelay,
+            .appBalanced30Hz,
+            .stimulusAligned12Hz
+        ])
+        XCTAssertEqual(candidates[0].contentFrameInterval, 0, accuracy: 0.0001)
+        XCTAssertEqual(
+            candidates[1].contentFrameInterval,
+            BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(candidates[2].contentFrameInterval, 1.0 / 12.0, accuracy: 0.0001)
+        XCTAssertTrue(candidates.allSatisfy { $0.idleFrameInterval == 0.05 })
+        XCTAssertTrue(candidates.allSatisfy { $0.emptyBackoffMode == .app })
+    }
+
     func testBenchmarkBalancedCadenceMatchesAppDefault() {
         XCTAssertEqual(
             BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,
