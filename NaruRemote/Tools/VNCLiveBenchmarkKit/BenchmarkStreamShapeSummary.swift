@@ -1231,7 +1231,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     ) -> [BenchmarkStreamShapeProfileGateReport] {
         let orderedKeys = orderedGateKeys(from: reports)
         let grouped = Dictionary(grouping: reports) {
-            GateKey(label: $0.label, transportMode: $0.transportMode)
+            GateKey(
+                label: $0.label,
+                transportMode: $0.transportMode,
+                targetName: $0.summary.practicalAssessment.targetName
+            )
         }
         return orderedKeys.compactMap { key in
             grouped[key].map { gate(key: key, reports: $0) }
@@ -1248,13 +1252,10 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         let failRunCount = assessments.filter { $0.verdict == .fail }.count
         let disabledRunCount = assessments.filter { $0.verdict == .disabled }.count
         let issueCodes = assessments.flatMap(\.issueCodes)
-        let targetName = assessments.first?.targetName ?? BenchmarkStreamShapePracticalTargets
-            .iPhoneSustainedUsability
-            .name
         return BenchmarkStreamShapeProfileGateReport(
             label: key.label,
             transportMode: key.transportMode,
-            targetName: targetName,
+            targetName: key.targetName,
             verdict: verdict(
                 passRunCount: passRunCount,
                 warningRunCount: warningRunCount,
@@ -1301,7 +1302,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         var seen: Set<GateKey> = []
         var keys: [GateKey] = []
         for report in reports {
-            let key = GateKey(label: report.label, transportMode: report.transportMode)
+            let key = GateKey(
+                label: report.label,
+                transportMode: report.transportMode,
+                targetName: report.summary.practicalAssessment.targetName
+            )
             if seen.insert(key).inserted {
                 keys.append(key)
             }
@@ -1330,6 +1335,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     private struct GateKey: Hashable {
         let label: String
         let transportMode: BenchmarkStreamShapeTransportMode
+        let targetName: String
     }
 }
 

@@ -597,6 +597,45 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(continuous.issueCodes, [.probeDisabled])
     }
 
+    func testProfileGatesSeparateSameProfileAcrossTargets() {
+        let samples = Array(repeating: streamShapeSample(duration: 40), count: 8)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "candidate",
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 320,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePracticalBaseline
+                )
+            ),
+            BenchmarkStreamShapeProfileReport(
+                label: "candidate",
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 320,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhoneSustainedUsability
+                )
+            )
+        ]
+
+        let gates = BenchmarkStreamShapeProfileGateReport.gates(from: reports)
+
+        XCTAssertEqual(gates.map(\.label), ["candidate", "candidate"])
+        XCTAssertEqual(gates.map(\.targetName), [
+            "iphone-practical-baseline-v1",
+            "iphone-sustained-usability-v2"
+        ])
+        XCTAssertEqual(gates.map(\.verdict), [.pass, .pass])
+    }
+
     func testOrderNeutralRecommendationUsesAggregateRuns() throws {
         let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(
             from: [

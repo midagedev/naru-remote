@@ -1985,15 +1985,14 @@ private func renderText(_ report: BenchmarkReport) {
             )
             let issues = gate.issueCodes.map(\.rawValue).joined(separator: ",")
             print("  issues: \(issues.isEmpty ? "none" : issues)")
-            if let receivedRequest = gate.averageReceivedSamplePermille,
-               let contentRequest = gate.averageContentSamplePermille,
-               let unanswered = gate.averageUnansweredSamplePermille {
-                let contentResponse = gate.averageContentResponsePermille.map(String.init) ?? "n/a"
-                print(
-                    "  hit-rate permille avg received/request content/request content/response unanswered: "
-                        + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
-                )
-            }
+            let receivedRequest = gate.averageReceivedSamplePermille.map(String.init) ?? "n/a"
+            let contentRequest = gate.averageContentSamplePermille.map(String.init) ?? "n/a"
+            let contentResponse = gate.averageContentResponsePermille.map(String.init) ?? "n/a"
+            let unanswered = gate.averageUnansweredSamplePermille.map(String.init) ?? "n/a"
+            print(
+                "  hit-rate permille avg received/request content/request content/response unanswered: "
+                    + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
+            )
         }
     }
     if let recommendation = report.streamShapeRecommendation {
