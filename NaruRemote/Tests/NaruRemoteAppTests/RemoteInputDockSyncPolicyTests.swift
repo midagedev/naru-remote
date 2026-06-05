@@ -569,4 +569,26 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testCompactStatusFallsBackToHelperStateWhenNoSendStatusExists() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCompactStatusText(
+                hasStatus: false,
+                statusText: "Ready to compose locally",
+                helperStatusText: "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+            ),
+            "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+        )
+    }
+
+    func testCompactStatusPrefersSendStateOverHelperState() {
+        XCTAssertEqual(
+            RemoteInputDockView.resolvedCompactStatusText(
+                hasStatus: true,
+                statusText: "Send failed; draft kept locally",
+                helperStatusText: "Helper ready for multilingual Compose"
+            ),
+            "Send failed; draft kept locally"
+        )
+    }
 }
