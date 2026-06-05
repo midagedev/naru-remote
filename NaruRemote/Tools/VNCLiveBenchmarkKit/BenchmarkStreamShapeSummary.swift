@@ -2038,6 +2038,334 @@ public enum BenchmarkStreamShapeTransportCadenceNextAction: String, Codable, Equ
     case runPhysicalDeviceSustainedGate
 }
 
+public enum BenchmarkStreamShapeRequestCadenceSampleStatus: String, Codable, Equatable, Sendable {
+    case notTested = "not-tested"
+    case noUsableSamples = "no-usable-samples"
+    case highContentHit = "high-content-hit"
+    case unansweredWait = "unanswered-wait"
+    case emptyResponse = "empty-response"
+    case mixedLowHit = "mixed-low-hit"
+}
+
+public enum BenchmarkStreamShapeRequestCadenceLatencyStatus: String, Codable, Equatable, Sendable {
+    case notMeasured = "not-measured"
+    case pass
+    case averageWarning = "average-warning"
+    case averageFailed = "average-failed"
+    case p95Warning = "p95-warning"
+    case p95Failed = "p95-failed"
+}
+
+public enum BenchmarkStreamShapeRequestCadenceNextProbe: String, Codable, Equatable, Sendable {
+    case none
+    case inspectUpdateWaitTiming
+    case inspectRequestRegionAndStimulus
+    case tuneRequestPacingWindow
+    case compareRequestResponseEncodingProfiles
+    case inspectLocalRenderPipeline
+    case compareAdaptivePacing
+    case runPhysicalDeviceSustainedGate
+    case collectLongerRun
+}
+
+public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Sendable {
+    public let targetName: String
+    public let sampleStatus: BenchmarkStreamShapeRequestCadenceSampleStatus
+    public let latencyStatus: BenchmarkStreamShapeRequestCadenceLatencyStatus
+    public let recommendedNextProbe: BenchmarkStreamShapeRequestCadenceNextProbe
+    public let requestResponseGateCount: Int
+    public let requestResponseBlockedGateCount: Int
+    public let requestResponseAggregateCount: Int
+    public let requestResponseUsableRunCount: Int
+    public let averageReceivedSamplePermille: Int?
+    public let averageUnansweredSamplePermille: Int?
+    public let averageContentSamplePermille: Int?
+    public let averageContentResponsePermille: Int?
+    public let averageUpdateMilliseconds: Int?
+    public let maxP95UpdateMilliseconds: Int?
+    public let averageContentFramesPerSecond: Double?
+    public let requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
+
+    public init(
+        targetName: String,
+        sampleStatus: BenchmarkStreamShapeRequestCadenceSampleStatus,
+        latencyStatus: BenchmarkStreamShapeRequestCadenceLatencyStatus,
+        recommendedNextProbe: BenchmarkStreamShapeRequestCadenceNextProbe,
+        requestResponseGateCount: Int,
+        requestResponseBlockedGateCount: Int,
+        requestResponseAggregateCount: Int,
+        requestResponseUsableRunCount: Int,
+        averageReceivedSamplePermille: Int? = nil,
+        averageUnansweredSamplePermille: Int? = nil,
+        averageContentSamplePermille: Int? = nil,
+        averageContentResponsePermille: Int? = nil,
+        averageUpdateMilliseconds: Int? = nil,
+        maxP95UpdateMilliseconds: Int? = nil,
+        averageContentFramesPerSecond: Double? = nil,
+        requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = []
+    ) {
+        self.targetName = targetName
+        self.sampleStatus = sampleStatus
+        self.latencyStatus = latencyStatus
+        self.recommendedNextProbe = recommendedNextProbe
+        self.requestResponseGateCount = max(requestResponseGateCount, 0)
+        self.requestResponseBlockedGateCount = max(requestResponseBlockedGateCount, 0)
+        self.requestResponseAggregateCount = max(requestResponseAggregateCount, 0)
+        self.requestResponseUsableRunCount = max(requestResponseUsableRunCount, 0)
+        self.averageReceivedSamplePermille = Self.clampOptionalPermille(averageReceivedSamplePermille)
+        self.averageUnansweredSamplePermille = Self.clampOptionalPermille(averageUnansweredSamplePermille)
+        self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
+        self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
+        self.averageUpdateMilliseconds = averageUpdateMilliseconds.map { max($0, 0) }
+        self.maxP95UpdateMilliseconds = maxP95UpdateMilliseconds.map { max($0, 0) }
+        self.averageContentFramesPerSecond = averageContentFramesPerSecond.map { max($0, 0) }
+        self.requestResponsePrimaryConstraintCounts = BenchmarkStreamShapeTriage
+            .mergedPrimaryConstraintCounts(from: requestResponsePrimaryConstraintCounts)
+        self.requestResponseFailureLabelCounts = BenchmarkStreamShapeTriage
+            .mergedFailureLabelCounts(from: requestResponseFailureLabelCounts)
+    }
+
+    public static func health(
+        from aggregates: [BenchmarkStreamShapeProfileAggregateReport],
+        gates: [BenchmarkStreamShapeProfileGateReport],
+        targets: BenchmarkStreamShapePracticalTargets
+    ) -> BenchmarkStreamShapeRequestCadenceHealth? {
+        let requestAggregates = aggregates.filter { $0.transportMode == .requestResponse }
+        let requestGates = gates.filter { $0.transportMode == .requestResponse }
+        guard !requestAggregates.isEmpty || !requestGates.isEmpty else {
+            return nil
+        }
+
+        let usableAggregates = requestAggregates.filter { $0.usableRunCount > 0 }
+        let blockedGateCount = requestGates.filter {
+            $0.verdict == .warning || $0.verdict == .fail
+        }.count
+        let primaryConstraintCounts = BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(
+            from: requestGates.flatMap(\.primaryConstraintCounts)
+        )
+        let failureLabelCounts = BenchmarkStreamShapeTriage.mergedFailureLabelCounts(
+            from: requestGates.flatMap(\.failureLabelCounts)
+        )
+        let averageReceivedSamplePermille = roundedAverage(
+            usableAggregates.compactMap(\.averageReceivedSamplePermille)
+        )
+        let averageUnansweredSamplePermille = roundedAverage(
+            usableAggregates.compactMap(\.averageUnansweredSamplePermille)
+        )
+        let averageContentSamplePermille = roundedAverage(
+            usableAggregates.compactMap(\.averageContentSamplePermille)
+        )
+        let averageContentResponsePermille = roundedAverage(
+            usableAggregates.compactMap(\.averageContentResponsePermille)
+        )
+        let averageUpdateMilliseconds = roundedAverage(
+            usableAggregates.compactMap(\.averageUpdateMilliseconds)
+        )
+        let maxP95UpdateMilliseconds = usableAggregates
+            .compactMap(\.maxP95UpdateMilliseconds)
+            .max()
+        let averageContentFramesPerSecond = average(
+            usableAggregates.compactMap(\.averageContentFramesPerSecond)
+        )
+        let sampleStatus = sampleStatus(
+            usableAggregateCount: usableAggregates.count,
+            averageReceivedSamplePermille: averageReceivedSamplePermille,
+            averageUnansweredSamplePermille: averageUnansweredSamplePermille,
+            averageContentSamplePermille: averageContentSamplePermille,
+            averageContentResponsePermille: averageContentResponsePermille
+        )
+        let latencyStatus = latencyStatus(
+            averageUpdateMilliseconds: averageUpdateMilliseconds,
+            maxP95UpdateMilliseconds: maxP95UpdateMilliseconds,
+            targets: targets
+        )
+        let nextProbe = recommendedNextProbe(
+            requestGates: requestGates,
+            sampleStatus: sampleStatus,
+            latencyStatus: latencyStatus,
+            primaryConstraintCounts: primaryConstraintCounts,
+            blockedGateCount: blockedGateCount,
+            usableAggregateCount: usableAggregates.count
+        )
+
+        return BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: targetName(from: requestGates, fallback: targets.name),
+            sampleStatus: sampleStatus,
+            latencyStatus: latencyStatus,
+            recommendedNextProbe: nextProbe,
+            requestResponseGateCount: requestGates.count,
+            requestResponseBlockedGateCount: blockedGateCount,
+            requestResponseAggregateCount: requestAggregates.count,
+            requestResponseUsableRunCount: usableAggregates.reduce(0) { $0 + $1.usableRunCount },
+            averageReceivedSamplePermille: averageReceivedSamplePermille,
+            averageUnansweredSamplePermille: averageUnansweredSamplePermille,
+            averageContentSamplePermille: averageContentSamplePermille,
+            averageContentResponsePermille: averageContentResponsePermille,
+            averageUpdateMilliseconds: averageUpdateMilliseconds,
+            maxP95UpdateMilliseconds: maxP95UpdateMilliseconds,
+            averageContentFramesPerSecond: averageContentFramesPerSecond,
+            requestResponsePrimaryConstraintCounts: primaryConstraintCounts,
+            requestResponseFailureLabelCounts: failureLabelCounts
+        )
+    }
+
+    private static func sampleStatus(
+        usableAggregateCount: Int,
+        averageReceivedSamplePermille: Int?,
+        averageUnansweredSamplePermille: Int?,
+        averageContentSamplePermille: Int?,
+        averageContentResponsePermille: Int?
+    ) -> BenchmarkStreamShapeRequestCadenceSampleStatus {
+        guard usableAggregateCount > 0 else {
+            return .noUsableSamples
+        }
+        if (averageReceivedSamplePermille ?? 1_000) < 800
+            || (averageUnansweredSamplePermille ?? 0) > 200 {
+            return .unansweredWait
+        }
+        if (averageContentResponsePermille ?? 1_000) < 700 {
+            return .emptyResponse
+        }
+        if (averageContentSamplePermille ?? 1_000) < 700 {
+            return .mixedLowHit
+        }
+        return .highContentHit
+    }
+
+    private static func latencyStatus(
+        averageUpdateMilliseconds: Int?,
+        maxP95UpdateMilliseconds: Int?,
+        targets: BenchmarkStreamShapePracticalTargets
+    ) -> BenchmarkStreamShapeRequestCadenceLatencyStatus {
+        guard averageUpdateMilliseconds != nil || maxP95UpdateMilliseconds != nil else {
+            return .notMeasured
+        }
+        if let maxP95UpdateMilliseconds,
+           maxP95UpdateMilliseconds > targets.failP95UpdateMilliseconds {
+            return .p95Failed
+        }
+        if let failAverage = targets.failAverageUpdateMilliseconds,
+           let averageUpdateMilliseconds,
+           averageUpdateMilliseconds > failAverage {
+            return .averageFailed
+        }
+        if let maxP95UpdateMilliseconds,
+           maxP95UpdateMilliseconds > targets.passP95UpdateMilliseconds {
+            return .p95Warning
+        }
+        if let passAverage = targets.passAverageUpdateMilliseconds,
+           let averageUpdateMilliseconds,
+           averageUpdateMilliseconds > passAverage {
+            return .averageWarning
+        }
+        return .pass
+    }
+
+    private static func recommendedNextProbe(
+        requestGates: [BenchmarkStreamShapeProfileGateReport],
+        sampleStatus: BenchmarkStreamShapeRequestCadenceSampleStatus,
+        latencyStatus: BenchmarkStreamShapeRequestCadenceLatencyStatus,
+        primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount],
+        blockedGateCount: Int,
+        usableAggregateCount: Int
+    ) -> BenchmarkStreamShapeRequestCadenceNextProbe {
+        let activeRequestGates = requestGates.filter { $0.verdict != .disabled }
+        if !activeRequestGates.isEmpty,
+           activeRequestGates.allSatisfy({ $0.verdict == .pass }) {
+            return .runPhysicalDeviceSustainedGate
+        }
+        if usableAggregateCount == 0 {
+            return .collectLongerRun
+        }
+        if primaryConstraint(
+            DiagnosticSustainedSessionPrimaryConstraint.clientDecode,
+            dominates: DiagnosticSustainedSessionPrimaryConstraint.receivePath,
+            in: primaryConstraintCounts
+        ) {
+            return .compareRequestResponseEncodingProfiles
+        }
+        if primaryConstraintCount(
+            DiagnosticSustainedSessionPrimaryConstraint.rendererUpload,
+            in: primaryConstraintCounts
+        ) > 0 {
+            return .inspectLocalRenderPipeline
+        }
+        if primaryConstraintCount(
+            DiagnosticSustainedSessionPrimaryConstraint.adaptivePacing,
+            in: primaryConstraintCounts
+        ) > 0 {
+            return .compareAdaptivePacing
+        }
+        switch sampleStatus {
+        case .unansweredWait:
+            return .inspectUpdateWaitTiming
+        case .emptyResponse, .mixedLowHit:
+            return .inspectRequestRegionAndStimulus
+        case .notTested:
+            return .none
+        case .noUsableSamples:
+            return .collectLongerRun
+        case .highContentHit:
+            break
+        }
+        switch latencyStatus {
+        case .averageWarning, .averageFailed, .p95Warning, .p95Failed:
+            return .tuneRequestPacingWindow
+        case .notMeasured:
+            return .collectLongerRun
+        case .pass:
+            return blockedGateCount > 0 ? .tuneRequestPacingWindow : .none
+        }
+    }
+
+    private static func primaryConstraint(
+        _ candidate: DiagnosticSustainedSessionPrimaryConstraint,
+        dominates baseline: DiagnosticSustainedSessionPrimaryConstraint,
+        in counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> Bool {
+        let candidateCount = primaryConstraintCount(candidate, in: counts)
+        guard candidateCount > 0 else {
+            return false
+        }
+        return candidateCount > primaryConstraintCount(baseline, in: counts)
+    }
+
+    private static func primaryConstraintCount(
+        _ constraint: DiagnosticSustainedSessionPrimaryConstraint,
+        in counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> Int {
+        counts.first { $0.label == constraint.rawValue }?.count ?? 0
+    }
+
+    private static func targetName(
+        from gates: [BenchmarkStreamShapeProfileGateReport],
+        fallback: String
+    ) -> String {
+        let targetNames = Set(gates.map(\.targetName))
+        return targetNames.count <= 1 ? (targetNames.first ?? fallback) : "mixed-targets"
+    }
+
+    private static func roundedAverage(_ values: [Int]) -> Int? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    private static func average(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+}
+
 public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable, Sendable {
     public let targetName: String
     public let recommendedTransportMode: BenchmarkStreamShapeTransportMode?

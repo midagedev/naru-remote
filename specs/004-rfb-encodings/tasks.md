@@ -928,6 +928,18 @@ iPhone) and ships as its own PR.
   `tuneTransportCadence` rather than another encoding-profile comparison. Owns:
   benchmark CLI preset, transport diagnosis tests, README, benchmark artifact,
   research note. **Done.**
+- **T422** Request cadence health report: bump `VNCLiveBenchmark` to schema v47
+  with a top-level `streamShapeRequestCadenceHealth` report derived only from
+  request/response profile aggregates and gates. Split request cadence triage
+  into fixed sample-hit status, fixed aggregate latency status, fixed next
+  probe label, aggregate request/response gate/run counts, aggregate permille
+  ratios, and aggregate millisecond summaries. Use the live zero-delay gate to
+  prove the current blocker is high content hit with p95 request/update tail,
+  not unanswered waits or empty responses. Do not export host identity,
+  dimensions, coordinates, pixels, cursor pixels, byte counts, raw timings, raw
+  TCP/RFB errors, raw payloads, command text, command output, draft text, marked
+  text, or IME state. Owns: benchmark summary kit/tests, CLI schema/text
+  report, README, benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

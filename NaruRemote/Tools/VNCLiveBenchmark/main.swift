@@ -1662,6 +1662,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeProfileGates: [BenchmarkStreamShapeProfileGateReport]
     let streamShapeOptimizationDecision: BenchmarkStreamShapeOptimizationDecision?
     let streamShapeTransportCadenceDiagnosis: BenchmarkStreamShapeTransportCadenceDiagnosis?
+    let streamShapeRequestCadenceHealth: BenchmarkStreamShapeRequestCadenceHealth?
     let streamShapeRecommendation: BenchmarkStreamShapeRecommendation?
     let streamShapeOrderNeutralRecommendation: BenchmarkStreamShapeRecommendation?
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
@@ -1698,7 +1699,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 46
+        self.schemaVersion = 47
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1776,6 +1777,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
             "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, aggregate run counts, and permille ratios",
             "stream-shape transport cadence diagnosis emits only fixed transport/status/action labels and aggregate gate/failure counts",
+            "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -1792,6 +1794,11 @@ private struct BenchmarkReport: Codable, Equatable {
         )
         self.streamShapeTransportCadenceDiagnosis = BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(
             from: streamShapeProfileGates
+        )
+        self.streamShapeRequestCadenceHealth = BenchmarkStreamShapeRequestCadenceHealth.health(
+            from: streamShapeProfileAggregates,
+            gates: streamShapeProfileGates,
+            targets: streamShapePracticalTarget.targets
         )
         self.streamShapeRecommendation = BenchmarkStreamShapeRecommendation
             .recommendedRequestResponseProfile(from: streamShapeProfileProbes)
@@ -2271,6 +2278,42 @@ private func renderText(_ report: BenchmarkReport) {
                 + "\(formatTriageCounts(diagnosis.continuousUpdatesFailureLabelCounts))"
         )
     }
+    if let health = report.streamShapeRequestCadenceHealth {
+        print("")
+        print("stream-shape request cadence health:")
+        print("- target: \(health.targetName)")
+        print(
+            "  sample/latency/action: "
+                + "\(health.sampleStatus.rawValue)/"
+                + "\(health.latencyStatus.rawValue)/"
+                + "\(health.recommendedNextProbe.rawValue)"
+        )
+        print(
+            "  gates blocked/total; aggregates usable-runs/count: "
+                + "\(health.requestResponseBlockedGateCount)/\(health.requestResponseGateCount); "
+                + "\(health.requestResponseUsableRunCount)/\(health.requestResponseAggregateCount)"
+        )
+        let received = health.averageReceivedSamplePermille.map(String.init) ?? "n/a"
+        let unanswered = health.averageUnansweredSamplePermille.map(String.init) ?? "n/a"
+        let contentRequest = health.averageContentSamplePermille.map(String.init) ?? "n/a"
+        let contentResponse = health.averageContentResponsePermille.map(String.init) ?? "n/a"
+        print(
+            "  hit-rate permille avg received/request content/request content/response unanswered: "
+                + "\(received)/\(contentRequest)/\(contentResponse)/\(unanswered)"
+        )
+        let averageUpdate = health.averageUpdateMilliseconds.map(String.init) ?? "n/a"
+        let maxP95 = health.maxP95UpdateMilliseconds.map(String.init) ?? "n/a"
+        let contentFPS = health.averageContentFramesPerSecond.map(formatFramesPerSecond) ?? "n/a"
+        print("  update ms avg/max-p95; content fps avg: \(averageUpdate)/\(maxP95); \(contentFPS)")
+        print(
+            "  request-response constraints: "
+                + "\(formatTriageCounts(health.requestResponsePrimaryConstraintCounts))"
+        )
+        print(
+            "  request-response failure labels: "
+                + "\(formatTriageCounts(health.requestResponseFailureLabelCounts))"
+        )
+    }
     if let recommendation = report.streamShapeRecommendation {
         print("")
         print("stream-shape recommendation:")
@@ -2609,7 +2652,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v46 gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v47 gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
