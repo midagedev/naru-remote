@@ -59,9 +59,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
 
         XCTAssertEqual(summary.status, .mixedUpdates)
+        XCTAssertEqual(summary.attemptedSamples, 3)
         XCTAssertEqual(summary.receivedSamples, 2)
         XCTAssertEqual(summary.emptyUpdateSamples, 1)
         XCTAssertEqual(summary.contentUpdateSamples, 1)
+        XCTAssertEqual(summary.receivedSamplePermille, 667)
+        XCTAssertEqual(summary.unansweredSamplePermille, 333)
+        XCTAssertEqual(summary.contentSamplePermille, 333)
+        XCTAssertEqual(summary.emptyResponsePermille, 500)
+        XCTAssertEqual(summary.contentResponsePermille, 500)
         XCTAssertEqual(summary.deliveredFramesPerSecond, 20)
         XCTAssertEqual(summary.contentFramesPerSecond, 10)
         XCTAssertEqual(try XCTUnwrap(summary.updateLatency).averageMilliseconds, 40)
@@ -105,7 +111,13 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
 
         XCTAssertEqual(summary.status, .noUpdateBeforeTimeout)
+        XCTAssertEqual(summary.attemptedSamples, 4)
         XCTAssertEqual(summary.timedOutSamples, 1)
+        XCTAssertEqual(summary.receivedSamplePermille, 0)
+        XCTAssertEqual(summary.unansweredSamplePermille, 1_000)
+        XCTAssertEqual(summary.contentSamplePermille, 0)
+        XCTAssertNil(summary.emptyResponsePermille)
+        XCTAssertNil(summary.contentResponsePermille)
         XCTAssertEqual(summary.deliveredFramesPerSecond, 0)
         XCTAssertEqual(summary.contentFramesPerSecond, 0)
         XCTAssertEqual(summary.firstTimeoutMilliseconds, 750)
@@ -339,7 +351,13 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 "viewportInteractionPausedRequestCount",
                 "viewportInteractionPausedRequestPermille",
                 "viewportInteractionPausePollCount",
-                "viewportInteractionPausedMilliseconds"
+                "viewportInteractionPausedMilliseconds",
+                "attemptedSamples",
+                "receivedSamplePermille",
+                "unansweredSamplePermille",
+                "contentSamplePermille",
+                "emptyResponsePermille",
+                "contentResponsePermille"
             ]
         )
         let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
@@ -355,7 +373,64 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decodedSummary.viewportInteractionPausedRequestPermille, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPausePollCount, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPausedMilliseconds, 0)
+        XCTAssertEqual(decodedSummary.attemptedSamples, 1)
+        XCTAssertEqual(decodedSummary.receivedSamplePermille, 1_000)
+        XCTAssertEqual(decodedSummary.unansweredSamplePermille, 0)
+        XCTAssertEqual(decodedSummary.contentSamplePermille, 1_000)
+        XCTAssertEqual(decodedSummary.contentResponsePermille, 1_000)
         XCTAssertEqual(decodedSummary.receivedSamples, 1)
+    }
+
+    func testStreamShapeSummaryReportsAttemptedSampleHitRates() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 10,
+            attemptedSamples: 4,
+            samples: [
+                streamShapeSample(duration: 40),
+                streamShapeSample(duration: 45, kind: .emptyUpdate),
+                streamShapeSample(duration: 50)
+            ],
+            elapsedMilliseconds: 200,
+            firstTimeoutMilliseconds: 100,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.attemptedSamples, 4)
+        XCTAssertEqual(summary.receivedSamples, 3)
+        XCTAssertEqual(summary.contentUpdateSamples, 2)
+        XCTAssertEqual(summary.receivedSamplePermille, 750)
+        XCTAssertEqual(summary.unansweredSamplePermille, 250)
+        XCTAssertEqual(summary.contentSamplePermille, 500)
+        XCTAssertEqual(summary.emptyResponsePermille, 333)
+        XCTAssertEqual(summary.contentResponsePermille, 667)
+    }
+
+    func testDecodingClampsAttemptedSamplesAtReceivedSamples() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 2,
+            attemptedSamples: 2,
+            samples: [
+                streamShapeSample(duration: 40),
+                streamShapeSample(duration: 45)
+            ],
+            elapsedMilliseconds: 100,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let encoded = try JSONEncoder().encode(summary)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["attemptedSamples"] = 1
+        object.removeValue(forKey: "receivedSamplePermille")
+        object.removeValue(forKey: "unansweredSamplePermille")
+        object.removeValue(forKey: "contentSamplePermille")
+
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: data)
+
+        XCTAssertEqual(decoded.attemptedSamples, 2)
+        XCTAssertEqual(decoded.receivedSamplePermille, 1_000)
+        XCTAssertEqual(decoded.unansweredSamplePermille, 0)
+        XCTAssertEqual(decoded.contentSamplePermille, 1_000)
     }
 
     func testRecommendationPicksLowestAverageRequestResponseLatency() throws {
@@ -453,6 +528,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(local.slowUpdateSamples, 1)
         XCTAssertEqual(local.verySlowUpdateSamples, 1)
         XCTAssertEqual(local.receivedSamples, 4)
+        XCTAssertEqual(local.averageReceivedSamplePermille, 1_000)
+        XCTAssertEqual(local.averageContentSamplePermille, 1_000)
+        XCTAssertEqual(local.averageContentResponsePermille, 1_000)
+        XCTAssertEqual(local.averageUnansweredSamplePermille, 0)
 
         let continuous = aggregates[2]
         XCTAssertEqual(continuous.runCount, 1)

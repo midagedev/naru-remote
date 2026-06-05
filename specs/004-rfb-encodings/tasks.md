@@ -709,6 +709,14 @@ iPhone) and ships as its own PR.
   text, marked text, or IME state. Owns: AppSettings, session controls, app
   stream policy, diagnostics/tests, benchmark artifact, research note.
   **Done.**
+- **T397** Stream-shape hit-rate diagnostics: bump `VNCLiveBenchmark` to
+  schema v36 with safe aggregate attempted/received/content/empty/unanswered
+  sample hit-rate permille fields, propagate content hit-rate into profile
+  aggregates/recommendations, and document how these ratios split low content
+  FPS into unanswered-request, empty-response, or slow-content-response
+  categories before the next cadence/default change. Owns: benchmark summary
+  kit, CLI report output, tests, benchmark docs/artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

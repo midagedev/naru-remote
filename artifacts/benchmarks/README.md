@@ -194,6 +194,18 @@ of 180 ms pass / 250 ms fail, tightens post-warm-up p95 to 350 ms pass /
 500 ms fail, expects 0 permille renderer full-upload pressure, and still
 requires a physical iPhone 10 minute hand-feel/thermal pass before production
 defaults change. Use v1 only for legacy artifact comparison.
+Schema v36 adds stream-shape hit-rate diagnostics:
+`attemptedSamples`, `receivedSamplePermille`, `unansweredSamplePermille`,
+`contentSamplePermille`, `emptyResponsePermille`, and
+`contentResponsePermille`, plus matching per-profile aggregate/recommendation
+fields. Use these aggregate ratios to distinguish low content FPS caused by
+unanswered sample waits or low content hit-rate from low FPS caused by slow
+but consistently content-bearing updates. Per-profile aggregate permille fields
+are run-level means so rotated benchmark iterations have equal weight when
+duration-capped attempts vary. These fields must remain counts and permille
+ratios only; do not add per-frame request arrays, timestamps, dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, raw errors, or
+target identity.
 The app stream startup preflight gate is separate from the benchmark-only v34
 flag: the runtime policy is injectable and off by default, may consume at most
 one hidden incremental update after the first visible frame, and must not be

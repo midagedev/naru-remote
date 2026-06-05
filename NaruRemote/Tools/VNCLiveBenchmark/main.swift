@@ -379,6 +379,7 @@ enum VNCLiveBenchmark {
         var firstTimeoutMilliseconds: Int?
         var elapsedMilliseconds: Int?
         var failureLabel: String?
+        var attemptedSamples = 0
         var emptyUpdateStreak = 0
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
         var adaptiveClientPressurePacingSamples = 0
@@ -404,6 +405,7 @@ enum VNCLiveBenchmark {
                     durationLimit: durationLimit,
                     receivedSamples: samples.count
                 ),
+                attemptedSamples: attemptedSamples,
                 firstFrameMilliseconds: firstFrameMilliseconds,
                 samples: samples,
                 elapsedMilliseconds: elapsedMilliseconds,
@@ -430,6 +432,7 @@ enum VNCLiveBenchmark {
                     durationLimit: durationLimit,
                     receivedSamples: samples.count
                 ),
+                attemptedSamples: attemptedSamples,
                 firstFrameMilliseconds: firstFrameMilliseconds,
                 samples: samples,
                 elapsedMilliseconds: elapsedMilliseconds,
@@ -462,6 +465,7 @@ enum VNCLiveBenchmark {
                     durationLimit: durationLimit,
                     receivedSamples: samples.count
                 ),
+                attemptedSamples: attemptedSamples,
                 firstFrameMilliseconds: firstFrameMilliseconds,
                 samples: samples,
                 elapsedMilliseconds: elapsedMilliseconds,
@@ -494,6 +498,7 @@ enum VNCLiveBenchmark {
             guard requestTimeout > 0 else {
                 break
             }
+            attemptedSamples += 1
             do {
                 guard let frame = try pump.nextFrame(
                     requestTimeout: requestTimeout,
@@ -560,6 +565,7 @@ enum VNCLiveBenchmark {
                 durationLimit: durationLimit,
                 receivedSamples: samples.count
             ),
+            attemptedSamples: attemptedSamples,
             firstFrameMilliseconds: firstFrameMilliseconds,
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
@@ -1508,7 +1514,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 35
+        self.schemaVersion = 36
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1578,6 +1584,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "profile-order metrics emit only fixed iteration/order ordinals and aggregate per-profile summaries",
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
             "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, and aggregate threshold outcomes",
+            "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
         ]
@@ -1674,6 +1681,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
     init(
         transportMode: BenchmarkStreamShapeTransportMode,
         requestedSamples: Int,
+        attemptedSamples: Int? = nil,
         firstFrameMilliseconds: Int?,
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
@@ -1690,6 +1698,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.summary = BenchmarkStreamShapeSummary(
             requestedSamples: requestedSamples,
+            attemptedSamples: attemptedSamples,
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
@@ -1950,6 +1959,15 @@ private func renderText(_ report: BenchmarkReport) {
             } else {
                 print("  content fps avg: n/a")
             }
+            if let receivedRequest = aggregate.averageReceivedSamplePermille,
+               let contentRequest = aggregate.averageContentSamplePermille,
+               let contentResponse = aggregate.averageContentResponsePermille,
+               let unanswered = aggregate.averageUnansweredSamplePermille {
+                print(
+                    "  hit-rate permille avg received/request content/request content/response unanswered: "
+                        + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
+                )
+            }
         }
     }
     if let recommendation = report.streamShapeRecommendation {
@@ -1966,6 +1984,10 @@ private func renderText(_ report: BenchmarkReport) {
                 + "full-upload permille: \(recommendation.rendererFullUploadPermille); "
                 + "slow samples: \(recommendation.slowUpdateSamples)/\(recommendation.receivedSamples)"
         )
+        if let contentRequest = recommendation.contentSamplePermille,
+           let contentResponse = recommendation.contentResponsePermille {
+            print("  hit-rate permille content/request content/response: \(contentRequest)/\(contentResponse)")
+        }
     }
     if let recommendation = report.streamShapeOrderNeutralRecommendation {
         print("")
@@ -1985,6 +2007,10 @@ private func renderText(_ report: BenchmarkReport) {
                 + "full-upload permille avg: \(recommendation.rendererFullUploadPermille); "
                 + "slow samples: \(recommendation.slowUpdateSamples)/\(recommendation.receivedSamples)"
         )
+        if let contentRequest = recommendation.contentSamplePermille,
+           let contentResponse = recommendation.contentResponsePermille {
+            print("  hit-rate permille content/request content/response: \(contentRequest)/\(contentResponse)")
+        }
     }
     print("")
     print("continuous updates probe:")
@@ -2029,7 +2055,10 @@ private func renderStreamShapeSummary(
         return
     }
 
-    print("\(indentation)- status: \(summary.status.rawValue), received: \(summary.receivedSamples)/\(summary.requestedSamples)")
+    print(
+        "\(indentation)- status: \(summary.status.rawValue), received/attempted/requested: "
+            + "\(summary.receivedSamples)/\(summary.attemptedSamples)/\(summary.requestedSamples)"
+    )
     let assessment = summary.practicalAssessment
     print(
         "\(indentation)  practical target: \(assessment.targetName) "
@@ -2082,6 +2111,16 @@ private func renderStreamShapeSummary(
         )
     }
     print("\(indentation)  empty/content/timeouts: \(summary.emptyUpdateSamples)/\(summary.contentUpdateSamples)/\(summary.timedOutSamples)")
+    if let received = summary.receivedSamplePermille,
+       let contentRequest = summary.contentSamplePermille,
+       let contentResponse = summary.contentResponsePermille,
+       let unanswered = summary.unansweredSamplePermille {
+        let emptyResponse = summary.emptyResponsePermille.map(String.init) ?? "n/a"
+        print(
+            "\(indentation)  hit-rate permille received/request content/request content/response empty/response unanswered: "
+                + "\(received)/\(contentRequest)/\(contentResponse)/\(emptyResponse)/\(unanswered)"
+        )
+    }
     if let adaptivePermille = summary.adaptiveClientPressurePacingPermille,
        summary.adaptiveClientPressurePacingSamples > 0 {
         print(

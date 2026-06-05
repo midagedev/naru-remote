@@ -289,10 +289,16 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
 public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let status: BenchmarkStreamShapeStatus
     public let requestedSamples: Int
+    public let attemptedSamples: Int
     public let receivedSamples: Int
     public let emptyUpdateSamples: Int
     public let contentUpdateSamples: Int
     public let timedOutSamples: Int
+    public let receivedSamplePermille: Int?
+    public let unansweredSamplePermille: Int?
+    public let contentSamplePermille: Int?
+    public let emptyResponsePermille: Int?
+    public let contentResponsePermille: Int?
     public let elapsedMilliseconds: Int?
     public let deliveredFramesPerSecond: Double?
     public let contentFramesPerSecond: Double?
@@ -328,10 +334,16 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case status
         case requestedSamples
+        case attemptedSamples
         case receivedSamples
         case emptyUpdateSamples
         case contentUpdateSamples
         case timedOutSamples
+        case receivedSamplePermille
+        case unansweredSamplePermille
+        case contentSamplePermille
+        case emptyResponsePermille
+        case contentResponsePermille
         case elapsedMilliseconds
         case deliveredFramesPerSecond
         case contentFramesPerSecond
@@ -367,6 +379,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
 
     public init(
         requestedSamples: Int,
+        attemptedSamples: Int? = nil,
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
@@ -380,6 +393,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     ) {
         let requestedSamples = max(requestedSamples, 0)
         let receivedSamples = samples.count
+        let attemptedSamples = max(attemptedSamples ?? requestedSamples, receivedSamples)
         let emptyUpdateSamples = samples.filter { $0.kind == .emptyUpdate }.count
         let contentUpdateSamples = samples.filter { $0.kind == .contentUpdate }.count
         let adaptiveClientPressurePacingSamples = min(
@@ -410,10 +424,19 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             failureLabel: failureLabel
         )
         self.requestedSamples = requestedSamples
+        self.attemptedSamples = attemptedSamples
         self.receivedSamples = receivedSamples
         self.emptyUpdateSamples = emptyUpdateSamples
         self.contentUpdateSamples = contentUpdateSamples
         self.timedOutSamples = firstTimeoutMilliseconds == nil ? 0 : 1
+        self.receivedSamplePermille = Self.permille(receivedSamples, of: attemptedSamples)
+        self.unansweredSamplePermille = Self.permille(
+            max(attemptedSamples - receivedSamples, 0),
+            of: attemptedSamples
+        )
+        self.contentSamplePermille = Self.permille(contentUpdateSamples, of: attemptedSamples)
+        self.emptyResponsePermille = Self.permille(emptyUpdateSamples, of: receivedSamples)
+        self.contentResponsePermille = Self.permille(contentUpdateSamples, of: receivedSamples)
         self.elapsedMilliseconds = elapsedMilliseconds
         self.deliveredFramesPerSecond = Self.framesPerSecond(
             sampleCount: samples.count,
@@ -485,12 +508,43 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.status = try container.decode(BenchmarkStreamShapeStatus.self, forKey: .status)
-        self.requestedSamples = try container.decode(Int.self, forKey: .requestedSamples)
-        self.receivedSamples = try container.decode(Int.self, forKey: .receivedSamples)
-        self.emptyUpdateSamples = try container.decode(Int.self, forKey: .emptyUpdateSamples)
-        self.contentUpdateSamples = try container.decode(Int.self, forKey: .contentUpdateSamples)
-        self.timedOutSamples = try container.decode(Int.self, forKey: .timedOutSamples)
+        let status = try container.decode(BenchmarkStreamShapeStatus.self, forKey: .status)
+        let requestedSamples = max(try container.decode(Int.self, forKey: .requestedSamples), 0)
+        let receivedSamples = max(try container.decode(Int.self, forKey: .receivedSamples), 0)
+        let attemptedSamples = max(
+            try container.decodeIfPresent(Int.self, forKey: .attemptedSamples) ?? requestedSamples,
+            receivedSamples
+        )
+        let emptyUpdateSamples = max(try container.decode(Int.self, forKey: .emptyUpdateSamples), 0)
+        let contentUpdateSamples = max(try container.decode(Int.self, forKey: .contentUpdateSamples), 0)
+        let timedOutSamples = max(try container.decode(Int.self, forKey: .timedOutSamples), 0)
+        self.status = status
+        self.requestedSamples = requestedSamples
+        self.attemptedSamples = attemptedSamples
+        self.receivedSamples = receivedSamples
+        self.emptyUpdateSamples = emptyUpdateSamples
+        self.contentUpdateSamples = contentUpdateSamples
+        self.timedOutSamples = timedOutSamples
+        self.receivedSamplePermille = Self.clampOptionalPermille(try container.decodeIfPresent(
+            Int.self,
+            forKey: .receivedSamplePermille
+        )) ?? Self.permille(receivedSamples, of: attemptedSamples)
+        self.unansweredSamplePermille = Self.clampOptionalPermille(try container.decodeIfPresent(
+            Int.self,
+            forKey: .unansweredSamplePermille
+        )) ?? Self.permille(max(attemptedSamples - receivedSamples, 0), of: attemptedSamples)
+        self.contentSamplePermille = Self.clampOptionalPermille(try container.decodeIfPresent(
+            Int.self,
+            forKey: .contentSamplePermille
+        )) ?? Self.permille(contentUpdateSamples, of: attemptedSamples)
+        self.emptyResponsePermille = Self.clampOptionalPermille(try container.decodeIfPresent(
+            Int.self,
+            forKey: .emptyResponsePermille
+        )) ?? Self.permille(emptyUpdateSamples, of: receivedSamples)
+        self.contentResponsePermille = Self.clampOptionalPermille(try container.decodeIfPresent(
+            Int.self,
+            forKey: .contentResponsePermille
+        )) ?? Self.permille(contentUpdateSamples, of: receivedSamples)
         self.elapsedMilliseconds = try container.decodeIfPresent(Int.self, forKey: .elapsedMilliseconds)
         self.deliveredFramesPerSecond = try container.decodeIfPresent(
             Double.self,
@@ -676,7 +730,11 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             return nil
         }
         let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
-        return value > 0 ? max(rounded, 1) : 0
+        return value > 0 ? min(max(rounded, 1), 1_000) : 0
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
     }
 
     private static func practicalAssessment(
@@ -798,10 +856,16 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(status, forKey: .status)
         try container.encode(requestedSamples, forKey: .requestedSamples)
+        try container.encode(attemptedSamples, forKey: .attemptedSamples)
         try container.encode(receivedSamples, forKey: .receivedSamples)
         try container.encode(emptyUpdateSamples, forKey: .emptyUpdateSamples)
         try container.encode(contentUpdateSamples, forKey: .contentUpdateSamples)
         try container.encode(timedOutSamples, forKey: .timedOutSamples)
+        try container.encodeIfPresent(receivedSamplePermille, forKey: .receivedSamplePermille)
+        try container.encodeIfPresent(unansweredSamplePermille, forKey: .unansweredSamplePermille)
+        try container.encodeIfPresent(contentSamplePermille, forKey: .contentSamplePermille)
+        try container.encodeIfPresent(emptyResponsePermille, forKey: .emptyResponsePermille)
+        try container.encodeIfPresent(contentResponsePermille, forKey: .contentResponsePermille)
         try container.encodeIfPresent(elapsedMilliseconds, forKey: .elapsedMilliseconds)
         try container.encodeIfPresent(deliveredFramesPerSecond, forKey: .deliveredFramesPerSecond)
         try container.encodeIfPresent(contentFramesPerSecond, forKey: .contentFramesPerSecond)
@@ -965,6 +1029,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     public let verySlowUpdateSamples: Int
     public let receivedSamples: Int
     public let contentUpdateSamples: Int
+    public let averageReceivedSamplePermille: Int?
+    public let averageContentSamplePermille: Int?
+    public let averageContentResponsePermille: Int?
+    public let averageUnansweredSamplePermille: Int?
 
     public init(
         label: String,
@@ -981,7 +1049,11 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         slowUpdateSamples: Int,
         verySlowUpdateSamples: Int,
         receivedSamples: Int,
-        contentUpdateSamples: Int
+        contentUpdateSamples: Int,
+        averageReceivedSamplePermille: Int? = nil,
+        averageContentSamplePermille: Int? = nil,
+        averageContentResponsePermille: Int? = nil,
+        averageUnansweredSamplePermille: Int? = nil
     ) {
         self.label = label
         self.transportMode = transportMode
@@ -1000,6 +1072,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         self.verySlowUpdateSamples = max(verySlowUpdateSamples, 0)
         self.receivedSamples = max(receivedSamples, 0)
         self.contentUpdateSamples = max(contentUpdateSamples, 0)
+        self.averageReceivedSamplePermille = Self.clampOptionalPermille(averageReceivedSamplePermille)
+        self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
+        self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
+        self.averageUnansweredSamplePermille = Self.clampOptionalPermille(averageUnansweredSamplePermille)
     }
 
     public static func aggregates(
@@ -1025,6 +1101,12 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let fullUploadPermille = usableReports.compactMap(\.summary.rendererFullUploadPermille)
         let clientP95s = usableReports.compactMap { $0.summary.clientProcessingLatency?.p95Milliseconds }
         let zrleTileP95s = usableReports.compactMap { $0.summary.zrleTileApplyLatency?.p95Milliseconds }
+        let receivedSamplePermille = usableReports.compactMap(\.summary.receivedSamplePermille)
+        let contentSamplePermille = usableReports.compactMap(\.summary.contentSamplePermille)
+        let contentResponsePermille = usableReports.compactMap(\.summary.contentResponsePermille)
+        let unansweredSamplePermille = usableReports.compactMap(\.summary.unansweredSamplePermille)
+        // Keep profile aggregates as run-level means so rotated benchmark
+        // iterations have equal weight even when duration-capped attempts vary.
         return BenchmarkStreamShapeProfileAggregateReport(
             label: key.label,
             transportMode: key.transportMode,
@@ -1040,7 +1122,11 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             slowUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.tailLatency.slowUpdateSamples },
             verySlowUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.tailLatency.verySlowUpdateSamples },
             receivedSamples: usableReports.reduce(0) { $0 + $1.summary.receivedSamples },
-            contentUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.contentUpdateSamples }
+            contentUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.contentUpdateSamples },
+            averageReceivedSamplePermille: roundedAverage(receivedSamplePermille),
+            averageContentSamplePermille: roundedAverage(contentSamplePermille),
+            averageContentResponsePermille: roundedAverage(contentResponsePermille),
+            averageUnansweredSamplePermille: roundedAverage(unansweredSamplePermille)
         )
     }
 
@@ -1082,6 +1168,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         return values.reduce(0, +) / Double(values.count)
     }
 
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+
     private struct AggregateKey: Hashable {
         let label: String
         let transportMode: BenchmarkStreamShapeTransportMode
@@ -1101,6 +1191,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     public let slowUpdateSamples: Int
     public let receivedSamples: Int
     public let contentUpdateSamples: Int
+    public let contentSamplePermille: Int?
+    public let contentResponsePermille: Int?
 
     public init(
         label: String,
@@ -1114,7 +1206,9 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         rendererFullUploadPermille: Int,
         slowUpdateSamples: Int,
         receivedSamples: Int,
-        contentUpdateSamples: Int
+        contentUpdateSamples: Int,
+        contentSamplePermille: Int? = nil,
+        contentResponsePermille: Int? = nil
     ) {
         self.label = label
         self.transportMode = transportMode
@@ -1128,6 +1222,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         self.slowUpdateSamples = max(slowUpdateSamples, 0)
         self.receivedSamples = max(receivedSamples, 0)
         self.contentUpdateSamples = max(contentUpdateSamples, 0)
+        self.contentSamplePermille = Self.clampOptionalPermille(contentSamplePermille)
+        self.contentResponsePermille = Self.clampOptionalPermille(contentResponsePermille)
     }
 
     public static func recommendedRequestResponseProfile(
@@ -1173,7 +1269,9 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             rendererFullUploadPermille: rendererFullUploadPermille,
             slowUpdateSamples: report.summary.tailLatency.slowUpdateSamples,
             receivedSamples: report.summary.receivedSamples,
-            contentUpdateSamples: report.summary.contentUpdateSamples
+            contentUpdateSamples: report.summary.contentUpdateSamples,
+            contentSamplePermille: report.summary.contentSamplePermille,
+            contentResponsePermille: report.summary.contentResponsePermille
         )
     }
 
@@ -1201,8 +1299,14 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             rendererFullUploadPermille: averageRendererFullUploadPermille,
             slowUpdateSamples: aggregate.slowUpdateSamples,
             receivedSamples: aggregate.receivedSamples,
-            contentUpdateSamples: aggregate.contentUpdateSamples
+            contentUpdateSamples: aggregate.contentUpdateSamples,
+            contentSamplePermille: aggregate.averageContentSamplePermille,
+            contentResponsePermille: aggregate.averageContentResponsePermille
         )
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
     }
 
     private static func isPreferred(
