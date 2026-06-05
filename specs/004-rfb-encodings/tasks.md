@@ -920,6 +920,14 @@ iPhone) and ships as its own PR.
   client-decode tail but still misses the 8fps steady-stream target. Owns:
   benchmark CLI preset, tests, README, benchmark artifact, research note.
   **Done.**
+- **T421** Request/response zero-delay cadence gate: add a benchmark-only
+  `sustained-v2-zrle-zero-delay` preset that reuses the ZRLE isolation shape
+  with `streamShapeFrameIntervalSeconds=0`, emits schema v46 for the new fixed
+  preset label, and records a redacted live result. Update transport/cadence
+  diagnosis so receive-path-majority mixed failures route to
+  `tuneTransportCadence` rather than another encoding-profile comparison. Owns:
+  benchmark CLI preset, transport diagnosis tests, README, benchmark artifact,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 
