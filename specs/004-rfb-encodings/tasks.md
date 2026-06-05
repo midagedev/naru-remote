@@ -523,6 +523,15 @@ iPhone) and ships as its own PR.
   whether request suppression was missing, active-but-local-pressure-bound, or
   active-with-incoming-frame deferral. Owns: diagnostic export/tests, research
   note. **Done.**
+- **T376** Physical iPhone viewport/Compose regression correction: after device
+  feedback still reported stepped zoom/pan and broken Compose input, restore
+  the shared active viewport-interaction content cadence to 8 Hz-class so
+  decode/upload work cannot compete with local Metal pinch/pan tracking, and
+  allow UTF-8 Compose payloads on unconfirmed VNC clipboard servers to take the
+  best-effort legacy paste path while explicit unsupported servers still fail
+  with helper-aware diagnostics. Owns: Core pacing defaults, text-injection
+  policy, app model tests, adapter tests, research note, benchmark artifact.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
