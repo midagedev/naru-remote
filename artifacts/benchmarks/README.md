@@ -291,6 +291,15 @@ Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw
 transport, pixel, coordinate, timing, draft, or IME state.
+Diagnostic collection schema v28 extends `sustainedSessionAssessment` with
+`primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe`. Treat this
+as the first triage surface for physical iPhone reports: thermal issues route
+to power-saver/thermal passes, viewport issues route to interaction traces,
+local decode/render issues route to profile or render-pipeline gates, and
+Compose issues route to helper/clipboard route diagnostics. The fields are
+fixed catalog labels derived from existing safe issue codes only; do not add
+raw FPS, raw timings, host identity, dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw payloads, draft text, marked text, or IME state.
 By default, stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
 set (`local-low-latency`, `zrle-compression-0`, `tight-first`, and
