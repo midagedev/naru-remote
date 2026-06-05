@@ -530,6 +530,11 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
     }
 
     func testComposeSendStabilizationWindowCoversDelayedIMECommit() {
+        XCTAssertLessThan(
+            RemoteInputDockView.composeSendFastSnapshotCount,
+            RemoteInputDockView.composeSendStabilizationSnapshotCount
+        )
+        XCTAssertEqual(RemoteInputDockView.composeSendFastDelayNanoseconds, 0)
         XCTAssertGreaterThanOrEqual(RemoteInputDockView.composeSendStabilizationSnapshotCount, 20)
         XCTAssertGreaterThanOrEqual(
             RemoteInputDockView.composeSendStabilizationDelayNanoseconds,

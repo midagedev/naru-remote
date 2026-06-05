@@ -822,6 +822,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             return "Ready to compose locally"
         }
 
+        if let compactFailure = Self.compactMultilingualComposeFailureMessage(for: latestInjectionAttempt) {
+            return compactFailure
+        }
+
         switch latestInjectionAttempt.status {
         case .sent:
             return latestInjectionAttempt.safeMessage.isEmpty ? "Text accepted by remote target" : latestInjectionAttempt.safeMessage
@@ -830,6 +834,21 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         case .unknown:
             return latestInjectionAttempt.safeMessage.isEmpty ? "Confirmation unavailable; draft kept locally" : latestInjectionAttempt.safeMessage
         }
+    }
+
+    private static func compactMultilingualComposeFailureMessage(
+        for attempt: TextInjectionAttempt
+    ) -> String? {
+        guard attempt.status == .failed,
+              attempt.payloadEncoding == .utf8ExtensionRequired,
+              attempt.path == .vncClipboardPaste,
+              attempt.clipboardSetStatus == .notAttempted,
+              attempt.pasteCommandStatus == .notAttempted
+        else {
+            return nil
+        }
+
+        return "Multilingual Compose needs helper or UTF-8 clipboard"
     }
 
     public var inputHelperStatusText: String? {

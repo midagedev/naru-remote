@@ -230,10 +230,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Trackpad mode has immediate local cursor feedback, so the wire can
     /// stay near display cadence instead of racing touch samples. This keeps
     /// VNC writes from competing with the UIKit/Metal pan loop on iPhone.
-    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(16)
+    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(8)
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
-    private static let trackpadCursorPublishDelay: Duration = .milliseconds(32)
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as

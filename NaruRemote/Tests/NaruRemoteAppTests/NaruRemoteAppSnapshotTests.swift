@@ -208,6 +208,24 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.inputStatusText, "Paste command sent; remote app confirmation unavailable.")
     }
 
+    func testInputStatusCompactsBlockedMultilingualComposeFailure() {
+        let attempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: UUID(),
+            path: .vncClipboardPaste,
+            payloadEncoding: .utf8ExtensionRequired,
+            status: .failed,
+            safeMessage: "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support."
+        )
+
+        let snapshot = NaruRemoteAppSnapshot(latestInjectionAttempt: attempt)
+
+        XCTAssertEqual(
+            snapshot.inputStatusText,
+            "Multilingual Compose needs helper or UTF-8 clipboard"
+        )
+    }
+
     func testInputHelperStatusSurfacesUTF8ComposeRequirement() throws {
         let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
