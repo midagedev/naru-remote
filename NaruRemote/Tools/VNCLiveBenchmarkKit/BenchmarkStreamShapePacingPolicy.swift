@@ -197,20 +197,10 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
     }
 
     public func viewportInteractionRequestPauseDecision(
-        visibleFrameAvailable: Bool,
-        configuredPauseSeconds: TimeInterval = Self.appViewportInteractionSyntheticPauseSeconds
+        visibleFrameAvailable _: Bool,
+        configuredPauseSeconds _: TimeInterval = Self.appViewportInteractionSyntheticPauseSeconds
     ) -> BenchmarkStreamShapeViewportRequestPauseDecision {
-        guard viewportInteractionMode == .app,
-              visibleFrameAvailable,
-              configuredPauseSeconds > 0
-        else {
-            return BenchmarkStreamShapeViewportRequestPauseDecision(delay: 0, pollInterval: 0)
-        }
-
-        return BenchmarkStreamShapeViewportRequestPauseDecision(
-            delay: configuredPauseSeconds,
-            pollInterval: Self.appViewportInteractionRequestPausePollInterval
-        )
+        BenchmarkStreamShapeViewportRequestPauseDecision(delay: 0, pollInterval: 0)
     }
 
     private func decision(
@@ -240,8 +230,13 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
         return isEmptyUpdate ? Self.appLowPowerIdleFrameInterval : Self.appLowPowerContentFrameInterval
     }
 
-    private func viewportInteractionDelayFloor(isEmptyUpdate _: Bool) -> TimeInterval {
-        0
+    private func viewportInteractionDelayFloor(isEmptyUpdate: Bool) -> TimeInterval {
+        guard viewportInteractionMode == .app else {
+            return 0
+        }
+        return isEmptyUpdate
+            ? Self.appViewportInteractionIdleFrameInterval
+            : Self.appViewportInteractionContentFrameInterval
     }
 }
 

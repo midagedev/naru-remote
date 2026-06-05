@@ -8,12 +8,12 @@ import Foundation
 /// when sustained-session tuning changes.
 public enum StreamPressurePacingDefaults {
     public static let balancedContentFrameIntervalSeconds: Double = 1.0 / 30.0
-    /// While the user is locally pinching/panning the viewport, the app
-    /// pauses new framebuffer requests when an existing frame is visible and
-    /// defers any in-flight framebuffer publication/upload until gesture end.
-    /// These floors are retained for the rare already-in-flight frame that
-    /// lands during the gesture.
-    public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 8.0
+    /// While the user is locally pinching/panning the viewport, keep the
+    /// local compositor path in charge but still allow a bounded live-refresh
+    /// cadence. Freezing streamed frames until gesture end made real iPhone
+    /// trackpad/pan sessions feel like low-FPS remote control even though the
+    /// local texture was moving smoothly.
+    public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 15.0
     public static let viewportInteractionIdleFrameIntervalSeconds: Double = 0.20
     public static let viewportInteractionRequestPausePollSeconds: Double = 1.0 / 60.0
     public static let severeLaggingLocalWorkThresholdMilliseconds = 80

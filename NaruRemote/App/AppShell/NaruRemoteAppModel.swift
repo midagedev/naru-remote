@@ -40,14 +40,6 @@ private struct HelperTextInsertClientBox: @unchecked Sendable {
     }
 }
 
-private struct DeferredViewportStreamFrame {
-    let frame: RFBFramePumpFrame
-    let serverInit: RFBServerInit
-    let profile: ConnectionProfile
-    let sessionID: RemoteSession.ID
-    let streamID: UUID
-}
-
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     /// macOS Screen Sharing and other VNC servers apply ClientCutText
@@ -236,7 +228,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
     private var isViewportInteractionActive = false
-    private var deferredViewportStreamFrame: DeferredViewportStreamFrame?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     /// Last profile + credential pair we successfully started a
     /// streaming session against.  Captured at stream start so an
@@ -1659,15 +1650,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
-                    guard try await waitForViewportInteractionToSettle(
-                        streamID: streamID,
-                        sessionID: pendingSession.id,
-                        profileID: profile.id
-                    ) else {
-                        pump.cancel()
-                        return
-                    }
-
                     let requestTimeout = configuration.requestTimeout
                     // Sample the request→frame round-trip so the
                     // connection-quality chip reflects real latency
@@ -1916,60 +1898,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         isViewportInteractionActive = false
-        flushDeferredViewportStreamFrameIfNeeded()
-    }
-
-    private func waitForViewportInteractionToSettle(
-        streamID: UUID,
-        sessionID: RemoteSession.ID,
-        profileID: ConnectionProfile.ID
-    ) async throws -> Bool {
-        var pauseStartedAt: Date?
-        var pausePollCount = 0
-        defer {
-            if let pauseStartedAt, pausePollCount > 0 {
-                sessionStreamStats.recordViewportInteractionRequestPause(
-                    pollCount: pausePollCount,
-                    milliseconds: Self.elapsedMilliseconds(since: pauseStartedAt)
-                )
-            }
-        }
-
-        while shouldPauseFrameRequestsForViewportInteraction() {
-            guard !Task.isCancelled,
-                  isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
-            else {
-                return false
-            }
-            if pauseStartedAt == nil {
-                pauseStartedAt = Date()
-            }
-            pausePollCount += 1
-            try await Task.sleep(
-                for: .seconds(StreamPressurePacingDefaults.viewportInteractionRequestPausePollSeconds)
-            )
-        }
-
-        return !Task.isCancelled
-            && isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
-    }
-
-    private func shouldPauseFrameRequestsForViewportInteraction() -> Bool {
-        isViewportInteractionActive && latestFramebuffer != nil
-    }
-
-    private func flushDeferredViewportStreamFrameIfNeeded() {
-        guard let deferred = deferredViewportStreamFrame else {
-            return
-        }
-        deferredViewportStreamFrame = nil
-        applyStreamFrame(
-            deferred.frame,
-            serverInit: deferred.serverInit,
-            profile: deferred.profile,
-            sessionID: deferred.sessionID,
-            streamID: deferred.streamID
-        )
     }
 
     private func applyStreamFrame(
@@ -1980,18 +1908,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         streamID: UUID
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
-            return
-        }
-
-        if shouldDeferViewportStreamFrame(frame) {
-            reconnectAttempts = 0
-            deferredViewportStreamFrame = DeferredViewportStreamFrame(
-                frame: frame,
-                serverInit: serverInit,
-                profile: profile,
-                sessionID: sessionID,
-                streamID: streamID
-            )
             return
         }
 
@@ -2146,13 +2062,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                 requestTimeout: requestTimeout
             )
         }
-    }
-
-    private func shouldDeferViewportStreamFrame(_ frame: RFBFramePumpFrame) -> Bool {
-        isViewportInteractionActive
-            && latestFramebuffer != nil
-            && !frame.transportIdleTimedOut
-            && frame.changedPixelCount > 0
     }
 
     private func renegotiatePowerSaverSustainedEncodingsIfNeeded(
@@ -2543,7 +2452,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFramePump = nil
         activeFrameStreamID = nil
         isViewportInteractionActive = false
-        deferredViewportStreamFrame = nil
         cancelPointerEventQueue()
     }
 

@@ -86,7 +86,7 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertEqual(policy.delay(isEmptyUpdate: true, emptyUpdateStreak: 24), 0, accuracy: 0.0001)
     }
 
-    func testViewportInteractionModeDoesNotApplyPostFrameFloors() {
+    func testViewportInteractionModeAppliesLiveCadenceFloors() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,
             idleFrameInterval: 0.05,
@@ -97,18 +97,18 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
         XCTAssertEqual(
             contentDecision.delay,
-            1.0 / 60.0,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval,
             accuracy: 0.0001
         )
-        XCTAssertFalse(contentDecision.usesViewportInteractionPacing)
+        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
 
         let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 1)
         XCTAssertEqual(
             idleDecision.delay,
-            0.05,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval,
             accuracy: 0.0001
         )
-        XCTAssertFalse(idleDecision.usesViewportInteractionPacing)
+        XCTAssertTrue(idleDecision.usesViewportInteractionPacing)
     }
 
     func testViewportInteractionModePreservesExplicitZeroDelayRuns() {
@@ -128,7 +128,7 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertFalse(idleDecision.usesViewportInteractionPacing)
     }
 
-    func testViewportInteractionModeUsesRequestPauseWhenFrameIsVisible() {
+    func testViewportInteractionModeDoesNotUseSyntheticRequestPause() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,
             idleFrameInterval: 0.05,
@@ -143,15 +143,15 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             pauseDecision.delay,
-            0.35,
+            0,
             accuracy: 0.0001
         )
         XCTAssertEqual(
             pauseDecision.pollInterval,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionRequestPausePollInterval,
+            0,
             accuracy: 0.0001
         )
-        XCTAssertTrue(pauseDecision.shouldPause)
+        XCTAssertFalse(pauseDecision.shouldPause)
     }
 
     func testViewportInteractionModeDoesNotPauseWithoutVisibleFrameOrDuration() {

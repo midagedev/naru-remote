@@ -494,17 +494,18 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval,
-        allowsFirstRedrawDuringGesture: false
+        allowsFirstRedrawDuringGesture: true
     )
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    // Real-device feedback showed that even bounded gesture-time uploads can
-    // contend with the touch loop on iPhone-sized thermal budgets. During a
-    // pinch/pan, prefer Photos-like local continuity: keep the current texture
-    // on the compositor path and flush the latest remote frame once the
-    // gesture settles.
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = .infinity
+    // The local transform stays on the compositor path, but real-device
+    // feedback showed that deferring every streamed frame until gesture end
+    // makes remote cursor/desktop changes appear frozen. Allow one bounded
+    // refresh slot while pinching/panning; request pacing keeps this at the
+    // same sustained phone cadence instead of racing touch samples.
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval =
+        StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {
