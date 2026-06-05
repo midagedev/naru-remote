@@ -84,9 +84,10 @@ public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
 ) -> SessionViewportTrackpadGestureResult?
 
 /// Closure invoked when the user starts or finishes a local viewport
-/// manipulation (pinch, zoomed pan, trackpad cursor drag). The app
-/// model uses this signal to defer SwiftUI framebuffer publication
-/// while the Metal surface stays on the compositor transform path.
+/// manipulation (pinch, zoomed pan, or a trackpad cursor drag that
+/// actually pans the local viewport). The app model uses this signal
+/// to defer SwiftUI framebuffer publication while the Metal surface
+/// stays on the compositor transform path.
 public typealias MetalFramebufferViewportInteractionHandler = @MainActor @Sendable (Bool) -> Void
 
 /// Closure invoked with safe aggregate local viewport redraw counters.
@@ -1086,11 +1087,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case .began:
             stopViewportDeceleration()
             isTrackpadDragActive = true
-            // Even at fit scale, trackpad drags are a hot pointer-control
-            // path. Keep streaming-frame SwiftUI churn out of the gesture
-            // loop while the Metal host paints immediate cursor feedback.
-            trackpadDragOwnsViewportInteraction = true
-            beginViewportTransformGesture()
+            trackpadDragOwnsViewportInteraction = SessionViewportView
+                .trackpadDragOwnsViewportInteraction(
+                    transform: viewportTransform(
+                        zoomScale: currentZoomScale,
+                        panOffset: currentPanOffset
+                    )
+                )
+            if trackpadDragOwnsViewportInteraction {
+                beginViewportTransformGesture()
+            }
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
             dispatchTrackpadGesture(.dragBegan(viewPoint: recognizer.location(in: self)))

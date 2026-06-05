@@ -109,6 +109,28 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testTrackpadDragAtFitScaleDoesNotOwnViewportInteraction() {
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+
+        XCTAssertFalse(SessionViewportView.trackpadDragOwnsViewportInteraction(transform: transform))
+    }
+
+    func testTrackpadDragOwnsViewportInteractionOnlyWhenPannable() {
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 2,
+            panOffset: .zero
+        )
+
+        XCTAssertTrue(SessionViewportView.trackpadDragOwnsViewportInteraction(transform: transform))
+    }
+
     func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
         XCTAssertEqual(
             SessionViewportView.cursorOverlayKind(serverCursor: nil),
