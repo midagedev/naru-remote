@@ -1020,3 +1020,39 @@ does not propagate draft changes to the app model until marked text commits.
   covers the local adoption policy.
 - `RemoteInputDockSyncPolicyTests.testDefersLocalComposeTextPropagationWhileMarkedTextIsActive`
   continues to prove model propagation is blocked during active marked text.
+
+## D35 — Viewport stutter diagnostics need ratios, not raw samples
+
+References:
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- Apple battery-use guidance:
+  https://developer.apple.com/documentation/xcode/reducing-your-app-s-battery-use
+- RFC 6143 framebuffer update request:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: active-session diagnostics schema v18 exports two additional
+safe aggregate viewport ratios: `viewportGestureLongFramePermille` and
+`viewportIncomingFrameDeferredPermille`. The existing
+`viewportRedrawRequestCount` and `viewportRedrawFlushCount` counters are also
+wired to the UIKit viewport hot path so their companion counts reflect actual
+gesture-time redraw decisions.
+
+**Why**:
+- Physical iPhone feedback says zoom/pan still feels choppy, but raw gesture
+  timestamps, coordinates, frame dimensions, or pixels cannot leave the device.
+  Counts alone show that long frames happened; permille ratios show whether the
+  issue is rare or dense enough to explain a “stair-step” feel.
+- Apple notes that display-link callback frequency is affected by device
+  capability, system policy, Low Power Mode, and thermal state. A safe ratio
+  lets reports remain interpretable even when the device shifts between 120,
+  60, or lower refresh behavior.
+- RFC 6143 allows fast clients to regulate incremental
+  `FramebufferUpdateRequest` traffic. The deferred-incoming-frame ratio helps
+  separate intentional viewer-side stream throttling during touch interaction
+  from local gesture-loop stalls.
+
+**Privacy rule**: diagnostics export only aggregate counts, permille ratios,
+catalog buckets, and fixed labels. They must not export gesture coordinates,
+display dimensions, pixels, cursor pixels, byte counts, raw timestamps, raw
+timing samples, host identity, raw errors, device model, or Compose draft text.

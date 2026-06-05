@@ -755,6 +755,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             ) {
             case .requestNow:
                 coordinator?.renderer?.allowNextPendingFramebufferUploadWhileSuspended()
+                pendingViewportRedrawDiagnostics.redrawRequestCount += 1
                 requestRedraw()
             case .deferRedraw:
                 deferredFramebufferRedrawDuringViewportGesture = true
@@ -1306,6 +1307,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             flushPendingViewportState()
         }
         if shouldFlushRedraw {
+            pendingViewportRedrawDiagnostics.redrawFlushCount += 1
             requestRedraw()
         }
         if wasActive {
