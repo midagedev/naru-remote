@@ -1332,7 +1332,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(10))
     }
 
-    func testModelPausesFrameRequestsDuringViewportInteraction() async throws {
+    func testModelKeepsFrameRequestsAliveWithViewportInteractionPacing() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
             width: 1,
@@ -1375,36 +1375,41 @@ final class NaruRemoteAppModelTests: XCTestCase {
             in: pacingSleepRecorder
         )
         model.setViewportInteractionActive(true)
-        try await Task.sleep(for: .milliseconds(140))
-
-        XCTAssertEqual(
-            connector.frameUpdateRequests.count,
-            1,
-            "Touch-first viewport interaction should pause new RFB update requests while an existing frame is visible."
-        )
-        XCTAssertEqual(pacingSleepRecorder.delays.count, 1)
+        let delays = try await waitForRecordedPacingDelays(3, in: pacingSleepRecorder)
 
         model.setViewportInteractionActive(false)
-        let delays = try await waitForRecordedPacingDelays(3, in: pacingSleepRecorder)
         XCTAssertEqual(delays[0], 1.0 / 60.0, accuracy: 0.0001)
-        XCTAssertEqual(delays[1], 1.0 / 60.0, accuracy: 0.0001)
-        XCTAssertEqual(delays[2], 1.0 / 60.0, accuracy: 0.0001)
+        XCTAssertEqual(
+            delays[1],
+            StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            delays[2],
+            StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+        XCTAssertGreaterThan(
+            connector.frameUpdateRequests.count,
+            1,
+            "Viewport interaction should keep bounded live frame requests instead of freezing the remote stream."
+        )
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.streamPacingDelaySampleCount, 3)
-        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 0)
-        XCTAssertEqual(performance.viewportInteractionRequestPauseCount, 1)
-        XCTAssertGreaterThan(performance.viewportInteractionRequestPausePollCount, 0)
-        XCTAssertNotEqual(
+        XCTAssertEqual(performance.viewportInteractionPacingSampleCount, 2)
+        XCTAssertEqual(performance.viewportInteractionRequestPauseCount, 0)
+        XCTAssertEqual(performance.viewportInteractionRequestPausePollCount, 0)
+        XCTAssertEqual(
             performance.averageViewportInteractionRequestPauseBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
         )
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             performance.maxViewportInteractionRequestPauseBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
         )
         XCTAssertEqual(
             performance.viewportRequestPauseHint,
-            DiagnosticViewportRequestPauseHint.activeNoViewportPressure.rawValue
+            DiagnosticViewportRequestPauseHint.notMeasured.rawValue
         )
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 0)
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
@@ -2278,7 +2283,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.pipWatchSession?.lastFrame?.changeActivity, .high)
     }
 
-    func testViewportInteractionDefersStreamingFramePublicationUntilGestureEnds() async throws {
+    func testViewportInteractionPublishesBoundedLiveFramesDuringGesture() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1,
@@ -2317,8 +2322,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let requestCountAtGestureStart = connector.frameUpdateRequests.count
         try await Task.sleep(for: .milliseconds(140))
 
-        XCTAssertEqual(connector.frameUpdateRequests.count, requestCountAtGestureStart)
-        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+        XCTAssertGreaterThan(
+            connector.frameUpdateRequests.count,
+            requestCountAtGestureStart,
+            "Viewport interaction should no longer pause the request loop while a frame is visible."
+        )
+        XCTAssertNotEqual(
+            model.snapshot.latestFramebuffer,
+            firstFramebuffer,
+            "Content frames should publish at the bounded live cadence instead of waiting for gesture end."
+        )
 
         model.setViewportInteractionActive(false)
         for _ in 0..<120 where model.snapshot.latestFramebuffer != thirdFramebuffer {

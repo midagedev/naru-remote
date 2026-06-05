@@ -80,7 +80,6 @@ enum VNCLiveBenchmark {
             idleTimeout: options.idleTimeout,
             maxSamples: options.streamShapeSamples,
             durationLimit: options.streamShapeDuration,
-            viewportInteractionPauseSeconds: options.streamShapeViewportInteractionPauseSeconds,
             pacingPolicy: streamShapePacingPolicy
         )
         let streamShapeProfileProbes = options.streamShapeProfiles.profiles.flatMap { profile in
@@ -102,7 +101,6 @@ enum VNCLiveBenchmark {
                     idleTimeout: options.idleTimeout,
                     maxSamples: options.streamShapeSamples,
                     durationLimit: options.streamShapeDuration,
-                    viewportInteractionPauseSeconds: options.streamShapeViewportInteractionPauseSeconds,
                     pacingPolicy: streamShapePacingPolicy
                 )
             }
@@ -333,7 +331,6 @@ enum VNCLiveBenchmark {
         idleTimeout: TimeInterval,
         maxSamples: Int,
         durationLimit: TimeInterval?,
-        viewportInteractionPauseSeconds: TimeInterval,
         pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> StreamShapeProbeReport {
         guard maxSamples > 0 || durationLimit != nil else {
@@ -361,9 +358,6 @@ enum VNCLiveBenchmark {
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
         var adaptiveClientPressurePacingSamples = 0
         var viewportInteractionPacingSamples = 0
-        var viewportInteractionPausedRequests = 0
-        var viewportInteractionPausePolls = 0
-        var viewportInteractionPausedMilliseconds = 0
         defer {
             pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
             client.disconnect()
@@ -424,22 +418,6 @@ enum VNCLiveBenchmark {
             durationLimit: durationLimit,
             streamStartedAt: streamStartedAt
         ) {
-            let pauseDecision = pacingPolicy.viewportInteractionRequestPauseDecision(
-                visibleFrameAvailable: firstFrameMilliseconds != nil,
-                configuredPauseSeconds: viewportInteractionPauseSeconds
-            )
-            if pauseDecision.shouldPause {
-                let pauseResult = sleepForViewportInteractionRequestPause(
-                    pauseDecision,
-                    durationLimit: durationLimit,
-                    streamStartedAt: streamStartedAt
-                )
-                if pauseResult.polls > 0 || pauseResult.elapsedMilliseconds > 0 {
-                    viewportInteractionPausedRequests += 1
-                    viewportInteractionPausePolls += pauseResult.polls
-                    viewportInteractionPausedMilliseconds += pauseResult.elapsedMilliseconds
-                }
-            }
             let startedAt = Date()
             let requestTimeout = streamShapeRequestTimeout(
                 idleTimeout: idleTimeout,
@@ -522,9 +500,9 @@ enum VNCLiveBenchmark {
             failureLabel: failureLabel,
             adaptiveClientPressurePacingSamples: adaptiveClientPressurePacingSamples,
             viewportInteractionPacingSamples: viewportInteractionPacingSamples,
-            viewportInteractionPausedRequests: viewportInteractionPausedRequests,
-            viewportInteractionPausePolls: viewportInteractionPausePolls,
-            viewportInteractionPausedMilliseconds: viewportInteractionPausedMilliseconds
+            viewportInteractionPausedRequests: 0,
+            viewportInteractionPausePolls: 0,
+            viewportInteractionPausedMilliseconds: 0
         )
     }
 
@@ -536,7 +514,6 @@ enum VNCLiveBenchmark {
         idleTimeout: TimeInterval,
         maxSamples: Int,
         durationLimit: TimeInterval?,
-        viewportInteractionPauseSeconds: TimeInterval,
         pacingPolicy: BenchmarkStreamShapePacingPolicy
     ) -> BenchmarkStreamShapeProfileReport {
         let probe = measureStreamShapeProbe(
@@ -547,7 +524,6 @@ enum VNCLiveBenchmark {
             idleTimeout: idleTimeout,
             maxSamples: maxSamples,
             durationLimit: durationLimit,
-            viewportInteractionPauseSeconds: viewportInteractionPauseSeconds,
             pacingPolicy: pacingPolicy
         )
         return BenchmarkStreamShapeProfileReport(
@@ -644,39 +620,6 @@ enum VNCLiveBenchmark {
         return min(delay, max(remaining, 0))
     }
 
-    private static func sleepForViewportInteractionRequestPause(
-        _ decision: BenchmarkStreamShapeViewportRequestPauseDecision,
-        durationLimit: TimeInterval?,
-        streamStartedAt: Date
-    ) -> ViewportInteractionPauseResult {
-        guard decision.shouldPause else {
-            return ViewportInteractionPauseResult()
-        }
-
-        let startedAt = Date()
-        var remainingPause = streamShapeCappedDelay(
-            decision.delay,
-            durationLimit: durationLimit,
-            streamStartedAt: streamStartedAt
-        )
-        var polls = 0
-        while remainingPause > 0 {
-            let sleepInterval = min(decision.pollInterval, remainingPause)
-            Thread.sleep(forTimeInterval: sleepInterval)
-            polls += 1
-            remainingPause = streamShapeCappedDelay(
-                decision.delay - Date().timeIntervalSince(startedAt),
-                durationLimit: durationLimit,
-                streamStartedAt: streamStartedAt
-            )
-        }
-
-        return ViewportInteractionPauseResult(
-            polls: polls,
-            elapsedMilliseconds: milliseconds(since: startedAt)
-        )
-    }
-
     private static func streamShapeRequestedSamples(
         maxSamples: Int,
         durationLimit: TimeInterval?,
@@ -694,11 +637,6 @@ enum VNCLiveBenchmark {
     private static func milliseconds(from seconds: TimeInterval) -> Int {
         Int((seconds * 1_000).rounded())
     }
-}
-
-private struct ViewportInteractionPauseResult: Equatable {
-    var polls = 0
-    var elapsedMilliseconds = 0
 }
 
 private struct BenchmarkOptions: Equatable {
@@ -1167,7 +1105,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapePowerMode: BenchmarkStreamShapePowerMode,
         streamShapeClientPressureMode: BenchmarkStreamShapeClientPressureMode,
         streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode,
-        streamShapeViewportInteractionPauseSeconds: TimeInterval,
+        streamShapeViewportInteractionPauseSeconds _: TimeInterval,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -1190,9 +1128,8 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapePowerMode = streamShapePowerMode
         self.streamShapeClientPressureMode = streamShapeClientPressureMode
         self.streamShapeViewportInteractionMode = streamShapeViewportInteractionMode
-        self.streamShapeViewportInteractionPauseSeconds = max(streamShapeViewportInteractionPauseSeconds, 0)
-        self.streamShapeViewportInteractionRequestPausePollSeconds =
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionRequestPausePollInterval
+        self.streamShapeViewportInteractionPauseSeconds = 0
+        self.streamShapeViewportInteractionRequestPausePollSeconds = 0
         self.streamShapeLowPowerContentFrameIntervalSeconds =
             BenchmarkStreamShapePacingPolicy.appLowPowerContentFrameInterval
         self.streamShapeLowPowerIdleFrameIntervalSeconds =
@@ -1453,13 +1390,6 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape power mode: \(report.streamShapePowerMode.rawValue)")
     print("stream-shape client pressure: \(report.streamShapeClientPressureMode.rawValue)")
     print("stream-shape viewport interaction: \(report.streamShapeViewportInteractionMode.rawValue)")
-    if report.streamShapeViewportInteractionMode == .app {
-        print(
-            "stream-shape viewport-interaction request pause: window "
-                + "\(formatSeconds(report.streamShapeViewportInteractionPauseSeconds))s, poll "
-                + "\(formatSeconds(report.streamShapeViewportInteractionRequestPausePollSeconds))s"
-        )
-    }
     if report.streamShapePowerMode == .lowPower {
         print(
             "stream-shape low-power floors: content "
@@ -1482,7 +1412,7 @@ private func renderText(_ report: BenchmarkReport) {
     }
     if report.streamShapeViewportInteractionMode == .app {
         print(
-            "stream-shape viewport-interaction in-flight fallback floors: content "
+            "stream-shape viewport-interaction live cadence floors: content "
                 + "\(formatSeconds(report.streamShapeViewportInteractionContentFrameIntervalSeconds))s, idle "
                 + "\(formatSeconds(report.streamShapeViewportInteractionIdleFrameIntervalSeconds))s"
         )
@@ -1797,9 +1727,9 @@ private func printUsage() {
       --stream-shape-client-pressure off|app
                                 Adaptive client-processing pressure pacing. Defaults to off; app mirrors the app's repeated lagging content-frame trigger.
       --stream-shape-viewport-interaction off|app
-                                Viewport-interaction request-pause parity. Defaults to off; app inserts synthetic visible-frame request-pause windows before incremental samples, matching the app's touch-first pause behavior.
+                                Viewport-interaction cadence parity. Defaults to off; app applies the same bounded live content/idle floors as active local zoom and pan.
       --stream-shape-viewport-interaction-pause-seconds SECONDS
-                                Synthetic local gesture/request-pause window for --stream-shape-viewport-interaction app. Defaults to \(formatSeconds(BenchmarkStreamShapePacingPolicy.appViewportInteractionSyntheticPauseSeconds)) seconds.
+                                Deprecated compatibility option; current app parity no longer pauses requests during viewport interaction.
       --first-frame-profiles all|local-low-latency|stream-shape-profiles|none
                                 Profile set for first-frame/full-refresh probes. Defaults to all for compatibility; use stream-shape-profiles or none for longer stream-shape-only runs.
       --stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))
