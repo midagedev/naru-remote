@@ -1470,3 +1470,36 @@ cadence because the Metal host already paints the hot cursor locally.
 Marked text, committed text, cursor positions, touch deltas, host identity,
 framebuffer dimensions, pixels, byte counts, and exact timings remain out of
 diagnostics and benchmark artifacts.
+
+## D47 — Interpret viewport request-pause activation in diagnostic logs
+
+References:
+- RFC 6143 framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: bump diagnostic export to schema v22 and add a fixed-catalog
+`viewportRequestPauseHint` derived from safe aggregate viewport signals:
+viewport interaction count, viewport request-pause count, gesture long-frame
+permille, and incoming-frame deferral permille. The catalog distinguishes
+`notMeasured`, `notObservedDuringInteraction`, `activeNoViewportPressure`,
+`activeGestureLoopPressure`, `activeIncomingFrameDeferral`, and
+`activeMixedViewportPressure`.
+
+**Why**:
+- Physical iPhone feedback still reports stepped zoom/pan after touch-first
+  request suppression. The raw v21 counters show whether pause windows happened,
+  but they require manual cross-reading with `viewportStutterHint`.
+- RFB's request/response update model makes missing request suppression a
+  different failure mode from successful suppression that still leaves local
+  gesture-loop pressure. The support log should make that distinction directly
+  so the next fix can target either the local UIKit/Metal path or the incoming
+  frame/request path.
+- Keeping the hint as a fixed catalog preserves the diagnostic collection
+  contract while making reports useful enough to debug without raw per-frame
+  timestamps.
+
+**Privacy rule**: diagnostic export may include only the derived catalog value
+and the already-safe aggregate counts/permille inputs. It must not emit raw
+gesture timestamps, raw pause timestamps, raw per-pause milliseconds, host
+identity, password, framebuffer dimensions, coordinates, pixels, cursor pixels,
+byte counts, device identity, power state, or Compose draft text.
