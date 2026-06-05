@@ -405,6 +405,34 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.contentResponsePermille, 667)
     }
 
+    func testDecodingClampsAttemptedSamplesAtReceivedSamples() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 2,
+            attemptedSamples: 2,
+            samples: [
+                streamShapeSample(duration: 40),
+                streamShapeSample(duration: 45)
+            ],
+            elapsedMilliseconds: 100,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let encoded = try JSONEncoder().encode(summary)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["attemptedSamples"] = 1
+        object.removeValue(forKey: "receivedSamplePermille")
+        object.removeValue(forKey: "unansweredSamplePermille")
+        object.removeValue(forKey: "contentSamplePermille")
+
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: data)
+
+        XCTAssertEqual(decoded.attemptedSamples, 2)
+        XCTAssertEqual(decoded.receivedSamplePermille, 1_000)
+        XCTAssertEqual(decoded.unansweredSamplePermille, 0)
+        XCTAssertEqual(decoded.contentSamplePermille, 1_000)
+    }
+
     func testRecommendationPicksLowestAverageRequestResponseLatency() throws {
         let local = BenchmarkStreamShapeProfileReport(
             label: "local-low-latency",

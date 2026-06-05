@@ -510,11 +510,11 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let status = try container.decode(BenchmarkStreamShapeStatus.self, forKey: .status)
         let requestedSamples = max(try container.decode(Int.self, forKey: .requestedSamples), 0)
+        let receivedSamples = max(try container.decode(Int.self, forKey: .receivedSamples), 0)
         let attemptedSamples = max(
             try container.decodeIfPresent(Int.self, forKey: .attemptedSamples) ?? requestedSamples,
-            0
+            receivedSamples
         )
-        let receivedSamples = max(try container.decode(Int.self, forKey: .receivedSamples), 0)
         let emptyUpdateSamples = max(try container.decode(Int.self, forKey: .emptyUpdateSamples), 0)
         let contentUpdateSamples = max(try container.decode(Int.self, forKey: .contentUpdateSamples), 0)
         let timedOutSamples = max(try container.decode(Int.self, forKey: .timedOutSamples), 0)
