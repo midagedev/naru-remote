@@ -3233,3 +3233,42 @@ include host identity, credentials, port value, raw TCP/RFB errors, framebuffer
 dimensions, coordinates, pixels, cursor pixels, byte counts, raw payloads, raw
 FPS, raw timings, command text, command output, draft text, marked text, or IME
 state.
+
+## D79 — Split detailed assessment verdict from physical promotion verdict
+
+References:
+- D72 physical interaction triage surface.
+- D77 sustained usability promotion ladder.
+- `artifacts/benchmarks/2026-06-06-physical-interaction-triage-gate-summary.md`.
+
+**Decision**: bump diagnostic collection schema to v29 and add
+`physicalGateVerdict` to `sustainedSessionAssessment`.
+
+**Why**:
+- The detailed diagnostic `verdict` intentionally distinguishes `warning` from
+  `fail`, which is useful for debugging. The production-promotion question is
+  stricter: the 10 minute physical iPhone gate is green only if the assessment
+  has no issue codes at all.
+- User feedback bundles choppy viewport motion, Compose failure, low FPS, and
+  heat. A single `physicalGateVerdict=blocked` label gives larger PRs one stable
+  stop/go signal while `primaryConstraint` and `recommendedNextProbe` still pick
+  the next work unit.
+- This keeps production default changes behind the promotion ladder without
+  exporting new raw measurements.
+
+**Interpretation**:
+- `physicalGateVerdict=pass` means the diagnostic side of the physical gate is
+  green; a default-changing PR still needs the matching benchmark artifact and
+  manual hand-feel result.
+- `physicalGateVerdict=blocked` means do not change production defaults. Use
+  `primaryConstraint` and `recommendedNextProbe` to choose whether the next large
+  unit is thermal, viewport interaction, Compose input, local render/decode, or
+  stream cadence.
+- A detailed `verdict=warning` can still be physically blocked; warnings are
+  useful triage, not promotion approval.
+
+**Privacy rule**: the physical gate verdict may emit only fixed labels derived
+from safe issue-code presence. It must not include host identity, credentials,
+port value, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
+cursor pixels, byte counts, raw payloads, raw FPS, raw timings, command text,
+command output, draft text, marked text, or IME state.

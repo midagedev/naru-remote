@@ -1484,6 +1484,11 @@ public enum DiagnosticSustainedSessionNextProbe: String, Codable, Equatable, Cas
     case inspectComposeRoute
 }
 
+public enum DiagnosticSustainedSessionPhysicalGateVerdict: String, Codable, Equatable, CaseIterable, Sendable {
+    case pass
+    case blocked
+}
+
 public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable {
     public static let target = DiagnosticSustainedSessionTarget.iPhoneSustainedUsabilityV2
     private static let minimumContentSamples = 8
@@ -1523,6 +1528,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         case primaryIssueCode
         case primaryConstraint
         case recommendedNextProbe
+        case physicalGateVerdict
     }
 
     public let targetName: String
@@ -1531,6 +1537,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
     public let primaryIssueCode: String?
     public let primaryConstraint: String
     public let recommendedNextProbe: String
+    public let physicalGateVerdict: String
 
     public init(
         targetName: String = Self.target.rawValue,
@@ -1538,7 +1545,8 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         issueCodes: [String],
         primaryIssueCode: String? = nil,
         primaryConstraint: String? = nil,
-        recommendedNextProbe: String? = nil
+        recommendedNextProbe: String? = nil,
+        physicalGateVerdict: String? = nil
     ) {
         self.targetName = Self.safeTargetName(targetName)
         let safeIssueCodes = Self.safeIssueCodes(issueCodes)
@@ -1558,6 +1566,11 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
             recommendedNextProbe,
             matching: derivedRecommendedNextProbe
         ) ?? derivedRecommendedNextProbe.rawValue
+        let derivedPhysicalGateVerdict = Self.physicalGateVerdict(for: safeIssueCodes)
+        self.physicalGateVerdict = Self.safePhysicalGateVerdict(
+            physicalGateVerdict,
+            matching: derivedPhysicalGateVerdict
+        ) ?? derivedPhysicalGateVerdict.rawValue
         self.verdict = Self.safeVerdict(verdict) ?? Self.verdict(for: safeIssueCodes).rawValue
     }
 
@@ -1689,7 +1702,8 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
             issueCodes: try container.decodeIfPresent([String].self, forKey: .issueCodes) ?? [],
             primaryIssueCode: try container.decodeIfPresent(String.self, forKey: .primaryIssueCode),
             primaryConstraint: try container.decodeIfPresent(String.self, forKey: .primaryConstraint),
-            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe)
+            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe),
+            physicalGateVerdict: try container.decodeIfPresent(String.self, forKey: .physicalGateVerdict)
         )
     }
 
@@ -1701,6 +1715,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         try container.encodeIfPresent(primaryIssueCode, forKey: .primaryIssueCode)
         try container.encode(primaryConstraint, forKey: .primaryConstraint)
         try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
+        try container.encode(physicalGateVerdict, forKey: .physicalGateVerdict)
     }
 
     private static func appendTimingIssues(
@@ -1791,6 +1806,19 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         return value
     }
 
+    private static func safePhysicalGateVerdict(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionPhysicalGateVerdict
+    ) -> String? {
+        guard let value else {
+            return nil
+        }
+        guard DiagnosticSustainedSessionPhysicalGateVerdict(rawValue: value) == expected else {
+            return nil
+        }
+        return value
+    }
+
     private static func primaryConstraint(
         for issue: DiagnosticSustainedSessionIssueCode?
     ) -> DiagnosticSustainedSessionPrimaryConstraint {
@@ -1876,10 +1904,16 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         }
         return parsedIssues.isEmpty ? .pass : .warning
     }
+
+    private static func physicalGateVerdict(
+        for issueCodes: [String]
+    ) -> DiagnosticSustainedSessionPhysicalGateVerdict {
+        issueCodes.isEmpty ? .pass : .blocked
+    }
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 28
+    public static let currentSchemaVersion = 29
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

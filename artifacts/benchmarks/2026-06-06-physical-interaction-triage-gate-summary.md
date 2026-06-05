@@ -9,7 +9,7 @@ app diagnostic JSON choose the next large work unit from the same safe signals.
 
 ## Diagnostic Surface
 
-Diagnostic collection schema v28 extends `sustainedSessionAssessment` with:
+Diagnostic collection schema v29 extends `sustainedSessionAssessment` with:
 
 - `primaryIssueCode`: the highest-priority fixed issue code, omitted when the
   measured session passes.
@@ -19,11 +19,17 @@ Diagnostic collection schema v28 extends `sustainedSessionAssessment` with:
 - `recommendedNextProbe`: a fixed next-step label such as
   `runPowerSaverThermalPass`, `runViewportInteractionTrace`,
   `compareEncodingProfileGate`, or `inspectComposeRoute`.
+- `physicalGateVerdict`: `pass` only when no sustained-session issue code is
+  present; otherwise `blocked`, even when the detailed assessment `verdict` is
+  only `warning`.
 
 The priority order favors real-device hand-feel and heat: thermal pressure is
 first, viewport interaction pressure is next, then local decode/apply/render
 pressure, stream cadence, adaptive pacing, Compose input, and sample-size
-problems.
+problems. The `physicalGateVerdict` is intentionally stricter than the detailed
+assessment verdict because the promotion ladder requires a fully green 10 minute
+physical iPhone run before changing production transport, encoding, pacing, or
+interaction defaults.
 
 ## Safety
 
