@@ -36,8 +36,14 @@ Run after adding the macOS helper target:
 
 ```bash
 swift test --filter NaruHelper
+swift run NaruHelper --capability
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' test
 ```
+
+Expected:
+- `swift test --filter NaruHelper` passes helper contract and pasteboard-restore tests.
+- `swift run NaruHelper --capability` emits fixed-catalog JSON. On a Mac without
+  Accessibility post-event permission, `availability` should be `permissionMissing`.
 
 Manual evidence required before declaring completion:
 - Physical iPhone sends Korean/CJK/emoji Compose text to a focused app on the paired Mac.
