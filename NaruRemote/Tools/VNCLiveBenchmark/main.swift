@@ -14,6 +14,19 @@ enum VNCLiveBenchmark {
                 printUsage()
                 return
             }
+            if options.environmentPreflight {
+                let report = BenchmarkLiveEnvironmentPreflightReport.make(
+                    environment: ProcessInfo.processInfo.environment,
+                    askPassword: options.askPassword,
+                    stimulusMode: options.streamShapeStimulusMode
+                )
+                if options.json {
+                    try renderJSON(report)
+                } else {
+                    renderText(report)
+                }
+                return
+            }
 
             let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
             guard let configuration = LiveTargetConfiguration.fromEnvironment(
@@ -920,6 +933,7 @@ private struct BenchmarkOptions: Equatable {
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
+    var environmentPreflight = false
     var json = false
     var showHelp = false
 
@@ -938,6 +952,9 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(after: index)
             case "--ask-password":
                 options.askPassword = true
+                index = arguments.index(after: index)
+            case "--environment-preflight":
+                options.environmentPreflight = true
                 index = arguments.index(after: index)
             case "--attempts":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -2278,6 +2295,26 @@ private func renderJSON(_ report: BenchmarkReport) throws {
     print(String(decoding: data, as: UTF8.self))
 }
 
+private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
+    print("\(toolName) environment preflight")
+    print("host: \(report.hostStatus.rawValue)")
+    print("port: \(report.portStatus.rawValue)")
+    print("credential: \(report.credentialStatus.rawValue)")
+    print("stream-shape stimulus: \(report.stimulusMode.rawValue)")
+    print("stimulus command: \(report.stimulusCommandStatus.rawValue)")
+    print("live benchmark runnable: \(report.canRunLiveBenchmark ? "yes" : "no")")
+    let issues = report.issueCodes.map(\.rawValue).joined(separator: ",")
+    print("issues: \(issues.isEmpty ? "none" : issues)")
+    print("safety: target identity, credentials, port value, and stimulus command text are redacted")
+}
+
+private func renderJSON(_ report: BenchmarkLiveEnvironmentPreflightReport) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(report)
+    print(String(decoding: data, as: UTF8.self))
+}
+
 private func formatSeconds(_ value: TimeInterval) -> String {
     let rounded = (value * 1_000).rounded() / 1_000
     return String(format: "%.3f", rounded)
@@ -2297,9 +2334,11 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|zrle-isolation|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|zrle-isolation|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
+      --environment-preflight
+                                Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

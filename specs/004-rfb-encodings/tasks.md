@@ -734,6 +734,13 @@ iPhone) and ships as its own PR.
   encoding profile, or physical-device thermal behavior rather than renderer
   upload alone. Owns: benchmark artifact, benchmark README, research note.
   **Done.**
+- **T400** Live benchmark environment preflight: add a redacted
+  `VNCLiveBenchmark --environment-preflight` report that exits before any VNC
+  connection or password prompt, reports fixed host/port/credential/stimulus
+  readiness labels plus stable issue codes, supports JSON for diagnostic
+  collection, and keeps host identity, credential values, port value, and
+  stimulus command text out of output. Owns: benchmark kit model/tests, CLI
+  option/output, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
