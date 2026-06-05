@@ -3399,3 +3399,45 @@ names only. They must not include host identity, credentials, port values,
 stimulus command text, raw TCP/RFB errors, framebuffer dimensions, coordinates,
 pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw timings, command
 output, draft text, marked text, or IME state.
+
+## D83 — Use completed live sustained-v2-core evidence to choose the next large unit
+
+References:
+- D81 sustained usability candidate contract.
+- D82 live preflight action hints.
+- `artifacts/benchmarks/2026-06-06-live-sustained-v2-core-baseline.md`.
+
+**Decision**: treat the completed live `sustained-v2-core` run as the current
+large-unit baseline. Do not promote production streaming, preflight, pacing, or
+interaction defaults from this evidence.
+
+**Why**:
+- The preflight now reaches `run-live-gate`, so the next optimization choice can
+  be based on a completed live report instead of missing setup.
+- The live gate still failed all sustained v2 gates. The top-level decision
+  routes to `inspectServerTransportCadence`, while the transport diagnosis
+  names `inspectContinuousUpdatesConnection` and recommends request/response as
+  the fallback transport.
+- ContinuousUpdates produced only the fixed failure label
+  `stream-continuous-updates-continuous-updates-not-confirmed`, so the next code
+  unit should inspect capability confirmation and receive behavior before
+  retuning normal app defaults.
+- Request/response remains usable but below target. The strongest current
+  request/response candidate label is `zrle-compression-0`, but it must be
+  rerun through the same gate after the transport boundary is understood.
+
+**Implications**:
+- Keep production ContinuousUpdates off by default.
+- Keep request/response as the live fallback while ContinuousUpdates support is
+  inspected.
+- The next large PR should own the ContinuousUpdates confirmation/receive
+  boundary and produce another redacted sustained-v2-core result before any
+  physical iPhone promotion.
+
+**Privacy rule**: live baseline artifacts may include only fixed target names,
+fixed status labels, fixed issue/action labels, aggregate gate counts, and fixed
+profile/transport labels. They must not include host identity, credentials,
+port values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
+cursor pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command
+text, command output, draft text, marked text, IME state, or full diagnostic
+payloads.

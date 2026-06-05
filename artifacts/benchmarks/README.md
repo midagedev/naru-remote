@@ -87,6 +87,13 @@ Current live preflight action artifact:
 `artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
 Schema v2 adds fixed setup action labels so missing benchmark inputs route to a
 next action without exposing host, credential, port, or stimulus command values.
+Latest completed live sustained-v2-core baseline:
+`artifacts/benchmarks/2026-06-06-live-sustained-v2-core-baseline.md`.
+This run is not benchmark-green: ContinuousUpdates is still
+`failed-before-samples`, request/response is the recommended fallback but remains
+`below-target`, and the next large unit is
+`inspectContinuousUpdatesConnection`.
+List future completed live baselines here newest-first.
 
 ## Physical iPhone: Live Connection Smoke
 
