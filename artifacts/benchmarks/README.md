@@ -47,6 +47,12 @@ They do not prove physical iPhone thermal behavior, battery impact, or
 real display scheduling. Always close thermal/FPS claims with a physical
 iPhone pass.
 
+Current baseline artifact:
+`artifacts/benchmarks/2026-06-06-practical-usability-baseline-goals.md`.
+That run keeps renderer upload as a regression guard but moves the next large
+optimization unit toward live v37 profile gates and physical iPhone
+hand-feel/thermal verification.
+
 ## Physical iPhone: Live Connection Smoke
 
 Use the physical-device UI test before claiming iPhone reachability,
@@ -216,6 +222,11 @@ graduate to physical iPhone hand-feel/thermal comparison. Do not add profile
 host identity, dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 FPS, raw timings, raw samples, raw payloads, raw errors, external command text,
 or command output to profile gates.
+For new practical-usability PRs, use the v37 gate plus
+`iphone-sustained-usability-v2` as the default decision surface. A production
+streaming default should not change until a redacted controlled-stimulus v37
+run has an explicit gate judgment and a physical iPhone 10 minute
+hand-feel/thermal pass confirms no `.serious` or `.critical` thermal state.
 The app stream startup preflight gate is separate from the benchmark-only v34
 flag: the runtime policy is injectable and off by default, may consume at most
 one hidden incremental update after the first visible frame, and must not be
