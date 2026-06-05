@@ -7,6 +7,10 @@
 
 Turn Naru from a Raw-only RFB viewer into a real client: negotiate encodings via `SetEncodings`, decode the efficient ones (CopyRect, Hextile, ZRLE, Tight), handle the streaming-critical pseudo-encodings (LastRect, DesktopSize, Cursor), and adapt quality to the connection. The crux is an architectural shift from "compute each rectangle's byte count, read that slice, decode" (which only works for fixed-size Raw) to **decode-as-you-read** over an incremental `RFBByteReader`, so variable-length/compressed encodings work over a TCP stream that may split a rectangle across reads. All decode logic lives in pure, `swift test`-able `NaruRemoteCore` types proven against crafted fixtures and `FakeRFBServer` transcripts before any "works against a real server" claim.
 
+Current default-changing PRs that touch streaming or interaction behavior must
+follow the sustained-usability candidate contract:
+`artifacts/benchmarks/2026-06-06-sustained-usability-candidate-contract.md`.
+
 ## Constitution Check
 
 - **I. Local-First Composition**: Server→client rendering only. No text path; Compose & Send untouched. The only client→server messages added are transport control (`SetEncodings`/`SetPixelFormat`/fence). ✅
