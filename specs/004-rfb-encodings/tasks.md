@@ -868,6 +868,14 @@ iPhone) and ships as its own PR.
   credentials, port values, stimulus command text, raw TCP/RFB errors, or
   command output. Owns: benchmark kit, CLI text output, tests, README,
   benchmark artifact, research note. **Done.**
+- **T415** Completed live sustained-v2-core baseline: after preflight can reach
+  `run-live-gate`, run the redacted live gate against the local private VNC
+  target and record the large-unit decision surface. Keep the current result
+  explicit: all sustained v2 gates still fail, ContinuousUpdates is
+  `failed-before-samples`, request/response is the fallback but remains
+  `below-target`, and the next large unit is ContinuousUpdates
+  confirmation/receive inspection before any production default promotion.
+  Owns: benchmark artifact, README, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
