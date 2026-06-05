@@ -21,9 +21,9 @@ description: "Tasks: Host Helper Text Bridge"
 
 ## Phase 2: Foundation / Test Harness
 
-- [ ] T005 [US1] Add `HelperTextBridgeAvailability`, `HelperTextBridgeFailureCode`, and helper request/result value types in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/`; verify with `swift test --filter HelperTextBridge`.
+- [x] T005 [US1] Add `HelperTextBridgeAvailability`, `HelperTextBridgeFailureCode`, and helper request/result value types in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/`; verify with `swift test --filter HelperTextBridge`. **Done.**
 - [ ] T006 [US1] Add a fake helper text client in `NaruRemote/Tests/NaruRemoteCoreTests/` or `NaruRemote/Tests/NaruRemoteAppTests/`; verify routing without a real helper.
-- [ ] T007 [US3] Extend diagnostic export model with helper text bridge state in `NaruRemote/Sources/NaruRemoteCore/Diagnostics/` and tests in `NaruRemote/Tests/NaruRemoteCoreTests/DiagnosticExportTests.swift`.
+- [x] T007 [US3] Extend diagnostic export model with helper text bridge state in `NaruRemote/Sources/NaruRemoteCore/Diagnostics/` and tests in `NaruRemote/Tests/NaruRemoteCoreTests/DiagnosticExportTests.swift`. **Done.**
 - [ ] T008 [US2] Add profile-level helper enabled/revoked state tests in `NaruRemote/Tests/NaruRemoteAppTests/`.
 - [ ] T009 Update `specs/006-host-helper-text-bridge/quickstart.md` with exact implementation commands after test names exist.
 

@@ -872,6 +872,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case directKeystrokeModeActive
         case hasComposeDraftText
         case composeSendState
+        case helperTextBridgeAvailability
+        case helperTextBridgeLastFailureCode
+        case helperTextBridgeLastCheckedBucket
         case latestInjectionPath
         case latestInjectionStatus
         case latestInjectionPasteCommand
@@ -887,6 +890,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let directKeystrokeModeActive: Bool?
     public let hasComposeDraftText: Bool?
     public let composeSendState: String?
+    public let helperTextBridgeAvailability: String?
+    public let helperTextBridgeLastFailureCode: String?
+    public let helperTextBridgeLastCheckedBucket: String?
     public let latestInjectionPath: String?
     public let latestInjectionStatus: String?
     public let latestInjectionPasteCommand: String?
@@ -902,6 +908,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         directKeystrokeModeActive: Bool? = nil,
         hasComposeDraftText: Bool? = nil,
         composeSendState: String? = nil,
+        helperTextBridgeAvailability: String? = nil,
+        helperTextBridgeLastFailureCode: String? = nil,
+        helperTextBridgeLastCheckedBucket: String? = nil,
         latestInjectionPath: String? = nil,
         latestInjectionStatus: String? = nil,
         latestInjectionPasteCommand: String? = nil,
@@ -916,6 +925,15 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.directKeystrokeModeActive = directKeystrokeModeActive
         self.hasComposeDraftText = hasComposeDraftText
         self.composeSendState = Self.safeComposeSendState(composeSendState)
+        self.helperTextBridgeAvailability = Self.safeHelperTextBridgeAvailability(
+            helperTextBridgeAvailability
+        )
+        self.helperTextBridgeLastFailureCode = Self.safeHelperTextBridgeFailureCode(
+            helperTextBridgeLastFailureCode
+        )
+        self.helperTextBridgeLastCheckedBucket = Self.safeHelperTextBridgeLastCheckedBucket(
+            helperTextBridgeLastCheckedBucket
+        )
         self.latestInjectionPath = Self.safeInjectionPath(latestInjectionPath)
         self.latestInjectionStatus = Self.safeInjectionStatus(latestInjectionStatus)
         self.latestInjectionPasteCommand = Self.safePasteCommand(latestInjectionPasteCommand)
@@ -937,12 +955,16 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public init(
         composeDraft: ComposeDraft?,
         latestInjectionAttempt: TextInjectionAttempt?,
-        directKeystrokeModeActive: Bool
+        directKeystrokeModeActive: Bool,
+        helperTextBridgeState: HelperTextBridgeProfileState? = nil
     ) {
         self.init(
             directKeystrokeModeActive: directKeystrokeModeActive,
             hasComposeDraftText: composeDraft.map { !$0.text.isEmpty },
             composeSendState: composeDraft?.sendState.rawValue,
+            helperTextBridgeAvailability: helperTextBridgeState?.availability.rawValue,
+            helperTextBridgeLastFailureCode: helperTextBridgeState?.lastFailureCode?.rawValue,
+            helperTextBridgeLastCheckedBucket: helperTextBridgeState?.lastCheckedBucket.rawValue,
             latestInjectionPath: latestInjectionAttempt?.path.rawValue,
             latestInjectionStatus: latestInjectionAttempt?.status.rawValue,
             latestInjectionPasteCommand: latestInjectionAttempt?.pasteCommand?.rawValue,
@@ -970,6 +992,18 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             ),
             hasComposeDraftText: try container.decodeIfPresent(Bool.self, forKey: .hasComposeDraftText),
             composeSendState: try container.decodeIfPresent(String.self, forKey: .composeSendState),
+            helperTextBridgeAvailability: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeAvailability
+            ),
+            helperTextBridgeLastFailureCode: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeLastFailureCode
+            ),
+            helperTextBridgeLastCheckedBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeLastCheckedBucket
+            ),
             latestInjectionPath: try container.decodeIfPresent(String.self, forKey: .latestInjectionPath),
             latestInjectionStatus: try container.decodeIfPresent(String.self, forKey: .latestInjectionStatus),
             latestInjectionPasteCommand: try container.decodeIfPresent(
@@ -1009,6 +1043,18 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safeComposeSendState(_ value: String?) -> String? {
         safe(value, allowed: Set(ComposeSendState.allCases.map(\.rawValue)))
+    }
+
+    private static func safeHelperTextBridgeAvailability(_ value: String?) -> String? {
+        safe(value, allowed: Set(HelperTextBridgeAvailability.allCases.map(\.rawValue)))
+    }
+
+    private static func safeHelperTextBridgeFailureCode(_ value: String?) -> String? {
+        safe(value, allowed: Set(HelperTextBridgeFailureCode.allCases.map(\.rawValue)))
+    }
+
+    private static func safeHelperTextBridgeLastCheckedBucket(_ value: String?) -> String? {
+        safe(value, allowed: Set(HelperTextBridgeLastCheckedBucket.allCases.map(\.rawValue)))
     }
 
     private static func safeInjectionPath(_ value: String?) -> String? {
@@ -1092,7 +1138,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 19
+    public static let currentSchemaVersion = 20
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
