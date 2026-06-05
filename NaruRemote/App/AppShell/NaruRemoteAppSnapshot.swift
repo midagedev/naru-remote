@@ -250,6 +250,21 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
     }
 
+    public var contentFramesPerSecond: Double? {
+        guard contentFrameCount > 1,
+              let observedDuration,
+              observedDuration > 0
+        else {
+            return nil
+        }
+        let framesAfterFirst = max(contentFrameCount - 1, 0)
+        return Double(framesAfterFirst) / observedDuration
+    }
+
+    public var contentFramesPerSecondBucket: DiagnosticFrameRateBucket {
+        DiagnosticFrameRateBucket.bucket(framesPerSecond: contentFramesPerSecond)
+    }
+
     public var contentFramePermille: Int? {
         permille(contentFrameCount, of: deliveredFrameCount)
     }
@@ -358,6 +373,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         return DiagnosticStreamPerformanceReport(
             observedDurationBucket: observedDurationBucket.rawValue,
             deliveredFramesPerSecondBucket: deliveredFramesPerSecondBucket.rawValue,
+            contentFramesPerSecondBucket: contentFramesPerSecondBucket.rawValue,
             deliveredFrameCount: deliveredFrameCount,
             contentFrameCount: contentFrameCount,
             emptyUpdateCount: emptyUpdateCount,

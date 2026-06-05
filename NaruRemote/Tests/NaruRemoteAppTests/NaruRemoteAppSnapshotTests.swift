@@ -74,6 +74,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
         XCTAssertEqual(report.deliveredFramesPerSecondBucket, DiagnosticFrameRateBucket.underFive.rawValue)
+        XCTAssertEqual(report.contentFramesPerSecondBucket, DiagnosticFrameRateBucket.notMeasured.rawValue)
         XCTAssertEqual(report.deliveredFrameCount, 2)
         XCTAssertEqual(report.contentFrameCount, 1)
         XCTAssertEqual(report.emptyUpdateCount, 1)

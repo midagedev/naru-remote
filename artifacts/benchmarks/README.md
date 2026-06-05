@@ -211,6 +211,11 @@ Diagnostic JSON v24 adds safe Compose Send preparation fields for T390:
 `latestComposeSendPreparationDurationBucket`. Use these only as coarse
 pre-paste input-path signals; do not add raw draft text, marked text, or raw
 timings to benchmark artifacts.
+Diagnostic JSON v25 adds top-level `sustainedSessionAssessment` for
+`iphone-sustained-usability-v2`, with only fixed verdict and issue-code labels.
+The app may use exact FPS in memory to choose those labels, but artifacts must
+not include raw FPS, raw timings, host identity, dimensions, coordinates, pixels,
+byte counts, draft text, or IME state.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate

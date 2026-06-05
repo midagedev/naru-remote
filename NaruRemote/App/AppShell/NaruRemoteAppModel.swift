@@ -1039,6 +1039,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestComposeSendPreparation: latestComposeSendPreparation,
             helperTextBridgeState: helperTextBridgeState(for: composeRoute.helperProfileID)
         )
+        let sustainedSessionAssessment = DiagnosticSustainedSessionAssessment.assess(
+            streamPerformance: streamPerformance,
+            input: input,
+            contentFramesPerSecond: sessionStreamStats.contentFramesPerSecond
+        )
         guard let run = diagnosticRun else {
             return DiagnosticExport(
                 run: ConnectionDiagnosticRun(
@@ -1047,14 +1052,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ),
                 streamPerformance: streamPerformance,
                 viewerStreamPowerMode: viewerStreamPowerMode,
-                input: input
+                input: input,
+                sustainedSessionAssessment: sustainedSessionAssessment
             )
         }
         return DiagnosticExport(
             run: run,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode,
-            input: input
+            input: input,
+            sustainedSessionAssessment: sustainedSessionAssessment
         )
     }
 

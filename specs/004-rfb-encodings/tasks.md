@@ -689,6 +689,15 @@ iPhone) and ships as its own PR.
   raw timings, IME contents, host identity, or coordinates. Owns: Core
   diagnostic schema/tests, RemoteInputDock callback, app model diagnostic
   plumbing/tests, benchmark artifact, research note. **Done.**
+- **T395** Sustained session diagnostic gate: add a top-level diagnostic JSON
+  v25 `sustainedSessionAssessment` that folds active-session stream metrics,
+  thermal state, viewport pressure hints, and Compose route/preparation state
+  into fixed target/verdict/issue-code fields for
+  `iphone-sustained-usability-v2`. Use exact FPS only in memory to choose safe
+  issue codes; do not export raw FPS, raw timings, host identity, dimensions,
+  coordinates, pixels, byte counts, draft text, or IME state. Owns: Core
+  diagnostic schema/tests, app stats/export wiring, benchmark artifact,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -2382,3 +2382,59 @@ mode labels, bounded snapshot count, and coarse timing bucket. They must not
 include draft text, marked text, raw timings, raw IME state, host identity,
 credentials, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
 counts, raw payloads, or raw errors.
+
+## D64 — Add a top-level sustained session diagnostic assessment
+
+References:
+- Apple `ProcessInfo.thermalState`:
+  https://developer.apple.com/documentation/foundation/processinfo/thermalstate-swift.property
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: bump diagnostic JSON to schema v25 and add
+`sustainedSessionAssessment` at the collection level. The assessment reports
+only the fixed target `iphone-sustained-usability-v2`, a fixed verdict
+(`notMeasured`, `pass`, `warning`, or `fail`), and fixed issue codes derived
+from active stream diagnostics, thermal state, viewport pressure hints, Compose
+route readiness, and Compose Send preparation buckets.
+
+**Why**:
+- T390 needs a 10 minute physical iPhone thermal/hand-feel pass, but raw
+  stream counters alone make the next debugging step too slow. A single
+  top-level assessment lets a device log immediately say whether the session is
+  content-FPS-bound, receive/decode/apply-bound, renderer-upload-bound,
+  thermal-bound, viewport-pressure-bound, or input-route-bound.
+- `VNCLiveBenchmark` v35 already has the formal v2 target. The app diagnostic
+  path cannot export raw FPS or raw milliseconds, so it uses exact content FPS
+  only in memory to choose fixed issue codes and exports only coarse buckets and
+  catalog values.
+- Combining stream and input at the collection level avoids treating Compose
+  route failures as a stream-performance field while still keeping one JSON
+  object sufficient for physical-device triage.
+
+**Evidence**:
+- `DiagnosticExportTests` cover schema v25, content FPS bucket export,
+  sustained assessment classification, pass classification, and unsafe catalog
+  sanitization.
+- `NaruRemoteAppSnapshotTests` cover the safe content FPS bucket inside the
+  stream performance report.
+- `NaruRemoteAppModelTests` prove active-session JSON includes
+  `sustainedSessionAssessment` with fixed issue codes while still omitting host,
+  raw timing field names, and raw target details.
+
+**Interpretation**:
+- A `contentFrameRateFailed` issue means the session is still below the v2
+  content-FPS floor and the next PR should attack server/request cadence,
+  encoding profile, or stimulus/control assumptions.
+- Receive/client/apply/renderer issue codes point to local pipeline pressure.
+  Thermal and viewport issue codes indicate that reducing foreground work may
+  be more important than raising stream cadence.
+- `composeRouteBlocked` or `composeSendPreparationStalled` means the practical
+  failure is input-path-bound even if the stream looks acceptable.
+
+**Privacy rule**: sustained assessment diagnostics may report only fixed
+target names, fixed verdict labels, fixed issue codes, and existing aggregate
+bucket fields. They must not include host identity, credentials, framebuffer
+dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
+timings, raw samples, raw payloads, draft text, marked text, IME state, or raw
+errors.
