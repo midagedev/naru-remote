@@ -207,15 +207,33 @@ public struct RFBFramebufferUpdateTiming: Codable, Equatable, Sendable {
     public let totalMilliseconds: Int
     /// Coarse socket read time accumulated across blocking reads.
     public let networkReadMilliseconds: Int
+    /// Coarse wait for the first server byte after the receive begins.
+    /// This lets benchmarks distinguish server/update wait from the
+    /// remaining payload read time without emitting frame contents.
+    public let firstByteWaitMilliseconds: Int?
+    /// Derived from `networkReadMilliseconds - firstByteWaitMilliseconds`.
+    /// Nil when no server byte was received, such as an idle timeout.
+    public let payloadReadMilliseconds: Int?
     /// Derived from rounded millisecond buckets, so it should be used
     /// for aggregate diagnosis rather than sub-millisecond profiling.
     public let clientProcessingMilliseconds: Int
 
-    public init(totalMilliseconds: Int, networkReadMilliseconds: Int) {
+    public init(
+        totalMilliseconds: Int,
+        networkReadMilliseconds: Int,
+        firstByteWaitMilliseconds: Int? = nil
+    ) {
         let totalMilliseconds = max(totalMilliseconds, 0)
         let networkReadMilliseconds = max(networkReadMilliseconds, 0)
+        let firstByteWaitMilliseconds = firstByteWaitMilliseconds.map {
+            min(max($0, 0), networkReadMilliseconds)
+        }
         self.totalMilliseconds = totalMilliseconds
         self.networkReadMilliseconds = networkReadMilliseconds
+        self.firstByteWaitMilliseconds = firstByteWaitMilliseconds
+        self.payloadReadMilliseconds = firstByteWaitMilliseconds.map {
+            max(networkReadMilliseconds - $0, 0)
+        }
         self.clientProcessingMilliseconds = max(totalMilliseconds - networkReadMilliseconds, 0)
     }
 }

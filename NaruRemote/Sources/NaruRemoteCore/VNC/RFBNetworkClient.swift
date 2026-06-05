@@ -326,7 +326,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             updateResult = decodedResult.withTiming(
                 RFBFramebufferUpdateTiming(
                     totalMilliseconds: Self.milliseconds(since: receiveStartedAt),
-                    networkReadMilliseconds: reader.readDurationMilliseconds
+                    networkReadMilliseconds: reader.readDurationMilliseconds,
+                    firstByteWaitMilliseconds: reader.firstByteWaitMilliseconds
                 )
             )
         } catch let error as RFBNetworkClientError where allowsIdleTimeout && error.isReadTimeoutLike {
@@ -342,7 +343,8 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
                 transportIdleTimedOut: true,
                 timing: RFBFramebufferUpdateTiming(
                     totalMilliseconds: Self.milliseconds(since: receiveStartedAt),
-                    networkReadMilliseconds: reader.readDurationMilliseconds
+                    networkReadMilliseconds: reader.readDurationMilliseconds,
+                    firstByteWaitMilliseconds: reader.firstByteWaitMilliseconds
                 )
             )
         } catch {
@@ -1143,9 +1145,14 @@ private final class ConnectionByteReader: RFBByteReader {
     private let timeout: TimeInterval
     private(set) var consumedByteCount = 0
     private var readDurationNanoseconds: UInt64 = 0
+    private var firstByteWaitNanoseconds: UInt64?
 
     var readDurationMilliseconds: Int {
         RFBMonotonicTiming.milliseconds(fromNanoseconds: readDurationNanoseconds)
+    }
+
+    var firstByteWaitMilliseconds: Int? {
+        firstByteWaitNanoseconds.map(RFBMonotonicTiming.milliseconds(fromNanoseconds:))
     }
 
     init(connection: RFBNetworkConnection, timeout: TimeInterval) {
@@ -1160,7 +1167,11 @@ private final class ConnectionByteReader: RFBByteReader {
         let startedAt = RFBMonotonicTiming.now()
         do {
             let data = try connection.readExactly(byteCount: count, timeout: timeout)
-            readDurationNanoseconds += RFBMonotonicTiming.nanoseconds(since: startedAt)
+            let elapsedNanoseconds = RFBMonotonicTiming.nanoseconds(since: startedAt)
+            readDurationNanoseconds += elapsedNanoseconds
+            if consumedByteCount == 0, !data.isEmpty {
+                firstByteWaitNanoseconds = elapsedNanoseconds
+            }
             consumedByteCount += data.count
             return [UInt8](data)
         } catch {

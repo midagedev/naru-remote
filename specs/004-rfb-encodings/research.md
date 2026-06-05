@@ -3958,3 +3958,80 @@ shares. They must not emit host identity, credentials, port values, raw TCP/RFB
 errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts,
 raw payloads, per-sample raw timings, raw FPS, stimulus command text, command
 output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D93 — Network-read tail is first-byte wait, not payload read
+
+References:
+- RFC 6143 Display Protocol and FramebufferUpdateRequest flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- D92 phase budget diagnostics.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v50 and split measured
+network-read time into:
+
+- `first-byte-wait`: elapsed time until the first successful server byte is
+  read after the receive begins;
+- `payload-read`: the remaining aggregate socket read time after that first
+  byte.
+
+Reports keep `network-read` for continuity, but add fixed subphase labels,
+subphase latency summaries, and first-byte/payload permille shares to
+stream-shape summaries, profile aggregates, and request cadence health.
+
+**Why**:
+- RFC 6143 makes framebuffer updates client-demand-driven and explicitly allows
+  an indefinite period between an incremental `FramebufferUpdateRequest` and
+  the corresponding `FramebufferUpdate`.
+- D92 showed the current sustained v2 request/response blocker is
+  `network-read`, but the old bucket could not distinguish server/update wait
+  from payload transfer.
+- A production optimization should target the server/update wait path only if
+  the first-byte subphase dominates; it should target socket buffering or
+  payload volume only if payload-read dominates.
+
+**Implementation rule**: keep this as diagnostics. Do not change production
+stream defaults in the same PR.
+
+**Evidence**:
+- Focused tests cover core timing clamp/round-trip, frame-pump timing
+  preservation, fake RFB idle-timeout split behavior, summary split latency,
+  phase-budget split shares, and request cadence health split aggregation.
+- Help output exposes schema v50 first-byte wait split reporting.
+- A redacted live v50 pacing sweep reported:
+  - `sampleStatus = high-content-hit`;
+  - `latencyStatus = p95-failed`;
+  - `recommendedNextProbe = inspectUpdateWaitTiming`;
+  - `dominantPhase = network-read`;
+  - `slowDominantPhase = network-read`;
+  - `networkReadDominantSubphase = first-byte-wait`;
+  - `slowNetworkReadDominantSubphase = first-byte-wait`;
+  - request cadence health average first-byte/payload split
+    `1000/1` permille;
+  - request cadence health max first-byte/payload p95 `503/1` ms;
+  - `zero-content-delay`: average update 127 ms, max p95 update 505 ms,
+    content FPS 6.40, network/client/request-loop phase shares 912/87/2
+    permille, first-byte/payload split 1000/1 permille;
+  - `app-balanced-30hz`: average update 135 ms, max p95 update 502 ms,
+    content FPS 4.82, phase shares 967/31/2 permille, first-byte/payload split
+    1000/1 permille;
+  - `stimulus-aligned-12hz`: 4 usable runs, one connect read timeout, average
+    update 157 ms, max p95 update 436 ms, content FPS 3.26, phase shares
+    974/24/2 permille, first-byte/payload split 1000/0 permille.
+
+**Interpretation**:
+- The current localhost macOS Screen Sharing sustained tail is almost entirely
+  wait-for-first-server-byte. Payload read time is effectively negligible in
+  this run.
+- The next large optimization unit should reduce server/update wait in the
+  request/response loop. Candidate lanes include request region/stimulus shape,
+  outstanding request policy, and a carefully gated ContinuousUpdates/Fence
+  follow-up only if server confirmation and compatibility evidence stay clean.
+- Socket payload buffering and decoder payload-copy work are not the next
+  highest-leverage lane for this measured setup.
+
+**Privacy rule**: first-byte split reports may emit only fixed phase/subphase
+labels, aggregate sample counts, aggregate millisecond summaries, and aggregate
+permille shares. They must not emit host identity, credentials, port values, raw
+TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
+counts, raw payloads, per-sample raw timings, raw FPS, stimulus command text,
+command output, draft text, marked text, IME state, or full diagnostic payloads.

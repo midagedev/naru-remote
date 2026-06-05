@@ -912,6 +912,8 @@ enum VNCLiveBenchmark {
             rendererUploadRegionCount: uploadPlan.uploadRegionCount,
             receiveTotalMilliseconds: frame.timing?.totalMilliseconds,
             networkReadMilliseconds: frame.timing?.networkReadMilliseconds,
+            firstByteWaitMilliseconds: frame.timing?.firstByteWaitMilliseconds,
+            payloadReadMilliseconds: frame.timing?.payloadReadMilliseconds,
             clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds,
             zrleInflateMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleInflateMilliseconds : nil,
             zrleTileApplyMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleTileApplyMilliseconds : nil,
@@ -1767,7 +1769,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 49
+        self.schemaVersion = 50
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1848,7 +1850,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape transport cadence diagnosis emits only fixed transport/status/action labels and aggregate gate/failure counts",
             "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
             "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
-            "stream-shape phase-budget diagnostics emit only fixed phase labels, aggregate millisecond summaries, and permille shares",
+            "stream-shape phase-budget diagnostics emit only fixed phase/subphase labels, aggregate millisecond summaries, and permille shares",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -2262,6 +2264,8 @@ private func renderText(_ report: BenchmarkReport) {
                 print("  content fps avg: n/a")
             }
             let networkShare = aggregate.averageNetworkReadSharePermille.map(String.init) ?? "n/a"
+            let firstByteShare = aggregate.averageFirstByteWaitSharePermille.map(String.init) ?? "n/a"
+            let payloadShare = aggregate.averagePayloadReadSharePermille.map(String.init) ?? "n/a"
             let clientShare = aggregate.averageClientProcessingSharePermille.map(String.init) ?? "n/a"
             let loopShare = aggregate.averageRequestLoopSharePermille.map(String.init) ?? "n/a"
             print(
@@ -2269,9 +2273,22 @@ private func renderText(_ report: BenchmarkReport) {
                     + "\(aggregate.dominantPhase.rawValue)/\(aggregate.slowDominantPhase.rawValue)"
             )
             print(
+                "  network-read subphase dominant/slow-dominant: "
+                    + "\(aggregate.networkReadDominantSubphase.rawValue)/"
+                    + "\(aggregate.slowNetworkReadDominantSubphase.rawValue)"
+            )
+            print(
                 "  phase share permille avg network/client/request-loop: "
                     + "\(networkShare)/\(clientShare)/\(loopShare)"
             )
+            print(
+                "  network-read split permille avg first-byte/payload: "
+                    + "\(firstByteShare)/\(payloadShare)"
+            )
+            if let firstByteP95 = aggregate.maxFirstByteWaitP95Milliseconds,
+               let payloadP95 = aggregate.maxPayloadReadP95Milliseconds {
+                print("  network-read split ms max-p95 first-byte/payload: \(firstByteP95)/\(payloadP95)")
+            }
             if let receivedRequest = aggregate.averageReceivedSamplePermille,
                let contentRequest = aggregate.averageContentSamplePermille,
                let contentResponse = aggregate.averageContentResponsePermille,
@@ -2404,6 +2421,21 @@ private func renderText(_ report: BenchmarkReport) {
             "  phase dominant/slow-dominant: "
                 + "\(health.dominantPhase.rawValue)/\(health.slowDominantPhase.rawValue)"
         )
+        let firstByteShare = health.averageFirstByteWaitSharePermille.map(String.init) ?? "n/a"
+        let payloadShare = health.averagePayloadReadSharePermille.map(String.init) ?? "n/a"
+        print(
+            "  network-read subphase dominant/slow-dominant: "
+                + "\((health.networkReadDominantSubphase ?? .unknown).rawValue)/"
+                + "\((health.slowNetworkReadDominantSubphase ?? .unknown).rawValue)"
+        )
+        print(
+            "  network-read split permille avg first-byte/payload: "
+                + "\(firstByteShare)/\(payloadShare)"
+        )
+        if let firstByteP95 = health.maxFirstByteWaitP95Milliseconds,
+           let payloadP95 = health.maxPayloadReadP95Milliseconds {
+            print("  network-read split ms max-p95 first-byte/payload: \(firstByteP95)/\(payloadP95)")
+        }
         print(
             "  request-response constraints: "
                 + "\(formatTriageCounts(health.requestResponsePrimaryConstraintCounts))"
@@ -2532,6 +2564,8 @@ private func renderStreamShapeSummary(
     let phaseBudget = summary.phaseBudget
     if phaseBudget.sampleCount > 0 {
         let networkShare = phaseBudget.networkReadSharePermille.map(String.init) ?? "n/a"
+        let firstByteShare = phaseBudget.firstByteWaitSharePermille.map(String.init) ?? "n/a"
+        let payloadShare = phaseBudget.payloadReadSharePermille.map(String.init) ?? "n/a"
         let clientShare = phaseBudget.clientProcessingSharePermille.map(String.init) ?? "n/a"
         let loopShare = phaseBudget.requestLoopSharePermille.map(String.init) ?? "n/a"
         print(
@@ -2540,8 +2574,17 @@ private func renderStreamShapeSummary(
                 + "\(phaseBudget.slowDominantPhase.rawValue)"
         )
         print(
+            "\(indentation)  network-read subphase dominant/slow-dominant: "
+                + "\((phaseBudget.networkReadDominantSubphase ?? .unknown).rawValue)/"
+                + "\((phaseBudget.slowNetworkReadDominantSubphase ?? .unknown).rawValue)"
+        )
+        print(
             "\(indentation)  phase share permille network/client/request-loop: "
                 + "\(networkShare)/\(clientShare)/\(loopShare)"
+        )
+        print(
+            "\(indentation)  network-read split permille first-byte/payload: "
+                + "\(firstByteShare)/\(payloadShare)"
         )
         if let requestLoopLatency = phaseBudget.requestLoopLatency {
             print(
@@ -2553,13 +2596,39 @@ private func renderStreamShapeSummary(
                     + "\(requestLoopLatency.maxMilliseconds)"
             )
         }
+        if let firstByteLatency = phaseBudget.firstByteWaitLatency {
+            print(
+                "\(indentation)  first-byte wait ms avg/p50/p95/min/max: "
+                    + "\(firstByteLatency.averageMilliseconds)/"
+                    + "\(firstByteLatency.p50Milliseconds)/"
+                    + "\(firstByteLatency.p95Milliseconds)/"
+                    + "\(firstByteLatency.minMilliseconds)/"
+                    + "\(firstByteLatency.maxMilliseconds)"
+            )
+        }
+        if let payloadReadLatency = phaseBudget.payloadReadLatency {
+            print(
+                "\(indentation)  payload read ms avg/p50/p95/min/max: "
+                    + "\(payloadReadLatency.averageMilliseconds)/"
+                    + "\(payloadReadLatency.p50Milliseconds)/"
+                    + "\(payloadReadLatency.p95Milliseconds)/"
+                    + "\(payloadReadLatency.minMilliseconds)/"
+                    + "\(payloadReadLatency.maxMilliseconds)"
+            )
+        }
         if phaseBudget.slowUpdateSampleCount > 0 {
             let slowNetwork = phaseBudget.slowNetworkReadSharePermille.map(String.init) ?? "n/a"
+            let slowFirstByte = phaseBudget.slowFirstByteWaitSharePermille.map(String.init) ?? "n/a"
+            let slowPayload = phaseBudget.slowPayloadReadSharePermille.map(String.init) ?? "n/a"
             let slowClient = phaseBudget.slowClientProcessingSharePermille.map(String.init) ?? "n/a"
             let slowLoop = phaseBudget.slowRequestLoopSharePermille.map(String.init) ?? "n/a"
             print(
                 "\(indentation)  slow phase share permille network/client/request-loop: "
                     + "\(slowNetwork)/\(slowClient)/\(slowLoop)"
+            )
+            print(
+                "\(indentation)  slow network-read split permille first-byte/payload: "
+                    + "\(slowFirstByte)/\(slowPayload)"
             )
         }
     }
@@ -2665,6 +2734,22 @@ private func renderStreamShapeSummary(
                 + "\(networkRead.averageMilliseconds)/\(networkRead.p50Milliseconds)/"
                 + "\(networkRead.p95Milliseconds)/\(networkRead.minMilliseconds)/"
                 + "\(networkRead.maxMilliseconds)"
+        )
+    }
+    if let firstByteWait = summary.firstByteWaitLatency {
+        print(
+            "\(indentation)  first-byte wait ms avg/p50/p95/min/max: "
+                + "\(firstByteWait.averageMilliseconds)/\(firstByteWait.p50Milliseconds)/"
+                + "\(firstByteWait.p95Milliseconds)/\(firstByteWait.minMilliseconds)/"
+                + "\(firstByteWait.maxMilliseconds)"
+        )
+    }
+    if let payloadRead = summary.payloadReadLatency {
+        print(
+            "\(indentation)  payload read ms avg/p50/p95/min/max: "
+                + "\(payloadRead.averageMilliseconds)/\(payloadRead.p50Milliseconds)/"
+                + "\(payloadRead.p95Milliseconds)/\(payloadRead.minMilliseconds)/"
+                + "\(payloadRead.maxMilliseconds)"
         )
     }
     if let clientProcessing = summary.clientProcessingLatency {
@@ -2787,7 +2872,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v49 phase-budget gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v50 first-byte wait split reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
