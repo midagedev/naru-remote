@@ -547,6 +547,16 @@ each selected candidate leads one iteration. The pacing sweep intentionally
 holds the profile at `zrle-compression-0-clipboard` and rotates fixed pacing
 windows instead of the full `zrle-isolation` profile list. Use custom commands
 only when intentionally changing that shape.
+Schema v49 adds safe phase-budget summaries. Read
+`phase dominant/slow-dominant` before picking the next large optimization lane:
+`request-loop` or `network-read` means inspect update-wait/request-response
+timing, while `client-processing` means compare encoding/decode pressure before
+changing pacing again. The budget is aggregate-only and must not export raw
+per-sample timings, host identity, dimensions, coordinates, pixels, byte counts,
+cursor pixels, raw errors, stimulus command text, draft text, marked text, or
+IME state. The first v49 live artifact is
+`2026-06-06-request-update-phase-budget-summary.md`; it routes the next large
+unit to request/response update-wait and network-read tail inspection.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

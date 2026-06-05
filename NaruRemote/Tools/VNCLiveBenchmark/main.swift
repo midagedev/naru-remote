@@ -1767,7 +1767,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 48
+        self.schemaVersion = 49
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1848,6 +1848,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape transport cadence diagnosis emits only fixed transport/status/action labels and aggregate gate/failure counts",
             "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
             "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
+            "stream-shape phase-budget diagnostics emit only fixed phase labels, aggregate millisecond summaries, and permille shares",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -2260,6 +2261,17 @@ private func renderText(_ report: BenchmarkReport) {
             } else {
                 print("  content fps avg: n/a")
             }
+            let networkShare = aggregate.averageNetworkReadSharePermille.map(String.init) ?? "n/a"
+            let clientShare = aggregate.averageClientProcessingSharePermille.map(String.init) ?? "n/a"
+            let loopShare = aggregate.averageRequestLoopSharePermille.map(String.init) ?? "n/a"
+            print(
+                "  phase dominant/slow-dominant: "
+                    + "\(aggregate.dominantPhase.rawValue)/\(aggregate.slowDominantPhase.rawValue)"
+            )
+            print(
+                "  phase share permille avg network/client/request-loop: "
+                    + "\(networkShare)/\(clientShare)/\(loopShare)"
+            )
             if let receivedRequest = aggregate.averageReceivedSamplePermille,
                let contentRequest = aggregate.averageContentSamplePermille,
                let contentResponse = aggregate.averageContentResponsePermille,
@@ -2389,6 +2401,10 @@ private func renderText(_ report: BenchmarkReport) {
         let contentFPS = health.averageContentFramesPerSecond.map(formatFramesPerSecond) ?? "n/a"
         print("  update ms avg/max-p95; content fps avg: \(averageUpdate)/\(maxP95); \(contentFPS)")
         print(
+            "  phase dominant/slow-dominant: "
+                + "\(health.dominantPhase.rawValue)/\(health.slowDominantPhase.rawValue)"
+        )
+        print(
             "  request-response constraints: "
                 + "\(formatTriageCounts(health.requestResponsePrimaryConstraintCounts))"
         )
@@ -2512,6 +2528,40 @@ private func renderStreamShapeSummary(
                 + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
                 + "\(latency.maxMilliseconds)"
         )
+    }
+    let phaseBudget = summary.phaseBudget
+    if phaseBudget.sampleCount > 0 {
+        let networkShare = phaseBudget.networkReadSharePermille.map(String.init) ?? "n/a"
+        let clientShare = phaseBudget.clientProcessingSharePermille.map(String.init) ?? "n/a"
+        let loopShare = phaseBudget.requestLoopSharePermille.map(String.init) ?? "n/a"
+        print(
+            "\(indentation)  phase dominant/slow-dominant: "
+                + "\(phaseBudget.dominantPhase.rawValue)/"
+                + "\(phaseBudget.slowDominantPhase.rawValue)"
+        )
+        print(
+            "\(indentation)  phase share permille network/client/request-loop: "
+                + "\(networkShare)/\(clientShare)/\(loopShare)"
+        )
+        if let requestLoopLatency = phaseBudget.requestLoopLatency {
+            print(
+                "\(indentation)  request-loop ms avg/p50/p95/min/max: "
+                    + "\(requestLoopLatency.averageMilliseconds)/"
+                    + "\(requestLoopLatency.p50Milliseconds)/"
+                    + "\(requestLoopLatency.p95Milliseconds)/"
+                    + "\(requestLoopLatency.minMilliseconds)/"
+                    + "\(requestLoopLatency.maxMilliseconds)"
+            )
+        }
+        if phaseBudget.slowUpdateSampleCount > 0 {
+            let slowNetwork = phaseBudget.slowNetworkReadSharePermille.map(String.init) ?? "n/a"
+            let slowClient = phaseBudget.slowClientProcessingSharePermille.map(String.init) ?? "n/a"
+            let slowLoop = phaseBudget.slowRequestLoopSharePermille.map(String.init) ?? "n/a"
+            print(
+                "\(indentation)  slow phase share permille network/client/request-loop: "
+                    + "\(slowNetwork)/\(slowClient)/\(slowLoop)"
+            )
+        }
     }
     print(
         "\(indentation)  tail >=\(summary.tailLatency.slowUpdateThresholdMilliseconds)ms "
@@ -2737,7 +2787,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v48 gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v49 phase-budget gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
