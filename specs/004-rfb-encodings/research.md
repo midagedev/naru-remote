@@ -2674,6 +2674,64 @@ pixels, cursor pixels, byte counts, raw live samples, raw live payloads, raw
 errors, external command text, command output, draft text, marked text, or IME
 state.
 
+## D72 - Add an app stream profile experiment gate
+
+References:
+- RFC 6143 SetEncodings flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: add a settings-backed `streamEncodingMode` app experiment gate
+that defaults to `standard` and cycles through fixed benchmark candidates:
+
+- `standard`
+- `zrle-compression-0`
+- `adaptive-good-full`
+
+The gate is not a production recommendation or permanent user-facing encoding
+picker. It exists so a physical iPhone session can reproduce the same candidate
+families being compared by `sustained-v2-core` and
+`sustained-v2-pixel-format` before any default changes. Non-standard selections
+are applied when the next frame stream connects. Power saver still takes
+precedence because heat and sustained usability are the current primary
+failure mode.
+
+**Why**:
+- Benchmark-only presets are useful, but they do not prove that the app's real
+  session lifecycle selects the same RFB preferences under touch, keyboard, and
+  viewport pressure.
+- Keeping the candidate list fixed prevents diagnostics and settings from
+  becoming arbitrary transport logs.
+- Applying the selection at connect time avoids a larger active-session
+  renegotiation surface until that path has its own fake-server and live tests.
+
+**Evidence**:
+- App settings Codable tests cover default omission, decode, encode, and the
+  fixed candidate cycle.
+- App model tests cover persistence, configured ZRLE renegotiation on connect,
+  and power saver overriding a configured stream profile.
+- Diagnostic export tests cover schema v27, safe fixed-label export, and
+  sanitizer rejection of arbitrary stream-encoding strings.
+
+**Interpretation**:
+- Use this gate after a sustained v2 benchmark candidate looks promising and
+  before changing the default stream profile.
+- A candidate that feels worse, heats the phone, lowers hit-rate, or regresses
+  compose/viewport interaction should stay opt-in and feed the next benchmark
+  axis instead of becoming the default.
+- The next larger units should be measured against practical usability:
+  sustained frame smoothness, phone heat, natural zoom/pan, and reliable local
+  composition.
+
+**Privacy rule**: app diagnostics may emit only the fixed
+`viewerStreamEncodingMode` label. They must not include host identity,
+credentials, port value, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw timings, raw payloads, draft text, marked text, or IME
+state.
+
 ## D69 — Add a redacted live benchmark environment preflight
 
 References:

@@ -576,6 +576,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.settingsPersistenceError)
     }
 
+    func testModelLoadsStoredStreamEncodingMode() async throws {
+        let persistence = InMemoryAppSettingsPersistence(
+            settings: AppSettings(streamEncodingMode: .zrleCompressionZero)
+        )
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        await model.loadStoredSettings()
+
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .zrleCompressionZero)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
     func testModelPersistsStreamPowerModeToggle() async throws {
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
@@ -623,6 +635,41 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(model.appSettings.startupPreflightMode, .disabled)
         XCTAssertEqual(savedDisabledSettings.startupPreflightMode, .disabled)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testModelPersistsStreamEncodingModeToggle() async throws {
+        let persistence = InMemoryAppSettingsPersistence()
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        model.toggleStreamEncodingMode()
+
+        let savedZrleSettings = try await waitForPersistedStreamEncodingMode(
+            .zrleCompressionZero,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .zrleCompressionZero)
+        XCTAssertEqual(savedZrleSettings.streamEncodingMode, .zrleCompressionZero)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamEncodingMode()
+
+        let savedAdaptiveSettings = try await waitForPersistedStreamEncodingMode(
+            .adaptiveGoodFull,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .adaptiveGoodFull)
+        XCTAssertEqual(savedAdaptiveSettings.streamEncodingMode, .adaptiveGoodFull)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamEncodingMode()
+
+        let savedStandardSettings = try await waitForPersistedStreamEncodingMode(
+            .standard,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .standard)
+        XCTAssertEqual(savedStandardSettings.streamEncodingMode, .standard)
         XCTAssertNil(model.settingsPersistenceError)
     }
 
@@ -1227,6 +1274,64 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let renegotiated = try XCTUnwrap(connector.renegotiatedPreferences.first)
         XCTAssertTrue(renegotiated.encodingList().contains(RFBEncoding.fence))
         XCTAssertTrue(renegotiated.encodingList().contains(RFBEncoding.continuousUpdates))
+    }
+
+    func testModelRenegotiatesConfiguredZrleStreamEncodingOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZero)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(
+            connector.renegotiatedPreferences,
+            [RFBEncodingPreference(zrle: true, compressionLevel: 0)]
+        )
+    }
+
+    func testModelLetsPowerSaverStreamModeOverrideConfiguredEncodingOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.adaptiveGoodFull)
+        model.setStreamPowerMode(.powerSaver)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.renegotiatedPreferences, [.powerSaverSustained])
     }
 
     func testModelStopsContinuousUpdatesWhenContinuousFrameStreamEnds() async throws {
@@ -3468,9 +3573,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 26)
+        XCTAssertEqual(report.schemaVersion, 27)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
+        XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.standard.rawValue)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
         XCTAssertEqual(report.configuredPort, 5901)
@@ -3526,6 +3632,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             thermalStateProvider: { .fair }
         )
         model.setStreamPowerMode(.powerSaver)
+        model.setStreamEncodingMode(.zrleCompressionZero)
 
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
@@ -3541,8 +3648,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let performance = try XCTUnwrap(report.streamPerformance)
         let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
-        XCTAssertEqual(report.schemaVersion, 26)
+        XCTAssertEqual(report.schemaVersion, 27)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
+        XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.zrleCompressionZero.rawValue)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -3773,6 +3881,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let settings = try await persistence.load()
         XCTAssertEqual(settings.startupPreflightMode, expected, file: file, line: line)
+        return settings
+    }
+
+    private func waitForPersistedStreamEncodingMode(
+        _ expected: StreamEncodingMode,
+        in persistence: InMemoryAppSettingsPersistence,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> AppSettings {
+        for _ in 0..<20 {
+            let settings = try await persistence.load()
+            if settings.streamEncodingMode == expected {
+                return settings
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let settings = try await persistence.load()
+        XCTAssertEqual(settings.streamEncodingMode, expected, file: file, line: line)
         return settings
     }
 

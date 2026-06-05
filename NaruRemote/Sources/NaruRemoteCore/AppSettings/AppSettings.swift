@@ -43,6 +43,27 @@ public enum StreamStartupPreflightMode: String, Codable, Equatable, Sendable, Ca
     }
 }
 
+/// Benchmark-backed sustained-stream encoding experiment. The default keeps
+/// the current production path; non-default cases are opt-in so physical
+/// iPhone runs can reproduce live benchmark candidates before any default
+/// changes.
+public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterable {
+    case standard
+    case zrleCompressionZero = "zrle-compression-0"
+    case adaptiveGoodFull = "adaptive-good-full"
+
+    public var toggled: StreamEncodingMode {
+        switch self {
+        case .standard:
+            return .zrleCompressionZero
+        case .zrleCompressionZero:
+            return .adaptiveGoodFull
+        case .adaptiveGoodFull:
+            return .standard
+        }
+    }
+}
+
 /// App-level user preferences that are not tied to a single
 /// `ConnectionProfile` and never carry secrets.  Stored as plain
 /// JSON via `AppSettingsPersisting` (no Keychain).
@@ -60,13 +81,16 @@ public enum StreamStartupPreflightMode: String, Codable, Equatable, Sendable, Ca
 /// constitution §V.
 public struct AppSettings: Codable, Equatable, Sendable {
     public var streamPowerMode: StreamPowerMode
+    public var streamEncodingMode: StreamEncodingMode
     public var startupPreflightMode: StreamStartupPreflightMode
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
+        streamEncodingMode: StreamEncodingMode = .standard,
         startupPreflightMode: StreamStartupPreflightMode = .disabled
     ) {
         self.streamPowerMode = streamPowerMode
+        self.streamEncodingMode = streamEncodingMode
         self.startupPreflightMode = startupPreflightMode
     }
 
@@ -80,8 +104,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
             StreamStartupPreflightMode.self,
             forKey: .startupPreflightMode
         ) ?? .disabled
+        let streamEncodingMode = try container.decodeIfPresent(
+            StreamEncodingMode.self,
+            forKey: .streamEncodingMode
+        ) ?? .standard
         self.init(
             streamPowerMode: streamPowerMode,
+            streamEncodingMode: streamEncodingMode,
             startupPreflightMode: startupPreflightMode
         )
     }
@@ -91,6 +120,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if streamPowerMode != .balanced {
             try container.encode(streamPowerMode, forKey: .streamPowerMode)
         }
+        if streamEncodingMode != .standard {
+            try container.encode(streamEncodingMode, forKey: .streamEncodingMode)
+        }
         if startupPreflightMode != .disabled {
             try container.encode(startupPreflightMode, forKey: .startupPreflightMode)
         }
@@ -98,6 +130,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case streamPowerMode
+        case streamEncodingMode
         case startupPreflightMode
     }
 }

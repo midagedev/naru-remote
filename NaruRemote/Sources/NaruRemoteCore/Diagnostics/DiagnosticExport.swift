@@ -10,6 +10,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let context: DiagnosticRunContext?
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: StreamPowerMode?
+    public let viewerStreamEncodingMode: StreamEncodingMode?
     public let viewerStartupPreflightMode: StreamStartupPreflightMode?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
@@ -27,6 +28,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: StreamPowerMode? = nil,
+        viewerStreamEncodingMode: StreamEncodingMode? = nil,
         viewerStartupPreflightMode: StreamStartupPreflightMode? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
@@ -39,6 +41,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.context = run.context
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = viewerStreamPowerMode
+        self.viewerStreamEncodingMode = viewerStreamEncodingMode
         self.viewerStartupPreflightMode = viewerStartupPreflightMode
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
@@ -138,6 +141,7 @@ public struct DiagnosticExport: Equatable, Sendable {
             stageRows: stageRows,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode?.rawValue,
+            viewerStreamEncodingMode: viewerStreamEncodingMode?.rawValue,
             viewerStartupPreflightMode: viewerStartupPreflightMode?.rawValue,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
@@ -1675,7 +1679,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 26
+    public static let currentSchemaVersion = 27
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -1696,6 +1700,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case stageRows
         case streamPerformance
         case viewerStreamPowerMode
+        case viewerStreamEncodingMode
         case viewerStartupPreflightMode
         case input
         case sustainedSessionAssessment
@@ -1719,6 +1724,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let stageRows: [DiagnosticExport.Row]
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: String?
+    public let viewerStreamEncodingMode: String?
     public let viewerStartupPreflightMode: String?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
@@ -1742,6 +1748,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         stageRows: [DiagnosticExport.Row],
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: String? = nil,
+        viewerStreamEncodingMode: String? = nil,
         viewerStartupPreflightMode: String? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
@@ -1764,6 +1771,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.stageRows = stageRows
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
+        self.viewerStreamEncodingMode = Self.safeViewerStreamEncodingMode(viewerStreamEncodingMode)
         self.viewerStartupPreflightMode = Self.safeViewerStartupPreflightMode(viewerStartupPreflightMode)
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
@@ -1793,6 +1801,10 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 forKey: .streamPerformance
             ),
             viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode),
+            viewerStreamEncodingMode: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewerStreamEncodingMode
+            ),
             viewerStartupPreflightMode: try container.decodeIfPresent(
                 String.self,
                 forKey: .viewerStartupPreflightMode
@@ -1810,6 +1822,14 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
             return nil
         }
         let allowedValues = Set(StreamPowerMode.allCases.map(\.rawValue))
+        return allowedValues.contains(value) ? value : nil
+    }
+
+    private static func safeViewerStreamEncodingMode(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let allowedValues = Set(StreamEncodingMode.allCases.map(\.rawValue))
         return allowedValues.contains(value) ? value : nil
     }
 

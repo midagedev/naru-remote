@@ -287,8 +287,11 @@ ten second duration, zero hidden stream-shape preflight frames, and the
 `iphone-sustained-usability-v2` target. The pixel-format preset keeps that same
 gate shape but swaps in full-color/RGB565-in-32 profile pairs. Use explicit
 stream-shape options without the preset for custom experiments.
-By default
-stream-shape uses the app's `local-low-latency` profile; pass
+Diagnostic collection schema v27 adds the app-side
+`viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
+to the benchmark candidate selected in app settings without exporting raw
+transport, pixel, coordinate, timing, draft, or IME state.
+By default, stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
 set (`local-low-latency`, `zrle-compression-0`, `tight-first`, and
 `adaptive-good-full`) before deciding whether the next larger unit should
