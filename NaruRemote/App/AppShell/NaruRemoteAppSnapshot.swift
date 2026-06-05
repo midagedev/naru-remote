@@ -74,6 +74,9 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var viewportInteractionRequestPauseMillisecondsTotal: Int
     public var viewportInteractionRequestPauseMillisecondsMax: Int
     public var adaptiveClientPressurePacingSampleCount: Int
+    public var startupPreflightRequestedHiddenFrameCount: Int
+    public var startupPreflightConsumedHiddenFrameCount: Int
+    public var startupPreflightOutcome: DiagnosticStartupPreflightOutcome
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
@@ -133,6 +136,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         viewportInteractionRequestPauseMillisecondsTotal: Int = 0,
         viewportInteractionRequestPauseMillisecondsMax: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
+        startupPreflightRequestedHiddenFrameCount: Int = 0,
+        startupPreflightConsumedHiddenFrameCount: Int = 0,
+        startupPreflightOutcome: DiagnosticStartupPreflightOutcome = .notRequested,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
         firstFrameCapturedAt: Date? = nil,
@@ -211,6 +217,18 @@ public struct SessionStreamStats: Equatable, Sendable {
             max(adaptiveClientPressurePacingSampleCount, 0),
             self.deliveredFrameCount
         )
+        let requestedHiddenFrameCount = min(
+            max(startupPreflightRequestedHiddenFrameCount, 0),
+            SessionStreamStartupPreflightPolicy.maximumHiddenFrameCount
+        )
+        self.startupPreflightRequestedHiddenFrameCount = requestedHiddenFrameCount
+        self.startupPreflightConsumedHiddenFrameCount = min(
+            max(startupPreflightConsumedHiddenFrameCount, 0),
+            requestedHiddenFrameCount
+        )
+        self.startupPreflightOutcome = requestedHiddenFrameCount == 0
+            ? .notRequested
+            : startupPreflightOutcome
         self.actualEncodingMix = actualEncodingMix
         self.thermalState = thermalState
         self.firstFrameCapturedAt = firstFrameCapturedAt
@@ -451,6 +469,9 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageViewportInteractionRequestPauseMilliseconds).rawValue,
             maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxViewportInteractionRequestPauseMilliseconds).rawValue,
+            startupPreflightRequestedHiddenFrameCount: startupPreflightRequestedHiddenFrameCount,
+            startupPreflightConsumedHiddenFrameCount: startupPreflightConsumedHiddenFrameCount,
+            startupPreflightOutcome: startupPreflightOutcome.rawValue,
             actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
@@ -531,6 +552,12 @@ public struct SessionStreamStats: Equatable, Sendable {
         if decision.usesViewportInteractionPacing {
             viewportInteractionPacingSampleCount += 1
         }
+    }
+
+    mutating func recordStartupPreflight(_ result: SessionStreamStartupPreflightResult) {
+        startupPreflightRequestedHiddenFrameCount = result.requestedHiddenFrameCount
+        startupPreflightConsumedHiddenFrameCount = result.consumedHiddenFrameCount
+        startupPreflightOutcome = result.outcome
     }
 
     mutating func recordViewportInteractionRequestPause(

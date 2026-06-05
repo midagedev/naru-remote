@@ -175,7 +175,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let helperTextInsertClient: (any HelperTextInsertClient)?
-    private let streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy
+    private let streamStartupPreflightPolicyOverride: SessionStreamStartupPreflightPolicy?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
@@ -323,7 +323,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         helperTextInsertClient: (any HelperTextInsertClient)? = nil,
-        streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy = .disabled,
+        streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
             SessionStreamThermalState(ProcessInfo.processInfo.thermalState)
@@ -381,7 +381,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
         self.helperTextInsertClient = helperTextInsertClient
-        self.streamStartupPreflightPolicy = streamStartupPreflightPolicy
+        self.streamStartupPreflightPolicyOverride = streamStartupPreflightPolicy
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
@@ -521,6 +521,21 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func toggleStreamPowerMode() {
         setStreamPowerMode(appSettings.streamPowerMode.toggled)
+    }
+
+    public func setStartupPreflightMode(_ mode: StreamStartupPreflightMode) {
+        var updated = appSettings
+        updated.startupPreflightMode = mode
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    public func toggleStartupPreflightMode() {
+        setStartupPreflightMode(appSettings.startupPreflightMode.toggled)
     }
 
     /// Settings are non-critical. The in-memory value flips first so
@@ -1028,6 +1043,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func makeDiagnosticExport() -> DiagnosticExport {
         let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
         let viewerStreamPowerMode = appSettings.streamPowerMode
+        let viewerStartupPreflightMode = appSettings.startupPreflightMode
         let composeRoute = composeRouteDiagnosticSnapshot()
         let input = DiagnosticInputReport(
             composeDraft: composeDraft,
@@ -1052,6 +1068,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ),
                 streamPerformance: streamPerformance,
                 viewerStreamPowerMode: viewerStreamPowerMode,
+                viewerStartupPreflightMode: viewerStartupPreflightMode,
                 input: input,
                 sustainedSessionAssessment: sustainedSessionAssessment
             )
@@ -1060,6 +1077,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             run: run,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode,
+            viewerStartupPreflightMode: viewerStartupPreflightMode,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
         )
@@ -2260,14 +2278,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                         appFrameApplyMilliseconds: appFrameApplyMilliseconds
                     )
                     if frame.sequence == 1 {
-                        await performStartupPreflightFrames(
-                            policy: streamStartupPreflightPolicy,
+                        let startupPreflightResult = await performStartupPreflightFrames(
+                            policy: currentStreamStartupPreflightPolicy(),
                             configuration: configuration,
                             pump: pump,
                             streamID: streamID,
                             sessionID: pendingSession.id,
                             profileID: profile.id
                         )
+                        recordSessionStreamStartupPreflight(startupPreflightResult)
                     }
                     let usesPowerSaverPacing = lowPowerModeProvider()
                         || appSettings.streamPowerMode == .powerSaver
@@ -2392,6 +2411,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         return pump.deliveredFrameCount < maxFrames
     }
 
+    private func currentStreamStartupPreflightPolicy() -> SessionStreamStartupPreflightPolicy {
+        if let streamStartupPreflightPolicyOverride {
+            return streamStartupPreflightPolicyOverride
+        }
+        return SessionStreamStartupPreflightPolicy(mode: appSettings.startupPreflightMode)
+    }
+
     private func performStartupPreflightFrames(
         policy: SessionStreamStartupPreflightPolicy,
         configuration: RFBFramePumpConfiguration,
@@ -2399,9 +2425,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         streamID: UUID,
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID
-    ) async {
+    ) async -> SessionStreamStartupPreflightResult {
         guard policy.hiddenFrameCount > 0 else {
-            return
+            return .notRequested
         }
 
         let requestTimeout = min(
@@ -2409,17 +2435,30 @@ public final class NaruRemoteAppModel: ObservableObject {
             policy.requestTimeout
         )
         guard requestTimeout > 0 else {
-            return
+            return SessionStreamStartupPreflightResult(
+                requestedHiddenFrameCount: policy.hiddenFrameCount,
+                consumedHiddenFrameCount: 0,
+                outcome: .failed
+            )
         }
 
+        var consumedHiddenFrameCount = 0
         for _ in 0..<policy.hiddenFrameCount {
             if Task.isCancelled {
                 pump.cancel()
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .cancelled
+                )
             }
             guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID) else {
                 pump.cancel()
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .staleSession
+                )
             }
             do {
                 // `nextFrame` derives incremental=true from sequence > 1;
@@ -2430,23 +2469,52 @@ public final class NaruRemoteAppModel: ObservableObject {
                         updateMode: configuration.updateMode
                     )
                 }
-                _ = try await withTaskCancellationHandler {
+                let hiddenFrame = try await withTaskCancellationHandler {
                     try await frameTask.value
                 } onCancel: {
                     frameTask.cancel()
                     pump.cancel()
                 }
+                guard hiddenFrame != nil else {
+                    return SessionStreamStartupPreflightResult(
+                        requestedHiddenFrameCount: policy.hiddenFrameCount,
+                        consumedHiddenFrameCount: consumedHiddenFrameCount,
+                        outcome: .cancelled
+                    )
+                }
+                consumedHiddenFrameCount += 1
             } catch RFBNetworkClientError.timedOut {
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .timedOut
+                )
             } catch RFBNetworkClientError.readTimedOut {
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .timedOut
+                )
             } catch is CancellationError {
                 pump.cancel()
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .cancelled
+                )
             } catch {
-                return
+                return SessionStreamStartupPreflightResult(
+                    requestedHiddenFrameCount: policy.hiddenFrameCount,
+                    consumedHiddenFrameCount: consumedHiddenFrameCount,
+                    outcome: .failed
+                )
             }
         }
+        return SessionStreamStartupPreflightResult(
+            requestedHiddenFrameCount: policy.hiddenFrameCount,
+            consumedHiddenFrameCount: consumedHiddenFrameCount,
+            outcome: .consumed
+        )
     }
 
     private static func elapsedMilliseconds(since start: Date) -> Int {
@@ -2477,6 +2545,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func recordSessionStreamPacingDecision(_ decision: SessionStreamPacingDecision) {
         sessionStreamStats.recordPacingDecision(decision)
+    }
+
+    private func recordSessionStreamStartupPreflight(_ result: SessionStreamStartupPreflightResult) {
+        sessionStreamStats.recordStartupPreflight(result)
     }
 
     public func recordRendererUploadTiming(milliseconds: Int) {

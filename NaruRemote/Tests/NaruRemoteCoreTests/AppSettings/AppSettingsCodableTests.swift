@@ -51,6 +51,20 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded.streamPowerMode, .powerSaver)
     }
 
+    func testStartupPreflightModeDecodesWhenPresent() throws {
+        let json = """
+        {
+          "startupPreflightMode": "one-hidden-frame"
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertEqual(decoded.startupPreflightMode, .oneHiddenFrame)
+        XCTAssertEqual(decoded.startupPreflightMode.requestedHiddenFrameCount, 1)
+    }
+
     func testEncodingProducesEmptyJSONObject() throws {
         let data = try JSONEncoder().encode(AppSettings())
         let json = String(decoding: data, as: UTF8.self)
@@ -68,5 +82,21 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded.streamPowerMode, .powerSaver)
         XCTAssertTrue(json.contains("\"streamPowerMode\""))
         XCTAssertTrue(json.contains("\"power-saver\""))
+    }
+
+    func testEncodingNonDefaultStartupPreflightMode() throws {
+        let data = try JSONEncoder().encode(AppSettings(startupPreflightMode: .oneHiddenFrame))
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertEqual(decoded.startupPreflightMode, .oneHiddenFrame)
+        XCTAssertTrue(json.contains("\"startupPreflightMode\""))
+        XCTAssertTrue(json.contains("\"one-hidden-frame\""))
+    }
+
+    func testStartupPreflightModeTogglesBetweenExperimentAndDisabled() {
+        XCTAssertEqual(StreamStartupPreflightMode.disabled.toggled, .oneHiddenFrame)
+        XCTAssertEqual(StreamStartupPreflightMode.oneHiddenFrame.toggled, .disabled)
+        XCTAssertEqual(StreamStartupPreflightMode.disabled.requestedHiddenFrameCount, 0)
     }
 }

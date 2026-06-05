@@ -78,6 +78,8 @@ public struct SessionViewportView: View {
     private let streamPowerMode: StreamPowerMode
     /// Persists the next `streamPowerMode` through the app model.
     private let onToggleStreamPowerMode: (() -> Void)?
+    private let startupPreflightMode: StreamStartupPreflightMode
+    private let onToggleStartupPreflightMode: (() -> Void)?
     /// Latency-derived connection quality, shown as a compact chip while
     /// the session is streaming (spec 003 US4).  Constitution §IV: this
     /// is a coarse bucket only — no raw latency value is displayed or
@@ -186,6 +188,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        startupPreflightMode: StreamStartupPreflightMode = .disabled,
+        onToggleStartupPreflightMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -219,6 +223,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.startupPreflightMode = startupPreflightMode
+        self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -256,6 +262,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        startupPreflightMode: StreamStartupPreflightMode = .disabled,
+        onToggleStartupPreflightMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -288,6 +296,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.startupPreflightMode = startupPreflightMode
+        self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -477,6 +487,9 @@ public struct SessionViewportView: View {
                 disconnectButton
             }
             streamPowerModeButton
+            if showsStartupPreflightModeButton {
+                startupPreflightModeButton
+            }
             pointerModeButton
             pipWatchButton(iconOnly: true)
         }
@@ -535,6 +548,9 @@ public struct SessionViewportView: View {
                     disconnectButton
                 }
                 streamPowerModeButton
+                if showsStartupPreflightModeButton {
+                    startupPreflightModeButton
+                }
                 pointerModeButton
                 pipWatchButton(iconOnly: false)
                 qualityChip
@@ -563,6 +579,9 @@ public struct SessionViewportView: View {
                     disconnectButton
                 }
                 streamPowerModeButton
+                if showsStartupPreflightModeButton {
+                    startupPreflightModeButton
+                }
                 pointerModeButton
                 pipWatchButton(iconOnly: true)
                 Spacer(minLength: 4)
@@ -711,6 +730,37 @@ public struct SessionViewportView: View {
         streamPowerMode == .powerSaver
             ? "Power saver stream — tap to use balanced pacing"
             : "Balanced stream — tap to reduce heat"
+    }
+
+    private var showsStartupPreflightModeButton: Bool {
+        // Startup warm-up only affects the next frame stream, so active-session
+        // chrome stays focused on controls that can change the current stream.
+        session?.state != .active
+    }
+
+    @ViewBuilder
+    private var startupPreflightModeButton: some View {
+        Button {
+            onToggleStartupPreflightMode?()
+        } label: {
+            Label(
+                startupPreflightModeLabelText,
+                systemImage: "speedometer"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.bordered)
+        .tint(startupPreflightMode == .oneHiddenFrame ? .orange : .accentColor)
+        .disabled(onToggleStartupPreflightMode == nil)
+        .help(startupPreflightModeLabelText)
+        .accessibilityLabel(startupPreflightModeLabelText)
+        .accessibilityIdentifier("naru.session.startupPreflightMode")
+    }
+
+    private var startupPreflightModeLabelText: String {
+        startupPreflightMode == .oneHiddenFrame
+            ? "Startup warm-up enabled — tap to disable"
+            : "Startup warm-up disabled — tap to enable"
     }
 
     /// Compact latency-derived connection-quality indicator (spec 003

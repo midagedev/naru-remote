@@ -564,6 +564,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.settingsPersistenceError)
     }
 
+    func testModelLoadsStoredStartupPreflightMode() async throws {
+        let persistence = InMemoryAppSettingsPersistence(
+            settings: AppSettings(startupPreflightMode: .oneHiddenFrame)
+        )
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        await model.loadStoredSettings()
+
+        XCTAssertEqual(model.appSettings.startupPreflightMode, .oneHiddenFrame)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
     func testModelPersistsStreamPowerModeToggle() async throws {
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
@@ -586,6 +598,31 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(model.appSettings.streamPowerMode, .balanced)
         XCTAssertEqual(savedBalancedSettings.streamPowerMode, .balanced)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testModelPersistsStartupPreflightModeToggle() async throws {
+        let persistence = InMemoryAppSettingsPersistence()
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        model.toggleStartupPreflightMode()
+
+        let savedEnabledSettings = try await waitForPersistedStartupPreflightMode(
+            .oneHiddenFrame,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.startupPreflightMode, .oneHiddenFrame)
+        XCTAssertEqual(savedEnabledSettings.startupPreflightMode, .oneHiddenFrame)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStartupPreflightMode()
+
+        let savedDisabledSettings = try await waitForPersistedStartupPreflightMode(
+            .disabled,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.startupPreflightMode, .disabled)
+        XCTAssertEqual(savedDisabledSettings.startupPreflightMode, .disabled)
         XCTAssertNil(model.settingsPersistenceError)
     }
 
@@ -3083,6 +3120,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 1)
         XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 1)
         XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightRequestedHiddenFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightConsumedHiddenFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightOutcome, .consumed)
     }
 
     func testStartupPreflightContinuesVisibleStreamAfterHiddenIncremental() async throws {
@@ -3124,6 +3164,55 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats.deliveredFrameCount, 2)
         XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 2)
         XCTAssertEqual(model.snapshot.sessionStreamStats.emptyUpdateCount, 0)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightRequestedHiddenFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightConsumedHiddenFrameCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.startupPreflightOutcome, .consumed)
+    }
+
+    func testStartupPreflightUsesAppSettingWhenNoOverrideIsInjected() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hiddenFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hiddenFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStartupPreflightMode(.oneHiddenFrame)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "0.1.0",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+        XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.oneHiddenFrame.rawValue)
+        XCTAssertEqual(report.streamPerformance?.startupPreflightRequestedHiddenFrameCount, 1)
+        XCTAssertEqual(report.streamPerformance?.startupPreflightConsumedHiddenFrameCount, 1)
+        XCTAssertEqual(report.streamPerformance?.startupPreflightOutcome, DiagnosticStartupPreflightOutcome.consumed.rawValue)
     }
 
     func testModelRetainsComposedTextWhenSendHasNoActiveConnection() throws {
@@ -3379,9 +3468,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 25)
+        XCTAssertEqual(report.schemaVersion, 26)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
+        XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
         XCTAssertEqual(report.configuredPort, 5901)
         XCTAssertEqual(report.hasCredentialReference, true)
@@ -3451,11 +3541,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let performance = try XCTUnwrap(report.streamPerformance)
         let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
-        XCTAssertEqual(report.schemaVersion, 25)
+        XCTAssertEqual(report.schemaVersion, 26)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
+        XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
         XCTAssertEqual(performance.emptyUpdateCount, 0)
+        XCTAssertEqual(performance.startupPreflightRequestedHiddenFrameCount, 0)
+        XCTAssertEqual(performance.startupPreflightConsumedHiddenFrameCount, 0)
+        XCTAssertEqual(performance.startupPreflightOutcome, DiagnosticStartupPreflightOutcome.notRequested.rawValue)
         XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 0)
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(performance.contentFramePermille, 1_000)
@@ -3660,6 +3754,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let settings = try await persistence.load()
         XCTAssertEqual(settings.streamPowerMode, expected, file: file, line: line)
+        return settings
+    }
+
+    private func waitForPersistedStartupPreflightMode(
+        _ expected: StreamStartupPreflightMode,
+        in persistence: InMemoryAppSettingsPersistence,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> AppSettings {
+        for _ in 0..<20 {
+            let settings = try await persistence.load()
+            if settings.startupPreflightMode == expected {
+                return settings
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let settings = try await persistence.load()
+        XCTAssertEqual(settings.startupPreflightMode, expected, file: file, line: line)
         return settings
     }
 

@@ -10,6 +10,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let context: DiagnosticRunContext?
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: StreamPowerMode?
+    public let viewerStartupPreflightMode: StreamStartupPreflightMode?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
     /// Stage rows captured from the underlying
@@ -26,6 +27,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: StreamPowerMode? = nil,
+        viewerStartupPreflightMode: StreamStartupPreflightMode? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
@@ -37,6 +39,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.context = run.context
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = viewerStreamPowerMode
+        self.viewerStartupPreflightMode = viewerStartupPreflightMode
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
 
@@ -135,6 +138,7 @@ public struct DiagnosticExport: Equatable, Sendable {
             stageRows: stageRows,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode?.rawValue,
+            viewerStartupPreflightMode: viewerStartupPreflightMode?.rawValue,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
         )
@@ -342,7 +346,18 @@ public enum DiagnosticViewportRequestPauseHint: String, Codable, Equatable, Send
     }
 }
 
+public enum DiagnosticStartupPreflightOutcome: String, Codable, Equatable, CaseIterable, Sendable {
+    case notRequested
+    case consumed
+    case timedOut
+    case cancelled
+    case staleSession
+    case failed
+}
+
 public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
+    private static let maximumStartupPreflightHiddenFrameCount = 1
+
     private enum CodingKeys: String, CodingKey {
         case observedDurationBucket
         case deliveredFramesPerSecondBucket
@@ -406,6 +421,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case averageViewportInteractionRequestPauseBucket
         case maxViewportInteractionRequestPauseBucket
         case viewportRequestPauseHint
+        case startupPreflightRequestedHiddenFrameCount
+        case startupPreflightConsumedHiddenFrameCount
+        case startupPreflightOutcome
         case actualEncodingMix
         case thermalState
     }
@@ -472,6 +490,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let averageViewportInteractionRequestPauseBucket: String
     public let maxViewportInteractionRequestPauseBucket: String
     public let viewportRequestPauseHint: String
+    public let startupPreflightRequestedHiddenFrameCount: Int
+    public let startupPreflightConsumedHiddenFrameCount: Int
+    public let startupPreflightOutcome: String
     public let actualEncodingMix: RFBFramebufferEncodingMix
     public let thermalState: String
 
@@ -538,6 +559,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         averageViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         viewportRequestPauseHint: String? = nil,
+        startupPreflightRequestedHiddenFrameCount: Int = 0,
+        startupPreflightConsumedHiddenFrameCount: Int = 0,
+        startupPreflightOutcome: String? = nil,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: String
     ) {
@@ -696,6 +720,26 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 gestureLongFramePermille: self.viewportGestureLongFramePermille,
                 incomingFrameDeferredPermille: self.viewportIncomingFrameDeferredPermille
             ).rawValue
+        let requestedHiddenFrameCount = min(
+            max(startupPreflightRequestedHiddenFrameCount, 0),
+            Self.maximumStartupPreflightHiddenFrameCount
+        )
+        let consumedHiddenFrameCount = min(
+            max(startupPreflightConsumedHiddenFrameCount, 0),
+            requestedHiddenFrameCount
+        )
+        self.startupPreflightRequestedHiddenFrameCount = requestedHiddenFrameCount
+        self.startupPreflightConsumedHiddenFrameCount = consumedHiddenFrameCount
+        if requestedHiddenFrameCount == 0 {
+            self.startupPreflightOutcome = DiagnosticStartupPreflightOutcome.notRequested.rawValue
+        } else if let safeOutcome = Self.safeStartupPreflightOutcome(startupPreflightOutcome),
+                  safeOutcome != .notRequested {
+            self.startupPreflightOutcome = safeOutcome.rawValue
+        } else {
+            self.startupPreflightOutcome = consumedHiddenFrameCount == requestedHiddenFrameCount
+                ? DiagnosticStartupPreflightOutcome.consumed.rawValue
+                : DiagnosticStartupPreflightOutcome.failed.rawValue
+        }
         self.actualEncodingMix = Self.safeEncodingMix(actualEncodingMix)
         self.thermalState = Self.safeThermalState(thermalState)
     }
@@ -915,6 +959,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .viewportRequestPauseHint
             ),
+            startupPreflightRequestedHiddenFrameCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .startupPreflightRequestedHiddenFrameCount
+            ) ?? 0,
+            startupPreflightConsumedHiddenFrameCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .startupPreflightConsumedHiddenFrameCount
+            ) ?? 0,
+            startupPreflightOutcome: try container.decodeIfPresent(
+                String.self,
+                forKey: .startupPreflightOutcome
+            ),
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .actualEncodingMix
@@ -959,6 +1015,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             return nil
         }
         return DiagnosticViewportRequestPauseHint(rawValue: value)?.rawValue
+    }
+
+    private static func safeStartupPreflightOutcome(_ value: String?) -> DiagnosticStartupPreflightOutcome? {
+        guard let value else {
+            return nil
+        }
+        return DiagnosticStartupPreflightOutcome(rawValue: value)
     }
 
     private static func safeEncodingMix(_ value: RFBFramebufferEncodingMix) -> RFBFramebufferEncodingMix {
@@ -1612,7 +1675,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 25
+    public static let currentSchemaVersion = 26
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -1633,6 +1696,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case stageRows
         case streamPerformance
         case viewerStreamPowerMode
+        case viewerStartupPreflightMode
         case input
         case sustainedSessionAssessment
     }
@@ -1655,6 +1719,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let stageRows: [DiagnosticExport.Row]
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: String?
+    public let viewerStartupPreflightMode: String?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
 
@@ -1677,6 +1742,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         stageRows: [DiagnosticExport.Row],
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: String? = nil,
+        viewerStartupPreflightMode: String? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
@@ -1698,6 +1764,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.stageRows = stageRows
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
+        self.viewerStartupPreflightMode = Self.safeViewerStartupPreflightMode(viewerStartupPreflightMode)
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
     }
@@ -1726,6 +1793,10 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 forKey: .streamPerformance
             ),
             viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode),
+            viewerStartupPreflightMode: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewerStartupPreflightMode
+            ),
             input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input),
             sustainedSessionAssessment: try container.decodeIfPresent(
                 DiagnosticSustainedSessionAssessment.self,
@@ -1739,6 +1810,14 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
             return nil
         }
         let allowedValues = Set(StreamPowerMode.allCases.map(\.rawValue))
+        return allowedValues.contains(value) ? value : nil
+    }
+
+    private static func safeViewerStartupPreflightMode(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let allowedValues = Set(StreamStartupPreflightMode.allCases.map(\.rawValue))
         return allowedValues.contains(value) ? value : nil
     }
 }
