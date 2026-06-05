@@ -199,6 +199,12 @@ flag: the runtime policy is injectable and off by default, may consume at most
 one hidden incremental update after the first visible frame, and must not be
 enabled by default until the physical iPhone gate confirms that it improves
 hand feel without stale startup perception or thermal regressions.
+The interaction v2 preflight keeps the same sustained target but treats local
+hand-feel as a first-class gate: zoomed trackpad cursor-follow must preserve
+finger-paced visible cursor travel, direct viewport motion must stay on the
+UIKit/Core Animation hot path, SwiftUI/PiP viewport mirroring must not run per
+touch sample, and marked-text Compose Send must use the bounded stabilization
+window before paste dispatch.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate

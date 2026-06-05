@@ -2288,3 +2288,54 @@ verification status. They must not include host identity, credentials,
 framebuffer dimensions, rectangle coordinates, pixels, cursor pixels, byte
 counts, raw samples, raw payloads, hidden preflight frame contents, hidden
 preflight timings, or raw error text.
+
+## D62 — Treat viewport hand-feel and Compose reliability as one v2 gate
+
+References:
+- Apple Core Animation Programming Guide, implicit animations:
+  https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreAnimation_guide/
+- Apple Text Programming Guide for iOS, managing text views:
+  https://developer.apple.com/library/archive/documentation/StringsTextFonts/Conceptual/TextAndWebiPhoneOS/
+
+**Decision**: before enabling app-side stream preflight by default, run a
+larger interaction/input correction behind the sustained usability target:
+increase zoomed trackpad cursor-follow coupling, keep visible viewport motion
+on the UIKit/Core Animation hot path with SwiftUI/PiP state mirrored at gesture
+boundaries, and extend marked-text Compose Send stabilization.
+
+**Why**:
+- User feedback says the blocking experience is not only stream FPS; zoom,
+  pan, trackpad cursor-follow, and Compose must feel reliable as one session
+  loop.
+- The Metal host already transforms the `MTKView` layer immediately. Publishing
+  SwiftUI viewport state during the same gesture adds avoidable main-thread
+  layout work, while the host can still reconcile the final transform when the
+  gesture settles.
+- A stronger central trackpad follow-pan makes a zoomed desktop move with the
+  real cursor, but the resolver compensates cursor sensitivity so the visible
+  cursor still moves at the finger's pace.
+- Korean/CJK marked text can commit after `unmarkText()` with a short delay, so
+  Compose Send should spend a bounded extra stabilization window only when
+  marked text was active.
+
+**Evidence**:
+- `PointerGestureResolverTests` cover central zoomed trackpad samples that pan
+  smoothly while preserving finger-paced visible cursor travel.
+- `TrackpadModeModelTests` cover the app-model zoomed trackpad return path.
+- `RemoteInputDockSyncPolicyTests` cover the longer marked-text stabilization
+  window.
+
+**Interpretation**:
+- This is still a pre-physical-gate correction. It reduces known local hot-path
+  causes of stepped navigation and text loss, but T390 remains open until the
+  10 minute physical iPhone hand-feel/thermal pass and sustained v2 benchmark
+  comparison are recorded.
+- Because marked-text Compose Send now waits through a longer bounded
+  stabilization window, T390 should explicitly check perceived send latency
+  during multilingual entry before this tuning is treated as production-good.
+
+**Privacy rule**: interaction artifacts may report only fixed test names,
+fixed tuning labels, safe pass/fail verification status, and target names. They
+must not include host identity, credentials, framebuffer dimensions, rectangle
+coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
+raw text entered by a user, hidden preflight contents, or raw error text.

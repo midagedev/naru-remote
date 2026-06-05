@@ -672,6 +672,15 @@ iPhone) and ships as its own PR.
   Keep production defaults unchanged until T390's physical iPhone gate passes.
   Owns: app stream policy, app model tests, benchmark artifact, research note.
   **Done.**
+- **T393** Interaction v2 preflight before physical gate: after real-device
+  feedback still reported stepped zoom/pan and unreliable Compose, treat smooth
+  viewport/input as one larger unit under `iphone-sustained-usability-v2`.
+  Strengthen zoomed trackpad cursor-follow pan while preserving finger-paced
+  visible cursor travel, keep SwiftUI/PiP viewport mirroring out of the touch
+  hot path until gesture end, and widen marked-text Compose Send stabilization
+  so delayed IME commits have more room to settle before paste dispatch. Owns:
+  pointer resolver tuning/tests, Metal viewport host, RemoteInputDock sync
+  tests, benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

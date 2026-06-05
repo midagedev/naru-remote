@@ -535,7 +535,7 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
             RemoteInputDockView.composeSendStabilizationSnapshotCount
         )
         XCTAssertEqual(RemoteInputDockView.composeSendFastDelayNanoseconds, 0)
-        XCTAssertGreaterThanOrEqual(RemoteInputDockView.composeSendStabilizationSnapshotCount, 20)
+        XCTAssertGreaterThanOrEqual(RemoteInputDockView.composeSendStabilizationSnapshotCount, 30)
         XCTAssertGreaterThanOrEqual(
             RemoteInputDockView.composeSendStabilizationDelayNanoseconds,
             16_000_000

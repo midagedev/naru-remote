@@ -1095,9 +1095,9 @@ public struct SessionViewportView: View {
                 serverCursor: serverCursor,
                 onTrackpadGesture: { gesture, transform in
                     // The Metal host applies returned auto-pan immediately and
-                    // mirrors viewport state on display-link ticks. Updating
-                    // SwiftUI state on every pointer sample makes physical
-                    // iPhone drags fight the fast UIKit path.
+                    // mirrors viewport state after the gesture settles.
+                    // Updating SwiftUI state on every pointer sample makes
+                    // physical iPhone drags fight the fast UIKit path.
                     onTrackpadGesture?(gesture, transform)
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
