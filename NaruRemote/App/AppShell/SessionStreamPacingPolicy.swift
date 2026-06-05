@@ -221,11 +221,24 @@ struct ViewportInteractionFramePublishPolicy: Equatable, Sendable {
     static func shouldPublish(
         uploadPlan: FramebufferUploadPlan,
         capturedAt: Date,
-        lastPublishedAt: Date?
+        lastPublishedAt: Date?,
+        interactionStartedAt: Date?
     ) -> Bool {
-        guard let lastPublishedAt else {
-            return uploadPlan.strategy == .partial
+        if let lastPublishedAt {
+            return capturedAt.timeIntervalSince(lastPublishedAt) >= contentFrameInterval(for: uploadPlan)
         }
-        return capturedAt.timeIntervalSince(lastPublishedAt) >= contentFrameInterval(for: uploadPlan)
+
+        if uploadPlan.strategy == .partial {
+            return true
+        }
+
+        guard uploadPlan.strategy == .full,
+              let interactionStartedAt
+        else {
+            return false
+        }
+
+        return capturedAt.timeIntervalSince(interactionStartedAt)
+            >= contentFrameInterval(for: uploadPlan)
     }
 }

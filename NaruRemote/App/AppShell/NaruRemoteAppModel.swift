@@ -245,6 +245,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var isViewportInteractionActive = false
     private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
     private var lastViewportInteractionFramePublishedAt: Date?
+    private var viewportInteractionStartedAt: Date?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     /// Last profile + credential pair we successfully started a
     /// streaming session against.  Captured at stream start so an
@@ -2161,7 +2162,11 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func setViewportInteractionActive(_ isActive: Bool) {
         if isActive {
+            guard !isViewportInteractionActive else {
+                return
+            }
             isViewportInteractionActive = true
+            viewportInteractionStartedAt = Date()
             lastViewportInteractionFramePublishedAt = nil
             return
         }
@@ -2170,6 +2175,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         isViewportInteractionActive = false
+        viewportInteractionStartedAt = nil
         lastViewportInteractionFramePublishedAt = nil
         flushDeferredViewportInteractionFrame()
     }
@@ -2340,7 +2346,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         return ViewportInteractionFramePublishPolicy.shouldPublish(
             uploadPlan: uploadPlan,
             capturedAt: frame.capturedAt,
-            lastPublishedAt: lastViewportInteractionFramePublishedAt
+            lastPublishedAt: lastViewportInteractionFramePublishedAt,
+            interactionStartedAt: viewportInteractionStartedAt
         )
     }
 
@@ -2517,6 +2524,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         deferredViewportInteractionFrame = nil
         lastViewportInteractionFramePublishedAt = nil
+        viewportInteractionStartedAt = nil
 
         activeTextClient = nil
         activePointerClient = nil
@@ -2799,6 +2807,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         isViewportInteractionActive = false
         deferredViewportInteractionFrame = nil
         lastViewportInteractionFramePublishedAt = nil
+        viewportInteractionStartedAt = nil
         cancelPointerEventQueue()
     }
 

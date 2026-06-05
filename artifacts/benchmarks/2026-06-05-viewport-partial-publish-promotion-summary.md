@@ -25,6 +25,11 @@ fresh small dirty-rect updates until the gesture ended.
   same 15 Hz partial dirty-rect cadence. This closes the gap where the app model
   could publish a small cursor/text update, but the renderer still admitted only
   the older 4 Hz interaction slot.
+- Made viewport-interaction activation idempotent so repeated active signals do
+  not reset the publish clock.
+- Added a full-frame-only fallback: if a VNC server does not produce partial
+  dirty rectangles during a long pinch/pan, full-frame refreshes can still pass
+  at the conservative 4 Hz interval after gesture start.
 
 ## Verification
 
@@ -32,7 +37,7 @@ fresh small dirty-rect updates until the gesture ended.
   - Passed: 11 tests, 0 failures.
 - `swift test --filter ViewportGestureRedrawThrottleTests --filter NaruRemoteAppModelTests/testViewportInteractionFramePublishPolicyPublishesOnlyBoundedPartialFrames --filter NaruRemoteAppModelTests/testModelKeepsFrameRequestsAliveWithViewportInteractionPacing`
   - Passed: 10 tests, 0 failures after aligning the renderer gate to the 15 Hz
-    partial cadence.
+    partial cadence and adding the bounded full-frame-only fallback.
 - `NARU_RUN_SIM_BENCHMARKS=1 swift test --filter SyntheticFramePipelineBenchmarkTests`
   - Passed: 4 tests, 0 failures.
   - Full framebuffer allocation/upload monotonic avg: about 2.46 ms.

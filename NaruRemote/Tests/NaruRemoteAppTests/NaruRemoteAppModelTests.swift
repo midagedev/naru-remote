@@ -1548,6 +1548,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             for: fullFrame,
             currentFramebuffer: current
         )
+        let interactionStartedAt = Date(timeIntervalSince1970: 10)
 
         XCTAssertEqual(partialPlan.strategy, FramebufferUploadStrategy.partial)
         XCTAssertEqual(fullPlan.strategy, FramebufferUploadStrategy.full)
@@ -1555,7 +1556,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
             ViewportInteractionFramePublishPolicy.shouldPublish(
                 uploadPlan: partialPlan,
                 capturedAt: partialFrame.capturedAt,
-                lastPublishedAt: nil
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
             ),
             "Small dirty-rect updates should be allowed through so remote cursor/text echo does not freeze during pinch/pan."
         )
@@ -1563,22 +1565,36 @@ final class NaruRemoteAppModelTests: XCTestCase {
             ViewportInteractionFramePublishPolicy.shouldPublish(
                 uploadPlan: fullPlan,
                 capturedAt: fullFrame.capturedAt,
-                lastPublishedAt: nil
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
             ),
             "Full uploads should still be coalesced at gesture start to protect touch tracking."
+        )
+        XCTAssertTrue(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: fullPlan,
+                capturedAt: interactionStartedAt.addingTimeInterval(
+                    ViewportInteractionFramePublishPolicy.fullUploadContentFrameIntervalSeconds
+                ),
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
+            ),
+            "Full-frame-only servers should still get bounded refresh slots during a long pinch/pan."
         )
         XCTAssertFalse(
             ViewportInteractionFramePublishPolicy.shouldPublish(
                 uploadPlan: partialPlan,
                 capturedAt: Date(timeIntervalSince1970: 10.02),
-                lastPublishedAt: Date(timeIntervalSince1970: 10)
+                lastPublishedAt: Date(timeIntervalSince1970: 10),
+                interactionStartedAt: interactionStartedAt
             )
         )
         XCTAssertTrue(
             ViewportInteractionFramePublishPolicy.shouldPublish(
                 uploadPlan: partialPlan,
                 capturedAt: Date(timeIntervalSince1970: 10.07),
-                lastPublishedAt: Date(timeIntervalSince1970: 10)
+                lastPublishedAt: Date(timeIntervalSince1970: 10),
+                interactionStartedAt: interactionStartedAt
             )
         )
     }
