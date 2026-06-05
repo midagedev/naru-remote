@@ -3441,3 +3441,43 @@ port values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
 cursor pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command
 text, command output, draft text, marked text, IME state, or full diagnostic
 payloads.
+
+## D84 — Split request/response candidate gates from ContinuousUpdates blockers
+
+References:
+- D83 completed live sustained-v2-core evidence.
+- `artifacts/benchmarks/2026-06-06-sustained-v2-request-response-preset-summary.md`.
+
+**Decision**: add `sustained-v2-request-response` as a benchmark-only gate
+preset that uses the same sustained v2 core matrix shape as `sustained-v2-core`
+but measures request/response transport only.
+
+**Why**:
+- The live core baseline now proves two things at once: ContinuousUpdates is
+  blocked before samples on the current local VNC target, and request/response
+  remains below target.
+- Keeping both transports in the standard core gate is useful for default
+  promotion, but it is noisy when the immediate comparison question is which
+  request/response profile or cadence candidate should be tested next.
+- A request/response-only preset lets larger PRs compare profile and cadence
+  candidates without weakening the production default-change contract. A
+  production promotion still needs the full benchmark-green plus physical
+  iPhone gate defined in D81.
+
+**Implications**:
+- Use `sustained-v2-core` for the full promotion gate.
+- Use `sustained-v2-request-response` after ContinuousUpdates has already been
+  routed to `inspectContinuousUpdatesConnection`.
+- The first completed request/response-only live run leaves ContinuousUpdates
+  as `not-tested`, marks request/response `below-target`, routes the next
+  action to `compareRequestResponseEncodingProfiles`, and selects
+  `adaptive-good-full` as the order-neutral request/response recommendation
+  label. It is still not benchmark-green.
+- Production ContinuousUpdates behavior and app defaults remain unchanged.
+
+**Privacy rule**: the request/response preset may emit only fixed preset,
+profile, transport, target, verdict, issue, and action labels plus existing
+aggregate gate outcomes. It must not emit host identity, credentials, port
+values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command text,
+command output, draft text, marked text, IME state, or full diagnostic payloads.

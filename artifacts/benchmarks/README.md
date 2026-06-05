@@ -94,6 +94,14 @@ This run is not benchmark-green: ContinuousUpdates is still
 `below-target`, and the next large unit is
 `inspectContinuousUpdatesConnection`.
 List future completed live baselines here newest-first.
+Current request/response isolation preset artifact:
+`artifacts/benchmarks/2026-06-06-sustained-v2-request-response-preset-summary.md`.
+Use `sustained-v2-request-response` after ContinuousUpdates is already known to
+be blocked and the next question is which request/response profile or cadence
+candidate deserves the same sustained v2 gate. The first live run with this
+preset routes to `compareRequestResponseEncodingProfiles`, with
+`adaptive-good-full` as the order-neutral request/response label, but remains
+not benchmark-green.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -377,6 +385,9 @@ ten second duration, zero hidden stream-shape preflight frames, and the
 `iphone-sustained-usability-v2` target. The pixel-format preset keeps that same
 gate shape but swaps in full-color/RGB565-in-32 profile pairs. Use explicit
 stream-shape options without the preset for custom experiments.
+`sustained-v2-request-response` keeps the core matrix gate shape but measures
+request/response only, so request/response candidates can be compared after
+ContinuousUpdates has already been routed to support inspection.
 Schema v40 extends stream-shape `practicalAssessment` with
 `primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe`, using the
 same fixed sustained-session triage catalog as diagnostic JSON v28. Treat these

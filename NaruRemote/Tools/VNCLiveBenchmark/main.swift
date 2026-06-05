@@ -1172,6 +1172,13 @@ private struct BenchmarkOptions: Equatable {
                 profileSelection: BenchmarkStreamShapeProfileSelection.coreMatrixSelection,
                 invalidProfileSelectionMessage: "internal sustained-v2-core preset profile selection is invalid."
             )
+        case .sustainedV2RequestResponse:
+            try applySustainedV2Gate(
+                profileSelection: BenchmarkStreamShapeProfileSelection.coreMatrixSelection,
+                invalidProfileSelectionMessage:
+                    "internal sustained-v2-request-response preset profile selection is invalid.",
+                transportModes: .requestResponse
+            )
         case .sustainedV2PixelFormat:
             try applySustainedV2Gate(
                 profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
@@ -1183,7 +1190,8 @@ private struct BenchmarkOptions: Equatable {
 
     private mutating func applySustainedV2Gate(
         profileSelection: String,
-        invalidProfileSelectionMessage: String
+        invalidProfileSelectionMessage: String,
+        transportModes: StreamShapeTransportModeSelection = .both
     ) throws {
         attempts = 1
         fullRefreshSamples = 0
@@ -1206,7 +1214,7 @@ private struct BenchmarkOptions: Equatable {
         } catch {
             throw UsageError(invalidProfileSelectionMessage)
         }
-        streamShapeTransportModes = .both
+        streamShapeTransportModes = transportModes
         streamShapeProfileIterations = 5
         streamShapeProfileOrderMode = .rotate
         timeout = 6
@@ -2536,7 +2544,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v43 gate reporting. Use individual stream-shape options without a preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v43 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
