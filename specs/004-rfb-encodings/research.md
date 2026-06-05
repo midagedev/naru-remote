@@ -3157,3 +3157,40 @@ values. It must not include host identity, credentials, port value, raw TCP/RFB
 errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
 counts, raw payloads, raw FPS, raw timings, command text, command output, draft
 text, marked text, or IME state.
+
+## D77 — Use a sustained usability promotion ladder for larger PRs
+
+References:
+- D76 transport/cadence diagnosis.
+- `artifacts/benchmarks/2026-06-06-sustained-usability-operating-target.md`.
+
+**Decision**: upcoming streaming optimization PRs should be grouped around a
+larger promotion ladder instead of isolated metric fields: benchmark green,
+physical iPhone green, then production default change.
+
+**Why**:
+- The product goal is not a single benchmark number. The user-facing target is
+  sustained iPhone work with continuous zoom/pan, reliable Compose input, and no
+  uncomfortable heat.
+- The current v43 evidence is still non-green. Request-response remains the
+  usable fallback, while ContinuousUpdates needs connection/receive inspection
+  before it can become a default candidate.
+- Production defaults affect real users, so benchmark-only wins must not bypass
+  10 minute physical iPhone hand-feel, thermal, viewport, and Compose checks.
+
+**Interpretation**:
+- A large transport PR should either fix or explicitly reject the current
+  ContinuousUpdates connection/receive path, then rerun the v43 gate.
+- A large cadence PR should keep request-response as the usable transport and
+  tune request cadence/backpressure only if the gate routes there.
+- A large interaction PR should make zoom, pan, and zoomed trackpad
+  cursor-follow continuous on iPhone and close with physical diagnostics.
+- A large input PR should harden Compose marked-text/commit routing and close
+  with the same physical iPhone gate.
+
+**Privacy rule**: operating-target artifacts may include only fixed
+target/verdict/action labels, aggregate gate counts, aggregate safe label
+counts, and redacted pass/fail judgments. They must not include host identity,
+credentials, port value, raw TCP/RFB errors, framebuffer dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
+timings, command text, command output, draft text, marked text, or IME state.
