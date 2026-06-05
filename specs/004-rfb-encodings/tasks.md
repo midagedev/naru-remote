@@ -876,6 +876,15 @@ iPhone) and ships as its own PR.
   `below-target`, and the next large unit is ContinuousUpdates
   confirmation/receive inspection before any production default promotion.
   Owns: benchmark artifact, README, research note. **Done.**
+- **T416** Request/response sustained-v2 preset: add a benchmark-only
+  `sustained-v2-request-response` gate preset that keeps the same controlled
+  stimulus, core matrix, iterations, pacing, pressure, viewport interaction,
+  duration, preflight, and target shape as `sustained-v2-core` while measuring
+  request/response transport only. Use it for larger request/response profile
+  and cadence comparisons after ContinuousUpdates has already routed to
+  inspection. Do not change production defaults or weaken the full promotion
+  gate. Owns: benchmark CLI preset, tests, README, benchmark artifact, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 
