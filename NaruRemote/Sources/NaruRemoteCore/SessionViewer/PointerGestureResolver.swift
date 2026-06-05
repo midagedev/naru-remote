@@ -66,7 +66,7 @@ public struct PointerGestureResolver: Sendable {
     public let autoPanDamping: CGFloat
     /// While zoomed in trackpad mode, couple cursor motion to local
     /// viewport pan so the screen follows the mouse continuously
-    /// instead of waiting for a reveal edge. Keep this below 0.5 so
+    /// instead of waiting for a reveal edge. Keep this below 0.4 so
     /// most touch travel still appears as cursor travel on screen; a
     /// higher value made zoomed trackpad motion feel sticky on phone.
     public let zoomedTrackpadPanCoupling: CGFloat
@@ -76,7 +76,7 @@ public struct PointerGestureResolver: Sendable {
         trackpadSensitivity: CGFloat = 1.0,
         autoPanMargin: CGFloat = 48,
         autoPanDamping: CGFloat = 0.82,
-        zoomedTrackpadPanCoupling: CGFloat = 0.48
+        zoomedTrackpadPanCoupling: CGFloat = 0.35
     ) {
         self.mode = mode
         self.trackpadSensitivity = trackpadSensitivity
@@ -163,7 +163,7 @@ public struct PointerGestureResolver: Sendable {
             let movedCursor = cursor.moved(
                 byViewDelta: translation,
                 displayScale: transform.displayScale,
-                sensitivity: trackpadSensitivity,
+                sensitivity: cursorSensitivity(for: transform),
                 framebufferSize: transform.framebufferSize
             )
             let pannedTransform = smoothedAutoPanTransform(
@@ -191,7 +191,7 @@ public struct PointerGestureResolver: Sendable {
             let movedCursor = cursor.moved(
                 byViewDelta: translation,
                 displayScale: transform.displayScale,
-                sensitivity: trackpadSensitivity,
+                sensitivity: cursorSensitivity(for: transform),
                 framebufferSize: transform.framebufferSize
             )
             let pannedTransform = smoothedAutoPanTransform(
@@ -269,6 +269,21 @@ public struct PointerGestureResolver: Sendable {
         return max(autoPanMargin, cappedResponsiveMargin)
     }
 
+    private func cursorSensitivity(for transform: ViewportTransform) -> CGFloat {
+        guard transform.isZoomed,
+              transform.isPannable,
+              zoomedTrackpadPanCoupling > 0
+        else {
+            return trackpadSensitivity
+        }
+
+        // View-space cursor travel is cursorDelta * displayScale + panDelta.
+        // Compensate the pan coupling so the visible cursor still tracks the
+        // finger at the requested sensitivity instead of feeling dragged back
+        // by the viewport follow-pan.
+        return trackpadSensitivity + zoomedTrackpadPanCoupling
+    }
+
     private func smoothedAutoPanTransform(
         _ transform: ViewportTransform,
         revealing framebufferPoint: CGPoint,
@@ -295,10 +310,10 @@ public struct PointerGestureResolver: Sendable {
             height: delta.height * autoPanDamping
         )
         let touchDistance = hypot(touchTranslation.width, touchTranslation.height)
-        // Tiny high-refresh samples should still visibly catch up to the
-        // cursor. A single-digit cap made the viewport trail the pointer
-        // in discrete steps while zoomed, especially on phone screens.
-        let maximumStep = max(18, min(160, touchDistance * 2 + 18))
+        // Tiny high-refresh samples should not inherit a large fixed step:
+        // scale the cap from the actual touch distance so edge-follow pan
+        // keeps moving without jumping in coarse chunks on phone screens.
+        let maximumStep = max(8, min(140, touchDistance * 1.4 + 8))
         let limited = limit(damped, maximumLength: maximumStep)
         return coupledTransform.panned(by: limited)
     }

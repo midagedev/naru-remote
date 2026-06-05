@@ -186,7 +186,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 750, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 785, y: 500)
         ])
     }
 
@@ -203,16 +203,16 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -120,
+            -87.5,
             accuracy: 1e-6,
             "Zoomed trackpad movement should pan continuously with the cursor instead of waiting for the edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 625, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 669, y: 500)
         ])
     }
 
-    func testZoomedTrackpadCursorKeepsMostTouchTravelVisible() {
+    func testZoomedTrackpadCursorKeepsFingerPacedTravelVisible() {
         let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
         let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
         let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
@@ -227,10 +227,11 @@ final class PointerGestureResolverTests: XCTestCase {
         let endCursorViewPoint = outcome.transform.viewPoint(fromFramebufferPoint: outcome.cursor.position)
         let visibleCursorTravel = endCursorViewPoint.x - startCursorViewPoint.x
 
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             visibleCursorTravel,
-            touchTranslation.width * 0.5,
-            "Zoomed trackpad panning should not cancel most visible cursor travel."
+            touchTranslation.width,
+            accuracy: 1,
+            "Zoomed trackpad pan coupling should not cancel visible cursor travel."
         )
     }
 
@@ -251,7 +252,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 750, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 785, y: 500)
         ])
     }
 
@@ -296,12 +297,12 @@ final class PointerGestureResolverTests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             outcome.transform.panOffset.width,
-            -32,
+            -18,
             "Tiny high-refresh touch samples should not snap to the full reveal delta."
         )
         XCTAssertLessThanOrEqual(
             outcome.transform.panOffset.width,
-            -18,
+            -8,
             "Tiny high-refresh touch samples should still make visible follow-pan progress."
         )
     }
