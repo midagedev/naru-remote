@@ -975,6 +975,20 @@ iPhone) and ships as its own PR.
   errors, raw payloads, command text, command output, draft text, marked text, or
   IME state. Owns: core receive timing, benchmark summary kit/tests, CLI
   schema/text report, README, benchmark artifact, research note. **Done.**
+- **T426** Incremental request-region sweep gate: add a region-capable
+  `FramebufferUpdateRequest` boundary, keep the first frame full-screen, and
+  let the frame pump pass a benchmark-only incremental request region to
+  request/response and ContinuousUpdates paths. Bump `VNCLiveBenchmark` to
+  schema v51 with fixed `streamShapeRequestRegions` labels on probes,
+  aggregates, gates, and recommendations, plus a
+  `sustained-v2-zrle-region-sweep` preset that holds
+  `zrle-compression-0-clipboard` constant and compares `full`, `center-half`,
+  and `center-third` without emitting coordinates or dimensions. Record the
+  first redacted live result and route the next large unit away from naive
+  static regions toward viewport-aware region selection with full-frame
+  fallback/heartbeat. Owns: core request boundary, frame pump, benchmark kit,
+  CLI schema/text report, fake-server tests, README, benchmark artifact,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 

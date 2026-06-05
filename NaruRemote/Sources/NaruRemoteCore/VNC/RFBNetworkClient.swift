@@ -123,7 +123,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             )
 
             try connection.write(
-                Self.framebufferUpdateRequest(width: serverInit.width, height: serverInit.height),
+                Self.framebufferUpdateRequest(serverInit: serverInit),
                 timeout: timeout
             )
             let continuousUpdatesConfirmed = try receiveFramebufferUpdateHeader(
@@ -248,6 +248,18 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         incremental: Bool = false,
         timeout: TimeInterval = 2
     ) throws -> RFBFramebufferUpdateResult {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout,
+            region: nil
+        )
+    }
+
+    public func requestFramebufferUpdate(
+        incremental: Bool = false,
+        timeout: TimeInterval = 2,
+        region: RFBFramebufferUpdateRegion?
+    ) throws -> RFBFramebufferUpdateResult {
         let context = lock.withRFBClientLock {
             (activeConnection, clientServerInit)
         }
@@ -259,9 +271,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         setState(.receivingFrames)
         try writeActiveConnection(
             Self.framebufferUpdateRequest(
-                width: serverInit.width,
-                height: serverInit.height,
-                incremental: incremental
+                serverInit: serverInit,
+                incremental: incremental,
+                region: region
             ),
             to: connection,
             timeout: timeout
@@ -1002,16 +1014,52 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 
     private static func framebufferUpdateRequest(
-        width: Int,
-        height: Int,
-        incremental: Bool = false
+        serverInit: RFBServerInit,
+        incremental: Bool = false,
+        region: RFBFramebufferUpdateRegion? = nil
     ) -> Data {
+        let requestRegion = normalizedFramebufferUpdateRegion(
+            region,
+            serverWidth: serverInit.width,
+            serverHeight: serverInit.height
+        )
         var bytes: [UInt8] = [3, incremental ? 1 : 0]
-        bytes.append(contentsOf: uint16Bytes(0))
-        bytes.append(contentsOf: uint16Bytes(0))
-        bytes.append(contentsOf: uint16Bytes(UInt16(max(0, min(width, Int(UInt16.max))))))
-        bytes.append(contentsOf: uint16Bytes(UInt16(max(0, min(height, Int(UInt16.max))))))
+        bytes.append(contentsOf: uint16Bytes(requestRegion.x))
+        bytes.append(contentsOf: uint16Bytes(requestRegion.y))
+        bytes.append(contentsOf: uint16Bytes(requestRegion.width))
+        bytes.append(contentsOf: uint16Bytes(requestRegion.height))
         return Data(bytes)
+    }
+
+    private static func normalizedFramebufferUpdateRegion(
+        _ region: RFBFramebufferUpdateRegion?,
+        serverWidth: Int,
+        serverHeight: Int
+    ) -> RFBFramebufferUpdateRegion {
+        let clampedServerWidth = Int(clampedUInt16(serverWidth))
+        let clampedServerHeight = Int(clampedUInt16(serverHeight))
+        guard let region,
+              clampedServerWidth > 0,
+              clampedServerHeight > 0
+        else {
+            return RFBFramebufferUpdateRegion(
+                x: 0,
+                y: 0,
+                width: clampedUInt16(serverWidth),
+                height: clampedUInt16(serverHeight)
+            )
+        }
+
+        let x = min(Int(region.x), clampedServerWidth - 1)
+        let y = min(Int(region.y), clampedServerHeight - 1)
+        let maxWidth = max(clampedServerWidth - x, 1)
+        let maxHeight = max(clampedServerHeight - y, 1)
+        return RFBFramebufferUpdateRegion(
+            x: UInt16(x),
+            y: UInt16(y),
+            width: UInt16(min(max(Int(region.width), 1), maxWidth)),
+            height: UInt16(min(max(Int(region.height), 1), maxHeight))
+        )
     }
 
     private static func clampedUInt16(_ value: Int) -> UInt16 {
@@ -1042,7 +1090,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBContinuousFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
+extension RFBNetworkClient: RFBStreamingClient, RFBRegionFramebufferUpdating, RFBContinuousFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)

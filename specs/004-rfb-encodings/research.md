@@ -4035,3 +4035,65 @@ permille shares. They must not emit host identity, credentials, port values, raw
 TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
 counts, raw payloads, per-sample raw timings, raw FPS, stimulus command text,
 command output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D94 — Static center request regions are not a safe default
+
+References:
+- RFC 6143 Display Protocol and `FramebufferUpdateRequest` rectangle flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- D93 first-byte wait split diagnostics.
+
+**Decision**: add schema v51 request-region sweep reporting, but keep
+production request/response streaming on full-framebuffer incremental requests.
+The first frame remains full-screen, and only later incremental requests may
+carry an optional benchmark-only region.
+
+**Why**:
+- D93 showed the p95 blocker is wait-for-first-server-byte, so reducing the
+  server's requested update search area was the next plausible optimization
+  lane.
+- RFC 6143 lets clients request a rectangle subset, but that subset is a
+  semantic interest area: if the changing content is outside the requested
+  rectangle, the server can legitimately wait for a later relevant update.
+- Therefore a fixed center rectangle is not equivalent to the user's zoomed
+  viewport unless the viewport and active cursor/content region are coupled to
+  that rectangle.
+
+**Evidence**:
+- Focused tests cover frame-pump propagation of an incremental request region,
+  ContinuousUpdates region propagation, fake-server wire bytes for region and
+  bounds-clamped `FramebufferUpdateRequest`, stable request-region labels, and
+  aggregate/gate/recommendation separation by request-region label.
+- `swift test --quiet` passed 906 tests with 10 skipped and 0 failures.
+- A redacted live schema v51 `sustained-v2-zrle-region-sweep` run reported:
+  - request regions: `full`, `center-half`, `center-third`;
+  - `full`: 5 usable runs, average update 120 ms, max p95 update 505 ms,
+    content FPS 6.68, 384 received samples, 334 content samples, 0 permille
+    renderer full-upload pressure, network/client/request-loop shares
+    953/45/2 permille, first-byte/payload split 1000/0 permille;
+  - `center-half`: 5 failed runs, 0 usable runs, 0 received samples,
+    `stream-incremental-read-timeout`;
+  - `center-third`: 5 failed runs, 0 usable runs, 0 received samples,
+    `stream-incremental-read-timeout`;
+  - request cadence health stayed `high-content-hit` / `p95-failed` overall,
+    with `network-read` / `first-byte-wait` still dominant for the usable full
+    runs.
+
+**Interpretation**:
+- Naive static center-region requests are worse than full-screen incremental
+  requests for the current controlled stimulus: they can starve the stream when
+  the changed content is outside the requested rectangle.
+- Request-region optimization remains promising only if the region is derived
+  from the actual visible viewport, active cursor/focus target, or measured
+  stimulus/content bounds, and only if the stream has a timeout fallback such as
+  a full-frame heartbeat or immediate full request after a region timeout.
+- The next large unit should prototype viewport-aware region selection plus
+  fallback/heartbeat in the benchmark path before any app default changes.
+
+**Privacy rule**: request-region reports may emit only fixed candidate labels,
+aggregate sample counts, aggregate millisecond summaries, aggregate permille
+shares, and fixed triage labels. They must not emit host identity, credentials,
+port values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
+cursor pixels, byte counts, raw payloads, per-sample raw timings, raw FPS,
+stimulus command text, command output, draft text, marked text, IME state, or
+full diagnostic payloads.
