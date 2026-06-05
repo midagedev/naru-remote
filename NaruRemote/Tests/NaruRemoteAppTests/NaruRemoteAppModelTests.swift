@@ -3379,7 +3379,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 24)
+        XCTAssertEqual(report.schemaVersion, 25)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -3450,7 +3450,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 24)
+        let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
+        XCTAssertEqual(report.schemaVersion, 25)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)
@@ -3486,7 +3487,30 @@ final class NaruRemoteAppModelTests: XCTestCase {
             RFBFramebufferEncodingMix(rawRectangles: 1, zrleRectangles: 1)
         )
         XCTAssertEqual(performance.thermalState, SessionStreamThermalState.fair.rawValue)
+        XCTAssertEqual(assessment.targetName, DiagnosticSustainedSessionAssessment.target.rawValue)
+        XCTAssertEqual(assessment.verdict, DiagnosticSustainedSessionVerdict.fail.rawValue)
+        XCTAssertTrue(
+            assessment.issueCodes.contains(
+                DiagnosticSustainedSessionIssueCode.insufficientContentSamples.rawValue
+            )
+        )
+        XCTAssertTrue(
+            assessment.issueCodes.contains(
+                DiagnosticSustainedSessionIssueCode.averageReceiveStalled.rawValue
+            )
+        )
+        XCTAssertTrue(
+            assessment.issueCodes.contains(
+                DiagnosticSustainedSessionIssueCode.rendererFullUploadFailed.rawValue
+            )
+        )
+        XCTAssertTrue(
+            assessment.issueCodes.contains(
+                DiagnosticSustainedSessionIssueCode.elevatedThermalState.rawValue
+            )
+        )
         XCTAssertTrue(json.contains("\"actualEncodingMix\""))
+        XCTAssertTrue(json.contains("\"sustainedSessionAssessment\""))
         XCTAssertTrue(json.contains("\"zrleRectangles\" : 1"))
         XCTAssertTrue(json.contains("\"averageReceiveTotalTimingBucket\" : \"stalled\""))
         XCTAssertFalse(json.contains("totalMilliseconds"))

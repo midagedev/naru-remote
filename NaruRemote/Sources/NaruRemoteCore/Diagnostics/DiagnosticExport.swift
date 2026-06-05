@@ -11,6 +11,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: StreamPowerMode?
     public let input: DiagnosticInputReport?
+    public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -25,7 +26,8 @@ public struct DiagnosticExport: Equatable, Sendable {
         detailLevel: DiagnosticExportDetailLevel = .summaryOnly,
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: StreamPowerMode? = nil,
-        input: DiagnosticInputReport? = nil
+        input: DiagnosticInputReport? = nil,
+        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
@@ -36,6 +38,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = viewerStreamPowerMode
         self.input = input
+        self.sustainedSessionAssessment = sustainedSessionAssessment
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -132,7 +135,8 @@ public struct DiagnosticExport: Equatable, Sendable {
             stageRows: stageRows,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode?.rawValue,
-            input: input
+            input: input,
+            sustainedSessionAssessment: sustainedSessionAssessment
         )
     }
 
@@ -342,6 +346,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case observedDurationBucket
         case deliveredFramesPerSecondBucket
+        case contentFramesPerSecondBucket
         case deliveredFrameCount
         case contentFrameCount
         case emptyUpdateCount
@@ -407,6 +412,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
 
     public let observedDurationBucket: String
     public let deliveredFramesPerSecondBucket: String
+    public let contentFramesPerSecondBucket: String
     public let deliveredFrameCount: Int
     public let contentFrameCount: Int
     public let emptyUpdateCount: Int
@@ -472,6 +478,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public init(
         observedDurationBucket: String,
         deliveredFramesPerSecondBucket: String,
+        contentFramesPerSecondBucket: String = DiagnosticFrameRateBucket.notMeasured.rawValue,
         deliveredFrameCount: Int,
         contentFrameCount: Int,
         emptyUpdateCount: Int,
@@ -536,6 +543,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     ) {
         self.observedDurationBucket = Self.safeDurationBucket(observedDurationBucket)
         self.deliveredFramesPerSecondBucket = Self.safeFrameRateBucket(deliveredFramesPerSecondBucket)
+        self.contentFramesPerSecondBucket = Self.safeFrameRateBucket(contentFramesPerSecondBucket)
         let deliveredFrameCount = max(deliveredFrameCount, 0)
         self.deliveredFrameCount = deliveredFrameCount
         self.contentFrameCount = max(contentFrameCount, 0)
@@ -700,6 +708,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .deliveredFramesPerSecondBucket
             ),
+            contentFramesPerSecondBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .contentFramesPerSecondBucket
+            ) ?? DiagnosticFrameRateBucket.notMeasured.rawValue,
             deliveredFrameCount: try container.decode(Int.self, forKey: .deliveredFrameCount),
             contentFrameCount: try container.decode(Int.self, forKey: .contentFrameCount),
             emptyUpdateCount: try container.decode(Int.self, forKey: .emptyUpdateCount),
@@ -1338,8 +1350,269 @@ public enum DiagnosticFailureCodeCatalog {
     }
 }
 
+public enum DiagnosticSustainedSessionTarget: String, Codable, Equatable, CaseIterable, Sendable {
+    case iPhoneSustainedUsabilityV2 = "iphone-sustained-usability-v2"
+}
+
+public enum DiagnosticSustainedSessionVerdict: String, Codable, Equatable, CaseIterable, Sendable {
+    case notMeasured
+    case pass
+    case warning
+    case fail
+}
+
+public enum DiagnosticSustainedSessionIssueCode: String, Codable, Equatable, CaseIterable, Sendable {
+    case noContentFrames
+    case insufficientContentSamples
+    case contentFrameRateWarning
+    case contentFrameRateFailed
+    case averageReceiveLagging
+    case averageReceiveStalled
+    case receiveTailStalled
+    case clientProcessingLagging
+    case clientProcessingStalled
+    case appFrameApplyLagging
+    case appFrameApplyStalled
+    case rendererFullUploadWarning
+    case rendererFullUploadFailed
+    case rendererUploadLagging
+    case rendererUploadStalled
+    case adaptivePressureWarning
+    case adaptivePressureFailed
+    case elevatedThermalState
+    case seriousThermalState
+    case viewportGesturePressure
+    case viewportIncomingFramePressure
+    case viewportRequestPauseActive
+    case inputNotMeasured
+    case composeRouteBlocked
+    case composeSendPreparationLagging
+    case composeSendPreparationStalled
+}
+
+public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable {
+    public static let target = DiagnosticSustainedSessionTarget.iPhoneSustainedUsabilityV2
+    private static let minimumContentSamples = 8
+
+    private enum CodingKeys: String, CodingKey {
+        case targetName
+        case verdict
+        case issueCodes
+    }
+
+    public let targetName: String
+    public let verdict: String
+    public let issueCodes: [String]
+
+    public init(
+        targetName: String = Self.target.rawValue,
+        verdict: String? = nil,
+        issueCodes: [String]
+    ) {
+        self.targetName = Self.safeTargetName(targetName)
+        self.issueCodes = Self.safeIssueCodes(issueCodes)
+        self.verdict = Self.safeVerdict(verdict) ?? Self.verdict(for: self.issueCodes).rawValue
+    }
+
+    public static func assess(
+        streamPerformance: DiagnosticStreamPerformanceReport?,
+        input: DiagnosticInputReport?,
+        contentFramesPerSecond: Double?
+    ) -> DiagnosticSustainedSessionAssessment? {
+        guard let streamPerformance else {
+            return nil
+        }
+
+        var issues: [DiagnosticSustainedSessionIssueCode] = []
+        if streamPerformance.contentFrameCount == 0 {
+            issues.append(.noContentFrames)
+        } else if streamPerformance.contentFrameCount < minimumContentSamples {
+            issues.append(.insufficientContentSamples)
+        }
+
+        if let contentFramesPerSecond, contentFramesPerSecond.isFinite {
+            if contentFramesPerSecond < 4 {
+                issues.append(.contentFrameRateFailed)
+            } else if contentFramesPerSecond < 8 {
+                issues.append(.contentFrameRateWarning)
+            }
+        } else if streamPerformance.contentFrameCount > 1 {
+            issues.append(.contentFrameRateWarning)
+        }
+
+        appendTimingIssues(
+            averageBucket: streamPerformance.averageReceiveTotalTimingBucket,
+            maxBucket: streamPerformance.maxReceiveTotalTimingBucket,
+            averageLagging: .averageReceiveLagging,
+            averageStalled: .averageReceiveStalled,
+            maxStalled: .receiveTailStalled,
+            to: &issues
+        )
+        appendTimingIssues(
+            averageBucket: streamPerformance.averageClientProcessingTimingBucket,
+            maxBucket: streamPerformance.maxClientProcessingTimingBucket,
+            averageLagging: .clientProcessingLagging,
+            averageStalled: .clientProcessingStalled,
+            maxStalled: .clientProcessingStalled,
+            to: &issues
+        )
+        appendTimingIssues(
+            averageBucket: streamPerformance.averageAppFrameApplyTimingBucket,
+            maxBucket: streamPerformance.maxAppFrameApplyTimingBucket,
+            averageLagging: .appFrameApplyLagging,
+            averageStalled: .appFrameApplyStalled,
+            maxStalled: .appFrameApplyStalled,
+            to: &issues
+        )
+        appendTimingIssues(
+            averageBucket: streamPerformance.averageRendererUploadTimingBucket,
+            maxBucket: streamPerformance.maxRendererUploadTimingBucket,
+            averageLagging: .rendererUploadLagging,
+            averageStalled: .rendererUploadStalled,
+            maxStalled: .rendererUploadStalled,
+            to: &issues
+        )
+
+        if let rendererFullUploadPermille = streamPerformance.rendererFullUploadPermille {
+            if rendererFullUploadPermille > 50 {
+                issues.append(.rendererFullUploadFailed)
+            } else if rendererFullUploadPermille > 0 {
+                issues.append(.rendererFullUploadWarning)
+            }
+        }
+        if streamPerformance.adaptiveClientPressurePacingPermille > 500 {
+            issues.append(.adaptivePressureFailed)
+        } else if streamPerformance.adaptiveClientPressurePacingPermille > 100 {
+            issues.append(.adaptivePressureWarning)
+        }
+
+        switch streamPerformance.thermalState {
+        case "serious", "critical":
+            issues.append(.seriousThermalState)
+        case "fair":
+            issues.append(.elevatedThermalState)
+        default:
+            break
+        }
+
+        if streamPerformance.viewportStutterHint == DiagnosticViewportStutterHint.gestureLoopPressure.rawValue
+            || streamPerformance.viewportStutterHint == DiagnosticViewportStutterHint.mixedViewportPressure.rawValue {
+            issues.append(.viewportGesturePressure)
+        }
+        if streamPerformance.viewportStutterHint == DiagnosticViewportStutterHint.incomingFrameDeferral.rawValue
+            || streamPerformance.viewportStutterHint == DiagnosticViewportStutterHint.mixedViewportPressure.rawValue {
+            issues.append(.viewportIncomingFramePressure)
+        }
+        if streamPerformance.viewportInteractionRequestPauseCount > 0 {
+            issues.append(.viewportRequestPauseActive)
+        }
+
+        guard let input else {
+            issues.append(.inputNotMeasured)
+            return DiagnosticSustainedSessionAssessment(
+                issueCodes: issues.map(\.rawValue)
+            )
+        }
+
+        if let blocker = input.composeRouteBlocker,
+           blocker != DiagnosticComposeRouteBlocker.none.rawValue,
+           blocker != DiagnosticComposeRouteBlocker.emptyDraft.rawValue {
+            issues.append(.composeRouteBlocked)
+        }
+        switch input.latestComposeSendPreparationDurationBucket {
+        case DiagnosticTimingBucket.stalled.rawValue?:
+            issues.append(.composeSendPreparationStalled)
+        case DiagnosticTimingBucket.lagging.rawValue?:
+            issues.append(.composeSendPreparationLagging)
+        default:
+            break
+        }
+
+        return DiagnosticSustainedSessionAssessment(
+            issueCodes: issues.map(\.rawValue)
+        )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            targetName: try container.decodeIfPresent(String.self, forKey: .targetName)
+                ?? Self.target.rawValue,
+            verdict: try container.decodeIfPresent(String.self, forKey: .verdict),
+            issueCodes: try container.decodeIfPresent([String].self, forKey: .issueCodes) ?? []
+        )
+    }
+
+    private static func appendTimingIssues(
+        averageBucket: String,
+        maxBucket: String,
+        averageLagging: DiagnosticSustainedSessionIssueCode,
+        averageStalled: DiagnosticSustainedSessionIssueCode,
+        maxStalled: DiagnosticSustainedSessionIssueCode,
+        to issues: inout [DiagnosticSustainedSessionIssueCode]
+    ) {
+        switch DiagnosticTimingBucket(rawValue: averageBucket) {
+        case .stalled:
+            issues.append(averageStalled)
+        case .lagging:
+            issues.append(averageLagging)
+        default:
+            break
+        }
+        if DiagnosticTimingBucket(rawValue: maxBucket) == .stalled {
+            issues.append(maxStalled)
+        }
+    }
+
+    private static func safeTargetName(_ value: String) -> String {
+        DiagnosticSustainedSessionTarget(rawValue: value)?.rawValue ?? target.rawValue
+    }
+
+    private static func safeVerdict(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        return DiagnosticSustainedSessionVerdict(rawValue: value)?.rawValue
+    }
+
+    private static func safeIssueCodes(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.compactMap { value in
+            guard let issue = DiagnosticSustainedSessionIssueCode(rawValue: value),
+                  !seen.contains(issue.rawValue)
+            else {
+                return nil
+            }
+            seen.insert(issue.rawValue)
+            return issue.rawValue
+        }
+    }
+
+    private static func verdict(for issueCodes: [String]) -> DiagnosticSustainedSessionVerdict {
+        let failures: Set<DiagnosticSustainedSessionIssueCode> = [
+            .noContentFrames,
+            .contentFrameRateFailed,
+            .averageReceiveStalled,
+            .receiveTailStalled,
+            .clientProcessingStalled,
+            .appFrameApplyStalled,
+            .rendererFullUploadFailed,
+            .rendererUploadStalled,
+            .adaptivePressureFailed,
+            .seriousThermalState,
+            .composeRouteBlocked,
+            .composeSendPreparationStalled
+        ]
+        let parsedIssues = issueCodes.compactMap(DiagnosticSustainedSessionIssueCode.init(rawValue:))
+        if parsedIssues.contains(where: failures.contains) {
+            return .fail
+        }
+        return parsedIssues.isEmpty ? .pass : .warning
+    }
+}
+
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 24
+    public static let currentSchemaVersion = 25
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -1361,6 +1634,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case streamPerformance
         case viewerStreamPowerMode
         case input
+        case sustainedSessionAssessment
     }
 
     public let schemaVersion: Int
@@ -1382,6 +1656,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let streamPerformance: DiagnosticStreamPerformanceReport?
     public let viewerStreamPowerMode: String?
     public let input: DiagnosticInputReport?
+    public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -1402,7 +1677,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         stageRows: [DiagnosticExport.Row],
         streamPerformance: DiagnosticStreamPerformanceReport? = nil,
         viewerStreamPowerMode: String? = nil,
-        input: DiagnosticInputReport? = nil
+        input: DiagnosticInputReport? = nil,
+        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -1423,6 +1699,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.streamPerformance = streamPerformance
         self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
         self.input = input
+        self.sustainedSessionAssessment = sustainedSessionAssessment
     }
 
     public init(from decoder: Decoder) throws {
@@ -1449,7 +1726,11 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 forKey: .streamPerformance
             ),
             viewerStreamPowerMode: try container.decodeIfPresent(String.self, forKey: .viewerStreamPowerMode),
-            input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input)
+            input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input),
+            sustainedSessionAssessment: try container.decodeIfPresent(
+                DiagnosticSustainedSessionAssessment.self,
+                forKey: .sustainedSessionAssessment
+            )
         )
     }
 

@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 24"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 25"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 24)
+        XCTAssertEqual(decoded.schemaVersion, 25)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -316,6 +316,7 @@ final class DiagnosticExportTests: XCTestCase {
         let performance = DiagnosticStreamPerformanceReport(
             observedDurationBucket: DiagnosticDurationBucket.threeToTenSeconds.rawValue,
             deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.fifteenToTwentyFour.rawValue,
+            contentFramesPerSecondBucket: DiagnosticFrameRateBucket.fiveToFifteen.rawValue,
             deliveredFrameCount: 120,
             contentFrameCount: 90,
             emptyUpdateCount: 25,
@@ -388,10 +389,11 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 24)
+        XCTAssertEqual(decoded.schemaVersion, 25)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
+        XCTAssertTrue(rendered.contains("\"contentFramesPerSecondBucket\" : \"fiveToFifteen\""))
         XCTAssertTrue(rendered.contains("\"actualEncodingMix\""))
         XCTAssertTrue(rendered.contains("\"averageAppFrameApplyTimingBucket\" : \"interactive\""))
         XCTAssertTrue(rendered.contains("\"averageRendererUploadTimingBucket\" : \"subFrame\""))
@@ -489,7 +491,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 24)
+        XCTAssertEqual(decoded.schemaVersion, 25)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -710,10 +712,125 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(decoded.viewerStreamPowerMode)
     }
 
+    func testSustainedSessionAssessmentClassifiesSafeStreamAndInputSignals() throws {
+        let performance = DiagnosticStreamPerformanceReport(
+            observedDurationBucket: DiagnosticDurationBucket.overTenSeconds.rawValue,
+            deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.fiveToFifteen.rawValue,
+            contentFramesPerSecondBucket: DiagnosticFrameRateBucket.underFive.rawValue,
+            deliveredFrameCount: 20,
+            contentFrameCount: 10,
+            emptyUpdateCount: 10,
+            transportIdleTimeoutCount: 0,
+            adaptiveClientPressurePacingSampleCount: 12,
+            adaptiveClientPressurePacingPermille: 600,
+            dirtyRectangleSampleCount: 10,
+            dirtyRectangleCountMax: 1,
+            dirtyAreaPermilleMax: 100,
+            changedPixelsPermilleMax: 100,
+            rendererUploadSampleCount: 10,
+            rendererPartialUploadCount: 9,
+            rendererFullUploadCount: 1,
+            rendererFullUploadPermille: 100,
+            viewportInteractionCount: 2,
+            viewportGestureSampleCount: 10,
+            viewportGestureLongFrameCount: 3,
+            viewportIncomingFrameDeferredCount: 4,
+            viewportRedrawRequestCount: 10,
+            viewportInteractionRequestPauseCount: 2,
+            thermalState: "serious"
+        )
+        let input = DiagnosticInputReport(
+            composeRouteBlocker: DiagnosticComposeRouteBlocker.helperNotConfigured.rawValue,
+            latestComposeSendPreparationDurationBucket: DiagnosticTimingBucket.stalled.rawValue
+        )
+
+        let assessment = try XCTUnwrap(
+            DiagnosticSustainedSessionAssessment.assess(
+                streamPerformance: performance,
+                input: input,
+                contentFramesPerSecond: 2.5
+            )
+        )
+
+        XCTAssertEqual(assessment.targetName, DiagnosticSustainedSessionAssessment.target.rawValue)
+        XCTAssertEqual(assessment.verdict, DiagnosticSustainedSessionVerdict.fail.rawValue)
+        XCTAssertEqual(
+            assessment.issueCodes,
+            [
+                DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.rendererFullUploadFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.adaptivePressureFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.seriousThermalState.rawValue,
+                DiagnosticSustainedSessionIssueCode.viewportGesturePressure.rawValue,
+                DiagnosticSustainedSessionIssueCode.viewportIncomingFramePressure.rawValue,
+                DiagnosticSustainedSessionIssueCode.viewportRequestPauseActive.rawValue,
+                DiagnosticSustainedSessionIssueCode.composeRouteBlocked.rawValue,
+                DiagnosticSustainedSessionIssueCode.composeSendPreparationStalled.rawValue
+            ]
+        )
+    }
+
+    func testSustainedSessionAssessmentPassesCleanMeasuredSession() {
+        let performance = DiagnosticStreamPerformanceReport(
+            observedDurationBucket: DiagnosticDurationBucket.overTenSeconds.rawValue,
+            deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.fifteenToTwentyFour.rawValue,
+            contentFramesPerSecondBucket: DiagnosticFrameRateBucket.fiveToFifteen.rawValue,
+            deliveredFrameCount: 16,
+            contentFrameCount: 12,
+            emptyUpdateCount: 4,
+            transportIdleTimeoutCount: 0,
+            dirtyRectangleSampleCount: 12,
+            dirtyRectangleCountMax: 1,
+            dirtyAreaPermilleMax: 100,
+            changedPixelsPermilleMax: 100,
+            rendererUploadSampleCount: 12,
+            rendererPartialUploadCount: 12,
+            rendererFullUploadCount: 0,
+            rendererFullUploadPermille: 0,
+            thermalState: "nominal"
+        )
+        let input = DiagnosticInputReport(
+            composeRouteBlocker: DiagnosticComposeRouteBlocker.emptyDraft.rawValue
+        )
+
+        let assessment = DiagnosticSustainedSessionAssessment.assess(
+            streamPerformance: performance,
+            input: input,
+            contentFramesPerSecond: 12
+        )
+
+        XCTAssertEqual(assessment?.verdict, DiagnosticSustainedSessionVerdict.pass.rawValue)
+        XCTAssertEqual(assessment?.issueCodes, [])
+    }
+
+    func testSustainedSessionAssessmentSanitizesUnsafeCatalogValues() {
+        let assessment = DiagnosticSustainedSessionAssessment(
+            targetName: "target=SECRET",
+            verdict: "verdict=SECRET",
+            issueCodes: [
+                DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
+                "issue=SECRET",
+                DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.elevatedThermalState.rawValue
+            ]
+        )
+
+        XCTAssertEqual(assessment.targetName, DiagnosticSustainedSessionAssessment.target.rawValue)
+        XCTAssertEqual(assessment.verdict, DiagnosticSustainedSessionVerdict.fail.rawValue)
+        XCTAssertEqual(
+            assessment.issueCodes,
+            [
+                DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.elevatedThermalState.rawValue
+            ]
+        )
+    }
+
     func testStreamPerformanceReportClampsUnsafeCatalogValues() {
         let performance = DiagnosticStreamPerformanceReport(
             observedDurationBucket: "duration=SECRET",
             deliveredFramesPerSecondBucket: "fps=SECRET",
+            contentFramesPerSecondBucket: "contentFps=SECRET",
             deliveredFrameCount: -1,
             contentFrameCount: -2,
             emptyUpdateCount: -3,
@@ -784,6 +901,7 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertEqual(performance.observedDurationBucket, DiagnosticDurationBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.deliveredFramesPerSecondBucket, DiagnosticFrameRateBucket.notMeasured.rawValue)
+        XCTAssertEqual(performance.contentFramesPerSecondBucket, DiagnosticFrameRateBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 0)
         XCTAssertEqual(performance.contentFrameCount, 0)
         XCTAssertEqual(performance.emptyUpdateCount, 0)
@@ -1217,8 +1335,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v24 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 24"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v25 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 25"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }
