@@ -45,7 +45,8 @@ Safe changes:
   - `contentResponsePermille`
 - Added profile aggregate/recommendation content hit-rate fields so rotated
   profile comparisons can show whether a selected candidate wins despite low
-  content hit-rate.
+  content hit-rate. Aggregate permille fields are run-level means so rotated
+  benchmark iterations have equal weight when duration-capped attempts vary.
 - Updated text output to show received/attempted/requested counts and hit-rate
   permille values beside existing FPS, latency, renderer, and practical target
   fields.

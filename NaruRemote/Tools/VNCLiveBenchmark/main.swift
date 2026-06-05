@@ -1959,12 +1959,13 @@ private func renderText(_ report: BenchmarkReport) {
             } else {
                 print("  content fps avg: n/a")
             }
-            if let contentRequest = aggregate.averageContentSamplePermille,
+            if let receivedRequest = aggregate.averageReceivedSamplePermille,
+               let contentRequest = aggregate.averageContentSamplePermille,
                let contentResponse = aggregate.averageContentResponsePermille,
                let unanswered = aggregate.averageUnansweredSamplePermille {
                 print(
-                    "  hit-rate permille content/request content/response unanswered: "
-                        + "\(contentRequest)/\(contentResponse)/\(unanswered)"
+                    "  hit-rate permille avg received/request content/request content/response unanswered: "
+                        + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
                 )
             }
         }

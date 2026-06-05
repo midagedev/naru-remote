@@ -1105,6 +1105,8 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let contentSamplePermille = usableReports.compactMap(\.summary.contentSamplePermille)
         let contentResponsePermille = usableReports.compactMap(\.summary.contentResponsePermille)
         let unansweredSamplePermille = usableReports.compactMap(\.summary.unansweredSamplePermille)
+        // Keep profile aggregates as run-level means so rotated benchmark
+        // iterations have equal weight even when duration-capped attempts vary.
         return BenchmarkStreamShapeProfileAggregateReport(
             label: key.label,
             transportMode: key.transportMode,
