@@ -436,6 +436,12 @@ iPhone) and ships as its own PR.
   existing redraw request/flush counters to the UIKit viewport hot path. Owns:
   Metal viewport host, app stream stats, diagnostic export, tests, research
   note. **Done.**
+- **T364** Viewport stutter diagnostic hints: derive a fixed-catalog
+  `viewportStutterHint` from safe viewport long-frame and incoming-redraw
+  deferral ratios so physical iPhone diagnostic reports can distinguish local
+  gesture-loop pressure from intentional stream redraw deferral without raw
+  timestamps, coordinates, pixels, dimensions, byte counts, or device identity.
+  Owns: diagnostic export, app snapshot tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

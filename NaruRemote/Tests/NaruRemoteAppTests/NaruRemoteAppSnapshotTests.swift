@@ -100,6 +100,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.viewportGestureMaxIntervalBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(report.viewportIncomingFrameDeferredCount, 5)
         XCTAssertEqual(report.viewportIncomingFrameDeferredPermille, 313)
+        XCTAssertEqual(report.viewportStutterHint, DiagnosticViewportStutterHint.mixedViewportPressure.rawValue)
         XCTAssertEqual(report.viewportRedrawRequestCount, 11)
         XCTAssertEqual(report.viewportRedrawFlushCount, 6)
         XCTAssertEqual(report.viewportDecelerationFrameCount, 3)

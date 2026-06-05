@@ -266,6 +266,37 @@ public enum DiagnosticTimingBucket: String, Codable, Equatable, Sendable {
     }
 }
 
+public enum DiagnosticViewportStutterHint: String, Codable, Equatable, Sendable, CaseIterable {
+    case notMeasured
+    case none
+    case gestureLoopPressure
+    case incomingFrameDeferral
+    case mixedViewportPressure
+
+    public static func classify(
+        gestureLongFramePermille: Int?,
+        incomingFrameDeferredPermille: Int?
+    ) -> DiagnosticViewportStutterHint {
+        guard gestureLongFramePermille != nil || incomingFrameDeferredPermille != nil else {
+            return .notMeasured
+        }
+
+        let longFramePressure = (gestureLongFramePermille ?? 0) >= 200
+        let deferralPressure = (incomingFrameDeferredPermille ?? 0) >= 200
+
+        switch (longFramePressure, deferralPressure) {
+        case (true, true):
+            return .mixedViewportPressure
+        case (true, false):
+            return .gestureLoopPressure
+        case (false, true):
+            return .incomingFrameDeferral
+        case (false, false):
+            return .none
+        }
+    }
+}
+
 public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case observedDurationBucket
@@ -302,6 +333,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case viewportGestureMaxIntervalBucket
         case viewportIncomingFrameDeferredCount
         case viewportIncomingFrameDeferredPermille
+        case viewportStutterHint
         case viewportRedrawRequestCount
         case viewportRedrawFlushCount
         case viewportDecelerationFrameCount
@@ -361,6 +393,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let viewportGestureMaxIntervalBucket: String
     public let viewportIncomingFrameDeferredCount: Int
     public let viewportIncomingFrameDeferredPermille: Int?
+    public let viewportStutterHint: String
     public let viewportRedrawRequestCount: Int
     public let viewportRedrawFlushCount: Int
     public let viewportDecelerationFrameCount: Int
@@ -420,6 +453,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         viewportGestureMaxIntervalBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         viewportIncomingFrameDeferredCount: Int = 0,
         viewportIncomingFrameDeferredPermille: Int? = nil,
+        viewportStutterHint: String? = nil,
         viewportRedrawRequestCount: Int = 0,
         viewportRedrawFlushCount: Int = 0,
         viewportDecelerationFrameCount: Int = 0,
@@ -517,6 +551,11 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                     )
             ) ?? 0
             : nil
+        self.viewportStutterHint = Self.safeViewportStutterHint(viewportStutterHint)
+            ?? DiagnosticViewportStutterHint.classify(
+                gestureLongFramePermille: self.viewportGestureLongFramePermille,
+                incomingFrameDeferredPermille: self.viewportIncomingFrameDeferredPermille
+            ).rawValue
         self.viewportRedrawRequestCount = viewportRedrawRequestCount
         self.viewportRedrawFlushCount = max(viewportRedrawFlushCount, 0)
         self.viewportDecelerationFrameCount = max(viewportDecelerationFrameCount, 0)
@@ -682,6 +721,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .viewportIncomingFrameDeferredPermille
             ),
+            viewportStutterHint: try container.decodeIfPresent(String.self, forKey: .viewportStutterHint),
             viewportRedrawRequestCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .viewportRedrawRequestCount
@@ -796,6 +836,13 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
 
     private static func safeTimingBucket(_ value: String) -> String {
         DiagnosticTimingBucket(rawValue: value)?.rawValue ?? DiagnosticTimingBucket.notMeasured.rawValue
+    }
+
+    private static func safeViewportStutterHint(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        return DiagnosticViewportStutterHint(rawValue: value)?.rawValue
     }
 
     private static func safeEncodingMix(_ value: RFBFramebufferEncodingMix) -> RFBFramebufferEncodingMix {
@@ -1045,7 +1092,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 18
+    public static let currentSchemaVersion = 19
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
