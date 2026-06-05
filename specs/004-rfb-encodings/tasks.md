@@ -717,6 +717,13 @@ iPhone) and ships as its own PR.
   categories before the next cadence/default change. Owns: benchmark summary
   kit, CLI report output, tests, benchmark docs/artifact, research note.
   **Done.**
+- **T398** Stream-shape profile gates: bump `VNCLiveBenchmark` to schema v37
+  with top-level per-profile/transport practical target gates that summarize
+  pass/warning/fail/disabled run counts, fixed issue-code unions, and aggregate
+  hit-rate permille means so larger cadence/default/profile changes have a
+  single benchmark decision surface before physical iPhone verification. Owns:
+  benchmark summary kit, CLI report output, tests, benchmark docs/artifact,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 
