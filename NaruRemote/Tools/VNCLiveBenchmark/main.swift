@@ -1973,7 +1973,7 @@ private func renderText(_ report: BenchmarkReport) {
             }
         }
     }
-    if report.streamShapeProfileGates.count > 1 {
+    if !report.streamShapeProfileGates.isEmpty {
         print("")
         print("stream-shape profile gates:")
         for gate in report.streamShapeProfileGates {
