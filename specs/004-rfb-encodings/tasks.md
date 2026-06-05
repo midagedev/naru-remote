@@ -757,6 +757,13 @@ iPhone) and ships as its own PR.
   physical-device artifacts show a clear win. Owns: pixel-format constants,
   network-client SetPixelFormat preference, benchmark profile selection,
   gate preset/tests, benchmark docs/artifact, research note. **Done.**
+- **T403** Settings-backed app stream profile experiment gate: add a
+  fixed-catalog `streamEncodingMode` setting that defaults to standard,
+  cycles through benchmark candidates (`zrle-compression-0`,
+  `adaptive-good-full`) before connection, lets power saver remain the
+  stronger thermal override, and records only the safe fixed label in
+  diagnostic schema v27. Owns: app settings, app model, session controls,
+  diagnostics, focused tests, benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

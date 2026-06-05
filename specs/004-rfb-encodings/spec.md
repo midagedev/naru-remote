@@ -143,6 +143,7 @@ On a poor connection-quality bucket (`specs/003`'s `ConnectionQuality`), Naru re
 - **FR-012**: The encoding-preference list builder MUST be a pure function of (supported decoders, requested pseudo-encodings, connection-quality bucket) so it is unit-testable and so the quality bucket from `specs/003` can adapt JPEG-quality / compression-level pseudo-encodings (FR-013).
 - **FR-013**: Naru SHOULD adapt the advertised Tight quality-level (-23…-32) and compression-level (0…-9) pseudo-encodings to the current `ConnectionQuality` bucket; and SHOULD negotiate continuous updates / fence (-312/-313) pacing when available. These are optimizations gated behind the encodings they ride on.
 - **FR-014**: All multi-byte protocol fields MUST be parsed/serialized big-endian per RFC 6143; decoders MUST never read past the declared length of a rectangle or compressed block.
+- **FR-015**: Naru MAY expose a fixed-catalog, opt-in app stream profile experiment gate for benchmark candidates before any production default changes. The gate MUST default to the existing automatic profile, persist only a safe fixed label, apply no earlier than the next connection unless a separately tested live renegotiation path exists, and be recorded in diagnostics only as that fixed label.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -150,7 +151,7 @@ On a poor connection-quality bucket (`specs/003`'s `ConnectionQuality`), Naru re
 - **IN-002 Remote injection behavior**: the only client→server messages added are `SetEncodings` (type 2) and optionally `SetPixelFormat` (type 0), fence responses, and EnableContinuousUpdates — all session/transport control, not user input. Pointer/key paths are unchanged (`specs/002`/`003`).
 - **IN-003 Fallback behavior**: if negotiation yields nothing better, Raw is used (existing path). If a needed encoding fails to decode, the typed error tears the stream down cleanly into the reconnect path (`ReconnectPolicy`), not a crash.
 - **IN-004 Clipboard impact**: none. `ServerCutText`/`ClientCutText` paths are unchanged.
-- **IN-005 User confirmation**: none — encoding negotiation is automatic transport behavior with no user-visible decision.
+- **IN-005 User confirmation**: none for the production default path - encoding negotiation is automatic transport behavior. Temporary benchmark experiment gates are allowed only as fixed-catalog opt-ins under FR-015.
 
 ### Tailnet / Connection Requirements
 
@@ -227,5 +228,5 @@ Per constitution §VI/§III, every scenario lists an iPhone path before any iPad
 - **GPU dirty-rectangle partial upload / Metal renderer optimization** — correctness-first; the full re-upload stays. A later perf spec may add it.
 - **Audio / file-transfer / RemoteFX / H.264 (open-h264 VNC) extensions** — out of scope.
 - **Changing the viewport/pointer presentation** — that is `specs/003` (shipped); this feature only changes what bytes are decoded into the framebuffer.
-- **A user-facing encoding picker** — negotiation is automatic; manual override is not a goal (the adaptive lever is internal, driven by the quality bucket).
+- **A permanent production user-facing encoding picker** - negotiation is automatic by default; manual override is not a product goal. A fixed-catalog benchmark experiment gate is allowed only under FR-015 and must not imply the selected candidate is the recommended default.
 - **`SetPixelFormat` to a non-32bpp format** — Naru keeps 32-bit true-colour; sending `SetPixelFormat` (if at all) only re-asserts that format.

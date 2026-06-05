@@ -78,6 +78,8 @@ public struct SessionViewportView: View {
     private let streamPowerMode: StreamPowerMode
     /// Persists the next `streamPowerMode` through the app model.
     private let onToggleStreamPowerMode: (() -> Void)?
+    private let streamEncodingMode: StreamEncodingMode
+    private let onToggleStreamEncodingMode: (() -> Void)?
     private let startupPreflightMode: StreamStartupPreflightMode
     private let onToggleStartupPreflightMode: (() -> Void)?
     /// Latency-derived connection quality, shown as a compact chip while
@@ -188,6 +190,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        streamEncodingMode: StreamEncodingMode = .standard,
+        onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         onToggleStartupPreflightMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
@@ -223,6 +227,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.streamEncodingMode = streamEncodingMode
+        self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
         self.connectionQuality = connectionQuality
@@ -262,6 +268,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        streamEncodingMode: StreamEncodingMode = .standard,
+        onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         onToggleStartupPreflightMode: (() -> Void)? = nil,
         connectionQuality: ConnectionQuality = .unknown,
@@ -296,6 +304,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.streamEncodingMode = streamEncodingMode
+        self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
         self.connectionQuality = connectionQuality
@@ -487,6 +497,9 @@ public struct SessionViewportView: View {
                 disconnectButton
             }
             streamPowerModeButton
+            if showsStreamEncodingModeButton {
+                streamEncodingModeButton
+            }
             if showsStartupPreflightModeButton {
                 startupPreflightModeButton
             }
@@ -548,6 +561,9 @@ public struct SessionViewportView: View {
                     disconnectButton
                 }
                 streamPowerModeButton
+                if showsStreamEncodingModeButton {
+                    streamEncodingModeButton
+                }
                 if showsStartupPreflightModeButton {
                     startupPreflightModeButton
                 }
@@ -579,6 +595,9 @@ public struct SessionViewportView: View {
                     disconnectButton
                 }
                 streamPowerModeButton
+                if showsStreamEncodingModeButton {
+                    streamEncodingModeButton
+                }
                 if showsStartupPreflightModeButton {
                     startupPreflightModeButton
                 }
@@ -730,6 +749,40 @@ public struct SessionViewportView: View {
         streamPowerMode == .powerSaver
             ? "Power saver stream — tap to use balanced pacing"
             : "Balanced stream — tap to reduce heat"
+    }
+
+    private var showsStreamEncodingModeButton: Bool {
+        session?.state != .active
+    }
+
+    @ViewBuilder
+    private var streamEncodingModeButton: some View {
+        Button {
+            onToggleStreamEncodingMode?()
+        } label: {
+            Label(
+                streamEncodingModeLabelText,
+                systemImage: "slider.horizontal.3"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.bordered)
+        .tint(streamEncodingMode == .standard ? .accentColor : .cyan)
+        .disabled(onToggleStreamEncodingMode == nil)
+        .help(streamEncodingModeLabelText)
+        .accessibilityLabel(streamEncodingModeLabelText)
+        .accessibilityIdentifier("naru.session.streamEncodingMode")
+    }
+
+    private var streamEncodingModeLabelText: String {
+        switch streamEncodingMode {
+        case .standard:
+            return "Standard stream profile — tap to try ZRLE compression 0"
+        case .zrleCompressionZero:
+            return "ZRLE compression 0 stream profile — tap to try adaptive full"
+        case .adaptiveGoodFull:
+            return "Adaptive full stream profile — tap to use standard"
+        }
     }
 
     private var showsStartupPreflightModeButton: Bool {

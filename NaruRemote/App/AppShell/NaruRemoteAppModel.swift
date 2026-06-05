@@ -523,6 +523,21 @@ public final class NaruRemoteAppModel: ObservableObject {
         setStreamPowerMode(appSettings.streamPowerMode.toggled)
     }
 
+    public func setStreamEncodingMode(_ mode: StreamEncodingMode) {
+        var updated = appSettings
+        updated.streamEncodingMode = mode
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    public func toggleStreamEncodingMode() {
+        setStreamEncodingMode(appSettings.streamEncodingMode.toggled)
+    }
+
     public func setStartupPreflightMode(_ mode: StreamStartupPreflightMode) {
         var updated = appSettings
         updated.startupPreflightMode = mode
@@ -1043,6 +1058,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func makeDiagnosticExport() -> DiagnosticExport {
         let streamPerformance = sessionStreamStats.diagnosticStreamPerformanceReport
         let viewerStreamPowerMode = appSettings.streamPowerMode
+        let viewerStreamEncodingMode = appSettings.streamEncodingMode
         let viewerStartupPreflightMode = appSettings.startupPreflightMode
         let composeRoute = composeRouteDiagnosticSnapshot()
         let input = DiagnosticInputReport(
@@ -1068,6 +1084,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ),
                 streamPerformance: streamPerformance,
                 viewerStreamPowerMode: viewerStreamPowerMode,
+                viewerStreamEncodingMode: viewerStreamEncodingMode,
                 viewerStartupPreflightMode: viewerStartupPreflightMode,
                 input: input,
                 sustainedSessionAssessment: sustainedSessionAssessment
@@ -1077,6 +1094,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             run: run,
             streamPerformance: streamPerformance,
             viewerStreamPowerMode: viewerStreamPowerMode,
+            viewerStreamEncodingMode: viewerStreamEncodingMode,
             viewerStartupPreflightMode: viewerStartupPreflightMode,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
@@ -2170,7 +2188,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activeKeyEventClient = streamingClient
                 keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
                 lastEmittedDragCoord = nil
-                await renegotiatePowerSaverSustainedEncodingsIfNeeded(
+                await renegotiateConfiguredSustainedEncodingsIfNeeded(
                     transportControl: streamingClient as? any RFBTransportControlClient,
                     requestTimeout: configuration.requestTimeout
                 )
@@ -2827,12 +2845,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
-    private func renegotiatePowerSaverSustainedEncodingsIfNeeded(
+    private func renegotiateConfiguredSustainedEncodingsIfNeeded(
         transportControl: (any RFBTransportControlClient)?,
         requestTimeout: TimeInterval
     ) async {
-        guard appSettings.streamPowerMode == .powerSaver || lowPowerModeProvider(),
-              let transportControl
+        guard let transportControl,
+              let preference = configuredSustainedEncodingPreference()
         else {
             return
         }
@@ -2845,10 +2863,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         // a non-fatal optimization miss.
         try? await Task.detached(priority: .utility) {
             try transportControl.renegotiateEncodings(
-                .powerSaverSustained,
+                preference,
                 timeout: timeout
             )
         }.value
+    }
+
+    private func configuredSustainedEncodingPreference() -> RFBEncodingPreference? {
+        if appSettings.streamPowerMode == .powerSaver || lowPowerModeProvider() {
+            return .powerSaverSustained
+        }
+
+        switch appSettings.streamEncodingMode {
+        case .standard:
+            return nil
+        case .zrleCompressionZero:
+            return RFBEncodingPreference(zrle: true, compressionLevel: 0)
+        case .adaptiveGoodFull:
+            return RFBEncodingPreference.adaptive(
+                supported: .full,
+                requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
+                connectionQuality: .good
+            )
+        }
     }
 
     /// Optional spec-004 adaptive re-advertisement. Connection-quality

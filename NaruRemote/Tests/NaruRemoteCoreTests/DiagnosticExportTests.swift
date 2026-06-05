@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 26"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 27"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 26)
+        XCTAssertEqual(decoded.schemaVersion, 27)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -297,6 +297,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(decoded.stageRows.first?.failureCode, "network.connectionFailed")
         XCTAssertNil(decoded.streamPerformance)
         XCTAssertNil(decoded.viewerStreamPowerMode)
+        XCTAssertNil(decoded.viewerStreamEncodingMode)
         XCTAssertNil(decoded.viewerStartupPreflightMode)
     }
 
@@ -382,6 +383,7 @@ final class DiagnosticExportTests: XCTestCase {
             run: run,
             streamPerformance: performance,
             viewerStreamPowerMode: .powerSaver,
+            viewerStreamEncodingMode: .adaptiveGoodFull,
             viewerStartupPreflightMode: .oneHiddenFrame
         )
 
@@ -394,9 +396,10 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 26)
+        XCTAssertEqual(decoded.schemaVersion, 27)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
+        XCTAssertEqual(decoded.viewerStreamEncodingMode, StreamEncodingMode.adaptiveGoodFull.rawValue)
         XCTAssertEqual(decoded.viewerStartupPreflightMode, StreamStartupPreflightMode.oneHiddenFrame.rawValue)
         XCTAssertTrue(rendered.contains("\"streamPerformance\""))
         XCTAssertTrue(rendered.contains("\"contentFramesPerSecondBucket\" : \"fiveToFifteen\""))
@@ -427,6 +430,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"copyRectRectangles\" : 70"))
         XCTAssertTrue(rendered.contains("\"thermalState\" : \"serious\""))
         XCTAssertTrue(rendered.contains("\"viewerStreamPowerMode\" : \"power-saver\""))
+        XCTAssertTrue(rendered.contains("\"viewerStreamEncodingMode\" : \"adaptive-good-full\""))
         XCTAssertTrue(rendered.contains("\"viewerStartupPreflightMode\" : \"one-hidden-frame\""))
         XCTAssertFalse(rendered.contains("caller detail"))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
@@ -501,7 +505,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 26)
+        XCTAssertEqual(decoded.schemaVersion, 27)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -697,10 +701,12 @@ final class DiagnosticExportTests: XCTestCase {
             verdict: DiagnosticVerdict.unknown.rawValue,
             stageRows: [],
             viewerStreamPowerMode: "mode=SECRET",
+            viewerStreamEncodingMode: "encoding=SECRET",
             viewerStartupPreflightMode: "preflight=SECRET"
         )
 
         XCTAssertNil(report.viewerStreamPowerMode)
+        XCTAssertNil(report.viewerStreamEncodingMode)
         XCTAssertNil(report.viewerStartupPreflightMode)
 
         let payload = """
@@ -715,6 +721,7 @@ final class DiagnosticExportTests: XCTestCase {
           "verdict": "unknown",
           "stageRows": [],
           "viewerStreamPowerMode": "mode=SECRET",
+          "viewerStreamEncodingMode": "encoding=SECRET",
           "viewerStartupPreflightMode": "preflight=SECRET"
         }
         """
@@ -723,6 +730,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(payload.utf8)
         )
         XCTAssertNil(decoded.viewerStreamPowerMode)
+        XCTAssertNil(decoded.viewerStreamEncodingMode)
         XCTAssertNil(decoded.viewerStartupPreflightMode)
     }
 
@@ -1358,8 +1366,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v26 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 26"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v27 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 27"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

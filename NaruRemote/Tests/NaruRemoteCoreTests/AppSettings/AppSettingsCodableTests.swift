@@ -65,6 +65,19 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded.startupPreflightMode.requestedHiddenFrameCount, 1)
     }
 
+    func testStreamEncodingModeDecodesWhenPresent() throws {
+        let json = """
+        {
+          "streamEncodingMode": "zrle-compression-0"
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZero)
+    }
+
     func testEncodingProducesEmptyJSONObject() throws {
         let data = try JSONEncoder().encode(AppSettings())
         let json = String(decoding: data, as: UTF8.self)
@@ -94,9 +107,25 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertTrue(json.contains("\"one-hidden-frame\""))
     }
 
+    func testEncodingNonDefaultStreamEncodingMode() throws {
+        let data = try JSONEncoder().encode(AppSettings(streamEncodingMode: .adaptiveGoodFull))
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertEqual(decoded.streamEncodingMode, .adaptiveGoodFull)
+        XCTAssertTrue(json.contains("\"streamEncodingMode\""))
+        XCTAssertTrue(json.contains("\"adaptive-good-full\""))
+    }
+
     func testStartupPreflightModeTogglesBetweenExperimentAndDisabled() {
         XCTAssertEqual(StreamStartupPreflightMode.disabled.toggled, .oneHiddenFrame)
         XCTAssertEqual(StreamStartupPreflightMode.oneHiddenFrame.toggled, .disabled)
         XCTAssertEqual(StreamStartupPreflightMode.disabled.requestedHiddenFrameCount, 0)
+    }
+
+    func testStreamEncodingModeTogglesThroughBenchmarkCandidates() {
+        XCTAssertEqual(StreamEncodingMode.standard.toggled, .zrleCompressionZero)
+        XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .adaptiveGoodFull)
+        XCTAssertEqual(StreamEncodingMode.adaptiveGoodFull.toggled, .standard)
     }
 }
