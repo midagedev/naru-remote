@@ -1561,3 +1561,66 @@ with helper-aware diagnostics instead of sending text that is known unreliable.
 aggregate counts, aggregate permille values, and aggregate latency summaries.
 They must not emit host identity, password, framebuffer dimensions, pixels,
 cursor pixels, coordinates, raw text, byte counts, or raw per-frame samples.
+
+## D49 — Prioritize local touch smoothness and require confirmed UTF-8 Compose
+
+References:
+- Apple `MTKView.enableSetNeedsDisplay` on-demand drawing:
+  https://developer.apple.com/documentation/metalkit/mtkview/enablesetneedsdisplay
+- Apple ProMotion frame pacing guidance:
+  https://developer.apple.com/documentation/quartzcore/optimizing-iphone-and-ipad-apps-to-support-promotion-displays
+- RFC 6143 RFB framebuffer update and cut-text flow:
+  https://datatracker.ietf.org/doc/rfc6143/
+- Host helper text bridge spec:
+  `specs/006-host-helper-text-bridge/spec.md`
+
+**Decision**: supersede the pacing and Compose-routing parts of D48. After
+physical iPhone feedback still reports unnatural zoom/pan and Compose text not
+actually arriving on the remote Mac, reduce active viewport-interaction content
+request cadence to a conservative 4 Hz-class floor and lower zoomed trackpad
+pan coupling so the local cursor remains finger-paced without over-dragging the
+viewport. For Korean/CJK/emoji Compose, treat unconfirmed VNC UTF-8 clipboard
+support the same as the helper spec requires: route through a reachable helper
+when available; otherwise fail before writing clipboard bytes or sending paste.
+Confirmed Extended Clipboard UTF-8 remains valid, and ASCII / Latin-1 legacy
+Compose remains allowed with `unknown` remote confirmation status.
+
+**Why**:
+- During pinch, zoomed pan, and zoomed trackpad auto-pan, Naru's visible
+  movement is a local Core Animation transform on a paused, on-demand `MTKView`.
+  Mid-gesture RFB decode/upload can only refresh remote content; it does not
+  improve finger-following. Lowering this work from 8 Hz to 4 Hz gives touch
+  tracking and the compositor more room on hot physical iPhones while still
+  preserving stream liveness and a newest-frame flush at gesture end.
+- Trackpad mode needs the viewport to follow the real cursor while zoomed, but
+  coupling too much pan into every central cursor move makes the remote desktop
+  feel like it is swimming under the finger. A lower coupling keeps central
+  cursor movement calmer and leaves reveal-zone auto-pan to do more of the
+  edge-follow work.
+- RFC 6143's base cut-text path is not proof of UTF-8 clipboard support. The
+  helper feature explicitly exists because Apple Screen Sharing-style targets
+  may ignore or mishandle legacy VNC clipboard updates. Reporting best-effort
+  legacy UTF-8 paste as merely `unknown` is not honest enough when the user
+  observes no remote text.
+
+**Evidence**:
+- `swift run VNCLiveBenchmark --ask-password --first-frame-profiles none
+  --stream-shape-profiles local-low-latency --stream-shape-samples 0
+  --stream-shape-duration-seconds 6 --stream-shape-client-pressure app
+  --stream-shape-viewport-interaction app --json`
+  - Result: passed against the redacted local target.
+  - Schema v26 reported
+    `streamShapeViewportInteractionContentFrameIntervalSeconds: 0.25`,
+    `viewportInteractionPacingPermille: 1000`, request/response transport,
+    7 received samples over 6 seconds, 4 content updates, 3 empty updates,
+    75% partial uploads, 25% full uploads, average update latency 647 ms, p95
+    update latency 2707 ms, and one very-slow update.
+- Focused tests passed for pointer resolver behavior, model-level trackpad
+  dispatch, viewport redraw pacing, text-injection policy, and no-helper
+  unconfirmed UTF-8 Compose failure.
+
+**Privacy rule**: benchmark, diagnostics, and tests may report only fixed mode
+labels, aggregate counts, aggregate permille values, and aggregate latency
+summaries. They must not emit host identity, password, framebuffer dimensions,
+pixels, cursor pixels, coordinates, raw Compose text, byte counts, or raw
+per-frame samples.

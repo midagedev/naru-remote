@@ -43,10 +43,10 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: interval), .requestNow)
     }
 
-    func testViewportInteractionCadenceStaysEightHertzClass() {
+    func testViewportInteractionCadenceStaysFourHertzClass() {
         XCTAssertEqual(
             StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
-            1.0 / 8.0,
+            1.0 / 4.0,
             accuracy: 0.0001
         )
     }
