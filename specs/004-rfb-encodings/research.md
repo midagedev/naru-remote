@@ -1756,7 +1756,7 @@ pixels, byte counts, raw samples, or raw error text.
 **Decision**: extend `BenchmarkStreamShapeTailSummary` with optional ordinal
 aggregates for the first slow and first very-slow update, plus their
 content-update ordinals. Bump `VNCLiveBenchmark` to schema v30 and print the
-first very-slow ordinal in the human report.
+first slow and first very-slow ordinals in the human report.
 
 **Why**:
 - After T382, the remaining practical-baseline failure is not renderer upload

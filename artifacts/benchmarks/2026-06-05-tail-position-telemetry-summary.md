@@ -19,7 +19,8 @@ data.
 - `firstVerySlowContentUpdateOrdinal`
 
 `VNCLiveBenchmark` schema v30 includes those fields under `tailLatency`, and the
-human report prints the first very-slow update/content ordinal when present.
+human report prints the first slow and first very-slow update/content ordinals
+when present.
 
 The fields are one-based sequence numbers only. They do not export raw
 per-frame samples, timestamps, host identity, credentials, framebuffer

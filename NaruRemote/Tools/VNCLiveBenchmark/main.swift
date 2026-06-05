@@ -1620,6 +1620,14 @@ private func renderStreamShapeSummary(
             + ">=\(summary.tailLatency.verySlowUpdateThresholdMilliseconds)ms: "
             + "\(summary.tailLatency.verySlowUpdateSamples)"
     )
+    if let firstSlow = summary.tailLatency.firstSlowUpdateOrdinal {
+        let contentOrdinal = summary.tailLatency.firstSlowContentUpdateOrdinal
+            .map(String.init) ?? "n/a"
+        print(
+            "\(indentation)  first slow update ordinal/content ordinal: "
+                + "\(firstSlow)/\(contentOrdinal)"
+        )
+    }
     if let firstVerySlow = summary.tailLatency.firstVerySlowUpdateOrdinal {
         let contentOrdinal = summary.tailLatency.firstVerySlowContentUpdateOrdinal
             .map(String.init) ?? "n/a"
