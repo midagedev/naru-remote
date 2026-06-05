@@ -3816,3 +3816,69 @@ fixed failure-label counts. It must not emit host identity, credentials, port
 values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw payloads, raw timings, raw FPS, stimulus command text,
 command output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D91 — Request pacing window sweep keeps zero-delay as the best current candidate
+
+References:
+- RFC 6143 FramebufferUpdateRequest flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- D90 request cadence health report.
+- `artifacts/benchmarks/2026-06-06-request-pacing-window-sweep-summary.md`.
+
+**Decision**: add `sustained-v2-zrle-pacing-sweep` as a benchmark-only preset
+and bump `VNCLiveBenchmark` to schema v48. The preset holds the profile fixed at
+`zrle-compression-0-clipboard`, uses request/response only, skips the standalone
+ContinuousUpdates probe, and rotates fixed pacing windows:
+`zero-content-delay`, `app-balanced-30hz`, and `stimulus-aligned-12hz`.
+
+Schema v48 adds safe fixed `streamShapePacingWindows` labels to profile probes,
+aggregates, gates, and recommendations so pacing windows are never merged into
+one aggregate. Older probe JSON without the field decodes as `single`.
+
+**Why**:
+- D90 identified high content hit-rate plus p95 update tail. The next question
+  was whether a different post-content request pacing window could reduce tail
+  enough to improve practical usability without changing encoding profiles.
+- The sweep keeps the encoding/profile variable constant and changes only a
+  fixed benchmark pacing label, making the result easier to interpret before
+  any app default change.
+
+**Evidence**:
+- Focused tests cover fixed pacing-window raw labels and candidate intervals,
+  legacy profile-report decoding without a pacing window, and aggregate/gate
+  separation by pacing window.
+- Help output exposes schema v48 and the
+  `sustained-v2-zrle-pacing-sweep` preset.
+- A redacted live v48 sweep reported:
+  - `streamShapeRequestCadenceHealth.sampleStatus = high-content-hit`;
+  - `latencyStatus = p95-failed`;
+  - `recommendedNextProbe = tuneRequestPacingWindow`;
+  - `zero-content-delay`: 5/5 usable, average content FPS 6.46, average update
+    128 ms, max p95 update 507 ms, content/request 858 permille,
+    content/response 870 permille, max client p95 15 ms;
+  - `app-balanced-30hz`: 5/5 usable, average content FPS 4.56, average update
+    147 ms, max p95 update 506 ms, content/request 854 permille,
+    content/response 864 permille, max client p95 140 ms;
+  - `stimulus-aligned-12hz`: 5/5 usable, average content FPS 3.00, average
+    update 162 ms, max p95 update 464 ms, content/request 728 permille,
+    content/response 743 permille, max client p95 146 ms.
+
+**Interpretation**:
+- Slowing request pacing did not produce a practical sustained-session win.
+  The 12Hz-aligned window reduces max p95 below the hard-fail threshold but
+  collapses content FPS to about 3fps.
+- `zero-content-delay` remains the best current benchmark window by average
+  update latency and FPS, but it still misses the 8fps target and keeps max p95
+  just above 500 ms.
+- The next large unit should inspect request/update wait-tail timing inside the
+  request/response path rather than promote a slower pacing window or change
+  production defaults.
+
+**Privacy rule**: pacing-window reports may emit only fixed profile,
+transport, target, pacing-window, status/action labels, aggregate run counts,
+aggregate permille ratios, aggregate millisecond summaries, aggregate content
+FPS, fixed constraint counts, and fixed failure-label counts. They must not
+emit host identity, credentials, port values, raw TCP/RFB errors, framebuffer
+dimensions, coordinates, pixels, cursor pixels, byte counts, raw payloads, raw
+timings, raw FPS, stimulus command text, command output, draft text, marked
+text, IME state, or full diagnostic payloads.

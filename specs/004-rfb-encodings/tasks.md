@@ -940,6 +940,19 @@ iPhone) and ships as its own PR.
   TCP/RFB errors, raw payloads, command text, command output, draft text, marked
   text, or IME state. Owns: benchmark summary kit/tests, CLI schema/text
   report, README, benchmark artifact, research note. **Done.**
+- **T423** Request pacing window sweep gate: bump `VNCLiveBenchmark` to schema
+  v48 with fixed `streamShapePacingWindows` labels on stream-shape probes,
+  aggregates, gates, and recommendations. Add the benchmark-only
+  `sustained-v2-zrle-pacing-sweep` preset that holds
+  `zrle-compression-0-clipboard` constant, uses request/response only, rotates
+  `zero-content-delay`, `app-balanced-30hz`, and `stimulus-aligned-12hz` for 5
+  iterations, and records a redacted live result. Keep older profile reports
+  decoding as `single`, keep pacing windows separate in aggregates/gates, and
+  do not export host identity, dimensions, coordinates, pixels, cursor pixels,
+  byte counts, raw timings, raw TCP/RFB errors, raw payloads, command text,
+  command output, draft text, marked text, or IME state. Owns: pacing policy
+  kit/tests, benchmark summary kit/tests, CLI schema/text report, README,
+  benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -21,6 +21,85 @@ public enum BenchmarkStreamShapeViewportInteractionMode: String, Codable, Equata
     case app
 }
 
+public enum BenchmarkStreamShapePacingWindow: String, Codable, Equatable, Sendable, CaseIterable {
+    case single
+    case appBalanced30Hz = "app-balanced-30hz"
+    case zeroContentDelay = "zero-content-delay"
+    case stimulusAligned12Hz = "stimulus-aligned-12hz"
+
+    public static var usageDescription: String {
+        allCases.map(\.rawValue).joined(separator: "|")
+    }
+}
+
+public struct BenchmarkStreamShapePacingWindowCandidate: Equatable, Sendable {
+    public let label: BenchmarkStreamShapePacingWindow
+    public let contentFrameInterval: TimeInterval
+    public let idleFrameInterval: TimeInterval
+    public let emptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
+
+    public init(
+        label: BenchmarkStreamShapePacingWindow,
+        contentFrameInterval: TimeInterval,
+        idleFrameInterval: TimeInterval,
+        emptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
+    ) {
+        self.label = label
+        self.contentFrameInterval = max(contentFrameInterval, 0)
+        self.idleFrameInterval = max(idleFrameInterval, 0)
+        self.emptyBackoffMode = emptyBackoffMode
+    }
+
+    public static func single(
+        contentFrameInterval: TimeInterval,
+        idleFrameInterval: TimeInterval,
+        emptyBackoffMode: BenchmarkStreamShapeEmptyBackoffMode
+    ) -> BenchmarkStreamShapePacingWindowCandidate {
+        BenchmarkStreamShapePacingWindowCandidate(
+            label: .single,
+            contentFrameInterval: contentFrameInterval,
+            idleFrameInterval: idleFrameInterval,
+            emptyBackoffMode: emptyBackoffMode
+        )
+    }
+
+    public static let requestPacingSweep: [BenchmarkStreamShapePacingWindowCandidate] = [
+        BenchmarkStreamShapePacingWindowCandidate(
+            label: .zeroContentDelay,
+            contentFrameInterval: 0,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app
+        ),
+        BenchmarkStreamShapePacingWindowCandidate(
+            label: .appBalanced30Hz,
+            contentFrameInterval: BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app
+        ),
+        BenchmarkStreamShapePacingWindowCandidate(
+            label: .stimulusAligned12Hz,
+            contentFrameInterval: 1.0 / 12.0,
+            idleFrameInterval: 0.05,
+            emptyBackoffMode: .app
+        )
+    ]
+
+    public func policy(
+        powerMode: BenchmarkStreamShapePowerMode,
+        clientPressureMode: BenchmarkStreamShapeClientPressureMode,
+        viewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode
+    ) -> BenchmarkStreamShapePacingPolicy {
+        BenchmarkStreamShapePacingPolicy(
+            contentFrameInterval: contentFrameInterval,
+            idleFrameInterval: idleFrameInterval,
+            emptyBackoffMode: emptyBackoffMode,
+            powerMode: powerMode,
+            clientPressureMode: clientPressureMode,
+            viewportInteractionMode: viewportInteractionMode
+        )
+    }
+}
+
 public struct BenchmarkStreamShapePacingDecision: Equatable, Sendable {
     public let delay: TimeInterval
     public let usesViewportInteractionPacing: Bool

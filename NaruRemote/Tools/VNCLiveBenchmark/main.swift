@@ -75,24 +75,26 @@ enum VNCLiveBenchmark {
             timeout: options.timeout,
             idleTimeout: options.idleTimeout
         )
-        let streamShapePacingPolicy = BenchmarkStreamShapePacingPolicy(
-            contentFrameInterval: options.streamShapeFrameInterval,
-            idleFrameInterval: options.streamShapeIdleFrameInterval,
-            emptyBackoffMode: options.streamShapeEmptyBackoffMode,
-            powerMode: options.streamShapePowerMode,
-            clientPressureMode: options.streamShapeClientPressureMode,
-            viewportInteractionMode: options.streamShapeViewportInteractionMode
-        )
+        let streamShapePacingWindowCandidates = options.effectiveStreamShapePacingWindowCandidates()
         let streamShapeSchedule = streamShapeProfileSchedule(
             profiles: options.streamShapeProfiles.profiles,
             transportModes: options.streamShapeTransportModes.modes,
+            pacingWindows: streamShapePacingWindowCandidates,
             iterations: options.streamShapeProfileIterations,
             orderMode: options.streamShapeProfileOrderMode
         )
         let streamShapeProfileProbes = streamShapeSchedule.map { scheduledProbe in
-            measureStreamShapeProfileProbe(
+            // Keep the report label and the request-loop pacing policy coupled
+            // so a sweep cannot accidentally relabel identical measurements.
+            let streamShapePacingPolicy = scheduledProbe.pacingWindow.policy(
+                powerMode: options.streamShapePowerMode,
+                clientPressureMode: options.streamShapeClientPressureMode,
+                viewportInteractionMode: options.streamShapeViewportInteractionMode
+            )
+            return measureStreamShapeProfileProbe(
                 profile: scheduledProbe.profile,
                 transportMode: scheduledProbe.transportMode,
+                pacingWindow: scheduledProbe.pacingWindow.label,
                 configuration: configuration,
                 timeout: options.timeout,
                 idleTimeout: options.idleTimeout,
@@ -143,6 +145,7 @@ enum VNCLiveBenchmark {
             streamShapeGatePreset: options.streamShapeGatePreset,
             streamShapeProfileIterations: options.streamShapeProfileIterations,
             streamShapeProfileOrderMode: options.streamShapeProfileOrderMode,
+            streamShapePacingWindows: streamShapePacingWindowCandidates.map(\.label),
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
@@ -637,6 +640,7 @@ enum VNCLiveBenchmark {
     private static func measureStreamShapeProfileProbe(
         profile: BenchmarkProfile,
         transportMode: BenchmarkStreamShapeTransportMode,
+        pacingWindow: BenchmarkStreamShapePacingWindow,
         configuration: LiveTargetConfiguration,
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
@@ -669,6 +673,7 @@ enum VNCLiveBenchmark {
         return BenchmarkStreamShapeProfileReport(
             label: profile.label,
             transportMode: transportMode,
+            pacingWindow: pacingWindow,
             iterationOrdinal: iterationOrdinal,
             orderOrdinal: orderOrdinal,
             firstFrameMilliseconds: probe.firstFrameMilliseconds,
@@ -679,11 +684,21 @@ enum VNCLiveBenchmark {
     private static func streamShapeProfileSchedule(
         profiles: [BenchmarkProfile],
         transportModes: [BenchmarkStreamShapeTransportMode],
+        pacingWindows: [BenchmarkStreamShapePacingWindowCandidate],
         iterations: Int,
         orderMode: BenchmarkStreamShapeProfileOrderMode
     ) -> [ScheduledStreamShapeProfileProbe] {
         let profiles = profiles.isEmpty ? [.localLowLatency] : profiles
         let transportModes = transportModes.isEmpty ? [.requestResponse] : transportModes
+        let pacingWindows = pacingWindows.isEmpty
+            ? [
+                .single(
+                    contentFrameInterval: BenchmarkStreamShapePacingPolicy.appBalancedContentFrameInterval,
+                    idleFrameInterval: 0.05,
+                    emptyBackoffMode: .app
+                )
+            ]
+            : pacingWindows
         let iterations = max(iterations, 1)
         return (0..<iterations).flatMap { iteration in
             let scheduledProfiles = rotatedProfiles(
@@ -694,14 +709,26 @@ enum VNCLiveBenchmark {
                 transportModes,
                 offset: orderMode == .rotate ? iteration : 0
             )
+            let scheduledPacingWindows = rotatedPacingWindows(
+                pacingWindows,
+                offset: orderMode == .rotate ? iteration : 0
+            )
             return scheduledProfiles.enumerated().flatMap { profileOffset, profile in
-                scheduledTransportModes.enumerated().map { transportOffset, transportMode in
-                    ScheduledStreamShapeProfileProbe(
-                        profile: profile,
-                        transportMode: transportMode,
-                        iterationOrdinal: iteration + 1,
-                        orderOrdinal: profileOffset * transportModes.count + transportOffset + 1
-                    )
+                scheduledTransportModes.enumerated().flatMap { transportOffset, transportMode in
+                    scheduledPacingWindows.enumerated().map { pacingOffset, pacingWindow in
+                        ScheduledStreamShapeProfileProbe(
+                            profile: profile,
+                            transportMode: transportMode,
+                            pacingWindow: pacingWindow,
+                            iterationOrdinal: iteration + 1,
+                            orderOrdinal: (
+                                profileOffset * transportModes.count * pacingWindows.count
+                                    + transportOffset * pacingWindows.count
+                                    + pacingOffset
+                                    + 1
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -733,6 +760,20 @@ enum VNCLiveBenchmark {
             return transportModes
         }
         return Array(transportModes[offset...]) + Array(transportModes[..<offset])
+    }
+
+    private static func rotatedPacingWindows(
+        _ pacingWindows: [BenchmarkStreamShapePacingWindowCandidate],
+        offset: Int
+    ) -> [BenchmarkStreamShapePacingWindowCandidate] {
+        guard !pacingWindows.isEmpty else {
+            return pacingWindows
+        }
+        let offset = offset % pacingWindows.count
+        guard offset > 0 else {
+            return pacingWindows
+        }
+        return Array(pacingWindows[offset...]) + Array(pacingWindows[..<offset])
     }
 
     private static func performStreamShapePreflightFrames(
@@ -977,6 +1018,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
     var streamShapeProfileIterations = 1
     var streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode = .fixed
+    var streamShapePacingWindowCandidates: [BenchmarkStreamShapePacingWindowCandidate] = []
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
@@ -1222,6 +1264,16 @@ private struct BenchmarkOptions: Equatable {
                 contentFrameInterval: 0
             )
             continuousUpdateSamples = 0
+        case .sustainedV2ZrlePacingSweep:
+            try applySustainedV2Gate(
+                profileSelection: "zrle-compression-0-clipboard",
+                invalidProfileSelectionMessage:
+                    "internal sustained-v2-zrle-pacing-sweep preset profile selection is invalid.",
+                transportModes: .requestResponse,
+                contentFrameInterval: 0
+            )
+            streamShapePacingWindowCandidates = BenchmarkStreamShapePacingWindowCandidate.requestPacingSweep
+            continuousUpdateSamples = 0
         case .sustainedV2PixelFormat:
             try applySustainedV2Gate(
                 profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
@@ -1264,6 +1316,19 @@ private struct BenchmarkOptions: Equatable {
         streamShapeProfileOrderMode = .rotate
         timeout = 6
         idleTimeout = 1
+    }
+
+    func effectiveStreamShapePacingWindowCandidates() -> [BenchmarkStreamShapePacingWindowCandidate] {
+        if !streamShapePacingWindowCandidates.isEmpty {
+            return streamShapePacingWindowCandidates
+        }
+        return [
+            .single(
+                contentFrameInterval: streamShapeFrameInterval,
+                idleFrameInterval: streamShapeIdleFrameInterval,
+                emptyBackoffMode: streamShapeEmptyBackoffMode
+            )
+        ]
     }
 
     private static func nextValue(
@@ -1334,6 +1399,7 @@ private struct StreamShapeProfileSelection: Equatable {
 private struct ScheduledStreamShapeProfileProbe {
     let profile: BenchmarkProfile
     let transportMode: BenchmarkStreamShapeTransportMode
+    let pacingWindow: BenchmarkStreamShapePacingWindowCandidate
     let iterationOrdinal: Int
     let orderOrdinal: Int
 }
@@ -1630,6 +1696,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeGatePreset: BenchmarkStreamShapeGatePreset
     let streamShapeProfileIterations: Int
     let streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode
+    let streamShapePacingWindows: [BenchmarkStreamShapePacingWindow]
     let streamShapeViewportInteractionPauseSeconds: TimeInterval
     let streamShapeViewportInteractionRequestPausePollSeconds: TimeInterval
     let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
@@ -1690,6 +1757,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeGatePreset: BenchmarkStreamShapeGatePreset,
         streamShapeProfileIterations: Int,
         streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode,
+        streamShapePacingWindows: [BenchmarkStreamShapePacingWindow],
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -1699,7 +1767,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 47
+        self.schemaVersion = 48
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1723,6 +1791,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeGatePreset = streamShapeGatePreset
         self.streamShapeProfileIterations = max(streamShapeProfileIterations, 1)
         self.streamShapeProfileOrderMode = streamShapeProfileOrderMode
+        self.streamShapePacingWindows = streamShapePacingWindows.isEmpty ? [.single] : streamShapePacingWindows
         self.streamShapeViewportInteractionPauseSeconds = 0
         self.streamShapeViewportInteractionRequestPausePollSeconds = 0
         self.streamShapeLowPowerContentFrameIntervalSeconds =
@@ -1778,6 +1847,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, aggregate run counts, and permille ratios",
             "stream-shape transport cadence diagnosis emits only fixed transport/status/action labels and aggregate gate/failure counts",
             "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
+            "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -2090,6 +2160,10 @@ private func renderText(_ report: BenchmarkReport) {
     print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
     print("stream-shape profiles: \(report.streamShapeProfiles)")
     print("stream-shape transport: \(report.streamShapeTransportModes.rawValue)")
+    print(
+        "stream-shape pacing windows: "
+            + report.streamShapePacingWindows.map(\.rawValue).joined(separator: ",")
+    )
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
@@ -2146,7 +2220,10 @@ private func renderText(_ report: BenchmarkReport) {
             } else {
                 ordinalSuffix = ""
             }
-            print("- \(profileProbe.label) [\(profileProbe.transportMode.rawValue)]\(ordinalSuffix):")
+            print(
+                "- \(profileProbe.label) [\(profileProbe.transportMode.rawValue), "
+                    + "\(profileProbe.pacingWindow.rawValue)]\(ordinalSuffix):"
+            )
             renderStreamShapeSummary(
                 firstFrameMilliseconds: profileProbe.firstFrameMilliseconds,
                 summary: profileProbe.summary,
@@ -2158,7 +2235,10 @@ private func renderText(_ report: BenchmarkReport) {
         print("")
         print("stream-shape profile aggregates:")
         for aggregate in report.streamShapeProfileAggregates {
-            print("- \(aggregate.label) [\(aggregate.transportMode.rawValue)]:")
+            print(
+                "- \(aggregate.label) [\(aggregate.transportMode.rawValue), "
+                    + "\(aggregate.pacingWindow.rawValue)]:"
+            )
             print(
                 "  runs usable/total/failed: "
                     + "\(aggregate.usableRunCount)/\(aggregate.runCount)/\(aggregate.failedRunCount)"
@@ -2195,7 +2275,10 @@ private func renderText(_ report: BenchmarkReport) {
         print("")
         print("stream-shape profile gates:")
         for gate in report.streamShapeProfileGates {
-            print("- \(gate.label) [\(gate.transportMode.rawValue)]: \(gate.verdict.rawValue)")
+            print(
+                "- \(gate.label) [\(gate.transportMode.rawValue), "
+                    + "\(gate.pacingWindow.rawValue)]: \(gate.verdict.rawValue)"
+            )
             print(
                 "  target: \(gate.targetName); runs pass/warning/fail/disabled/total: "
                     + "\(gate.passRunCount)/\(gate.warningRunCount)/\(gate.failRunCount)/"
@@ -2318,6 +2401,7 @@ private func renderText(_ report: BenchmarkReport) {
         print("")
         print("stream-shape recommendation:")
         print("- request-response profile: \(recommendation.label)")
+        print("  pacing window: \(recommendation.pacingWindow.rawValue)")
         print("  reason: \(recommendation.reason)")
         print(
             "  update ms avg/p95: "
@@ -2337,6 +2421,7 @@ private func renderText(_ report: BenchmarkReport) {
         print("")
         print("stream-shape order-neutral recommendation:")
         print("- request-response profile: \(recommendation.label)")
+        print("  pacing window: \(recommendation.pacingWindow.rawValue)")
         print("  reason: \(recommendation.reason)")
         if let usableRunCount = recommendation.usableRunCount,
            let runCount = recommendation.runCount {
@@ -2652,7 +2737,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v47 gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v48 gate reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

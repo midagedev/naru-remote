@@ -300,6 +300,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let report = BenchmarkStreamShapeProfileReport(
             label: "local-low-latency",
             transportMode: .continuousUpdates,
+            pacingWindow: .zeroContentDelay,
             iterationOrdinal: 2,
             orderOrdinal: 3,
             firstFrameMilliseconds: 1_234,
@@ -311,8 +312,41 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(decoded, report)
         XCTAssertEqual(decoded.transportMode, .continuousUpdates)
+        XCTAssertEqual(decoded.pacingWindow, .zeroContentDelay)
         XCTAssertEqual(decoded.iterationOrdinal, 2)
         XCTAssertEqual(decoded.orderOrdinal, 3)
+    }
+
+    func testProfileReportDecodesLegacyPayloadWithoutPacingWindowAsSingle() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 1,
+            samples: [
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 12,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10
+                )
+            ],
+            elapsedMilliseconds: 12,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let report = BenchmarkStreamShapeProfileReport(
+            label: "local-low-latency",
+            transportMode: .requestResponse,
+            pacingWindow: .appBalanced30Hz,
+            firstFrameMilliseconds: 120,
+            summary: summary
+        )
+        let legacyData = try Self.encodedPayload(from: report, removingKeys: ["pacingWindow"])
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeProfileReport.self, from: legacyData)
+
+        XCTAssertEqual(decoded.pacingWindow, .single)
+        XCTAssertEqual(decoded.label, "local-low-latency")
+        XCTAssertEqual(decoded.transportMode, .requestResponse)
     }
 
     func testStreamShapeDecodesLegacyPayloadWithoutActualEncodingMix() throws {
@@ -451,6 +485,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
         let zrle = BenchmarkStreamShapeProfileReport(
             label: "zrle-compression-0",
+            pacingWindow: .zeroContentDelay,
             firstFrameMilliseconds: 3_073,
             summary: BenchmarkStreamShapeSummary(
                 requestedSamples: 3,
@@ -485,6 +520,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(recommendation.label, "zrle-compression-0")
         XCTAssertEqual(recommendation.transportMode, .requestResponse)
+        XCTAssertEqual(recommendation.pacingWindow, .zeroContentDelay)
         XCTAssertEqual(
             recommendation.reason,
             "lowest-average-update-latency-among-request-response-profiles"
@@ -538,6 +574,41 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(continuous.usableRunCount, 0)
         XCTAssertEqual(continuous.failedRunCount, 1)
         XCTAssertNil(continuous.averageUpdateMilliseconds)
+    }
+
+    func testProfileAggregatesKeepPacingWindowsSeparate() {
+        let reports = [
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [90, 100],
+                iteration: 1,
+                pacingWindow: .zeroContentDelay
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [150, 160],
+                iteration: 1,
+                pacingWindow: .appBalanced30Hz
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [80, 85],
+                iteration: 2,
+                pacingWindow: .zeroContentDelay
+            )
+        ]
+
+        let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(from: reports)
+
+        XCTAssertEqual(aggregates.map(\.pacingWindow), [.zeroContentDelay, .appBalanced30Hz])
+        XCTAssertEqual(aggregates.map(\.label), [
+            "zrle-compression-0-clipboard",
+            "zrle-compression-0-clipboard"
+        ])
+        XCTAssertEqual(aggregates[0].runCount, 2)
+        XCTAssertEqual(aggregates[0].averageUpdateMilliseconds, 89)
+        XCTAssertEqual(aggregates[1].runCount, 1)
+        XCTAssertEqual(aggregates[1].averageUpdateMilliseconds, 155)
     }
 
     func testProfileGatesSummarizePracticalVerdictsByProfile() {
@@ -636,6 +707,29 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
         )
         XCTAssertEqual(continuous.failureLabelCounts, [])
+    }
+
+    func testProfileGatesKeepPacingWindowsSeparate() {
+        let reports = [
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [90, 95, 100],
+                iteration: 1,
+                pacingWindow: .zeroContentDelay
+            ),
+            profileReport(
+                label: "zrle-compression-0-clipboard",
+                durations: [520, 530, 540],
+                iteration: 1,
+                pacingWindow: .appBalanced30Hz
+            )
+        ]
+
+        let gates = BenchmarkStreamShapeProfileGateReport.gates(from: reports)
+
+        XCTAssertEqual(gates.map(\.pacingWindow), [.zeroContentDelay, .appBalanced30Hz])
+        XCTAssertEqual(gates[0].verdict, .pass)
+        XCTAssertEqual(gates[1].verdict, .fail)
     }
 
     func testProfileGatesSeparateSameProfileAcrossTargets() {
@@ -1909,11 +2003,13 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
     private func profileReport(
         label: String,
         durations: [Int],
-        iteration: Int
+        iteration: Int,
+        pacingWindow: BenchmarkStreamShapePacingWindow = .single
     ) -> BenchmarkStreamShapeProfileReport {
         BenchmarkStreamShapeProfileReport(
             label: label,
             transportMode: .requestResponse,
+            pacingWindow: pacingWindow,
             iterationOrdinal: iteration,
             orderOrdinal: 1,
             firstFrameMilliseconds: 100,
