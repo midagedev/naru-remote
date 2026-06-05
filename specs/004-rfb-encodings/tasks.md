@@ -494,6 +494,14 @@ iPhone) and ships as its own PR.
   marked-text Compose changes to the app model draft while still deferring
   UIKit binding writes so IME composition is not overwritten. Owns: app frame
   stream loop, Remote Input Dock sync policy, tests, research note. **Done.**
+- **T372** Viewport request-pause benchmark parity: bump `VNCLiveBenchmark`
+  schema v26 so `--stream-shape-viewport-interaction app` mirrors the
+  touch-first app behavior by inserting visible-frame request-pause windows
+  before incremental samples instead of applying post-frame pacing floors.
+  Report only configured pause window, fixed poll interval, aggregate paused
+  request count/permille, poll count, and paused milliseconds. Owns: benchmark
+  kit, live benchmark CLI/report/tests, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

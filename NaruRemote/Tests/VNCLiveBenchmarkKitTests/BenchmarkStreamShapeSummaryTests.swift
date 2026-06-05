@@ -50,7 +50,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             firstTimeoutMilliseconds: nil,
             failureLabel: nil,
             adaptiveClientPressurePacingSamples: 1,
-            viewportInteractionPacingSamples: 2
+            viewportInteractionPacingSamples: 2,
+            viewportInteractionPausedRequestCount: 2,
+            viewportInteractionPausePollCount: 24,
+            viewportInteractionPausedMilliseconds: 400
         )
 
         XCTAssertEqual(summary.status, .mixedUpdates)
@@ -78,6 +81,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.adaptiveClientPressurePacingPermille, 500)
         XCTAssertEqual(summary.viewportInteractionPacingSamples, 2)
         XCTAssertEqual(summary.viewportInteractionPacingPermille, 1_000)
+        XCTAssertEqual(summary.viewportInteractionPausedRequestCount, 2)
+        XCTAssertEqual(summary.viewportInteractionPausedRequestPermille, 667)
+        XCTAssertEqual(summary.viewportInteractionPausePollCount, 24)
+        XCTAssertEqual(summary.viewportInteractionPausedMilliseconds, 400)
         XCTAssertEqual(summary.actualEncodingMix.rawRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.tightRectangles, 1)
         XCTAssertEqual(summary.actualEncodingMix.cursorRectangles, 1)
@@ -175,6 +182,26 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(summary.viewportInteractionPacingSamples, 1)
         XCTAssertEqual(summary.viewportInteractionPacingPermille, 1_000)
+    }
+
+    func testViewportInteractionPausedRequestsClampToRequestedSamples() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 2,
+            samples: [
+                streamShapeSample(duration: 10)
+            ],
+            elapsedMilliseconds: 10,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            viewportInteractionPausedRequestCount: 4,
+            viewportInteractionPausePollCount: -1,
+            viewportInteractionPausedMilliseconds: -20
+        )
+
+        XCTAssertEqual(summary.viewportInteractionPausedRequestCount, 2)
+        XCTAssertEqual(summary.viewportInteractionPausedRequestPermille, 1_000)
+        XCTAssertEqual(summary.viewportInteractionPausePollCount, 0)
+        XCTAssertEqual(summary.viewportInteractionPausedMilliseconds, 0)
     }
 
     func testTailLatencySummaryCorrelatesSlowSamplesWithDirtyAndUploadBuckets() {
@@ -290,7 +317,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 "adaptiveClientPressurePacingSamples",
                 "adaptiveClientPressurePacingPermille",
                 "viewportInteractionPacingSamples",
-                "viewportInteractionPacingPermille"
+                "viewportInteractionPacingPermille",
+                "viewportInteractionPausedRequestCount",
+                "viewportInteractionPausedRequestPermille",
+                "viewportInteractionPausePollCount",
+                "viewportInteractionPausedMilliseconds"
             ]
         )
         let decodedSummary = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacySummaryData)
@@ -300,6 +331,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decodedSummary.adaptiveClientPressurePacingPermille, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPacingSamples, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPacingPermille, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPausedRequestCount, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPausedRequestPermille, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPausePollCount, 0)
+        XCTAssertEqual(decodedSummary.viewportInteractionPausedMilliseconds, 0)
         XCTAssertEqual(decodedSummary.receivedSamples, 1)
     }
 

@@ -1358,3 +1358,44 @@ the remote session until the user taps Send.
 **Privacy rule**: no new raw data is exported. The request pause exports no
 gesture coordinates, timestamps, dimensions, pixels, cursor pixels, byte counts,
 host identity, device identity, power state, or Compose draft text.
+
+## D44 — Benchmark request-pause windows, not obsolete viewport pacing floors
+
+References:
+- RFC 6143 framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer encoding/compression controls:
+  https://manpages.debian.org/bookworm/tigervnc-viewer/vncviewer.1.en.html
+- noVNC viewport and quality controls:
+  https://novnc.com/noVNC/docs/API.html
+
+**Decision**: bump `VNCLiveBenchmark` to schema v26 and change
+`--stream-shape-viewport-interaction app` from post-frame pacing-floor parity
+to request-pause parity. After the first visible frame, the benchmark inserts a
+configurable synthetic local-gesture pause window before incremental stream-shape
+requests, sleeping in the same fixed poll interval the app uses while waiting
+for viewport interaction to settle. Keep the old viewport-interaction content
+and idle floor constants in the report as in-flight fallback constants only;
+do not treat them as the normal app path.
+
+**Why**:
+- The production app now uses RFB's client-demanded update flow directly: if a
+  local viewport gesture is active and a framebuffer is already visible, the app
+  stops issuing new `FramebufferUpdateRequest` messages and polls only local
+  gesture state. A benchmark mode that merely adds an 8 Hz post-frame delay
+  therefore measures a policy the app no longer uses.
+- RFC 6143 explicitly describes framebuffer updates as sent in response to
+  explicit client requests and notes this gives the protocol an adaptive update
+  rate. The benchmark should model that control point when evaluating iPhone
+  heat/FPS trade-offs.
+- TigerVNC and noVNC expose separate levers for encoding/compression/quality and
+  local viewport handling. Keeping request-pause as its own benchmark dimension
+  lets future live runs compare encoding or transport choices without confusing
+  them with touch-loop protection.
+
+**Privacy rule**: request-pause benchmark output may include only fixed mode
+labels, configured synthetic pause duration, fixed poll interval, aggregate
+paused request count/permille, aggregate poll count, and aggregate paused
+milliseconds. It must not emit host identity, password, framebuffer dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw per-request timestamps, raw
+per-frame timings, device identity, power state, or Compose draft text.

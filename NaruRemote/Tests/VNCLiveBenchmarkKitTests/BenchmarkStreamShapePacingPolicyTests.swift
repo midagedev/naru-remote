@@ -86,7 +86,7 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertEqual(policy.delay(isEmptyUpdate: true, emptyUpdateStreak: 24), 0, accuracy: 0.0001)
     }
 
-    func testViewportInteractionModeAppliesAppFloorsWhenConfiguredDelayIsNonZero() {
+    func testViewportInteractionModeDoesNotApplyPostFrameFloors() {
         let policy = BenchmarkStreamShapePacingPolicy(
             contentFrameInterval: 1.0 / 60.0,
             idleFrameInterval: 0.05,
@@ -97,18 +97,18 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
         XCTAssertEqual(
             contentDecision.delay,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval,
+            1.0 / 60.0,
             accuracy: 0.0001
         )
-        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
+        XCTAssertFalse(contentDecision.usesViewportInteractionPacing)
 
         let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 1)
         XCTAssertEqual(
             idleDecision.delay,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval,
+            0.05,
             accuracy: 0.0001
         )
-        XCTAssertTrue(idleDecision.usesViewportInteractionPacing)
+        XCTAssertFalse(idleDecision.usesViewportInteractionPacing)
     }
 
     func testViewportInteractionModePreservesExplicitZeroDelayRuns() {
@@ -128,49 +128,51 @@ final class BenchmarkStreamShapePacingPolicyTests: XCTestCase {
         XCTAssertFalse(idleDecision.usesViewportInteractionPacing)
     }
 
-    func testViewportInteractionModeReportsTiedAppFloorAsActive() {
+    func testViewportInteractionModeUsesRequestPauseWhenFrameIsVisible() {
         let policy = BenchmarkStreamShapePacingPolicy(
-            contentFrameInterval: BenchmarkStreamShapePacingPolicy
-                .appViewportInteractionContentFrameInterval,
+            contentFrameInterval: 1.0 / 60.0,
             idleFrameInterval: 0.05,
             emptyBackoffMode: .app,
             viewportInteractionMode: .app
         )
 
-        let contentDecision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
-        let idleDecision = policy.decision(isEmptyUpdate: true, emptyUpdateStreak: 24)
+        let pauseDecision = policy.viewportInteractionRequestPauseDecision(
+            visibleFrameAvailable: true,
+            configuredPauseSeconds: 0.35
+        )
 
         XCTAssertEqual(
-            contentDecision.delay,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval,
+            pauseDecision.delay,
+            0.35,
             accuracy: 0.0001
         )
-        XCTAssertTrue(contentDecision.usesViewportInteractionPacing)
         XCTAssertEqual(
-            idleDecision.delay,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionIdleFrameInterval,
+            pauseDecision.pollInterval,
+            BenchmarkStreamShapePacingPolicy.appViewportInteractionRequestPausePollInterval,
             accuracy: 0.0001
         )
-        XCTAssertTrue(idleDecision.usesViewportInteractionPacing)
+        XCTAssertTrue(pauseDecision.shouldPause)
     }
 
-    func testViewportInteractionModeToleratesRoundedFloorValues() {
+    func testViewportInteractionModeDoesNotPauseWithoutVisibleFrameOrDuration() {
         let policy = BenchmarkStreamShapePacingPolicy(
-            contentFrameInterval: BenchmarkStreamShapePacingPolicy
-                .appViewportInteractionContentFrameInterval + 0.000_000_5,
+            contentFrameInterval: 1.0 / 60.0,
             idleFrameInterval: 0.05,
             emptyBackoffMode: .app,
             viewportInteractionMode: .app
         )
 
-        let decision = policy.decision(isEmptyUpdate: false, emptyUpdateStreak: 1)
-
-        XCTAssertEqual(
-            decision.delay,
-            BenchmarkStreamShapePacingPolicy.appViewportInteractionContentFrameInterval + 0.000_000_5,
-            accuracy: 0.0001
+        let withoutFrame = policy.viewportInteractionRequestPauseDecision(
+            visibleFrameAvailable: false,
+            configuredPauseSeconds: 0.35
         )
-        XCTAssertTrue(decision.usesViewportInteractionPacing)
+        let withoutDuration = policy.viewportInteractionRequestPauseDecision(
+            visibleFrameAvailable: true,
+            configuredPauseSeconds: 0
+        )
+
+        XCTAssertFalse(withoutFrame.shouldPause)
+        XCTAssertFalse(withoutDuration.shouldPause)
     }
 
     func testClientPressureStateActivatesAppFloorAfterRepeatedLaggingContentSamples() {

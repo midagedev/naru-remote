@@ -31,6 +31,20 @@ public struct BenchmarkStreamShapePacingDecision: Equatable, Sendable {
     }
 }
 
+public struct BenchmarkStreamShapeViewportRequestPauseDecision: Equatable, Sendable {
+    public let delay: TimeInterval
+    public let pollInterval: TimeInterval
+
+    public init(delay: TimeInterval, pollInterval: TimeInterval) {
+        self.delay = max(delay, 0)
+        self.pollInterval = max(pollInterval, 0)
+    }
+
+    public var shouldPause: Bool {
+        delay > 0 && pollInterval > 0
+    }
+}
+
 public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
     public static let appBalancedContentFrameInterval = StreamPressurePacingDefaults
         .balancedContentFrameIntervalSeconds
@@ -59,6 +73,10 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
     public static let appViewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults
         .viewportInteractionContentFrameIntervalSeconds
     public static let appViewportInteractionIdleFrameInterval: TimeInterval = StreamPressurePacingDefaults
+        .viewportInteractionIdleFrameIntervalSeconds
+    public static let appViewportInteractionRequestPausePollInterval: TimeInterval = StreamPressurePacingDefaults
+        .viewportInteractionRequestPausePollSeconds
+    public static let appViewportInteractionSyntheticPauseSeconds: TimeInterval = StreamPressurePacingDefaults
         .viewportInteractionIdleFrameIntervalSeconds
     private static let pacingFloorComparisonTolerance: TimeInterval = 0.000_001
 
@@ -178,6 +196,23 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
         )
     }
 
+    public func viewportInteractionRequestPauseDecision(
+        visibleFrameAvailable: Bool,
+        configuredPauseSeconds: TimeInterval = Self.appViewportInteractionSyntheticPauseSeconds
+    ) -> BenchmarkStreamShapeViewportRequestPauseDecision {
+        guard viewportInteractionMode == .app,
+              visibleFrameAvailable,
+              configuredPauseSeconds > 0
+        else {
+            return BenchmarkStreamShapeViewportRequestPauseDecision(delay: 0, pollInterval: 0)
+        }
+
+        return BenchmarkStreamShapeViewportRequestPauseDecision(
+            delay: configuredPauseSeconds,
+            pollInterval: Self.appViewportInteractionRequestPausePollInterval
+        )
+    }
+
     private func decision(
         configuredDelay: TimeInterval,
         powerSaverDelayFloor: TimeInterval,
@@ -205,12 +240,8 @@ public struct BenchmarkStreamShapePacingPolicy: Codable, Equatable, Sendable {
         return isEmptyUpdate ? Self.appLowPowerIdleFrameInterval : Self.appLowPowerContentFrameInterval
     }
 
-    private func viewportInteractionDelayFloor(isEmptyUpdate: Bool) -> TimeInterval {
-        guard viewportInteractionMode == .app else {
-            return 0
-        }
-        return isEmptyUpdate ? Self.appViewportInteractionIdleFrameInterval : Self
-            .appViewportInteractionContentFrameInterval
+    private func viewportInteractionDelayFloor(isEmptyUpdate _: Bool) -> TimeInterval {
+        0
     }
 }
 
