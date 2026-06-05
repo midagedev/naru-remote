@@ -3272,3 +3272,49 @@ from safe issue-code presence. It must not include host identity, credentials,
 port value, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
 cursor pixels, byte counts, raw payloads, raw FPS, raw timings, command text,
 command output, draft text, marked text, or IME state.
+
+## D80 — Make physical candidate gates repeatable before larger default changes
+
+References:
+- D77 sustained usability promotion ladder.
+- D79 physical promotion verdict.
+- `PhysicalDeviceConnectE2EUITests`.
+
+**Decision**: extend the physical iPhone E2E path with an opt-in sustained
+candidate gate rather than changing production defaults from simulator or live
+Mac benchmark evidence alone.
+
+**Why**:
+- The next work units are intentionally larger: they compare a full candidate
+  shape (stream power mode, encoding mode, startup preflight, viewport
+  interaction, and Compose route) against `iphone-sustained-usability-v2`
+  instead of adjusting one gesture or pacing constant at a time.
+- A connect-only physical smoke cannot prove the user's reported failure mode:
+  heat, low FPS, stepped zoom/pan, and unreliable Compose appear during a live
+  sustained session.
+- The gate needs to collect the same safe diagnostic assessment as the share
+  sheet. Test-only logging must therefore call `makeDiagnosticExport()` after
+  active-session stream and input stats exist, not construct a run-only export.
+
+**Interpretation**:
+- The sustained UI test is opt-in via `NARU_PHYSICAL_E2E_SUSTAINED_SECONDS`;
+  normal simulator and connect-smoke runs stay short.
+- Candidate labels are fixed (`balanced|power-saver`,
+  `standard|zrle-compression-0|adaptive-good-full`,
+  `disabled|one-hidden-frame`) and are injected without persisting settings to
+  the device.
+- A final `physicalGateVerdict=blocked` means the next PR should follow
+  `primaryConstraint` / `recommendedNextProbe`; it is not evidence for changing
+  defaults.
+- A final `physicalGateVerdict=pass` is still only the physical half of the
+  promotion ladder. The matching sustained v2 benchmark artifact and manual
+  hand-feel notes are required before changing transport, encoding, preflight,
+  pacing, or interaction defaults.
+
+**Privacy rule**: physical candidate gate output may include only fixed
+candidate labels, duration, pass/fail attachments, screenshots in the test
+result bundle, and the safe diagnostic JSON. It must not be committed to the
+repo with host identity, credentials, device id, port value, raw TCP/RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, raw FPS, raw timings, command text, command output, draft text, marked
+text, or IME state.

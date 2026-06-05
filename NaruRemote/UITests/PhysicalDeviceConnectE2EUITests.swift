@@ -67,6 +67,72 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         XCTAssertTrue(activeBadge.exists, "Expected physical device connection to reach Active state")
     }
 
+    func testPhysicalDeviceSustainedCandidateGate() throws {
+        addSystemPermissionHandler()
+
+        let sustainedDuration = try sustainedCandidateDuration()
+        guard hasSeededPhysicalProfileConfiguration else {
+            throw XCTSkip("Physical sustained gate requires an injected profile")
+        }
+
+        let app = XCUIApplication()
+        app.launchEnvironment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] = "1"
+        app.launchEnvironment["NARU_TEST_EMIT_DIAGNOSTIC_EXPORT_AFTER_ACTIVE_SECONDS"] =
+            Self.secondsString(sustainedDuration)
+        app.launchEnvironment["NARU_TEST_SKIP_SETTINGS_STORE_LOAD"] = "1"
+        try forwardRequiredCandidateSettings(to: app)
+        forwardSeededPhysicalProfileIfPresent(to: app)
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Physical sustained gate must start from the connection grid"
+        )
+        openNewestPhysicalCard(in: app)
+
+        guard let connect = waitForConnectButton(in: app, timeout: 8) else {
+            attachFailureArtifacts(app: app, name: "physical-sustained-no-connect-button")
+            XCTAssertTrue(false, "Connect button must be visible for the injected physical profile")
+            return
+        }
+        connect.tap()
+        app.tap()
+
+        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
+        let failureBadge = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Failed")).firstMatch
+        XCTAssertTrue(
+            waitForActiveSession(activeBadge: activeBadge, failureBadge: failureBadge, timeout: 30),
+            "Expected physical sustained gate to reach Active before starting interactions"
+        )
+
+        attachSustainedCandidateConfiguration(duration: sustainedDuration)
+        performSustainedInteractionCycle(in: app)
+
+        let deadline = Date().addingTimeInterval(sustainedDuration)
+        var nextInteractionAt = Date().addingTimeInterval(min(30, max(5, sustainedDuration / 3)))
+        while Date() < deadline {
+            XCTAssertFalse(failureBadge.exists, "Physical sustained gate must not enter a failed session state")
+            if Date() >= nextInteractionAt {
+                performSustainedInteractionCycle(in: app)
+                nextInteractionAt = Date().addingTimeInterval(min(30, max(5, sustainedDuration / 3)))
+            }
+            usleep(500_000)
+        }
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "physical-sustained-candidate-final"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        revealControlsIfNeeded(in: app)
+        XCTAssertTrue(
+            activeBadge.waitForExistence(timeout: 3) || app.descendants(matching: .any)["naru.session.viewport"].exists,
+            "Expected physical sustained gate to remain in the session surface"
+        )
+        XCTAssertFalse(failureBadge.exists, "Physical sustained gate finished in a failed state")
+    }
+
     private func waitForConnectButton(in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
         let identifiedConnect = app.buttons["naru.session.connect"]
         if identifiedConnect.waitForExistence(timeout: timeout) {
@@ -79,6 +145,24 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         }
 
         return nil
+    }
+
+    private func waitForActiveSession(
+        activeBadge: XCUIElement,
+        failureBadge: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if activeBadge.exists {
+                return true
+            }
+            if failureBadge.exists {
+                return false
+            }
+            usleep(250_000)
+        }
+        return activeBadge.exists
     }
 
     private var hasSeededPhysicalProfileConfiguration: Bool {
@@ -111,6 +195,152 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_REF"] = credentialRef
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"] = password
+    }
+
+    private func sustainedCandidateDuration() throws -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        guard let raw = env["NARU_PHYSICAL_E2E_SUSTAINED_SECONDS"], !raw.isEmpty else {
+            throw XCTSkip("Set NARU_PHYSICAL_E2E_SUSTAINED_SECONDS=600 to run the 10 minute physical gate")
+        }
+        guard let seconds = TimeInterval(raw), seconds > 0 else {
+            XCTFail("NARU_PHYSICAL_E2E_SUSTAINED_SECONDS must be a positive number")
+            return 0
+        }
+        return seconds
+    }
+
+    private func forwardRequiredCandidateSettings(to app: XCUIApplication) throws {
+        let mappings: [(source: String, target: String, allowed: Set<String>)] = [
+            (
+                "NARU_PHYSICAL_E2E_STREAM_POWER_MODE",
+                "NARU_TEST_STREAM_POWER_MODE",
+                ["balanced", "power-saver"]
+            ),
+            (
+                "NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE",
+                "NARU_TEST_STREAM_ENCODING_MODE",
+                ["standard", "zrle-compression-0", "adaptive-good-full"]
+            ),
+            (
+                "NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE",
+                "NARU_TEST_STARTUP_PREFLIGHT_MODE",
+                ["disabled", "one-hidden-frame"]
+            )
+        ]
+
+        let env = ProcessInfo.processInfo.environment
+        for mapping in mappings {
+            guard let value = env[mapping.source], !value.isEmpty else {
+                XCTFail("\(mapping.source) is required for the physical sustained candidate gate")
+                throw PhysicalSustainedGateConfigurationError.missingSetting(mapping.source)
+            }
+            guard mapping.allowed.contains(value) else {
+                XCTFail("\(mapping.source) must be one of \(mapping.allowed.sorted().joined(separator: "|"))")
+                throw PhysicalSustainedGateConfigurationError.invalidSetting(mapping.source)
+            }
+            app.launchEnvironment[mapping.target] = value
+        }
+    }
+
+    private func performSustainedInteractionCycle(in app: XCUIApplication) {
+        let viewport = app.descendants(matching: .any)["naru.session.viewport"].firstMatch
+        if viewport.waitForExistence(timeout: 3), viewport.isHittable {
+            viewport.pinch(withScale: 1.45, velocity: 1)
+            drag(
+                in: viewport,
+                from: CGVector(dx: 0.72, dy: 0.52),
+                to: CGVector(dx: 0.28, dy: 0.48)
+            )
+            viewport.pinch(withScale: 0.85, velocity: -1)
+        }
+
+        exerciseTrackpadCandidateIfAvailable(in: app)
+        exerciseComposeCandidateIfAvailable(in: app)
+    }
+
+    private func exerciseTrackpadCandidateIfAvailable(in app: XCUIApplication) {
+        revealControlsIfNeeded(in: app)
+        let pointerMode = app.buttons["naru.session.pointerMode"]
+        guard pointerMode.waitForExistence(timeout: 1), pointerMode.isHittable else {
+            return
+        }
+
+        pointerMode.tap()
+        let trackpadSurface = app.descendants(matching: .any)["naru.session.trackpadSurface"].firstMatch
+        if trackpadSurface.waitForExistence(timeout: 2), trackpadSurface.isHittable {
+            drag(
+                in: trackpadSurface,
+                from: CGVector(dx: 0.35, dy: 0.35),
+                to: CGVector(dx: 0.72, dy: 0.68)
+            )
+        }
+        pointerMode.tap()
+    }
+
+    private func exerciseComposeCandidateIfAvailable(in app: XCUIApplication) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["NARU_PHYSICAL_E2E_SKIP_COMPOSE"] != "1" else {
+            return
+        }
+
+        let editor = app.descendants(matching: .any)["naru.input.editor"].firstMatch
+        guard editor.waitForExistence(timeout: 2), editor.isHittable else {
+            return
+        }
+
+        editor.tap()
+        let composeText = env["NARU_PHYSICAL_E2E_COMPOSE_TEXT"] ?? "naru sustained gate"
+        editor.typeText(composeText)
+        let send = app.buttons["naru.input.send"]
+        if send.waitForExistence(timeout: 2), send.isEnabled {
+            send.tap()
+        }
+    }
+
+    private func revealControlsIfNeeded(in app: XCUIApplication) {
+        let reveal = app.buttons["naru.session.controls.reveal"]
+        if reveal.exists, reveal.isHittable {
+            reveal.tap()
+        }
+    }
+
+    private func drag(in element: XCUIElement, from start: CGVector, to end: CGVector) {
+        let startCoordinate = element.coordinate(withNormalizedOffset: start)
+        let endCoordinate = element.coordinate(withNormalizedOffset: end)
+        startCoordinate.press(forDuration: 0.05, thenDragTo: endCoordinate)
+    }
+
+    private func attachSustainedCandidateConfiguration(duration: TimeInterval) {
+        let env = ProcessInfo.processInfo.environment
+        let composeClass = Self.composePayloadClass(env["NARU_PHYSICAL_E2E_COMPOSE_TEXT"])
+        let text = [
+            "target=iphone-sustained-usability-v2",
+            "durationSeconds=\(Self.secondsString(duration))",
+            "streamPowerMode=\(env["NARU_PHYSICAL_E2E_STREAM_POWER_MODE"] ?? "default")",
+            "streamEncodingMode=\(env["NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE"] ?? "default")",
+            "startupPreflightMode=\(env["NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE"] ?? "default")",
+            "composePayloadClass=\(composeClass)",
+            "diagnosticExport=look for the final NARU_DIAGNOSTIC_EXPORT block in xcodebuild logs"
+        ].joined(separator: "\n")
+        let attachment = XCTAttachment(string: text)
+        attachment.name = "physical-sustained-candidate-config"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private static func composePayloadClass(_ value: String?) -> String {
+        guard let value, !value.isEmpty else {
+            return "default-ascii"
+        }
+        return value.unicodeScalars.allSatisfy(\.isASCII) ? "ascii" : "unicode"
+    }
+
+    private static func secondsString(_ value: TimeInterval) -> String {
+        let rounded = Int(value.rounded())
+        if abs(value - TimeInterval(rounded)) < 0.001 {
+            return "\(rounded)"
+        }
+        return String(format: "%.1f", value)
     }
 
     private func addSystemPermissionHandler() {
@@ -154,4 +384,9 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         hierarchyAttachment.lifetime = .keepAlways
         add(hierarchyAttachment)
     }
+}
+
+private enum PhysicalSustainedGateConfigurationError: Error {
+    case missingSetting(String)
+    case invalidSetting(String)
 }

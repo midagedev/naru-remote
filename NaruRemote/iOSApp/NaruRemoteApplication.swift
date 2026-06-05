@@ -118,6 +118,7 @@ struct NaruRemoteApplication: App {
             }
             await model.loadStoredProfilePreviews()
 
+            applyTestAppSettingsOverrides(to: model)
             applyTestStickyModifierOverrides(to: model)
             applyTestSuppressDirectModeWarning(to: model)
             // Apply post-init mutations (e.g. `pendingIncomingClipboard`)
@@ -126,6 +127,36 @@ struct NaruRemoteApplication: App {
             UXAuditFixtures.applyFixturePostInitMutations(to: model)
         }
         return model
+    }
+
+    /// XCUITest physical-gate hook — lets the test launch a specific
+    /// non-secret stream candidate (power / encoding / startup preflight)
+    /// without tapping through the UI or persisting that candidate to disk.
+    @MainActor
+    private static func applyTestAppSettingsOverrides(to model: NaruRemoteAppModel) {
+        let env = ProcessInfo.processInfo.environment
+        var settings = model.appSettings
+        var didOverride = false
+
+        if let raw = env["NARU_TEST_STREAM_POWER_MODE"],
+           let mode = StreamPowerMode(rawValue: raw) {
+            settings.streamPowerMode = mode
+            didOverride = true
+        }
+        if let raw = env["NARU_TEST_STREAM_ENCODING_MODE"],
+           let mode = StreamEncodingMode(rawValue: raw) {
+            settings.streamEncodingMode = mode
+            didOverride = true
+        }
+        if let raw = env["NARU_TEST_STARTUP_PREFLIGHT_MODE"],
+           let mode = StreamStartupPreflightMode(rawValue: raw) {
+            settings.startupPreflightMode = mode
+            didOverride = true
+        }
+
+        if didOverride {
+            model.applyAppSettingsOverrideForTesting(settings)
+        }
     }
 
     /// XCUITest hook — when the `NARU_TEST_SUPPRESS_DIRECT_WARNING`
