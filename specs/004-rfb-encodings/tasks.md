@@ -741,6 +741,14 @@ iPhone) and ships as its own PR.
   collection, and keeps host identity, credential values, port value, and
   stimulus command text out of output. Owns: benchmark kit model/tests, CLI
   option/output, benchmark docs/artifact, research note. **Done.**
+- **T401** Sustained v2 gate preset: add a standard
+  `VNCLiveBenchmark --stream-shape-gate-preset sustained-v2-core` CLI preset
+  that fixes the controlled-stimulus core matrix, both transport modes, five
+  rotated iterations, app client-pressure/viewport pacing, ten second
+  duration, zero hidden preflight frames, and schema v38 preset reporting so
+  larger optimization PRs use one repeatable gate shape before physical iPhone
+  verification. Owns: benchmark kit enum/tests, CLI option/report output,
+  benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
