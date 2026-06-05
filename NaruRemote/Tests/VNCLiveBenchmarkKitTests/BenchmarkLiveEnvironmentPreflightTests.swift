@@ -14,7 +14,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.schemaVersion, 2)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
@@ -22,6 +22,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.stimulusCommandStatus, .configured)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
     }
 
     func testMissingRequiredFieldsReportStableIssueCodes() {
@@ -40,6 +41,10 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             report.issueCodes,
             [.missingHost, .missingCredential, .missingStimulusCommand]
         )
+        XCTAssertEqual(
+            report.setupActionLabels,
+            [.setHost, .provideCredentialOrAskPassword, .setStimulusCommand]
+        )
     }
 
     func testPromptRequestCountsAsCredentialSourceWithoutReadingPassword() {
@@ -57,6 +62,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.stimulusCommandStatus, .notRequired)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
     }
 
     func testInvalidPortBlocksLiveBenchmark() {
@@ -73,6 +79,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.portStatus, .invalid)
         XCTAssertFalse(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [.invalidPort])
+        XCTAssertEqual(report.setupActionLabels, [.fixPort])
     }
 
     func testJSONDoesNotExposeEnvironmentValues() throws {
@@ -94,5 +101,35 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertFalse(json.contains("5900"))
         XCTAssertFalse(json.contains("secret"))
         XCTAssertFalse(json.contains("secret command"))
+        XCTAssertTrue(json.contains("run-live-gate"))
+    }
+
+    func testDecodesV1PayloadWithoutSetupActions() throws {
+        let json = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "hostStatus": "missing",
+              "portStatus": "defaulted",
+              "credentialStatus": "promptRequested",
+              "stimulusMode": "external-command",
+              "stimulusCommandStatus": "requiredMissing",
+              "canRunLiveBenchmark": false,
+              "issueCodes": [
+                "missing-host",
+                "missing-stimulus-command"
+              ]
+            }
+            """.utf8
+        )
+
+        let report = try JSONDecoder().decode(
+            BenchmarkLiveEnvironmentPreflightReport.self,
+            from: json
+        )
+
+        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.issueCodes, [.missingHost, .missingStimulusCommand])
+        XCTAssertEqual(report.setupActionLabels, [.setHost, .setStimulusCommand])
     }
 }

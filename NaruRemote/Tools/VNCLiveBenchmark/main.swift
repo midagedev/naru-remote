@@ -2491,6 +2491,8 @@ private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
     print("live benchmark runnable: \(report.canRunLiveBenchmark ? "yes" : "no")")
     let issues = report.issueCodes.map(\.rawValue).joined(separator: ",")
     print("issues: \(issues.isEmpty ? "none" : issues)")
+    let setupActions = report.setupActionLabels.map(\.rawValue).joined(separator: ",")
+    print("setup actions: \(setupActions.isEmpty ? "none" : setupActions)")
     print("safety: target identity, credentials, port value, and stimulus command text are redacted")
 }
 

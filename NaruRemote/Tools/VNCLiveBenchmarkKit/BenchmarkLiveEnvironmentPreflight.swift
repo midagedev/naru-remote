@@ -1,7 +1,19 @@
 import Foundation
 
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case hostStatus
+        case portStatus
+        case credentialStatus
+        case stimulusMode
+        case stimulusCommandStatus
+        case canRunLiveBenchmark
+        case issueCodes
+        case setupActionLabels
+    }
 
     public let schemaVersion: Int
     public let hostStatus: BenchmarkLiveEnvironmentPreflightHostStatus
@@ -11,6 +23,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
     public let stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus
     public let canRunLiveBenchmark: Bool
     public let issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode]
+    public let setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction]
 
     public init(
         schemaVersion: Int = Self.schemaVersion,
@@ -20,7 +33,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         stimulusMode: BenchmarkStreamShapeStimulusMode,
         stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
         canRunLiveBenchmark: Bool,
-        issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode]
+        issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode],
+        setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction] = []
     ) {
         self.schemaVersion = schemaVersion
         self.hostStatus = hostStatus
@@ -30,6 +44,56 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         self.stimulusCommandStatus = stimulusCommandStatus
         self.canRunLiveBenchmark = canRunLiveBenchmark
         self.issueCodes = issueCodes
+        self.setupActionLabels = setupActionLabels
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let hostStatus = try container.decode(
+            BenchmarkLiveEnvironmentPreflightHostStatus.self,
+            forKey: .hostStatus
+        )
+        let portStatus = try container.decode(
+            BenchmarkLiveEnvironmentPreflightPortStatus.self,
+            forKey: .portStatus
+        )
+        let credentialStatus = try container.decode(
+            BenchmarkLiveEnvironmentPreflightCredentialStatus.self,
+            forKey: .credentialStatus
+        )
+        let stimulusMode = try container.decode(
+            BenchmarkStreamShapeStimulusMode.self,
+            forKey: .stimulusMode
+        )
+        let stimulusCommandStatus = try container.decode(
+            BenchmarkLiveEnvironmentPreflightStimulusCommandStatus.self,
+            forKey: .stimulusCommandStatus
+        )
+        let canRunLiveBenchmark = try container.decode(Bool.self, forKey: .canRunLiveBenchmark)
+        self.init(
+            schemaVersion: try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+                ?? Self.schemaVersion,
+            hostStatus: hostStatus,
+            portStatus: portStatus,
+            credentialStatus: credentialStatus,
+            stimulusMode: stimulusMode,
+            stimulusCommandStatus: stimulusCommandStatus,
+            canRunLiveBenchmark: canRunLiveBenchmark,
+            issueCodes: try container.decodeIfPresent(
+                [BenchmarkLiveEnvironmentPreflightIssueCode].self,
+                forKey: .issueCodes
+            ) ?? [],
+            setupActionLabels: try container.decodeIfPresent(
+                [BenchmarkLiveEnvironmentPreflightSetupAction].self,
+                forKey: .setupActionLabels
+            ) ?? Self.setupActions(
+                hostStatus: hostStatus,
+                portStatus: portStatus,
+                credentialStatus: credentialStatus,
+                stimulusCommandStatus: stimulusCommandStatus,
+                canRunLiveBenchmark: canRunLiveBenchmark
+            )
+        )
     }
 
     public static func make(
@@ -75,6 +139,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if stimulusCommandStatus == .requiredMissing {
             issueCodes.append(.missingStimulusCommand)
         }
+        let canRunLiveBenchmark = issueCodes.isEmpty
 
         return BenchmarkLiveEnvironmentPreflightReport(
             hostStatus: hostStatus,
@@ -82,9 +147,43 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             credentialStatus: credentialStatus,
             stimulusMode: stimulusMode,
             stimulusCommandStatus: stimulusCommandStatus,
-            canRunLiveBenchmark: issueCodes.isEmpty,
-            issueCodes: issueCodes
+            canRunLiveBenchmark: canRunLiveBenchmark,
+            issueCodes: issueCodes,
+            setupActionLabels: setupActions(
+                hostStatus: hostStatus,
+                portStatus: portStatus,
+                credentialStatus: credentialStatus,
+                stimulusCommandStatus: stimulusCommandStatus,
+                canRunLiveBenchmark: canRunLiveBenchmark
+            )
         )
+    }
+
+    private static func setupActions(
+        hostStatus: BenchmarkLiveEnvironmentPreflightHostStatus,
+        portStatus: BenchmarkLiveEnvironmentPreflightPortStatus,
+        credentialStatus: BenchmarkLiveEnvironmentPreflightCredentialStatus,
+        stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
+        canRunLiveBenchmark: Bool
+    ) -> [BenchmarkLiveEnvironmentPreflightSetupAction] {
+        guard !canRunLiveBenchmark else {
+            return [.runLiveGate]
+        }
+
+        var actions: [BenchmarkLiveEnvironmentPreflightSetupAction] = []
+        if hostStatus == .missing {
+            actions.append(.setHost)
+        }
+        if portStatus == .invalid {
+            actions.append(.fixPort)
+        }
+        if credentialStatus == .missing {
+            actions.append(.provideCredentialOrAskPassword)
+        }
+        if stimulusCommandStatus == .requiredMissing {
+            actions.append(.setStimulusCommand)
+        }
+        return actions
     }
 }
 
@@ -141,4 +240,12 @@ public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatab
     case invalidPort = "invalid-port"
     case missingCredential = "missing-credential"
     case missingStimulusCommand = "missing-stimulus-command"
+}
+
+public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equatable {
+    case setHost = "set-naru-live-mac-host"
+    case fixPort = "fix-naru-live-mac-port"
+    case provideCredentialOrAskPassword = "provide-credential-or-ask-password"
+    case setStimulusCommand = "set-naru-live-stimulus-command"
+    case runLiveGate = "run-live-gate"
 }

@@ -3361,3 +3361,41 @@ values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw payloads, raw FPS, raw timings, command text, command
 output, draft text, marked text, IME state, or full physical-device diagnostic
 payloads.
+
+## D82 — Make live gate setup failures actionable without exposing values
+
+References:
+- D69 live benchmark environment preflight.
+- D81 sustained usability candidate contract.
+- `artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
+
+**Decision**: bump `VNCLiveBenchmark --environment-preflight` to schema v2 and
+add fixed `setupActionLabels` that tell the operator what to configure next
+without printing configured values.
+
+**Why**:
+- The candidate contract requires benchmark-green evidence before physical
+  iPhone promotion. If a run cannot start because target or stimulus setup is
+  missing, the report should route that setup work as clearly as the later
+  stream-shape decision routes optimization work.
+- Existing fixed issue codes are good for machines, but humans need a stable
+  next-action label they can scan in JSON or text output.
+- The current local shell reported `missing-host` and
+  `missing-stimulus-command`; schema v2 maps those to
+  `set-naru-live-mac-host` and `set-naru-live-stimulus-command` without opening
+  a VNC session or prompting for secrets.
+
+**Interpretation**:
+- `run-live-gate` means setup labels are green and the sustained v2 live command
+  can be attempted.
+- `set-naru-live-mac-host`, `fix-naru-live-mac-port`,
+  `provide-credential-or-ask-password`, and `set-naru-live-stimulus-command`
+  are setup blockers, not VNC performance evidence.
+- v1 preflight JSON remains decodable; missing action labels are derived from
+  the older status fields.
+
+**Privacy rule**: setup action labels may include fixed configuration-action
+names only. They must not include host identity, credentials, port values,
+stimulus command text, raw TCP/RFB errors, framebuffer dimensions, coordinates,
+pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw timings, command
+output, draft text, marked text, or IME state.
