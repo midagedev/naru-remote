@@ -669,9 +669,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(storedSecret, "helper-secret")
         XCTAssertFalse(credentialRef.contains("helper-secret"))
         XCTAssertEqual(helperConfiguration.resolvedHost(fallback: savedProfile.host), "desk.tailnet.ts.net")
-        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, true)
-        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
-        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode)
+        let state = try XCTUnwrap(model.snapshot.helperTextBridgeState[profile.id])
+        XCTAssertEqual(state.isEnabled, true)
+        XCTAssertNotEqual(state.availability, .reachable)
         XCTAssertNil(model.profilePersistenceError)
     }
 
@@ -727,9 +727,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         await model.loadStoredProfiles()
 
         XCTAssertEqual(model.snapshot.selectedProfile?.id, profile.id)
-        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, true)
-        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
-        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, false)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .notConfigured)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .notConfigured)
         XCTAssertEqual(
             model.snapshot.helperTextBridgeState[profile.id]?.pairingFingerprint,
             "sha256:helper-fingerprint"
@@ -2258,6 +2258,211 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testStoredHelperCapabilityProbeMarksReachableWithoutSendingText() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let recorder = NetworkHelperInsertRecorder()
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: "helper-secret",
+            capabilityProvider: {
+                NaruHelperCapabilityResponse(
+                    availability: .reachable,
+                    permissionState: NaruHelperPermissionState(
+                        accessibility: "granted",
+                        inputMonitoring: "notRequired",
+                        pasteboardFallback: "available",
+                        activeUserSession: "available"
+                    ),
+                    supportedStrategies: [.pasteboardPasteWithRestore]
+                )
+            },
+            insertHandler: { request in
+                recorder.record(request)
+                return NaruHelperInsertTextResponse(
+                    requestID: request.requestID,
+                    status: .sent,
+                    strategyUsed: .pasteboardPasteWithRestore
+                )
+            }
+        )
+        let server = try NaruHelperNetworkServer(handler: handler)
+        server.start()
+        defer { server.cancel() }
+        let helperPort = try await waitForHelperServerPort(server)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: "127.0.0.1",
+                port: Int(helperPort),
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        model.refreshProfileReachability()
+        try await waitForHelperAvailability(model, profileID: profile.id, availability: .reachable)
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
+            HelperTextBridgeFailureCode.none
+        )
+    }
+
+    func testHelperCapabilityRefreshKeepsVisibleStateWhileProbeIsInFlight() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let recorder = NetworkHelperInsertRecorder()
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: "helper-secret",
+            capabilityProvider: {
+                Thread.sleep(forTimeInterval: 0.15)
+                return NaruHelperCapabilityResponse(
+                    availability: .permissionMissing,
+                    permissionState: NaruHelperPermissionState(
+                        accessibility: "missing",
+                        inputMonitoring: "notRequired",
+                        pasteboardFallback: "available",
+                        activeUserSession: "available"
+                    ),
+                    supportedStrategies: [.pasteboardPasteWithRestore]
+                )
+            },
+            insertHandler: { request in
+                recorder.record(request)
+                return NaruHelperInsertTextResponse(
+                    requestID: request.requestID,
+                    status: .sent,
+                    strategyUsed: .pasteboardPasteWithRestore
+                )
+            }
+        )
+        let server = try NaruHelperNetworkServer(handler: handler)
+        server.start()
+        defer { server.cancel() }
+        let helperPort = try await waitForHelperServerPort(server)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: "127.0.0.1",
+                port: Int(helperPort),
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-fingerprint",
+                        availability: .reachable,
+                        lastFailureCode: HelperTextBridgeFailureCode.none,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        model.refreshProfileReachability()
+
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
+        try await waitForHelperAvailability(model, profileID: profile.id, availability: .permissionMissing)
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    func testStoredHelperCapabilityFailureBlocksTextBeforeInsert() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let recorder = NetworkHelperInsertRecorder()
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: "helper-secret",
+            capabilityProvider: {
+                NaruHelperCapabilityResponse(
+                    availability: .permissionMissing,
+                    permissionState: NaruHelperPermissionState(
+                        accessibility: "missing",
+                        inputMonitoring: "notRequired",
+                        pasteboardFallback: "available",
+                        activeUserSession: "available"
+                    ),
+                    supportedStrategies: [.pasteboardPasteWithRestore]
+                )
+            },
+            insertHandler: { request in
+                recorder.record(request)
+                return NaruHelperInsertTextResponse(
+                    requestID: request.requestID,
+                    status: .sent,
+                    strategyUsed: .pasteboardPasteWithRestore
+                )
+            }
+        )
+        let server = try NaruHelperNetworkServer(handler: handler)
+        server.start()
+        defer { server.cancel() }
+        let helperPort = try await waitForHelperServerPort(server)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: "127.0.0.1",
+                port: Int(helperPort),
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.safeMessage, "Helper text bridge needs permission on the Mac.")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .permissionMissing)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .permissionMissing)
+    }
+
     func testModelRejectsMismatchedHelperInsertResultID() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
@@ -3201,6 +3406,28 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         XCTAssertEqual(helper.requests.count, expectedCount, file: file, line: line)
+    }
+
+    private func waitForHelperAvailability(
+        _ model: NaruRemoteAppModel,
+        profileID: ConnectionProfile.ID,
+        availability expectedAvailability: HelperTextBridgeAvailability,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.helperTextBridgeState[profileID]?.availability == expectedAvailability {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profileID]?.availability,
+            expectedAvailability,
+            file: file,
+            line: line
+        )
     }
 
     private func waitForHelperServerPort(
