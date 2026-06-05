@@ -186,7 +186,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 785, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 805, y: 500)
         ])
     }
 
@@ -203,12 +203,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -87.5,
+            -137.5,
             accuracy: 1e-6,
             "Zoomed trackpad movement should pan continuously with the cursor instead of waiting for the edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 669, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 694, y: 500)
         ])
     }
 
@@ -252,7 +252,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 785, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 805, y: 500)
         ])
     }
 
@@ -274,7 +274,7 @@ final class PointerGestureResolverTests: XCTestCase {
         )
         XCTAssertGreaterThan(
             outcome.transform.panOffset.width,
-            -160,
+            -220,
             "Auto-pan should still damp the full reveal delta rather than snapping."
         )
     }
