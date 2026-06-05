@@ -78,6 +78,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     @Published public private(set) var composeDraft: ComposeDraft?
     @Published public private(set) var latestInjectionAttempt: TextInjectionAttempt?
+    private var latestComposeSendPreparation: ComposeSendPreparationReport?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
     @Published public private(set) var latestFramebuffer: RFBRawFramebuffer?
     /// Damage rectangles paired with `latestFramebuffer`.  Populated
@@ -661,6 +662,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestServerCursor = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
+            latestComposeSendPreparation = nil
             clearPiPWatchSession()
             let newSession = RemoteSession(profileID: id)
             session = newSession
@@ -727,6 +729,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             composeDraft = ComposeDraft(sessionID: newSession.id)
             diagnosticRun = nil
             latestInjectionAttempt = nil
+            latestComposeSendPreparation = nil
             clearPiPWatchSession()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
@@ -1006,6 +1009,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             composeDraft = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
+            latestComposeSendPreparation = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
@@ -1032,6 +1036,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             composePlannedPath: composeRoute.plannedPath,
             composeUTF8ClipboardSupport: composeRoute.utf8ClipboardSupport,
             composeRouteBlocker: composeRoute.routeBlocker,
+            latestComposeSendPreparation: latestComposeSendPreparation,
             helperTextBridgeState: helperTextBridgeState(for: composeRoute.helperProfileID)
         )
         guard let run = diagnosticRun else {
@@ -1916,6 +1921,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
         session = nextSession
         composeDraft = ComposeDraft(sessionID: nextSession.id)
+        latestComposeSendPreparation = nil
         resetSessionStreamStats()
         resetPreviewThrottle(for: profile.id)
 
@@ -3699,12 +3705,18 @@ public final class NaruRemoteAppModel: ObservableObject {
             nextDraft.updateText(text)
             composeDraft = nextDraft
             latestInjectionAttempt = nil
+            latestComposeSendPreparation = nil
             return
         }
 
         draft.updateText(text)
         composeDraft = draft
         latestInjectionAttempt = nil
+        latestComposeSendPreparation = nil
+    }
+
+    public func recordComposeSendPreparation(_ report: ComposeSendPreparationReport) {
+        latestComposeSendPreparation = report
     }
 
     public func sendComposedText(_ text: String, pasteCommand: PasteCommand = .commandV) {

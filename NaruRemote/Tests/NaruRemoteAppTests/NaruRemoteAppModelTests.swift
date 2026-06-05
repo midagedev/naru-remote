@@ -2858,6 +2858,122 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.snapshot.latestInjectionAttempt)
     }
 
+    func testDiagnosticExportIncludesComposeSendPreparationWithoutDraftText() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "한글 조합 중 English")
+            )
+        )
+
+        model.recordComposeSendPreparation(
+            ComposeSendPreparationReport(
+                mode: .markedTextStabilization,
+                snapshotCount: 30,
+                durationBucket: .stalled
+            )
+        )
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(
+            report.input?.latestComposeSendPreparationMode,
+            ComposeSendPreparationMode.markedTextStabilization.rawValue
+        )
+        XCTAssertEqual(report.input?.latestComposeSendPreparationSnapshotCount, 30)
+        XCTAssertEqual(
+            report.input?.latestComposeSendPreparationDurationBucket,
+            DiagnosticTimingBucket.stalled.rawValue
+        )
+        XCTAssertFalse(json.contains("한글 조합 중 English"))
+    }
+
+    func testEditingComposeDraftClearsStaleComposeSendPreparationDiagnostic() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "old")
+            )
+        )
+        model.recordComposeSendPreparation(
+            ComposeSendPreparationReport(
+                mode: .fastSnapshot,
+                snapshotCount: 3,
+                durationBucket: .subFrame
+            )
+        )
+
+        model.updateComposeDraftText("new")
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertNil(report.input?.latestComposeSendPreparationMode)
+        XCTAssertNil(report.input?.latestComposeSendPreparationSnapshotCount)
+        XCTAssertNil(report.input?.latestComposeSendPreparationDurationBucket)
+    }
+
+    func testComposeSendPreparationRecordedAfterFinalDraftSyncSurvivesExport() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "partial")
+            )
+        )
+
+        model.updateComposeDraftText("final")
+        model.recordComposeSendPreparation(
+            ComposeSendPreparationReport(
+                mode: .markedTextStabilization,
+                snapshotCount: 30,
+                durationBucket: .lagging
+            )
+        )
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(
+            report.input?.latestComposeSendPreparationMode,
+            ComposeSendPreparationMode.markedTextStabilization.rawValue
+        )
+        XCTAssertEqual(report.input?.latestComposeSendPreparationSnapshotCount, 30)
+        XCTAssertEqual(
+            report.input?.latestComposeSendPreparationDurationBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertFalse(json.contains("final"))
+    }
+
     func testEditingComposeDraftDuringSendPreventsStalePasteFromOverwritingNewText() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(
@@ -3263,7 +3379,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 23)
+        XCTAssertEqual(report.schemaVersion, 24)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.profileHostKind, ConnectionProfile.HostKind.privateAddress.rawValue)
@@ -3334,7 +3450,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         let performance = try XCTUnwrap(report.streamPerformance)
-        XCTAssertEqual(report.schemaVersion, 23)
+        XCTAssertEqual(report.schemaVersion, 24)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(performance.deliveredFrameCount, 2)
         XCTAssertEqual(performance.contentFrameCount, 2)

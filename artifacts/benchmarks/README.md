@@ -205,6 +205,12 @@ finger-paced visible cursor travel, direct viewport motion must stay on the
 UIKit/Core Animation hot path, SwiftUI/PiP viewport mirroring must not run per
 touch sample, and marked-text Compose Send must use the bounded stabilization
 window before paste dispatch.
+Diagnostic JSON v24 adds safe Compose Send preparation fields for T390:
+`latestComposeSendPreparationMode`,
+`latestComposeSendPreparationSnapshotCount`, and
+`latestComposeSendPreparationDurationBucket`. Use these only as coarse
+pre-paste input-path signals; do not add raw draft text, marked text, or raw
+timings to benchmark artifacts.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate

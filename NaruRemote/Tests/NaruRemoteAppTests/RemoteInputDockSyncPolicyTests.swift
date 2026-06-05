@@ -557,6 +557,25 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testComposeSendPreparationPlanUsesFastPathWhenNoMarkedTextWasActive() {
+        let plan = RemoteInputDockView.composeSendPreparationPlan(hadMarkedTextBeforeSend: false)
+
+        XCTAssertEqual(plan.mode, .fastSnapshot)
+        XCTAssertEqual(plan.snapshotCount, RemoteInputDockView.composeSendFastSnapshotCount)
+        XCTAssertEqual(plan.snapshotDelayNanoseconds, RemoteInputDockView.composeSendFastDelayNanoseconds)
+    }
+
+    func testComposeSendPreparationPlanUsesStabilizationForMarkedText() {
+        let plan = RemoteInputDockView.composeSendPreparationPlan(hadMarkedTextBeforeSend: true)
+
+        XCTAssertEqual(plan.mode, .markedTextStabilization)
+        XCTAssertEqual(plan.snapshotCount, RemoteInputDockView.composeSendStabilizationSnapshotCount)
+        XCTAssertEqual(
+            plan.snapshotDelayNanoseconds,
+            RemoteInputDockView.composeSendStabilizationDelayNanoseconds
+        )
+    }
+
     func testCompactStatusHidesDefaultReadyCopy() {
         XCTAssertFalse(
             RemoteInputDockView.shouldShowCompactStatusText(
