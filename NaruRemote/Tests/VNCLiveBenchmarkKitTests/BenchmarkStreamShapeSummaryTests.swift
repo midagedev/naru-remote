@@ -1102,6 +1102,41 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
     }
 
+    func testTransportCadenceDiagnosisIgnoresDisabledGatesWhenActiveGatePasses() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .pass,
+                runCount: 5,
+                passRunCount: 5,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "continuous-disabled",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .disabled,
+                runCount: 0,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 1,
+                issueCodes: []
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.requestResponseStatus, .pass)
+        XCTAssertEqual(diagnosis.recommendedTransportMode, .requestResponse)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
+    }
+
     func testProfileGateDecodesMissingFailureLabelCountsAsEmpty() throws {
         let json = Data(
             """

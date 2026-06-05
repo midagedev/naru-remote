@@ -2140,10 +2140,10 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         guard !gates.isEmpty else {
             return .notTested
         }
-        if gates.allSatisfy({ $0.verdict == .disabled }) {
+        let activeGates = gates.filter { $0.verdict != .disabled }
+        if activeGates.isEmpty {
             return .disabled
         }
-        let activeGates = gates.filter { $0.verdict != .disabled }
         // Only classify explicit pre-sample transport failures here. Other labeled
         // regressions stay below target so future decode/stimulus/sample-bearing
         // failures are not hidden behind the transport/cadence bucket.
@@ -2151,10 +2151,10 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
            activeGates.allSatisfy(hasOnlyPreSampleTransportFailureLabels) {
             return .failedBeforeSamples
         }
-        if gates.allSatisfy({ $0.verdict == .pass }) {
+        if activeGates.allSatisfy({ $0.verdict == .pass }) {
             return .pass
         }
-        if gates.contains(where: { $0.verdict == .warning || $0.verdict == .fail }) {
+        if activeGates.contains(where: { $0.verdict == .warning || $0.verdict == .fail }) {
             return .belowTarget
         }
         return .disabled
