@@ -1836,3 +1836,60 @@ summaries attached to fixed encoding labels. It must not include host identity,
 credentials, framebuffer dimensions, rectangle coordinates, tile coordinates,
 pixels, cursor pixels, compressed or decompressed byte counts, raw samples, raw
 payloads, or raw error text.
+
+## D55 — Use a named core matrix as the larger practical optimization unit
+
+References:
+- RFC 6143 client-to-server update and encoding negotiation flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer preferred encoding / compression / quality options:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add `--stream-shape-profiles core-matrix` to `VNCLiveBenchmark`.
+The named set expands to `local-low-latency`, `zrle-compression-0`,
+`tight-first`, and `adaptive-good-full`, preserving that order. Use it with
+`--stream-shape-transport both` as the first benchmark for larger practical
+optimization PRs before falling back to exhaustive `all` sweeps or targeted
+long runs.
+
+**Why**:
+- The user asked to move from narrow fix PRs to larger goal-oriented units. The
+  benchmark needs a stable middle size between single-profile smoke tests and
+  slow all-profile transport sweeps.
+- RFC 6143 keeps encoding negotiation and update cadence under explicit client
+  control, while common VNC viewers expose encoding/compression/quality knobs.
+  Naru should therefore compare a fixed candidate matrix before changing a
+  production default.
+- The v31 ZRLE phase baseline showed local ZRLE work was not the p95 bottleneck
+  on the first successful run, so the next unit should compare transport,
+  profile, and server compatibility together.
+
+**Evidence**:
+- `core-matrix` selection tests pass, including usage text, fixed order, and a
+  guard that fails if a candidate label is removed or renamed.
+- v31 localhost Screen Sharing 8 second `core-matrix` run:
+  `local-low-latency`, `zrle-compression-0`, and `tight-first` completed under
+  request/response; all three failed the practical baseline only on
+  `content-fps-failed`. Client-processing p95 stayed 9 to 15 ms, renderer
+  full-upload pressure stayed 0 permille, and network-read p95 stayed 365 to
+  403 ms. `local-low-latency` was recommended by lowest average update latency
+  among successful request/response profiles. Every ContinuousUpdates matrix
+  probe failed with the safe `stream-continuous-updates-connection-failed`
+  label, and the standalone ContinuousUpdates probe failed with
+  `continuous-probe-receive-connection-failed`.
+
+**Interpretation**:
+- Keep `local-low-latency` as the production default for now.
+- Treat ContinuousUpdates as a compatibility investigation, not a production
+  candidate, on this macOS Screen Sharing target.
+- The next larger unit should add a controlled dynamic-content stimulus to the
+  live benchmark so content FPS is measured against repeatable screen activity,
+  then repeat `core-matrix` on a physical iPhone for thermal and hand-feel
+  evidence.
+
+**Privacy rule**: core-matrix artifacts may report only fixed profile labels,
+fixed transport labels, aggregate timing summaries, aggregate FPS, aggregate
+renderer/upload counts, practical verdict codes, and safe failure labels. They
+must not include host identity, credentials, framebuffer dimensions, rectangle
+coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads, or
+raw error text.
