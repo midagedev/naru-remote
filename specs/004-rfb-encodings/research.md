@@ -3481,3 +3481,39 @@ aggregate gate outcomes. It must not emit host identity, credentials, port
 values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command text,
 command output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D85 — Request/response-only preset should skip the standalone ContinuousUpdates probe
+
+References:
+- D84 request/response gate preset.
+- `artifacts/benchmarks/2026-06-06-request-response-preset-skips-continuous-probe.md`.
+
+**Decision**: let `--continuous-update-samples 0` skip the standalone
+ContinuousUpdates probe and make `sustained-v2-request-response` use that zero
+sample count.
+
+**Why**:
+- The purpose of `sustained-v2-request-response` is clean request/response
+  candidate comparison after ContinuousUpdates has already been routed to
+  support inspection.
+- Keeping the standalone ContinuousUpdates probe active in that preset adds
+  known blocker noise to the report and spends extra time on a path that the
+  preset intentionally excludes from profile gates.
+- A fixed `not-tested` probe status keeps the JSON explicit without pretending
+  the extension path passed, failed, or timed out during request/response-only
+  candidate comparison.
+
+**Implications**:
+- `sustained-v2-core` remains the full promotion gate and still measures the
+  standalone ContinuousUpdates probe.
+- `sustained-v2-request-response` now reports
+  `continuousUpdatesProbe.status = not-tested` and
+  `continuousUpdateSamples = 0`.
+- Production app defaults are unchanged.
+
+**Privacy rule**: the skipped-probe report may include only fixed preset,
+transport, probe-status, target, verdict, issue, and action labels plus
+aggregate gate outcomes. It must not emit host identity, credentials, port
+values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw payloads, raw FPS, raw timings, stimulus command text,
+command output, draft text, marked text, IME state, or full diagnostic payloads.

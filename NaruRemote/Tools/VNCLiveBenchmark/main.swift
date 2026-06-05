@@ -275,6 +275,15 @@ enum VNCLiveBenchmark {
         idleTimeout: TimeInterval,
         maxSamples: Int
     ) -> ContinuousUpdatesProbeReport {
+        guard maxSamples > 0 else {
+            return ContinuousUpdatesProbeReport(
+                requestedSamples: 0,
+                samples: [],
+                timeoutMilliseconds: nil,
+                failureLabel: nil
+            )
+        }
+
         let preference = RFBEncodingPreference(
             hextile: true,
             copyRect: true,
@@ -1001,8 +1010,8 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(index, offsetBy: 2)
             case "--continuous-update-samples":
                 let value = try nextValue(after: index, in: arguments, option: argument)
-                guard let samples = Int(value), samples > 0 else {
-                    throw UsageError("continuous-update-samples must be a positive integer.")
+                guard let samples = Int(value), samples >= 0 else {
+                    throw UsageError("continuous-update-samples must be a non-negative integer.")
                 }
                 options.continuousUpdateSamples = samples
                 index = arguments.index(index, offsetBy: 2)
@@ -1179,6 +1188,7 @@ private struct BenchmarkOptions: Equatable {
                     "internal sustained-v2-request-response preset profile selection is invalid.",
                 transportModes: .requestResponse
             )
+            continuousUpdateSamples = 0
         case .sustainedV2PixelFormat:
             try applySustainedV2Gate(
                 profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
@@ -1888,6 +1898,7 @@ private struct ContinuousUpdatesProbeReport: Codable, Equatable {
         let durations = samples.map(\.durationMilliseconds)
 
         self.status = Self.status(
+            requestedSamples: requestedSamples,
             emptyUpdateSamples: emptyUpdateSamples,
             contentUpdateSamples: contentUpdateSamples,
             timeoutMilliseconds: timeoutMilliseconds,
@@ -1910,11 +1921,15 @@ private struct ContinuousUpdatesProbeReport: Codable, Equatable {
     }
 
     private static func status(
+        requestedSamples: Int,
         emptyUpdateSamples: Int,
         contentUpdateSamples: Int,
         timeoutMilliseconds: Int?,
         failureLabel: String?
     ) -> ContinuousUpdatesProbeStatus {
+        if requestedSamples == 0 {
+            return .notTested
+        }
         if failureLabel != nil {
             return .failed
         }
@@ -1935,6 +1950,7 @@ private struct ContinuousUpdatesProbeReport: Codable, Equatable {
 }
 
 private enum ContinuousUpdatesProbeStatus: String, Codable {
+    case notTested = "not-tested"
     case noUpdateBeforeTimeout = "no-update-before-timeout"
     case emptyUpdate = "empty-update"
     case contentUpdate = "content-update"
@@ -2582,7 +2598,7 @@ private func printUsage() {
       --stream-shape-profile-order \(BenchmarkStreamShapeProfileOrderMode.usageDescription)
                                 Profile order for repeated stream-shape probes. Defaults to fixed; rotate moves a different profile to the front each iteration for order-neutral scoring.
       --continuous-update-samples N
-                                Maximum pushed updates to sample after enabling continuous updates. Defaults to 1.
+                                Maximum pushed updates to sample after enabling continuous updates. Defaults to 1; use 0 to skip the standalone ContinuousUpdates probe.
       --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.
 
     Required environment:

@@ -885,6 +885,14 @@ iPhone) and ships as its own PR.
   inspection. Do not change production defaults or weaken the full promotion
   gate. Owns: benchmark CLI preset, tests, README, benchmark artifact, research
   note. **Done.**
+- **T417** Request/response preset skips standalone ContinuousUpdates probe:
+  allow `--continuous-update-samples 0`, report a fixed `not-tested` status for
+  zero-sample standalone ContinuousUpdates probes, and make
+  `sustained-v2-request-response` set that count to 0. This keeps
+  request/response-only candidate comparisons free of known ContinuousUpdates
+  blocker noise without weakening the full `sustained-v2-core` promotion gate.
+  Owns: benchmark CLI/report status, README, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

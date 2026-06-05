@@ -18,6 +18,8 @@ stimulus and core profile matrix while isolating request/response transport.
   viewport-interaction, stimulus, duration, preflight, target, and timeout
   shape as `sustained-v2-core`.
 - The only shape difference is `streamShapeTransportModes = request-response`.
+- A follow-up cleanup makes this preset skip the standalone
+  `continuousUpdatesProbe` as well by setting `continuousUpdateSamples` to 0.
 - Production app defaults are unchanged.
 
 ## Why This Helps
