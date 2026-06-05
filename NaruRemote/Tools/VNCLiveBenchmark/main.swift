@@ -138,6 +138,7 @@ enum VNCLiveBenchmark {
             streamShapeStimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds,
             streamShapePreflightFrames: options.streamShapePreflightFrames,
             streamShapePracticalTarget: options.streamShapePracticalTarget,
+            streamShapeGatePreset: options.streamShapeGatePreset,
             streamShapeProfileIterations: options.streamShapeProfileIterations,
             streamShapeProfileOrderMode: options.streamShapeProfileOrderMode,
             firstFrameProfiles: options.firstFrameProfiles,
@@ -925,6 +926,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeStimulusWarmupSeconds: TimeInterval = 0.25
     var streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.defaultValue
     var streamShapePracticalTarget = BenchmarkStreamShapePracticalTargetSelection.defaultSelection
+    var streamShapeGatePreset: BenchmarkStreamShapeGatePreset = .none
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
@@ -1066,6 +1068,17 @@ private struct BenchmarkOptions: Equatable {
                 }
                 options.streamShapePracticalTarget = target
                 index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-gate-preset":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let preset = BenchmarkStreamShapeGatePreset(rawValue: value) else {
+                    throw UsageError(
+                        "stream-shape-gate-preset must be "
+                            + BenchmarkStreamShapeGatePreset.usageDescription
+                            + "."
+                    )
+                }
+                options.streamShapeGatePreset = preset
+                index = arguments.index(index, offsetBy: 2)
             case "--first-frame-profiles":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 guard let selection = BenchmarkFirstFrameProfileSelection(rawValue: value) else {
@@ -1119,7 +1132,44 @@ private struct BenchmarkOptions: Equatable {
             }
         }
 
+        try options.applyStreamShapeGatePreset()
         return options
+    }
+
+    private mutating func applyStreamShapeGatePreset() throws {
+        switch streamShapeGatePreset {
+        case .none:
+            return
+        case .sustainedV2Core:
+            attempts = 1
+            fullRefreshSamples = 0
+            continuousUpdateSamples = 1
+            streamShapeSamples = 0
+            streamShapeDuration = 10
+            streamShapeFrameInterval = 1.0 / 60.0
+            streamShapeIdleFrameInterval = 0.05
+            streamShapeEmptyBackoffMode = .app
+            streamShapePowerMode = .normal
+            streamShapeClientPressureMode = .app
+            streamShapeViewportInteractionMode = .app
+            streamShapeStimulusMode = .externalCommand
+            streamShapeStimulusWarmupSeconds = 0.25
+            streamShapePreflightFrames = 0
+            streamShapePracticalTarget = .iPhoneSustainedUsability
+            firstFrameProfiles = .none
+            do {
+                streamShapeProfiles = try StreamShapeProfileSelection.parse(
+                    BenchmarkStreamShapeProfileSelection.coreMatrixSelection
+                )
+            } catch {
+                throw UsageError("internal sustained-v2-core preset profile selection is invalid.")
+            }
+            streamShapeTransportModes = .both
+            streamShapeProfileIterations = 5
+            streamShapeProfileOrderMode = .rotate
+            timeout = 6
+            idleTimeout = 1
+        }
     }
 
     private static func nextValue(
@@ -1466,6 +1516,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeStimulusWarmupSeconds: TimeInterval
     let streamShapePreflightFrames: Int
     let streamShapePracticalTarget: BenchmarkStreamShapePracticalTargetSelection
+    let streamShapeGatePreset: BenchmarkStreamShapeGatePreset
     let streamShapeProfileIterations: Int
     let streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode
     let streamShapeViewportInteractionPauseSeconds: TimeInterval
@@ -1521,6 +1572,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeStimulusWarmupSeconds: TimeInterval,
         streamShapePreflightFrames: Int,
         streamShapePracticalTarget: BenchmarkStreamShapePracticalTargetSelection,
+        streamShapeGatePreset: BenchmarkStreamShapeGatePreset,
         streamShapeProfileIterations: Int,
         streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
@@ -1532,7 +1584,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 37
+        self.schemaVersion = 38
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1549,6 +1601,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeStimulusWarmupSeconds = streamShapeStimulusWarmupSeconds
         self.streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.clamped(streamShapePreflightFrames)
         self.streamShapePracticalTarget = streamShapePracticalTarget
+        self.streamShapeGatePreset = streamShapeGatePreset
         self.streamShapeProfileIterations = max(streamShapeProfileIterations, 1)
         self.streamShapeProfileOrderMode = streamShapeProfileOrderMode
         self.streamShapeViewportInteractionPauseSeconds = 0
@@ -1844,6 +1897,7 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape stimulus warmup seconds: \(formatSeconds(report.streamShapeStimulusWarmupSeconds))")
     print("stream-shape preflight frames: \(report.streamShapePreflightFrames)")
     print("stream-shape practical target: \(report.streamShapePracticalTarget.rawValue)")
+    print("stream-shape gate preset: \(report.streamShapeGatePreset.rawValue)")
     print("stream-shape profile iterations: \(report.streamShapeProfileIterations)")
     print("stream-shape profile order: \(report.streamShapeProfileOrderMode.rawValue)")
     if report.streamShapePowerMode == .lowPower {
@@ -2334,11 +2388,13 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|zrle-isolation|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset none|sustained-v2-core] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles local-low-latency|core-matrix|zrle-isolation|all|PROFILE,...] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
+      --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix, both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v38 gate reporting. Use individual stream-shape options without this preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

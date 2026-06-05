@@ -2726,3 +2726,74 @@ and schema version. They must not include host identity, credentials, port
 value, stimulus command text, command output, TCP errors, RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, draft text, marked text, or IME state.
+
+## D70 — Add a standard sustained v2 gate preset
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: bump `VNCLiveBenchmark` output to schema v38 and add
+`--stream-shape-gate-preset sustained-v2-core`. The preset records
+`streamShapeGatePreset` in benchmark reports and fixes the standard larger-unit
+gate shape:
+
+- `attempts = 1`
+- `fullRefreshSamples = 0`
+- `streamShapeSamples = 0`
+- `streamShapeDurationSeconds = 10`
+- `streamShapeFrameIntervalSeconds = 1/60`
+- `streamShapeIdleFrameIntervalSeconds = 0.05`
+- app empty backoff, normal power mode, app client-pressure pacing, app
+  viewport-interaction pacing
+- external-command stimulus with 0.25 second warmup
+- zero hidden stream-shape preflight frames
+- `iphone-sustained-usability-v2`
+- first-frame profiles `none`
+- stream-shape profiles `core-matrix`
+- stream-shape transport `both`
+- five rotated profile iterations
+- timeout 6 seconds, idle timeout 1 second
+
+**Why**:
+- The large-unit gate should be repeatable. Long hand-built commands are easy
+  to drift between PRs, especially around preflight-frame count, transport
+  comparison, profile iterations, and app-parity pacing.
+- The preset intentionally does not hide the custom option surface. It gives
+  default-changing PRs one reproducible starting point while leaving custom
+  experiments on the existing explicit flags.
+- Preflight now understands the preset because applying the preset sets
+  stimulus mode to `external-command`, so missing controlled stimulus is caught
+  before any connection attempt.
+
+**Evidence**:
+- `BenchmarkStreamShapeGatePresetTests` cover stable raw values and usage
+  description.
+- `swift build --product VNCLiveBenchmark` passes with schema v38 report
+  wiring.
+- CLI smoke with
+  `--environment-preflight --stream-shape-gate-preset sustained-v2-core
+  --ask-password --json` reported `promptRequested`,
+  `missing-stimulus-command`, and `external-command` without prompting.
+- CLI smoke with dummy host/password/stimulus environment values reported
+  `canRunLiveBenchmark: true` without exposing those values.
+
+**Interpretation**:
+- Use `sustained-v2-core` as the first live profile-gate command for larger
+  cadence, transport, profile, startup preflight, and viewport-scheduling PRs.
+- If the preset gate fails, inspect the v37/v38 profile-gate issue union and
+  hit-rate fields before making a production default change.
+- If the preset gate passes, it still only graduates the candidate to the
+  physical iPhone 10 minute hand-feel/thermal pass.
+
+**Privacy rule**: gate preset reports may emit only fixed preset labels, fixed
+target/profile/transport/stimulus labels, aggregate gate counts, aggregate
+permille ratios, aggregate timing summaries, and existing safe benchmark
+fields. They must not include host identity, credentials, port value, stimulus
+command text, command output, TCP errors, RFB errors, framebuffer dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, draft text,
+marked text, or IME state.

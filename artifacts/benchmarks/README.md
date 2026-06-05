@@ -50,7 +50,7 @@ iPhone pass.
 Current baseline artifact:
 `artifacts/benchmarks/2026-06-06-practical-usability-baseline-goals.md`.
 That run keeps renderer upload as a regression guard but moves the next large
-optimization unit toward live v37 profile gates and physical iPhone
+optimization unit toward live profile gates and physical iPhone
 hand-feel/thermal verification.
 
 ## Physical iPhone: Live Connection Smoke
@@ -95,7 +95,7 @@ setup without connecting or prompting for a password:
 ```bash
 swift run VNCLiveBenchmark \
   --environment-preflight \
-  --stream-shape-stimulus external-command \
+  --stream-shape-gate-preset sustained-v2-core \
   --ask-password \
   --json
 ```
@@ -134,24 +134,7 @@ swift build --product VNCLiveStimulusWindow
 NARU_LIVE_MAC_HOST=127.0.0.1 \
 NARU_LIVE_STIMULUS_COMMAND='.build/debug/VNCLiveStimulusWindow --duration "$NARU_LIVE_STIMULUS_DURATION_SECONDS"' \
 swift run VNCLiveBenchmark \
-  --attempts 1 \
-  --full-refresh-samples 0 \
-  --stream-shape-samples 0 \
-  --stream-shape-duration-seconds 8 \
-  --stream-shape-frame-interval 0.0167 \
-  --stream-shape-idle-frame-interval 0.05 \
-  --stream-shape-empty-backoff app \
-  --stream-shape-power-mode normal \
-  --stream-shape-client-pressure app \
-  --stream-shape-viewport-interaction app \
-  --stream-shape-stimulus external-command \
-  --stream-shape-stimulus-warmup-seconds 0.25 \
-  --first-frame-profiles stream-shape-profiles \
-  --stream-shape-profiles core-matrix \
-  --stream-shape-transport both \
-  --continuous-update-samples 1 \
-  --timeout 6 \
-  --idle-timeout 1 \
+  --stream-shape-gate-preset sustained-v2-core \
   --ask-password \
   --json
 ```
@@ -239,9 +222,9 @@ graduate to physical iPhone hand-feel/thermal comparison. Do not add profile
 host identity, dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 FPS, raw timings, raw samples, raw payloads, raw errors, external command text,
 or command output to profile gates.
-For new practical-usability PRs, use the v37 gate plus
+For new practical-usability PRs, use the profile gate plus
 `iphone-sustained-usability-v2` as the default decision surface. A production
-streaming default should not change until a redacted controlled-stimulus v37
+streaming default should not change until a redacted controlled-stimulus
 run has an explicit gate judgment and a physical iPhone 10 minute
 hand-feel/thermal pass confirms no `.serious` or `.critical` thermal state.
 The app stream startup preflight gate is separate from the benchmark-only v34
@@ -276,7 +259,14 @@ identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
 v1 readiness labels before connecting or prompting for a password, and is meant
-to explain why a live v37 profile gate could not be attempted.
+to explain why a live profile gate could not be attempted.
+Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
+`streamShapeGatePreset` in benchmark reports. The sustained v2 core preset is
+the standard large-unit live gate: controlled stimulus, core matrix profiles,
+both transports, five rotated iterations, app client-pressure and viewport
+pacing, ten second duration, zero hidden stream-shape preflight frames, and the
+`iphone-sustained-usability-v2` target. Use explicit stream-shape options
+without the preset for custom experiments.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
