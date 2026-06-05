@@ -8,12 +8,12 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(TextInjectionPayloadEncoding.classify("한글과 😊"), .utf8ExtensionRequired)
     }
 
-    func testAdapterReportsUnknownWhenPasteCannotBeConfirmed() {
+    func testAdapterReportsUnknownWhenASCIIPasteCannotBeConfirmed() {
         let client = FakeClipboardClient()
         let adapter = TextInjectionAdapter()
         let sessionID = UUID()
         var draft = ComposeDraft(sessionID: sessionID)
-        draft.updateText("한글과 English 😊를 같이 입력합니다")
+        draft.updateText("plain ASCII input")
 
         let attempt = adapter.send(
             draft: &draft,
@@ -21,23 +21,49 @@ final class TextInjectionAdapterTests: XCTestCase {
             pasteCommand: .commandV
         )
 
-        XCTAssertEqual(client.clipboardPayloads, ["한글과 English 😊를 같이 입력합니다"])
+        XCTAssertEqual(client.clipboardPayloads, ["plain ASCII input"])
         XCTAssertEqual(client.pasteCommands, [.commandV])
         XCTAssertEqual(attempt.status, .unknown)
         XCTAssertEqual(attempt.path, .vncClipboardPaste)
         XCTAssertEqual(attempt.pasteCommand, .commandV)
-        XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(attempt.payloadEncoding, .ascii)
         XCTAssertEqual(attempt.clipboardTransferMode, .legacyClientCutText)
         XCTAssertEqual(attempt.utf8ClipboardSupport, .unknown)
         XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
         XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
         XCTAssertEqual(attempt.remoteClipboardRestore, .unsupported)
-        XCTAssertEqual(draft.text, "한글과 English 😊를 같이 입력합니다")
+        XCTAssertEqual(draft.text, "plain ASCII input")
         XCTAssertEqual(draft.sendState, .unknown)
         XCTAssertNil(draft.lastFailureReason)
         XCTAssertEqual(
             draft.lastStatusMessage,
-            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+            "Paste command sent; remote app confirmation unavailable."
+        )
+    }
+
+    func testAdapterRejectsUTF8ComposeWhenServerHasNotConfirmedSupport() {
+        let client = FakeClipboardClient()
+        let adapter = TextInjectionAdapter()
+        var draft = ComposeDraft(sessionID: UUID(), text: "한글과 English 😊")
+
+        let attempt = adapter.send(
+            draft: &draft,
+            via: client,
+            pasteCommand: .commandV
+        )
+
+        XCTAssertTrue(client.clipboardPayloads.isEmpty)
+        XCTAssertTrue(client.pasteCommands.isEmpty)
+        XCTAssertEqual(attempt.status, .failed)
+        XCTAssertEqual(attempt.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(attempt.clipboardTransferMode, .legacyClientCutText)
+        XCTAssertEqual(attempt.utf8ClipboardSupport, .unknown)
+        XCTAssertEqual(attempt.clipboardSetStatus, .notAttempted)
+        XCTAssertEqual(attempt.pasteCommandStatus, .notAttempted)
+        XCTAssertEqual(draft.sendState, .failed)
+        XCTAssertEqual(
+            draft.lastFailureReason,
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
         )
     }
 
@@ -85,7 +111,7 @@ final class TextInjectionAdapterTests: XCTestCase {
         let client = FakeClipboardClient(setClipboardError: FakeClipboardError.clipboardBlocked)
         let adapter = TextInjectionAdapter()
         let sessionID = UUID()
-        var draft = ComposeDraft(sessionID: sessionID, text: "원격에 보내려던 문장")
+        var draft = ComposeDraft(sessionID: sessionID, text: "Clipboard should fail")
 
         let attempt = adapter.send(
             draft: &draft,
@@ -96,7 +122,7 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(attempt.status, .failed)
         XCTAssertEqual(attempt.clipboardSetStatus, .failed)
         XCTAssertEqual(attempt.pasteCommandStatus, .notAttempted)
-        XCTAssertEqual(draft.text, "원격에 보내려던 문장")
+        XCTAssertEqual(draft.text, "Clipboard should fail")
         XCTAssertEqual(draft.sendState, .failed)
         XCTAssertEqual(draft.lastFailureReason, "Text clipboard unavailable: Remote clipboard did not accept text.")
         XCTAssertEqual(draft.lastStatusMessage, draft.lastFailureReason)

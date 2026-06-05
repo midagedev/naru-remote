@@ -1160,3 +1160,43 @@ before the paste shortcut.
 export gesture coordinates, timing samples, display dimensions, pixels, cursor
 pixels, byte counts, host identity, device identity, raw key events, or Compose
 draft text.
+
+## D39 — Do not treat unconfirmed UTF-8 clipboard sends as reliable Compose
+
+References:
+- RFC 6143 ClientCutText:
+  https://www.rfc-editor.org/rfc/rfc6143
+- RFC 6143 pseudo-encoding confirmation rule:
+  https://www.rfc-editor.org/rfc/rfc6143
+- RealVNC Mac paste guidance:
+  https://help.realvnc.com/hc/en-us/articles/360002253738-Copying-and-Pasting-Text
+- RealVNC Mac keyboard mapping:
+  https://help.realvnc.com/hc/en-us/articles/360002250597-Keyboard-Mapping-To-and-From-a-Mac
+
+**Decision**: keep ASCII/Latin-1 legacy `ClientCutText` as an unconfirmed VNC
+clipboard path, but reject Korean/CJK/emoji Compose payloads unless the active
+server has confirmed Extended Clipboard UTF-8 text provide support. Preserve the
+documented Mac `Alt_L+v` paste mapping, but classify UTF-8 payloads on
+unconfirmed clipboard sessions as a safe failure before writing clipboard bytes
+or paste key events.
+
+**Why**:
+- RFC 6143 defines `ClientCutText` / `ServerCutText` as ISO 8859-1 only and
+  explicitly states that text outside Latin-1 cannot be transferred through the
+  base message. The same RFC says pseudo-encoding support must be assumed absent
+  until extension-specific confirmation arrives.
+- RealVNC documents `Alt+V` as the non-Mac-to-Mac paste gesture and `Alt_L` as
+  the default left Command keysym mapping, so the paste shortcut choice is not
+  the primary blocker for multilingual Compose.
+- A local redacted macOS Screen Sharing probe on 2026-06-05 connected over VNC,
+  sent `ClientCutText` for ASCII and UTF-8 probe strings, and observed that the
+  macOS pasteboard did not adopt either payload. Treating a socket write as
+  successful Compose therefore produces a false-positive UX on the founder's
+  target path.
+- The product's local-composition promise is better served by an honest failure
+  plus future helper/confirmed-clipboard path than by sending Korean/CJK/emoji
+  through a channel known to be Latin-1 or unacknowledged.
+
+**Privacy rule**: the probe and app behavior must not log or export the VNC
+password, raw clipboard contents, Compose draft text, host name, framebuffer
+pixels, coordinates, raw key events, byte payloads, or exact timing samples.

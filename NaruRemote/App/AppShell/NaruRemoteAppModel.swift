@@ -3058,6 +3058,29 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         let utf8Support = activeTextClient.utf8ClipboardSupport
         let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
+        if let message = TextInjectionClipboardPolicy.unsupportedPayloadMessage(
+            payloadEncoding: payloadEncoding,
+            utf8Support: utf8Support
+        ) {
+            draft.markFailed(reason: message, at: now)
+            composeDraft = draft
+            latestInjectionAttempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
+                payloadEncoding: payloadEncoding,
+                clipboardTransferMode: transferMode,
+                utf8ClipboardSupport: utf8Support,
+                startedAt: now,
+                finishedAt: now,
+                status: .failed,
+                remoteClipboardRestore: .unsupported,
+                safeMessage: message
+            )
+            return
+        }
+
         let draftForSend = draft
         draft.markSending(path: .vncClipboardPaste, at: now)
         composeDraft = draft

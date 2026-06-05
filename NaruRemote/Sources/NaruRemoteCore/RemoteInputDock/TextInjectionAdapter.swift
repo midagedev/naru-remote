@@ -81,6 +81,25 @@ public enum TextClipboardTransferMode: String, Codable, Equatable, CaseIterable,
     }
 }
 
+public enum TextInjectionClipboardPolicy {
+    public static func unsupportedPayloadMessage(
+        payloadEncoding: TextInjectionPayloadEncoding,
+        utf8Support: RemoteClipboardUTF8Support
+    ) -> String? {
+        guard payloadEncoding == .utf8ExtensionRequired,
+              utf8Support != .supported
+        else {
+            return nil
+        }
+
+        return TextInjectionError
+            .clipboardUnavailable(
+                "This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
+            )
+            .localizedDescription
+    }
+}
+
 public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -271,16 +290,39 @@ public struct TextInjectionAdapter {
             )
         }
 
-        draft.markSending(path: .vncClipboardPaste, at: now)
         let utf8Support = client.utf8ClipboardSupport
         let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
+        let payloadEncoding = TextInjectionPayloadEncoding.classify(draft.text)
+
+        if let message = TextInjectionClipboardPolicy.unsupportedPayloadMessage(
+            payloadEncoding: payloadEncoding,
+            utf8Support: utf8Support
+        ) {
+            draft.markFailed(reason: message, at: now)
+            return TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
+                payloadEncoding: payloadEncoding,
+                clipboardTransferMode: transferMode,
+                utf8ClipboardSupport: utf8Support,
+                startedAt: now,
+                finishedAt: now,
+                status: .failed,
+                remoteClipboardRestore: .unsupported,
+                safeMessage: message
+            )
+        }
+
+        draft.markSending(path: .vncClipboardPaste, at: now)
 
         var attempt = TextInjectionAttempt(
             draftID: draft.id,
             sessionID: draft.sessionID,
             path: .vncClipboardPaste,
             pasteCommand: pasteCommand,
-            payloadEncoding: TextInjectionPayloadEncoding.classify(draft.text),
+            payloadEncoding: payloadEncoding,
             clipboardTransferMode: transferMode,
             utf8ClipboardSupport: utf8Support,
             startedAt: now,
