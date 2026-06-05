@@ -621,6 +621,13 @@ iPhone) and ships as its own PR.
   profile/extension isolation as the next large unit rather than changing the
   production default immediately. Owns: benchmark kit/CLI, SwiftPM helper
   target, tests, benchmark docs/artifact, research note. **Done.**
+- **T387** ZRLE stimulated isolation matrix: add
+  `--stream-shape-profiles zrle-isolation` for the current default, pure ZRLE
+  compression 0, and cursor/ExtendedClipboard extension combinations. Record a
+  redacted stimulated request/response run and use the evidence to identify
+  order/cold-start neutral scoring as the next larger unit before changing the
+  production default. Owns: benchmark profile selection kit/tests, CLI docs,
+  benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

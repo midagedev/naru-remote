@@ -181,6 +181,11 @@ stream-shape uses the app's `local-low-latency` profile; pass
 set (`local-low-latency`, `zrle-compression-0`, `tight-first`, and
 `adaptive-good-full`) before deciding whether the next larger unit should
 change request cadence, transport, encoding profile, or server compatibility.
+Pass `--stream-shape-profiles zrle-isolation` to compare the current default
+against pure ZRLE compression 0 plus cursor/ExtendedClipboard extension
+variants under the same dynamic stimulus.
+Example:
+`--first-frame-profiles none --stream-shape-profiles zrle-isolation --stream-shape-transport request-response`.
 Pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.
