@@ -8,6 +8,10 @@ import Foundation
 /// when sustained-session tuning changes.
 public enum StreamPressurePacingDefaults {
     public static let balancedContentFrameIntervalSeconds: Double = 1.0 / 30.0
+    /// Localized terminal/cursor/editor damage can be sampled more often during
+    /// viewport gestures without paying the full-frame upload cost. This keeps
+    /// remote echo alive while the local compositor path owns pinch/pan.
+    public static let viewportInteractionPartialContentFrameIntervalSeconds: Double = 1.0 / 15.0
     /// While the user is locally pinching/panning the viewport, keep the
     /// local compositor path in charge while the request loop continues at a
     /// conservative 4 Hz-class bounded cadence. The app can then keep only the

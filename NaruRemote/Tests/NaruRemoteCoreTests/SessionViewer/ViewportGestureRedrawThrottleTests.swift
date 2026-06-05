@@ -32,7 +32,7 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
     }
 
     func testViewportInteractionCadenceKeepsBoundedLiveGestureFrames() {
-        let interval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+        let interval = StreamPressurePacingDefaults.viewportInteractionPartialContentFrameIntervalSeconds
         var throttle = ViewportGestureRedrawThrottle(
             minimumInterval: interval,
             allowsFirstRedrawDuringGesture: true
@@ -41,6 +41,14 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: 0.000), .requestNow)
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: interval / 2), .deferRedraw)
         XCTAssertEqual(throttle.recordIncomingFrame(isGestureActive: true, now: interval), .requestNow)
+    }
+
+    func testViewportInteractionPartialCadenceStaysFifteenHertzClass() {
+        XCTAssertEqual(
+            StreamPressurePacingDefaults.viewportInteractionPartialContentFrameIntervalSeconds,
+            1.0 / 15.0,
+            accuracy: 0.0001
+        )
     }
 
     func testViewportInteractionCadenceStaysFourHertzClass() {
