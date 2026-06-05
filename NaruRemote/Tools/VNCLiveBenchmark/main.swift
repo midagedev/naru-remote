@@ -1480,6 +1480,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeProbe: StreamShapeProbeReport
     let streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport]
     let streamShapeProfileAggregates: [BenchmarkStreamShapeProfileAggregateReport]
+    let streamShapeProfileGates: [BenchmarkStreamShapeProfileGateReport]
     let streamShapeRecommendation: BenchmarkStreamShapeRecommendation?
     let streamShapeOrderNeutralRecommendation: BenchmarkStreamShapeRecommendation?
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
@@ -1514,7 +1515,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 36
+        self.schemaVersion = 37
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1585,6 +1586,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
             "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, and aggregate threshold outcomes",
             "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
+            "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, aggregate run counts, and permille ratios",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
         ]
@@ -1593,6 +1595,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeProbe = streamShapeProbe
         self.streamShapeProfileProbes = streamShapeProfileProbes
         self.streamShapeProfileAggregates = streamShapeProfileAggregates
+        self.streamShapeProfileGates = BenchmarkStreamShapeProfileGateReport.gates(from: streamShapeProfileProbes)
         self.streamShapeRecommendation = BenchmarkStreamShapeRecommendation
             .recommendedRequestResponseProfile(from: streamShapeProfileProbes)
         self.streamShapeOrderNeutralRecommendation = BenchmarkStreamShapeRecommendation
@@ -1963,6 +1966,29 @@ private func renderText(_ report: BenchmarkReport) {
                let contentRequest = aggregate.averageContentSamplePermille,
                let contentResponse = aggregate.averageContentResponsePermille,
                let unanswered = aggregate.averageUnansweredSamplePermille {
+                print(
+                    "  hit-rate permille avg received/request content/request content/response unanswered: "
+                        + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
+                )
+            }
+        }
+    }
+    if report.streamShapeProfileGates.count > 1 {
+        print("")
+        print("stream-shape profile gates:")
+        for gate in report.streamShapeProfileGates {
+            print("- \(gate.label) [\(gate.transportMode.rawValue)]: \(gate.verdict.rawValue)")
+            print(
+                "  target: \(gate.targetName); runs pass/warning/fail/disabled/total: "
+                    + "\(gate.passRunCount)/\(gate.warningRunCount)/\(gate.failRunCount)/"
+                    + "\(gate.disabledRunCount)/\(gate.runCount)"
+            )
+            let issues = gate.issueCodes.map(\.rawValue).joined(separator: ",")
+            print("  issues: \(issues.isEmpty ? "none" : issues)")
+            if let receivedRequest = gate.averageReceivedSamplePermille,
+               let contentRequest = gate.averageContentSamplePermille,
+               let unanswered = gate.averageUnansweredSamplePermille {
+                let contentResponse = gate.averageContentResponsePermille.map(String.init) ?? "n/a"
                 print(
                     "  hit-rate permille avg received/request content/request content/response unanswered: "
                         + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"

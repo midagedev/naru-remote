@@ -206,6 +206,16 @@ duration-capped attempts vary. These fields must remain counts and permille
 ratios only; do not add per-frame request arrays, timestamps, dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, raw errors, or
 target identity.
+Schema v37 adds `streamShapeProfileGates`, a per-profile/transport gate summary
+for multi-iteration sustained-stream runs. Each gate reports only the fixed
+target name, fixed verdict, fixed issue-code union, aggregate
+pass/warning/fail/disabled run counts, total run count, and aggregate hit-rate
+permille means. Use it as the first screen for larger default-change decisions:
+only profiles whose gate is `pass` or intentionally accepted `warning` should
+graduate to physical iPhone hand-feel/thermal comparison. Do not add profile
+host identity, dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+FPS, raw timings, raw samples, raw payloads, raw errors, external command text,
+or command output to profile gates.
 The app stream startup preflight gate is separate from the benchmark-only v34
 flag: the runtime policy is injectable and off by default, may consume at most
 one hidden incremental update after the first visible frame, and must not be

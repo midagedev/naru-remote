@@ -1178,6 +1178,161 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     }
 }
 
+public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendable {
+    public let label: String
+    public let transportMode: BenchmarkStreamShapeTransportMode
+    public let targetName: String
+    public let verdict: BenchmarkStreamShapePracticalVerdict
+    public let runCount: Int
+    public let passRunCount: Int
+    public let warningRunCount: Int
+    public let failRunCount: Int
+    public let disabledRunCount: Int
+    public let issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    public let averageReceivedSamplePermille: Int?
+    public let averageContentSamplePermille: Int?
+    public let averageContentResponsePermille: Int?
+    public let averageUnansweredSamplePermille: Int?
+
+    public init(
+        label: String,
+        transportMode: BenchmarkStreamShapeTransportMode,
+        targetName: String,
+        verdict: BenchmarkStreamShapePracticalVerdict,
+        runCount: Int,
+        passRunCount: Int,
+        warningRunCount: Int,
+        failRunCount: Int,
+        disabledRunCount: Int,
+        issueCodes: [BenchmarkStreamShapePracticalIssueCode],
+        averageReceivedSamplePermille: Int? = nil,
+        averageContentSamplePermille: Int? = nil,
+        averageContentResponsePermille: Int? = nil,
+        averageUnansweredSamplePermille: Int? = nil
+    ) {
+        self.label = label
+        self.transportMode = transportMode
+        self.targetName = targetName
+        self.verdict = verdict
+        self.runCount = max(runCount, 0)
+        self.passRunCount = max(passRunCount, 0)
+        self.warningRunCount = max(warningRunCount, 0)
+        self.failRunCount = max(failRunCount, 0)
+        self.disabledRunCount = max(disabledRunCount, 0)
+        self.issueCodes = Self.orderedIssueCodes(issueCodes)
+        self.averageReceivedSamplePermille = Self.clampOptionalPermille(averageReceivedSamplePermille)
+        self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
+        self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
+        self.averageUnansweredSamplePermille = Self.clampOptionalPermille(averageUnansweredSamplePermille)
+    }
+
+    public static func gates(
+        from reports: [BenchmarkStreamShapeProfileReport]
+    ) -> [BenchmarkStreamShapeProfileGateReport] {
+        let orderedKeys = orderedGateKeys(from: reports)
+        let grouped = Dictionary(grouping: reports) {
+            GateKey(label: $0.label, transportMode: $0.transportMode)
+        }
+        return orderedKeys.compactMap { key in
+            grouped[key].map { gate(key: key, reports: $0) }
+        }
+    }
+
+    private static func gate(
+        key: GateKey,
+        reports: [BenchmarkStreamShapeProfileReport]
+    ) -> BenchmarkStreamShapeProfileGateReport {
+        let assessments = reports.map(\.summary.practicalAssessment)
+        let passRunCount = assessments.filter { $0.verdict == .pass }.count
+        let warningRunCount = assessments.filter { $0.verdict == .warning }.count
+        let failRunCount = assessments.filter { $0.verdict == .fail }.count
+        let disabledRunCount = assessments.filter { $0.verdict == .disabled }.count
+        let issueCodes = assessments.flatMap(\.issueCodes)
+        let targetName = assessments.first?.targetName ?? BenchmarkStreamShapePracticalTargets
+            .iPhoneSustainedUsability
+            .name
+        return BenchmarkStreamShapeProfileGateReport(
+            label: key.label,
+            transportMode: key.transportMode,
+            targetName: targetName,
+            verdict: verdict(
+                passRunCount: passRunCount,
+                warningRunCount: warningRunCount,
+                failRunCount: failRunCount,
+                disabledRunCount: disabledRunCount
+            ),
+            runCount: reports.count,
+            passRunCount: passRunCount,
+            warningRunCount: warningRunCount,
+            failRunCount: failRunCount,
+            disabledRunCount: disabledRunCount,
+            issueCodes: issueCodes,
+            averageReceivedSamplePermille: roundedAverage(reports.compactMap(\.summary.receivedSamplePermille)),
+            averageContentSamplePermille: roundedAverage(reports.compactMap(\.summary.contentSamplePermille)),
+            averageContentResponsePermille: roundedAverage(reports.compactMap(\.summary.contentResponsePermille)),
+            averageUnansweredSamplePermille: roundedAverage(reports.compactMap(\.summary.unansweredSamplePermille))
+        )
+    }
+
+    private static func verdict(
+        passRunCount: Int,
+        warningRunCount: Int,
+        failRunCount: Int,
+        disabledRunCount: Int
+    ) -> BenchmarkStreamShapePracticalVerdict {
+        if failRunCount > 0 {
+            return .fail
+        }
+        if warningRunCount > 0 {
+            return .warning
+        }
+        if passRunCount > 0 {
+            return .pass
+        }
+        if disabledRunCount > 0 {
+            return .disabled
+        }
+        return .disabled
+    }
+
+    private static func orderedGateKeys(
+        from reports: [BenchmarkStreamShapeProfileReport]
+    ) -> [GateKey] {
+        var seen: Set<GateKey> = []
+        var keys: [GateKey] = []
+        for report in reports {
+            let key = GateKey(label: report.label, transportMode: report.transportMode)
+            if seen.insert(key).inserted {
+                keys.append(key)
+            }
+        }
+        return keys
+    }
+
+    private static func orderedIssueCodes(
+        _ issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> [BenchmarkStreamShapePracticalIssueCode] {
+        let issueSet = Set(issueCodes)
+        return BenchmarkStreamShapePracticalIssueCode.allCases.filter { issueSet.contains($0) }
+    }
+
+    private static func roundedAverage(_ values: [Int]) -> Int? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+
+    private struct GateKey: Hashable {
+        let label: String
+        let transportMode: BenchmarkStreamShapeTransportMode
+    }
+}
+
 public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode

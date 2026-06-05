@@ -2555,3 +2555,51 @@ timestamps, target identity, credentials, framebuffer dimensions, coordinates,
 pixels, cursor pixels, byte counts, raw samples, raw payloads, external command
 text, command output, hidden frame contents, hidden frame timings, raw errors,
 draft text, marked text, or IME state.
+
+## D67 — Promote profile-level gates for larger sustained optimization units
+
+References:
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple thermal behavior guidance:
+  https://support.apple.com/en-us/118431
+
+**Decision**: bump `VNCLiveBenchmark` to schema v37 and add top-level
+`streamShapeProfileGates`. A gate summarizes every profile/transport pair with
+the fixed practical target name, fixed verdict, fixed issue-code union,
+pass/warning/fail/disabled run counts, total run count, and aggregate hit-rate
+permille means.
+
+**Why**:
+- The work is moving from small tuning PRs to larger units that may change
+  cadence, encoding profile, startup preflight, or viewport-interaction stream
+  policy. Those decisions need a profile-level gate instead of manually scanning
+  many individual stream-shape probes.
+- RFC 6143's client-driven request flow means a profile can fail for different
+  reasons: unanswered request waits, empty server responses, or slow
+  content-bearing responses. Schema v36 exposes those ratios; schema v37 groups
+  them at the same profile/transport level used for default-candidate decisions.
+- TigerVNC exposes profile-like performance choices through preferred encoding,
+  compression, quality, and pointer-rate knobs. Naru should likewise evaluate
+  candidate profiles as units, not as isolated per-run samples.
+- Apple documents that warm iPhone conditions can reduce frame rate or
+  processing responsiveness. A `pass` profile gate therefore only graduates a
+  candidate to a physical iPhone hand-feel/thermal pass; it does not by itself
+  approve a production default change.
+
+**Interpretation**:
+- `fail`: do not promote the profile until the issue-code union is resolved.
+- `warning`: require an explicit benchmark artifact judgment before using the
+  profile as a candidate.
+- `pass`: eligible for physical iPhone verification, subject to the 10 minute
+  hand-feel/thermal gate.
+- `disabled`: the profile did not produce meaningful stream-shape evidence.
+
+**Privacy rule**: profile gates may report only fixed target names, fixed
+verdicts, fixed issue-code labels, aggregate run counts, and aggregate permille
+ratios. They must not include host identity, credentials, framebuffer
+dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
+timings, raw samples, raw payloads, raw errors, external command text, command
+output, draft text, marked text, or IME state.

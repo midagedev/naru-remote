@@ -540,6 +540,63 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertNil(continuous.averageUpdateMilliseconds)
     }
 
+    func testProfileGatesSummarizePracticalVerdictsByProfile() {
+        let reports = [
+            profileReport(label: "zrle-compression-0", durations: [40, 45, 50], iteration: 1),
+            BenchmarkStreamShapeProfileReport(
+                label: "zrle-compression-0",
+                iterationOrdinal: 2,
+                orderOrdinal: 1,
+                firstFrameMilliseconds: 100,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 3,
+                    samples: [],
+                    elapsedMilliseconds: 100,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: "stream-request-response-receive-failed"
+                )
+            ),
+            BenchmarkStreamShapeProfileReport(
+                label: "continuous",
+                transportMode: .continuousUpdates,
+                iterationOrdinal: 1,
+                orderOrdinal: 2,
+                firstFrameMilliseconds: nil,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: 0,
+                    samples: [],
+                    elapsedMilliseconds: nil,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil
+                )
+            )
+        ]
+
+        let gates = BenchmarkStreamShapeProfileGateReport.gates(from: reports)
+
+        XCTAssertEqual(gates.map(\.label), ["zrle-compression-0", "continuous"])
+        let zrle = gates[0]
+        XCTAssertEqual(zrle.transportMode, .requestResponse)
+        XCTAssertEqual(zrle.targetName, "iphone-practical-baseline-v1")
+        XCTAssertEqual(zrle.verdict, .fail)
+        XCTAssertEqual(zrle.runCount, 2)
+        XCTAssertEqual(zrle.passRunCount, 1)
+        XCTAssertEqual(zrle.warningRunCount, 0)
+        XCTAssertEqual(zrle.failRunCount, 1)
+        XCTAssertEqual(zrle.disabledRunCount, 0)
+        XCTAssertEqual(zrle.issueCodes, [.probeFailed])
+        XCTAssertEqual(zrle.averageReceivedSamplePermille, 500)
+        XCTAssertEqual(zrle.averageContentSamplePermille, 500)
+        XCTAssertEqual(zrle.averageContentResponsePermille, 1_000)
+        XCTAssertEqual(zrle.averageUnansweredSamplePermille, 500)
+
+        let continuous = gates[1]
+        XCTAssertEqual(continuous.transportMode, .continuousUpdates)
+        XCTAssertEqual(continuous.verdict, .disabled)
+        XCTAssertEqual(continuous.disabledRunCount, 1)
+        XCTAssertEqual(continuous.issueCodes, [.probeDisabled])
+    }
+
     func testOrderNeutralRecommendationUsesAggregateRuns() throws {
         let aggregates = BenchmarkStreamShapeProfileAggregateReport.aggregates(
             from: [
