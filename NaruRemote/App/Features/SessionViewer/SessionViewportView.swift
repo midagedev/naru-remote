@@ -116,6 +116,11 @@ public struct SessionViewportView: View {
     /// then collapses to a tiny top handle so the remote screen is the
     /// default visual state.
     @State private var showsImmersiveControlBar: Bool = true
+    /// Local mirror of the UIKit/Metal viewport gesture lifecycle.  The
+    /// app model also receives this signal for frame coalescing; keeping
+    /// a view-local copy lets the immersive chrome avoid animating itself
+    /// away while a pinch or pan is in flight.
+    @State private var isViewportInteractionActive: Bool = false
 
     /// Gesture baselines used only by the PiP display-layer path. The
     /// regular Metal path owns UIKit recognizers and reports absolute
@@ -346,14 +351,27 @@ public struct SessionViewportView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
-            .task(id: showsImmersiveControlBar) {
-                guard showsImmersiveControlBar else { return }
+            .task(id: immersiveControlAutoHideToken) {
+                guard Self.allowsImmersiveControlAutoHide(
+                    showsControlBar: showsImmersiveControlBar,
+                    isViewportInteractionActive: isViewportInteractionActive
+                ) else { return }
                 try? await Task.sleep(nanoseconds: 2_400_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      Self.allowsImmersiveControlAutoHide(
+                        showsControlBar: showsImmersiveControlBar,
+                        isViewportInteractionActive: isViewportInteractionActive
+                      )
+                else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showsImmersiveControlBar = false
                 }
             }
+    }
+
+    private var immersiveControlAutoHideToken: Int {
+        (showsImmersiveControlBar ? 1 : 0)
+            | (isViewportInteractionActive ? 2 : 0)
     }
 
     private var viewportSurface: some View {
@@ -1067,7 +1085,7 @@ public struct SessionViewportView: View {
                     // iPhone drags fight the fast UIKit path.
                     onTrackpadGesture?(gesture, transform)
                 },
-                onViewportInteractionChange: onViewportInteractionChange,
+                onViewportInteractionChange: handleViewportInteractionChange(_:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
                 onUploadTiming: onRendererUploadTiming
             )
@@ -1336,6 +1354,13 @@ public struct SessionViewportView: View {
         applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
     }
 
+    private func handleViewportInteractionChange(_ isActive: Bool) {
+        if isViewportInteractionActive != isActive {
+            isViewportInteractionActive = isActive
+        }
+        onViewportInteractionChange?(isActive)
+    }
+
     private var statusText: String {
         // "Not connected" reads clearer than the terse "None" the badge
         // used to show, while still staying short enough that it doesn't
@@ -1563,6 +1588,13 @@ public struct SessionViewportView: View {
             return current
         }
         return current.zoomed(to: targetZoomScale, about: anchor)
+    }
+
+    nonisolated static func allowsImmersiveControlAutoHide(
+        showsControlBar: Bool,
+        isViewportInteractionActive: Bool
+    ) -> Bool {
+        showsControlBar && !isViewportInteractionActive
     }
 
     /// Maps a framebuffer-pixel cursor position into the container's

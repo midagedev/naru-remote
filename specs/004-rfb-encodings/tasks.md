@@ -469,6 +469,15 @@ iPhone) and ships as its own PR.
   and pan keep visible remote changes moving while still rejecting 60 Hz
   upload/redraw floods that can heat phones. Owns: Metal viewport host,
   viewport redraw throttle test, research note. **Done.**
+- **T369** Physical gesture/Compose correction: after real iPhone feedback
+  still reported choppy zoom/pan and unreliable Compose, make active viewport
+  gestures strict-defer all pending framebuffer uploads until gesture end,
+  pause immersive control auto-hide while the viewport is manipulated, and
+  change UTF-8 Compose routing so helper remains preferred, explicit VNC
+  unsupported still fails, and unconfirmed VNC support attempts a best-effort
+  legacy paste with `unknown` status. Owns: Metal viewport host, session
+  viewport chrome, text-injection policy, app model, tests, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

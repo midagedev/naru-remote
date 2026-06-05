@@ -1868,9 +1868,48 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .insertRejected)
     }
 
-    func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed() async throws {
+    func testModelSendsUTF8ComposeBestEffortWhenClipboardSupportIsUnconfirmed() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        for _ in 0..<100 where connector.pasteCommands.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
+        XCTAssertEqual(connector.pasteCommands, [.commandV])
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.utf8ClipboardSupport, .unknown)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+        )
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode)
+    }
+
+    func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnsupported() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             connectorFactory: { connector }
@@ -1893,7 +1932,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
-            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is not configured for this profile."
+            "Text clipboard unavailable: This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is not configured for this profile."
         )
         XCTAssertEqual(
             model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
@@ -1903,7 +1942,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     func testDisablingHelperTextBridgeBlocksFutureHelperInsert() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
         let helper = FakeHelperTextInsertClient()
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(
@@ -1944,7 +1988,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .disabled)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
-            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is disabled for this profile."
+            "Text clipboard unavailable: This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is disabled for this profile."
         )
 
         let json = model.makeDiagnosticExport().renderCollectionJSON(
@@ -1962,7 +2006,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     func testRevokingHelperTextBridgeClearsPairingAndBlocksFutureHelperInsert() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
         let helper = FakeHelperTextInsertClient()
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(
@@ -2006,7 +2055,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .revoked)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
-            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge pairing was revoked."
+            "Text clipboard unavailable: This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge pairing was revoked."
         )
     }
 

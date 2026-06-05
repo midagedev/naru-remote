@@ -88,14 +88,14 @@ public enum TextInjectionClipboardPolicy {
         utf8Support: RemoteClipboardUTF8Support
     ) -> String? {
         guard payloadEncoding == .utf8ExtensionRequired,
-              utf8Support != .supported
+              utf8Support == .unsupported
         else {
             return nil
         }
 
         return TextInjectionError
             .clipboardUnavailable(
-                "This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
+                "This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably."
             )
             .localizedDescription
     }
