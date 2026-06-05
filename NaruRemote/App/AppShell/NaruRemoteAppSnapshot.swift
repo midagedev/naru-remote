@@ -69,6 +69,10 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var powerSaverPacingSampleCount: Int
     public var emptyBackoffPacingSampleCount: Int
     public var viewportInteractionPacingSampleCount: Int
+    public var viewportInteractionRequestPauseCount: Int
+    public var viewportInteractionRequestPausePollCount: Int
+    public var viewportInteractionRequestPauseMillisecondsTotal: Int
+    public var viewportInteractionRequestPauseMillisecondsMax: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var actualEncodingMix: RFBFramebufferEncodingMix
     public var thermalState: SessionStreamThermalState
@@ -124,6 +128,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
+        viewportInteractionRequestPauseCount: Int = 0,
+        viewportInteractionRequestPausePollCount: Int = 0,
+        viewportInteractionRequestPauseMillisecondsTotal: Int = 0,
+        viewportInteractionRequestPauseMillisecondsMax: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
         thermalState: SessionStreamThermalState = .unknown,
@@ -188,6 +196,16 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.viewportInteractionPacingSampleCount = min(
             max(viewportInteractionPacingSampleCount, 0),
             self.streamPacingDelaySampleCount
+        )
+        self.viewportInteractionRequestPauseCount = max(viewportInteractionRequestPauseCount, 0)
+        self.viewportInteractionRequestPausePollCount = max(viewportInteractionRequestPausePollCount, 0)
+        self.viewportInteractionRequestPauseMillisecondsTotal = max(
+            viewportInteractionRequestPauseMillisecondsTotal,
+            0
+        )
+        self.viewportInteractionRequestPauseMillisecondsMax = max(
+            viewportInteractionRequestPauseMillisecondsMax,
+            0
         )
         self.adaptiveClientPressurePacingSampleCount = min(
             max(adaptiveClientPressurePacingSampleCount, 0),
@@ -313,6 +331,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         streamPacingDelayMax(streamPacingDelayMillisecondsMax)
     }
 
+    public var averageViewportInteractionRequestPauseMilliseconds: Int? {
+        averageViewportInteractionRequestPause(viewportInteractionRequestPauseMillisecondsTotal)
+    }
+
+    public var maxViewportInteractionRequestPauseMilliseconds: Int? {
+        viewportInteractionRequestPauseMax(viewportInteractionRequestPauseMillisecondsMax)
+    }
+
     public var viewportGestureLongFramePermille: Int? {
         permille(viewportGestureLongFrameCount, of: viewportGestureSampleCount)
     }
@@ -403,6 +429,12 @@ public struct SessionStreamStats: Equatable, Sendable {
             powerSaverPacingSampleCount: powerSaverPacingSampleCount,
             emptyBackoffPacingSampleCount: emptyBackoffPacingSampleCount,
             viewportInteractionPacingSampleCount: viewportInteractionPacingSampleCount,
+            viewportInteractionRequestPauseCount: viewportInteractionRequestPauseCount,
+            viewportInteractionRequestPausePollCount: viewportInteractionRequestPausePollCount,
+            averageViewportInteractionRequestPauseBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageViewportInteractionRequestPauseMilliseconds).rawValue,
+            maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxViewportInteractionRequestPauseMilliseconds).rawValue,
             actualEncodingMix: actualEncodingMix,
             thermalState: thermalState.rawValue
         )
@@ -483,6 +515,24 @@ public struct SessionStreamStats: Equatable, Sendable {
         if decision.usesViewportInteractionPacing {
             viewportInteractionPacingSampleCount += 1
         }
+    }
+
+    mutating func recordViewportInteractionRequestPause(
+        pollCount: Int,
+        milliseconds: Int
+    ) {
+        let pollCount = max(pollCount, 0)
+        let milliseconds = max(milliseconds, 0)
+        guard pollCount > 0 || milliseconds > 0 else {
+            return
+        }
+        viewportInteractionRequestPauseCount += 1
+        viewportInteractionRequestPausePollCount += pollCount
+        viewportInteractionRequestPauseMillisecondsTotal += milliseconds
+        viewportInteractionRequestPauseMillisecondsMax = max(
+            viewportInteractionRequestPauseMillisecondsMax,
+            milliseconds
+        )
     }
 
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
@@ -599,6 +649,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / streamPacingDelaySampleCount
     }
 
+    private func averageViewportInteractionRequestPause(_ total: Int) -> Int? {
+        guard viewportInteractionRequestPauseCount > 0 else {
+            return nil
+        }
+        return total / viewportInteractionRequestPauseCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
             return nil
@@ -622,6 +679,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     private func streamPacingDelayMax(_ value: Int) -> Int? {
         guard streamPacingDelaySampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func viewportInteractionRequestPauseMax(_ value: Int) -> Int? {
+        guard viewportInteractionRequestPauseCount > 0 else {
             return nil
         }
         return value

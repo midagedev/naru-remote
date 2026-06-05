@@ -220,13 +220,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Direct button-drag keeps a 120 Hz-class wire cadence because the
     /// remote object under the pointer is actively being dragged.
     private static let directPointerMoveCoalescingDelay: Duration = .milliseconds(8)
-    /// Trackpad mode has immediate local cursor feedback, but the remote
-    /// pointer still needs a high enough cadence that server-side cursor
-    /// echoes and hover feedback do not feel detached from the finger.
-    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(8)
+    /// Trackpad mode has immediate local cursor feedback, so the wire can
+    /// stay near display cadence instead of racing touch samples. This keeps
+    /// VNC writes from competing with the UIKit/Metal pan loop on iPhone.
+    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(16)
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
-    private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(32)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
@@ -1924,12 +1924,27 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID
     ) async throws -> Bool {
+        var pauseStartedAt: Date?
+        var pausePollCount = 0
+        defer {
+            if let pauseStartedAt, pausePollCount > 0 {
+                sessionStreamStats.recordViewportInteractionRequestPause(
+                    pollCount: pausePollCount,
+                    milliseconds: Self.elapsedMilliseconds(since: pauseStartedAt)
+                )
+            }
+        }
+
         while shouldPauseFrameRequestsForViewportInteraction() {
             guard !Task.isCancelled,
                   isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
             else {
                 return false
             }
+            if pauseStartedAt == nil {
+                pauseStartedAt = Date()
+            }
+            pausePollCount += 1
             try await Task.sleep(
                 for: .seconds(StreamPressurePacingDefaults.viewportInteractionRequestPausePollSeconds)
             )

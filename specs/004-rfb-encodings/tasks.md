@@ -502,6 +502,20 @@ iPhone) and ships as its own PR.
   request count/permille, poll count, and paused milliseconds. Owns: benchmark
   kit, live benchmark CLI/report/tests, benchmark artifact, research note.
   **Done.**
+- **T373** App viewport request-pause diagnostics: bump diagnostic export
+  schema v21 with safe aggregate viewport request-pause count, poll count,
+  average pause timing bucket, and max pause timing bucket so physical iPhone
+  logs can show whether touch-first request suppression activated without
+  exporting raw timestamps, host identity, dimensions, coordinates, pixels,
+  byte counts, or draft text. Owns: app stream stats, app model pause loop,
+  diagnostic export/tests, research note. **Done.**
+- **T374** Physical gesture and IME hot-path pressure cut: keep local
+  trackpad cursor and zoomed auto-pan immediate in the Metal host while
+  coalescing remote trackpad pointer writes and SwiftUI cursor mirror publishes
+  at lower cadence; defer UIKit marked-text adoption/model propagation until
+  IME composition commits so Korean/CJK Compose does not round-trip through the
+  app model mid-composition. Owns: app model pointer cadence, Remote Input Dock
+  sync policy/tests, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

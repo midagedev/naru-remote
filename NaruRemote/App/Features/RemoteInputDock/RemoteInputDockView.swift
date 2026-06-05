@@ -574,8 +574,7 @@ public struct RemoteInputDockView: View {
         isDirectModeActive: Bool,
         hasMarkedText: Bool
     ) -> Bool {
-        _ = hasMarkedText
-        return !isDirectModeActive
+        !isDirectModeActive && !hasMarkedText
     }
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
@@ -599,9 +598,10 @@ public struct RemoteInputDockView: View {
 
     nonisolated static func shouldAdoptUIKitComposeTextChange(
         resolvedText: String,
-        currentBindingText: String
+        currentBindingText: String,
+        hasMarkedText: Bool = false
     ) -> Bool {
-        resolvedText != currentBindingText
+        !hasMarkedText && resolvedText != currentBindingText
     }
 
     nonisolated static func shouldDeferUIKitComposeBindingWrite(
@@ -991,7 +991,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
             if RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
                 resolvedText: resolvedText,
-                currentBindingText: parent.text
+                currentBindingText: parent.text,
+                hasMarkedText: textView.markedTextRange != nil
             ) {
                 parent.text = resolvedText
             }
@@ -1006,7 +1007,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 hasMarkedText: textView.markedTextRange != nil
             ), RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
                 resolvedText: resolvedText,
-                currentBindingText: parent.text
+                currentBindingText: parent.text,
+                hasMarkedText: textView.markedTextRange != nil
             ) {
                 parent.text = resolvedText
             }

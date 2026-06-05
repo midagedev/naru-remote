@@ -106,8 +106,8 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
-    func testPropagatesLocalComposeTextToModelWhileMarkedTextIsActive() {
-        XCTAssertTrue(
+    func testDefersLocalComposeTextPropagationWhileMarkedTextIsActive() {
+        XCTAssertFalse(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
                 isDirectModeActive: false,
                 hasMarkedText: true
@@ -131,6 +131,17 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
                 lastPropagatedText: "입력느낌",
                 isDirectModeActive: false,
                 hasMarkedText: false
+            )
+        )
+    }
+
+    func testSkipsMarkedComposeTextPropagationEvenWhenItDiffersFromModel() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느",
+                isDirectModeActive: false,
+                hasMarkedText: true
             )
         )
     }
@@ -182,11 +193,22 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
-    func testAdoptsUIKitComposeTextChangeWhileMarkedTextUpdatesLocalBinding() {
+    func testDefersUIKitComposeTextChangeWhileMarkedTextUpdatesTextView() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: "입력느낌",
+                currentBindingText: "입력느",
+                hasMarkedText: true
+            )
+        )
+    }
+
+    func testAdoptsUIKitComposeTextChangeAfterMarkedTextCommits() {
         XCTAssertTrue(
             RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
                 resolvedText: "입력느낌",
-                currentBindingText: "입력느"
+                currentBindingText: "입력느",
+                hasMarkedText: false
             )
         )
     }

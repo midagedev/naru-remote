@@ -1399,3 +1399,74 @@ paused request count/permille, aggregate poll count, and aggregate paused
 milliseconds. It must not emit host identity, password, framebuffer dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw per-request timestamps, raw
 per-frame timings, device identity, power state, or Compose draft text.
+
+## D45 — Export viewport request-pause diagnostics as buckets on-device
+
+References:
+- RFC 6143 framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: bump diagnostic export to schema v21 and record app-side
+viewport request-pause activity as safe aggregate diagnostics:
+`viewportInteractionRequestPauseCount`,
+`viewportInteractionRequestPausePollCount`,
+`averageViewportInteractionRequestPauseBucket`, and
+`maxViewportInteractionRequestPauseBucket`. Count each visible-frame pause
+window in `waitForViewportInteractionToSettle`; count local poll iterations;
+export duration only through the existing fixed timing bucket catalog.
+
+**Why**:
+- T371 changed the production behavior from slower mid-gesture stream pacing to
+  suppressing new `FramebufferUpdateRequest` messages while the user is locally
+  manipulating an already-visible framebuffer. Physical iPhone reports need to
+  prove that this protection actually activated; `viewportInteractionPacing`
+  staying zero is now expected and insufficient.
+- RFC 6143's demand-driven update model makes request suppression a first-class
+  client performance lever. The diagnostic should therefore distinguish
+  intentional request-pause windows from local gesture long frames and incoming
+  framebuffer publish deferrals.
+- On-device diagnostics are more privacy-sensitive than local benchmark output,
+  so exact paused milliseconds are reduced to the same coarse timing buckets
+  already used for receive, app-apply, renderer-upload, and pacing-delay
+  diagnostics.
+
+**Privacy rule**: diagnostic export may include only aggregate pause counts,
+aggregate poll counts, and fixed timing buckets. It must not emit raw pause
+timestamps, raw per-pause milliseconds, host identity, password, framebuffer
+dimensions, coordinates, pixels, cursor pixels, byte counts, device identity,
+power state, or Compose draft text.
+
+## D46 — Keep IME marked text local and lower trackpad mirror pressure
+
+References:
+- Apple `UITextInput.markedTextRange`:
+  https://developer.apple.com/documentation/uikit/uitextinput/markedtextrange
+- Apple `UITextInput.unmarkText()`:
+  https://developer.apple.com/documentation/uikit/uitextinput/unmarktext%28%29
+
+**Decision**: supersede the Compose half of D43. While UIKit reports active
+`markedTextRange`, keep the evolving Korean/CJK composition inside the
+`UITextView`/commit controller and do not adopt it into the SwiftUI binding or
+propagate it to the app model draft. On marked-text commit or Send,
+`unmarkText()`/stabilized reads produce the committed text, and only that value
+updates SwiftUI/model state. Separately, keep Metal-host trackpad cursor and
+zoomed auto-pan immediate, but lower remote trackpad pointer-write coalescing to
+a 60 Hz-class cadence and publish SwiftUI cursor mirror snapshots at a lower
+cadence because the Metal host already paints the hot cursor locally.
+
+**Why**:
+- Apple defines marked text as provisional multistage input that still requires
+  user confirmation. Treating that provisional text as a model-synchronized
+  draft causes avoidable SwiftUI updates and model echo while the keyboard is
+  still composing.
+- Physical iPhone feedback after T371 still reports unreliable Compose. The
+  safest local-composition boundary is therefore: UIKit owns marked text;
+  Naru owns committed text and explicit Send.
+- Physical iPhone feedback also reports stepped zoom/pan. The local visual path
+  is already immediate in `MetalFramebufferHostingView`, so remote pointer
+  writes and SwiftUI cursor mirror state should not race every touch sample.
+
+**Privacy rule**: this change exports no new user content or coordinates.
+Marked text, committed text, cursor positions, touch deltas, host identity,
+framebuffer dimensions, pixels, byte counts, and exact timings remain out of
+diagnostics and benchmark artifacts.
