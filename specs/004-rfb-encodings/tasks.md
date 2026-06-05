@@ -457,6 +457,13 @@ iPhone) and ships as its own PR.
   is not sent during the old 180 ms optimistic window. Owns: Metal viewport
   host, RFB paste encoder, app model Compose send, tests, research note.
   **Done.**
+- **T367** Physical viewport recovery and unconfirmed UTF-8 Compose guard:
+  move SwiftUI/PiP viewport-state mirroring for hot Metal gestures back to
+  gesture-end flushes so display-link state publication cannot compete with
+  touch tracking, and reject Korean/CJK/emoji Compose payloads before clipboard
+  writes when the server has not confirmed Extended Clipboard UTF-8 support.
+  Owns: Metal viewport host, text-injection policy, app model, tests, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

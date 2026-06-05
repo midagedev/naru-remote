@@ -58,6 +58,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T015ac [B] Physical iPhone correction: reduce zoomed trackpad auto-pan step size for tiny high-refresh touch samples while preserving large follow movement, and preserve full Compose text when UIKit briefly reports an empty or missing committed snapshot during marked-text send. Covered by `PointerGestureResolverTests`, `RemoteInputDockSyncPolicyTests`, and `TrackpadModeModelTests`. **Done.**
 - [x] T015ad [B] Physical iPhone correction: raise the tiny-sample zoomed trackpad auto-pan catch-up floor so the viewport follows the cursor without single-digit stepped lag, and widen Compose Send's IME stabilization window so delayed Korean/CJK commits can settle before clipboard/paste dispatch. Covered by `PointerGestureResolverTests` and `RemoteInputDockSyncPolicyTests`. **Done.**
 - [x] T015ae [B] Physical iPhone correction: make zoomed trackpad movement pan continuously with the cursor instead of waiting for the reveal edge, reduce pointer-move/cursor publish coalescing to an 8 ms frame window for high-refresh devices, and keep the longest stabilized Compose snapshot when iOS IME briefly returns a fragment before Send. Covered by `PointerGestureResolverTests`, `TrackpadModeModelTests`, and `RemoteInputDockSyncPolicyTests`. **Done.**
+- [x] T015af [B] Physical iPhone correction: keep Metal viewport movement immediate but defer SwiftUI/PiP transform mirroring until gesture end again after physical feedback showed display-link state publication still felt choppy; reject Korean/CJK/emoji Compose on unconfirmed VNC clipboard sessions instead of reporting a false paste success. Covered by focused viewport, app-model, and text-injection tests. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
@@ -65,7 +66,7 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T021 [P][C] `ConnectionQualityTests.swift` — 7 tests (bucket thresholds, EMA, reset, unknown-on-empty). **Done.**
 - [x] T022 [C] Latency sampled in the stream loop → `@Published connectionQuality` on the model, reset on connect/disconnect/profile-change, surfaced in the live control overlay. **Done.**
 - [x] T023 [C] Inline Compose quick-key strip (Esc/Tab/⌃C/↑/↓) in `RemoteInputDockView`, dispatch via `model.sendComposeQuickKey`, draft untouched, gated on active session. `ComposeQuickKeyTests` (7) + `ComposeQuickKeyModelTests` (2). **Done.**
-- [x] T023a [C] Compose paste stabilization: macOS Command-V uses the same `Meta_L` mapping as Direct-mode Command keys, and the production app waits briefly after remote clipboard set before paste. **Done.**
+- [x] T023a [C] Compose paste stabilization: macOS Command-V uses the documented VNC Mac `Alt_L` mapping, and the production app waits briefly after remote clipboard set before paste. **Done.**
 - [x] T024 [C][VISUAL] Quality chip and compact quick-key menu covered by the active-session UX-audit captures (`16-*` and `17-*`). **Done.**
 
 ## Cross-cutting

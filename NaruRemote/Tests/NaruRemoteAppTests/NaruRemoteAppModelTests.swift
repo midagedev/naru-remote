@@ -1673,7 +1673,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     func testModelSendsComposedTextThroughActiveRFBTextClientAfterConnect() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .supported
+        )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             connectorFactory: { connector }
@@ -1701,15 +1706,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommand, .controlV)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardTransferMode, .legacyClientCutText)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.utf8ClipboardSupport, .unknown)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardTransferMode, .extendedClipboardUTF8)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.utf8ClipboardSupport, .supported)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
         XCTAssertEqual(
             model.snapshot.composeDraft?.lastStatusMessage,
-            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+            "Paste command sent through UTF-8 clipboard; remote app confirmation unavailable."
         )
 
         let json = model.makeDiagnosticExport().renderCollectionJSON(
@@ -1729,16 +1734,45 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(
             report.input?.latestInjectionClipboardTransferMode,
-            TextClipboardTransferMode.legacyClientCutText.rawValue
+            TextClipboardTransferMode.extendedClipboardUTF8.rawValue
         )
         XCTAssertEqual(
             report.input?.latestInjectionUTF8ClipboardSupport,
-            RemoteClipboardUTF8Support.unknown.rawValue
+            RemoteClipboardUTF8Support.supported.rawValue
         )
         XCTAssertEqual(report.input?.latestInjectionClipboardSetStatus, TextInjectionStepStatus.succeeded.rawValue)
         XCTAssertEqual(report.input?.latestInjectionPasteCommandStatus, TextInjectionStepStatus.succeeded.rawValue)
         XCTAssertFalse(json.contains("한글과 English"))
         XCTAssertFalse(json.contains("😊"))
+    }
+
+    func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .notAttempted)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
+        )
     }
 
     func testModelUpdatesComposeDraftAsUserTypes() throws {
@@ -1762,7 +1796,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     func testEditingComposeDraftDuringSendPreventsStalePasteFromOverwritingNewText() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .supported
+        )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             connectorFactory: { connector }
@@ -1794,7 +1833,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     func testModelCancelsComposedPasteWhenSessionDisconnectsDuringSettleDelay() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
-        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .supported
+        )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             connectorFactory: { connector }
@@ -2391,12 +2435,20 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
     private let height: Int
     private let name: String
     private let connectError: Error?
+    let utf8ClipboardSupport: RemoteClipboardUTF8Support
 
-    init(width: Int, height: Int, name: String, connectError: Error? = nil) {
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        connectError: Error? = nil,
+        utf8ClipboardSupport: RemoteClipboardUTF8Support = .unknown
+    ) {
         self.width = width
         self.height = height
         self.name = name
         self.connectError = connectError
+        self.utf8ClipboardSupport = utf8ClipboardSupport
         self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
 
