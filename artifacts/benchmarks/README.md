@@ -60,6 +60,11 @@ Current transport/cadence artifact:
 `artifacts/benchmarks/2026-06-06-sustained-v2-core-v42-transport-cadence-baseline.md`.
 That run confirms v42 exposes repeated ContinuousUpdates connection failure at
 the top level and motivates the schema v43 transport/cadence diagnosis.
+Current operating target artifact:
+`artifacts/benchmarks/2026-06-06-sustained-usability-operating-target.md`.
+Use this promotion ladder for larger PRs: benchmark green first, 10 minute
+physical iPhone green second, and production default changes only after both
+passes.
 
 ## Physical iPhone: Live Connection Smoke
 

@@ -814,6 +814,15 @@ iPhone) and ships as its own PR.
   timings, raw TCP/RFB errors, raw payloads, command text, command output,
   draft text, marked text, or IME state. Owns: benchmark summary kit/tests, CLI
   schema/text report, benchmark docs/artifact, research note. **Done.**
+- **T409** Sustained usability operating target: define the larger-unit
+  promotion ladder for upcoming streaming work. A candidate must first reach a
+  benchmark-green v43 decision surface, then pass a 10 minute physical iPhone
+  hand-feel/thermal/Compose diagnostic gate, and only then change production
+  transport, encoding, preflight, pacing, or interaction defaults. Keep the
+  current non-green status explicit: request-response is the usable fallback,
+  ContinuousUpdates needs connection/receive inspection, and no production
+  default should change from the current benchmark evidence alone. Owns:
+  benchmark artifact, README, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
