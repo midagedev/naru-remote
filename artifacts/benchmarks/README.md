@@ -118,6 +118,13 @@ Current steady-stream gate alignment artifact:
 The sustained v2 presets now keep viewport-interaction mode off so the 8fps
 content target measures steady stream cadence. Active zoom/pan smoothness stays
 gated by the physical iPhone pass and by custom interaction experiments.
+Current request/response ZRLE isolation preset artifact:
+`artifacts/benchmarks/2026-06-06-sustained-v2-zrle-isolation-preset-summary.md`.
+Use `sustained-v2-zrle-isolation` after the request/response core matrix says
+profile/cadence is still the next large unit. The first live v45 run shows pure
+ZRLE and cursor-only ZRLE reduce client/tile tail, but every candidate still
+misses the 8fps steady-stream target, so the next unit routes to
+`inspectServerTransportCadence` before production default changes.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -396,15 +403,20 @@ Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
 `sustained-v2-pixel-format` and `--stream-shape-profiles
 pixel-format-isolation`. The sustained v2 core preset is the standard
 large-unit live gate: controlled stimulus, core matrix profiles, both
-transports, five rotated iterations, app client-pressure and viewport pacing,
-ten second duration, zero hidden stream-shape preflight frames, and the
-`iphone-sustained-usability-v2` target. The pixel-format preset keeps that same
-gate shape but swaps in full-color/RGB565-in-32 profile pairs. Use explicit
+transports, five rotated iterations, app client-pressure pacing,
+steady-stream viewport mode, ten second duration, zero hidden stream-shape
+preflight frames, and the `iphone-sustained-usability-v2` target. The
+pixel-format preset keeps that same gate shape but swaps in full-color/RGB565-in-32
+profile pairs. Use explicit
 stream-shape options without the preset for custom experiments.
 `sustained-v2-request-response` keeps the core matrix gate shape but measures
 request/response only, so request/response candidates can be compared after
 ContinuousUpdates has already been routed to support inspection.
-For this preset the standalone ContinuousUpdates probe is also skipped:
+`sustained-v2-zrle-isolation` keeps that same request/response-only shape but
+uses `zrle-isolation` to compare the current default against pure ZRLE
+compression 0 and cursor/ExtendedClipboard extension variants. Schema v45 adds
+this fixed preset label. For request/response-only presets the standalone
+ContinuousUpdates probe is also skipped:
 `continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
 `not-tested`.
 The sustained v2 presets are steady-stream gates: they keep
@@ -491,10 +503,11 @@ variants under the same dynamic stimulus.
 Pass `--stream-shape-profiles pixel-format-isolation` to compare benchmark-only
 full-color/RGB565-in-32 pairs without changing the app's normal connection path.
 Example:
-`--first-frame-profiles none --stream-shape-profiles zrle-isolation --stream-shape-transport request-response`.
-For order-neutral live scoring, add
+`--stream-shape-gate-preset sustained-v2-zrle-isolation`.
+The preset already applies
 `--stream-shape-profile-iterations 5 --stream-shape-profile-order rotate` so
-each `zrle-isolation` candidate leads one iteration.
+each `zrle-isolation` candidate leads one iteration. Use custom commands only
+when intentionally changing that shape.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

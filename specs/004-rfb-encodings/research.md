@@ -3594,3 +3594,70 @@ benchmark report. It must not emit host identity, credentials, port values, raw
 TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
 counts, raw payloads, raw FPS, raw timings, stimulus command text, command
 output, draft text, marked text, IME state, or full diagnostic payloads.
+
+## D88 — Promote request/response ZRLE isolation to a sustained v2 preset
+
+References:
+- D57 ZRLE isolation profile set.
+- D58 order-neutral profile rotation.
+- D87 steady-stream sustained v2 gates.
+- `artifacts/benchmarks/2026-06-06-sustained-v2-zrle-isolation-preset-summary.md`.
+
+**Decision**: add `sustained-v2-zrle-isolation` as a standard live benchmark
+gate preset and bump the live benchmark report schema to v45 for the new fixed
+preset label.
+
+**Why**:
+- The v44 request/response core matrix points at profile/cadence comparison as
+  the next large unit, but a reproducible run still required manually combining
+  `zrle-isolation`, request/response-only transport, five rotated iterations,
+  controlled 12Hz stimulus, steady-stream viewport mode, app pressure pacing,
+  and skipped ContinuousUpdates probe behavior.
+- Making this a preset keeps future candidate work on the same benchmark shape
+  and avoids comparing a hand-written command with slightly different pacing or
+  probe noise.
+- The preset is benchmark-only and does not change production encoding defaults.
+
+**Evidence**:
+- Focused preset tests pass with the new raw value and usage string.
+- Help output exposes `sustained-v2-zrle-isolation` and schema v45 gate
+  reporting.
+- A redacted live v45 request/response ZRLE isolation run reported:
+  - `streamShapeGatePreset = sustained-v2-zrle-isolation`
+  - `streamShapeProfiles = zrle-isolation`
+  - `streamShapeTransportModes = request-response`
+  - `continuousUpdatesProbe.status = not-tested`
+  - expected stimulus FPS 12
+  - order-neutral recommendation `zrle-compression-0-clipboard`
+  - optimization decision `recommendedNextProbe = inspectServerTransportCadence`
+- Safe aggregate comparison:
+  - `local-low-latency`: fail; average content FPS 5.66; average update 127 ms;
+    max p95 update 504 ms; max client p95 105 ms; full upload 0 permille.
+  - `zrle-compression-0`: warning; average content FPS 6.52; average update
+    107 ms; max p95 update 493 ms; max client p95 13 ms; full upload 0 permille.
+  - `zrle-compression-0-cursor`: warning; average content FPS 6.42; average
+    update 108 ms; max p95 update 485 ms; max client p95 12 ms; full upload
+    0 permille.
+  - `zrle-compression-0-clipboard`: fail from one probe failure; average content
+    FPS 6.45; average update 107 ms; max p95 update 483 ms; max client p95
+    9 ms; full upload 0 permille.
+  - `zrle-compression-0-cursor-clipboard`: fail; average content FPS 5.72;
+    average update 115 ms; max p95 update 504 ms; max client p95 152 ms; full
+    upload 0 permille.
+
+**Interpretation**:
+- Pure ZRLE compression 0 and cursor-only ZRLE remove the large client/tile tail
+  seen in the default label, so client decode is no longer the broadest blocker
+  for those candidates.
+- Every candidate still misses the 8fps steady-stream target and stays near the
+  480-504 ms max p95 update band.
+- Renderer full-upload pressure is not the current blocker.
+- The next larger unit should inspect server/request-response cadence, sample
+  hit-rate, and update wait behavior before changing production defaults.
+
+**Privacy rule**: the preset and artifact may emit only fixed target, preset,
+mode, profile, verdict, issue, action, and aggregate metric labels. They must
+not emit host identity, credentials, port values, raw TCP/RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, raw timings, raw FPS, stimulus command text, command output, draft
+text, marked text, IME state, or full diagnostic payloads.
