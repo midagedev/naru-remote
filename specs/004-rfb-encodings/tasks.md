@@ -782,6 +782,16 @@ iPhone) and ships as its own PR.
   coordinates, pixels, cursor pixels, byte counts, raw timings, TCP/RFB errors,
   raw payloads, draft text, marked text, or IME state. Owns: benchmark summary
   kit/tests, CLI schema/help, benchmark docs/artifact, research note. **Done.**
+- **T406** Report-level benchmark optimization decision: bump
+  `VNCLiveBenchmark` to schema v41, aggregate practical triage labels into
+  `streamShapeProfileGates`, and add top-level
+  `streamShapeOptimizationDecision` so multi-profile benchmark reports choose
+  the next large unit before profile recommendations. Emit only fixed gate
+  counts, fixed issue/constraint/next-probe labels, and aggregate label counts;
+  do not export host identity, dimensions, coordinates, pixels, cursor pixels,
+  byte counts, raw timings, TCP/RFB errors, raw payloads, draft text, marked
+  text, or IME state. Owns: benchmark summary kit/tests, CLI schema/text
+  report, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

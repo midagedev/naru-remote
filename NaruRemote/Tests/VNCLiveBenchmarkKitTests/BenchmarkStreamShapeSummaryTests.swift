@@ -585,6 +585,35 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(zrle.failRunCount, 1)
         XCTAssertEqual(zrle.disabledRunCount, 0)
         XCTAssertEqual(zrle.issueCodes, [.probeFailed])
+        XCTAssertEqual(zrle.primaryIssueCode, .probeFailed)
+        XCTAssertEqual(
+            zrle.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            zrle.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
+        )
+        XCTAssertEqual(zrle.primaryConstraintCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.none.rawValue,
+                count: 1
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue,
+                count: 1
+            )
+        ])
+        XCTAssertEqual(zrle.recommendedNextProbeCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionNextProbe.none.rawValue,
+                count: 1
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue,
+                count: 1
+            )
+        ])
         XCTAssertEqual(zrle.averageReceivedSamplePermille, 500)
         XCTAssertEqual(zrle.averageContentSamplePermille, 500)
         XCTAssertEqual(zrle.averageContentResponsePermille, 1_000)
@@ -595,6 +624,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(continuous.verdict, .disabled)
         XCTAssertEqual(continuous.disabledRunCount, 1)
         XCTAssertEqual(continuous.issueCodes, [.probeDisabled])
+        XCTAssertEqual(continuous.primaryIssueCode, .probeDisabled)
+        XCTAssertEqual(
+            continuous.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
+        )
     }
 
     func testProfileGatesSeparateSameProfileAcrossTargets() {
@@ -634,6 +668,164 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             "iphone-sustained-usability-v2"
         ])
         XCTAssertEqual(gates.map(\.verdict), [.pass, .pass])
+    }
+
+    func testOptimizationDecisionSummarizesProfileGateTriage() throws {
+        let rendererPressure = BenchmarkStreamShapeProfileReport(
+            label: "local-low-latency",
+            firstFrameMilliseconds: 100,
+            summary: BenchmarkStreamShapeSummary(
+                requestedSamples: 4,
+                samples: [
+                    streamShapeSample(duration: 40, rendererUploadStrategy: .full),
+                    streamShapeSample(duration: 40, rendererUploadStrategy: .full),
+                    streamShapeSample(duration: 40, rendererUploadStrategy: .full),
+                    streamShapeSample(duration: 40, rendererUploadStrategy: .partial)
+                ],
+                elapsedMilliseconds: 160,
+                firstTimeoutMilliseconds: nil,
+                failureLabel: nil
+            )
+        )
+        let contentCadenceWarning = BenchmarkStreamShapeProfileReport(
+            label: "zrle-compression-0",
+            firstFrameMilliseconds: 100,
+            summary: BenchmarkStreamShapeSummary(
+                requestedSamples: 5,
+                samples: (0..<5).map { _ in
+                    streamShapeSample(duration: 150, rendererUploadStrategy: .partial)
+                },
+                elapsedMilliseconds: 1_000,
+                firstTimeoutMilliseconds: nil,
+                failureLabel: nil
+            )
+        )
+        let gates = BenchmarkStreamShapeProfileGateReport.gates(
+            from: [rendererPressure, contentCadenceWarning]
+        )
+
+        let decision = try XCTUnwrap(BenchmarkStreamShapeOptimizationDecision.decision(from: gates))
+
+        XCTAssertEqual(decision.targetName, "iphone-practical-baseline-v1")
+        XCTAssertEqual(decision.verdict, .fail)
+        XCTAssertEqual(decision.gateCount, 2)
+        XCTAssertEqual(decision.warningGateCount, 1)
+        XCTAssertEqual(decision.failGateCount, 1)
+        XCTAssertEqual(decision.blockedGateCount, 2)
+        XCTAssertEqual(decision.primaryIssueCode, .fullUploadFailed)
+        XCTAssertEqual(
+            decision.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.rendererUpload.rawValue
+        )
+        XCTAssertEqual(
+            decision.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectLocalRenderPipeline.rawValue
+        )
+        XCTAssertEqual(decision.primaryConstraintCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue,
+                count: 1
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.rendererUpload.rawValue,
+                count: 1
+            )
+        ])
+        XCTAssertEqual(decision.recommendedNextProbeCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue,
+                count: 1
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionNextProbe.inspectLocalRenderPipeline.rawValue,
+                count: 1
+            )
+        ])
+    }
+
+    func testOptimizationDecisionRejectsMismatchedDecodedTriageFields() throws {
+        let json = """
+        {
+          "targetName": "iphone-sustained-usability-v2",
+          "verdict": "warning",
+          "gateCount": 2,
+          "passGateCount": 1,
+          "warningGateCount": 1,
+          "failGateCount": 0,
+          "disabledGateCount": 0,
+          "blockedGateCount": 99,
+          "primaryIssueCode": "content-fps-warning",
+          "primaryConstraint": "thermal",
+          "recommendedNextProbe": "inspectComposeRoute",
+          "primaryConstraintCounts": [
+            { "label": "contentCadence", "count": 2 },
+            { "label": "not-safe", "count": 7 }
+          ],
+          "recommendedNextProbeCounts": [
+            { "label": "runSustainedV2ProfileGate", "count": 2 },
+            { "label": "inspectComposeRoute", "count": -3 }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeOptimizationDecision.self, from: json)
+
+        XCTAssertEqual(decoded.blockedGateCount, 1)
+        XCTAssertEqual(decoded.primaryIssueCode, .contentFPSWarning)
+        XCTAssertEqual(
+            decoded.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue
+        )
+        XCTAssertEqual(
+            decoded.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
+        XCTAssertEqual(decoded.primaryConstraintCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue,
+                count: 2
+            )
+        ])
+        XCTAssertEqual(decoded.recommendedNextProbeCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue,
+                count: 2
+            )
+        ])
+    }
+
+    func testOptimizationDecisionMarksMixedTargetsExplicitly() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "legacy",
+                transportMode: .requestResponse,
+                targetName: "iphone-practical-baseline-v1",
+                verdict: .pass,
+                runCount: 1,
+                passRunCount: 1,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "sustained",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .pass,
+                runCount: 1,
+                passRunCount: 1,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            )
+        ]
+
+        let decision = try XCTUnwrap(BenchmarkStreamShapeOptimizationDecision.decision(from: gates))
+
+        XCTAssertEqual(decision.targetName, "mixed-targets")
+        XCTAssertEqual(decision.verdict, .pass)
     }
 
     func testOrderNeutralRecommendationUsesAggregateRuns() throws {

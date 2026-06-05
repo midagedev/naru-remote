@@ -299,6 +299,15 @@ route to longer physical-device collection. Do not add host identity,
 dimensions, coordinates, pixels, cursor pixels, byte counts, raw FPS, raw
 timings, TCP/RFB errors, draft text, marked text, or IME state to benchmark
 artifacts.
+Schema v41 lifts the same triage surface to `streamShapeProfileGates` and adds
+top-level `streamShapeOptimizationDecision` so a whole benchmark report chooses
+one next large unit before individual profile recommendations are considered.
+The decision reports fixed gate counts, fixed triage label counts, a primary
+issue, a primary constraint, and a recommended next probe. Use it as the first
+report-level routing signal; the existing profile recommendations remain the
+profile-choice signal after the blocking constraint is understood. Its
+`blockedGateCount` is a derived `warningGateCount + failGateCount` value, not a
+separately trusted decoded input.
 Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw

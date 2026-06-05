@@ -1582,6 +1582,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport]
     let streamShapeProfileAggregates: [BenchmarkStreamShapeProfileAggregateReport]
     let streamShapeProfileGates: [BenchmarkStreamShapeProfileGateReport]
+    let streamShapeOptimizationDecision: BenchmarkStreamShapeOptimizationDecision?
     let streamShapeRecommendation: BenchmarkStreamShapeRecommendation?
     let streamShapeOrderNeutralRecommendation: BenchmarkStreamShapeRecommendation?
     let continuousUpdatesProbe: ContinuousUpdatesProbeReport
@@ -1617,7 +1618,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 40
+        self.schemaVersion = 41
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1687,9 +1688,9 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape stimulus reports emit only fixed mode labels and warmup seconds; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
             "profile-order metrics emit only fixed iteration/order ordinals and aggregate per-profile summaries",
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
-            "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, and aggregate threshold outcomes",
+            "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, and aggregate threshold outcomes",
             "stream-shape hit-rate metrics emit only aggregate sample counts and permille ratios",
-            "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, aggregate run counts, and permille ratios",
+            "stream-shape profile gate reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, aggregate run counts, and permille ratios",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
             "reports are written to stdout only"
@@ -1699,7 +1700,11 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeProbe = streamShapeProbe
         self.streamShapeProfileProbes = streamShapeProfileProbes
         self.streamShapeProfileAggregates = streamShapeProfileAggregates
-        self.streamShapeProfileGates = BenchmarkStreamShapeProfileGateReport.gates(from: streamShapeProfileProbes)
+        let streamShapeProfileGates = BenchmarkStreamShapeProfileGateReport.gates(from: streamShapeProfileProbes)
+        self.streamShapeProfileGates = streamShapeProfileGates
+        self.streamShapeOptimizationDecision = BenchmarkStreamShapeOptimizationDecision.decision(
+            from: streamShapeProfileGates
+        )
         self.streamShapeRecommendation = BenchmarkStreamShapeRecommendation
             .recommendedRequestResponseProfile(from: streamShapeProfileProbes)
         self.streamShapeOrderNeutralRecommendation = BenchmarkStreamShapeRecommendation
@@ -2090,6 +2095,13 @@ private func renderText(_ report: BenchmarkReport) {
             )
             let issues = gate.issueCodes.map(\.rawValue).joined(separator: ",")
             print("  issues: \(issues.isEmpty ? "none" : issues)")
+            print(
+                "  primary: "
+                    + "\(gate.primaryIssueCode?.rawValue ?? "none") / "
+                    + "\(gate.primaryConstraint) / \(gate.recommendedNextProbe)"
+            )
+            print("  constraint counts: \(formatTriageCounts(gate.primaryConstraintCounts))")
+            print("  next-probe counts: \(formatTriageCounts(gate.recommendedNextProbeCounts))")
             let receivedRequest = gate.averageReceivedSamplePermille.map(String.init) ?? "n/a"
             let contentRequest = gate.averageContentSamplePermille.map(String.init) ?? "n/a"
             let contentResponse = gate.averageContentResponsePermille.map(String.init) ?? "n/a"
@@ -2099,6 +2111,24 @@ private func renderText(_ report: BenchmarkReport) {
                     + "\(receivedRequest)/\(contentRequest)/\(contentResponse)/\(unanswered)"
             )
         }
+    }
+    if let decision = report.streamShapeOptimizationDecision {
+        print("")
+        print("stream-shape optimization decision:")
+        print("- target: \(decision.targetName); verdict: \(decision.verdict.rawValue)")
+        print(
+            "  gates pass/warning/fail/disabled/blocked/total: "
+                + "\(decision.passGateCount)/\(decision.warningGateCount)/"
+                + "\(decision.failGateCount)/\(decision.disabledGateCount)/"
+                + "\(decision.blockedGateCount)/\(decision.gateCount)"
+        )
+        print(
+            "  primary: "
+                + "\(decision.primaryIssueCode?.rawValue ?? "none") / "
+                + "\(decision.primaryConstraint) / \(decision.recommendedNextProbe)"
+        )
+        print("  constraint counts: \(formatTriageCounts(decision.primaryConstraintCounts))")
+        print("  next-probe counts: \(formatTriageCounts(decision.recommendedNextProbeCounts))")
     }
     if let recommendation = report.streamShapeRecommendation {
         print("")
@@ -2419,6 +2449,14 @@ private func formatFailureLabels(_ failures: [String: Int]) -> String {
         .joined(separator: ", ")
 }
 
+private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]) -> String {
+    let formatted = counts
+        .filter { $0.count > 0 }
+        .map { "\($0.label)=\($0.count)" }
+        .joined(separator: ", ")
+    return formatted.isEmpty ? "none" : formatted
+}
+
 private func printUsage() {
     print("""
     Usage:
@@ -2428,7 +2466,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v40 gate reporting. Use individual stream-shape options without a preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs. Both presets use both transports, 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v41 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

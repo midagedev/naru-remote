@@ -166,8 +166,37 @@ public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equat
     }
 }
 
-public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Sendable {
-    private static let primaryIssuePriority: [BenchmarkStreamShapePracticalIssueCode] = [
+public struct BenchmarkStreamShapeTriageLabelCount: Codable, Equatable, Sendable {
+    public let label: String
+    public let count: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case count
+    }
+
+    public init(label: String, count: Int) {
+        self.label = label
+        self.count = max(count, 0)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            label: try container.decode(String.self, forKey: .label),
+            count: try container.decode(Int.self, forKey: .count)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(label, forKey: .label)
+        try container.encode(count, forKey: .count)
+    }
+}
+
+fileprivate enum BenchmarkStreamShapeTriage {
+    static let primaryIssuePriority: [BenchmarkStreamShapePracticalIssueCode] = [
         .probeFailed,
         .fullUploadFailed,
         .clientProcessingFailed,
@@ -187,6 +216,182 @@ public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Senda
         .probeDisabled
     ]
 
+    static func safeIssueCodes(
+        _ values: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> [BenchmarkStreamShapePracticalIssueCode] {
+        var seen = Set<String>()
+        return values.filter { issue in
+            guard !seen.contains(issue.rawValue) else {
+                return false
+            }
+            seen.insert(issue.rawValue)
+            return true
+        }
+    }
+
+    static func primaryIssue(
+        for issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalIssueCode? {
+        primaryIssuePriority.first { issueCodes.contains($0) }
+    }
+
+    static func safePrimaryIssueCode(
+        _ value: BenchmarkStreamShapePracticalIssueCode?,
+        issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalIssueCode? {
+        guard let value, issueCodes.contains(value) else {
+            return nil
+        }
+        return value
+    }
+
+    static func primaryConstraint(
+        for issue: BenchmarkStreamShapePracticalIssueCode?
+    ) -> DiagnosticSustainedSessionPrimaryConstraint {
+        switch issue {
+        case nil, .probeDisabled?:
+            return .none
+        case .insufficientContentSamples?:
+            return .sampleSize
+        case .noContentUpdates?, .contentFPSWarning?, .contentFPSFailed?:
+            return .contentCadence
+        case .probeFailed?,
+            .averageUpdateWarning?,
+            .averageUpdateFailed?,
+            .p95UpdateWarning?,
+            .p95UpdateFailed?,
+            .verySlowUpdate?:
+            return .receivePath
+        case .clientProcessingWarning?, .clientProcessingFailed?:
+            return .clientDecode
+        case .fullUploadWarning?, .fullUploadFailed?:
+            return .rendererUpload
+        case .adaptivePressureWarning?, .adaptivePressureFailed?:
+            return .adaptivePacing
+        }
+    }
+
+    static func recommendedNextProbe(
+        for issue: BenchmarkStreamShapePracticalIssueCode?
+    ) -> DiagnosticSustainedSessionNextProbe {
+        switch primaryConstraint(for: issue) {
+        case .none:
+            return .none
+        case .sampleSize:
+            return .collectLongerPhysicalRun
+        case .contentCadence:
+            return .runSustainedV2ProfileGate
+        case .receivePath:
+            return .inspectServerTransportCadence
+        case .clientDecode:
+            return .compareEncodingProfileGate
+        case .appFrameApply, .rendererUpload:
+            return .inspectLocalRenderPipeline
+        case .adaptivePacing:
+            return .compareAdaptivePacing
+        case .thermal:
+            return .runPowerSaverThermalPass
+        case .viewportInteraction:
+            return .runViewportInteractionTrace
+        case .composeInput:
+            return .inspectComposeRoute
+        }
+    }
+
+    static func safePrimaryConstraint(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionPrimaryConstraint
+    ) -> String? {
+        guard let value,
+              DiagnosticSustainedSessionPrimaryConstraint(rawValue: value) == expected
+        else {
+            return nil
+        }
+        return value
+    }
+
+    static func safeRecommendedNextProbe(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionNextProbe
+    ) -> String? {
+        guard let value,
+              DiagnosticSustainedSessionNextProbe(rawValue: value) == expected
+        else {
+            return nil
+        }
+        return value
+    }
+
+    static func primaryConstraintCounts(
+        for labels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        labelCounts(
+            for: labels,
+            orderedLabels: DiagnosticSustainedSessionPrimaryConstraint.allCases.map(\.rawValue)
+        )
+    }
+
+    static func recommendedNextProbeCounts(
+        for labels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        labelCounts(
+            for: labels,
+            orderedLabels: DiagnosticSustainedSessionNextProbe.allCases.map(\.rawValue)
+        )
+    }
+
+    static func mergedPrimaryConstraintCounts(
+        from counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        mergedCounts(
+            counts,
+            orderedLabels: DiagnosticSustainedSessionPrimaryConstraint.allCases.map(\.rawValue)
+        )
+    }
+
+    static func mergedRecommendedNextProbeCounts(
+        from counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        mergedCounts(
+            counts,
+            orderedLabels: DiagnosticSustainedSessionNextProbe.allCases.map(\.rawValue)
+        )
+    }
+
+    private static func labelCounts(
+        for labels: [String],
+        orderedLabels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        var rawCounts: [String: Int] = [:]
+        for label in labels where orderedLabels.contains(label) {
+            rawCounts[label, default: 0] += 1
+        }
+        return orderedLabels.compactMap { label in
+            guard let count = rawCounts[label], count > 0 else {
+                return nil
+            }
+            return BenchmarkStreamShapeTriageLabelCount(label: label, count: count)
+        }
+    }
+
+    private static func mergedCounts(
+        _ counts: [BenchmarkStreamShapeTriageLabelCount],
+        orderedLabels: [String]
+    ) -> [BenchmarkStreamShapeTriageLabelCount] {
+        var rawCounts: [String: Int] = [:]
+        for entry in counts where orderedLabels.contains(entry.label) {
+            rawCounts[entry.label, default: 0] += entry.count
+        }
+        return orderedLabels.compactMap { label in
+            guard let count = rawCounts[label], count > 0 else {
+                return nil
+            }
+            return BenchmarkStreamShapeTriageLabelCount(label: label, count: count)
+        }
+    }
+}
+
+public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case targetName
         case verdict
@@ -213,20 +418,20 @@ public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Senda
     ) {
         self.targetName = targetName
         self.verdict = verdict
-        let safeIssueCodes = Self.safeIssueCodes(issueCodes)
-        let primaryIssue = Self.safePrimaryIssueCode(
+        let safeIssueCodes = BenchmarkStreamShapeTriage.safeIssueCodes(issueCodes)
+        let primaryIssue = BenchmarkStreamShapeTriage.safePrimaryIssueCode(
             primaryIssueCode,
             issueCodes: safeIssueCodes
-        ) ?? Self.primaryIssue(for: safeIssueCodes)
+        ) ?? BenchmarkStreamShapeTriage.primaryIssue(for: safeIssueCodes)
         self.issueCodes = safeIssueCodes
         self.primaryIssueCode = primaryIssue
-        let derivedPrimaryConstraint = Self.primaryConstraint(for: primaryIssue)
-        let derivedRecommendedNextProbe = Self.recommendedNextProbe(for: primaryIssue)
-        self.primaryConstraint = Self.safePrimaryConstraint(
+        let derivedPrimaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: primaryIssue)
+        let derivedRecommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: primaryIssue)
+        self.primaryConstraint = BenchmarkStreamShapeTriage.safePrimaryConstraint(
             primaryConstraint,
             matching: derivedPrimaryConstraint
         ) ?? derivedPrimaryConstraint.rawValue
-        self.recommendedNextProbe = Self.safeRecommendedNextProbe(
+        self.recommendedNextProbe = BenchmarkStreamShapeTriage.safeRecommendedNextProbe(
             recommendedNextProbe,
             matching: derivedRecommendedNextProbe
         ) ?? derivedRecommendedNextProbe.rawValue
@@ -256,112 +461,6 @@ public struct BenchmarkStreamShapePracticalAssessment: Codable, Equatable, Senda
         try container.encodeIfPresent(primaryIssueCode?.rawValue, forKey: .primaryIssueCode)
         try container.encode(primaryConstraint, forKey: .primaryConstraint)
         try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
-    }
-
-    private static func safeIssueCodes(
-        _ values: [BenchmarkStreamShapePracticalIssueCode]
-    ) -> [BenchmarkStreamShapePracticalIssueCode] {
-        var seen = Set<String>()
-        return values.filter { issue in
-            guard !seen.contains(issue.rawValue) else {
-                return false
-            }
-            seen.insert(issue.rawValue)
-            return true
-        }
-    }
-
-    private static func primaryIssue(
-        for issueCodes: [BenchmarkStreamShapePracticalIssueCode]
-    ) -> BenchmarkStreamShapePracticalIssueCode? {
-        primaryIssuePriority.first { issueCodes.contains($0) }
-    }
-
-    private static func safePrimaryIssueCode(
-        _ value: BenchmarkStreamShapePracticalIssueCode?,
-        issueCodes: [BenchmarkStreamShapePracticalIssueCode]
-    ) -> BenchmarkStreamShapePracticalIssueCode? {
-        guard let value, issueCodes.contains(value) else {
-            return nil
-        }
-        return value
-    }
-
-    private static func safePrimaryConstraint(
-        _ value: String?,
-        matching expected: DiagnosticSustainedSessionPrimaryConstraint
-    ) -> String? {
-        guard let value,
-              DiagnosticSustainedSessionPrimaryConstraint(rawValue: value) == expected
-        else {
-            return nil
-        }
-        return value
-    }
-
-    private static func safeRecommendedNextProbe(
-        _ value: String?,
-        matching expected: DiagnosticSustainedSessionNextProbe
-    ) -> String? {
-        guard let value,
-              DiagnosticSustainedSessionNextProbe(rawValue: value) == expected
-        else {
-            return nil
-        }
-        return value
-    }
-
-    private static func primaryConstraint(
-        for issue: BenchmarkStreamShapePracticalIssueCode?
-    ) -> DiagnosticSustainedSessionPrimaryConstraint {
-        switch issue {
-        case nil, .probeDisabled?:
-            return .none
-        case .insufficientContentSamples?:
-            return .sampleSize
-        case .noContentUpdates?, .contentFPSWarning?, .contentFPSFailed?:
-            return .contentCadence
-        case .probeFailed?,
-            .averageUpdateWarning?,
-            .averageUpdateFailed?,
-            .p95UpdateWarning?,
-            .p95UpdateFailed?,
-            .verySlowUpdate?:
-            return .receivePath
-        case .clientProcessingWarning?, .clientProcessingFailed?:
-            return .clientDecode
-        case .fullUploadWarning?, .fullUploadFailed?:
-            return .rendererUpload
-        case .adaptivePressureWarning?, .adaptivePressureFailed?:
-            return .adaptivePacing
-        }
-    }
-
-    private static func recommendedNextProbe(
-        for issue: BenchmarkStreamShapePracticalIssueCode?
-    ) -> DiagnosticSustainedSessionNextProbe {
-        switch primaryConstraint(for: issue) {
-        case .none:
-            return .none
-        case .sampleSize:
-            return .collectLongerPhysicalRun
-        case .contentCadence:
-            return .runSustainedV2ProfileGate
-        case .receivePath:
-            return .inspectServerTransportCadence
-        case .clientDecode:
-            return .compareEncodingProfileGate
-        case .appFrameApply, .rendererUpload:
-            return .inspectLocalRenderPipeline
-        case .adaptivePacing:
-            return .compareAdaptivePacing
-        case .thermal:
-            return .runPowerSaverThermalPass
-        case .viewportInteraction:
-            return .runViewportInteractionTrace
-        case .composeInput:
-            return .inspectComposeRoute
-        }
     }
 }
 
@@ -1372,6 +1471,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     public let failRunCount: Int
     public let disabledRunCount: Int
     public let issueCodes: [BenchmarkStreamShapePracticalIssueCode]
+    public let primaryIssueCode: BenchmarkStreamShapePracticalIssueCode?
+    public let primaryConstraint: String
+    public let recommendedNextProbe: String
+    public let primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount]
     public let averageReceivedSamplePermille: Int?
     public let averageContentSamplePermille: Int?
     public let averageContentResponsePermille: Int?
@@ -1388,6 +1492,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         failRunCount: Int,
         disabledRunCount: Int,
         issueCodes: [BenchmarkStreamShapePracticalIssueCode],
+        primaryIssueCode: BenchmarkStreamShapePracticalIssueCode? = nil,
+        primaryConstraint: String? = nil,
+        recommendedNextProbe: String? = nil,
+        primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
         averageReceivedSamplePermille: Int? = nil,
         averageContentSamplePermille: Int? = nil,
         averageContentResponsePermille: Int? = nil,
@@ -1402,7 +1511,29 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         self.warningRunCount = max(warningRunCount, 0)
         self.failRunCount = max(failRunCount, 0)
         self.disabledRunCount = max(disabledRunCount, 0)
-        self.issueCodes = Self.orderedIssueCodes(issueCodes)
+        let safeIssueCodes = Self.orderedIssueCodes(issueCodes)
+        let derivedPrimaryIssue = BenchmarkStreamShapeTriage.safePrimaryIssueCode(
+            primaryIssueCode,
+            issueCodes: safeIssueCodes
+        ) ?? BenchmarkStreamShapeTriage.primaryIssue(for: safeIssueCodes)
+        let derivedPrimaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: derivedPrimaryIssue)
+        let derivedRecommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: derivedPrimaryIssue)
+        self.issueCodes = safeIssueCodes
+        self.primaryIssueCode = derivedPrimaryIssue
+        self.primaryConstraint = BenchmarkStreamShapeTriage.safePrimaryConstraint(
+            primaryConstraint,
+            matching: derivedPrimaryConstraint
+        ) ?? derivedPrimaryConstraint.rawValue
+        self.recommendedNextProbe = BenchmarkStreamShapeTriage.safeRecommendedNextProbe(
+            recommendedNextProbe,
+            matching: derivedRecommendedNextProbe
+        ) ?? derivedRecommendedNextProbe.rawValue
+        self.primaryConstraintCounts = primaryConstraintCounts.isEmpty
+            ? BenchmarkStreamShapeTriage.primaryConstraintCounts(for: [self.primaryConstraint])
+            : BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(from: primaryConstraintCounts)
+        self.recommendedNextProbeCounts = recommendedNextProbeCounts.isEmpty
+            ? BenchmarkStreamShapeTriage.recommendedNextProbeCounts(for: [self.recommendedNextProbe])
+            : BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(from: recommendedNextProbeCounts)
         self.averageReceivedSamplePermille = Self.clampOptionalPermille(averageReceivedSamplePermille)
         self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
         self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
@@ -1435,6 +1566,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         let failRunCount = assessments.filter { $0.verdict == .fail }.count
         let disabledRunCount = assessments.filter { $0.verdict == .disabled }.count
         let issueCodes = assessments.flatMap(\.issueCodes)
+        let primaryIssueCode = BenchmarkStreamShapeTriage.primaryIssue(
+            for: assessments.compactMap(\.primaryIssueCode)
+        )
+        let primaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: primaryIssueCode)
+        let recommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: primaryIssueCode)
         return BenchmarkStreamShapeProfileGateReport(
             label: key.label,
             transportMode: key.transportMode,
@@ -1451,6 +1587,15 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             failRunCount: failRunCount,
             disabledRunCount: disabledRunCount,
             issueCodes: issueCodes,
+            primaryIssueCode: primaryIssueCode,
+            primaryConstraint: primaryConstraint.rawValue,
+            recommendedNextProbe: recommendedNextProbe.rawValue,
+            primaryConstraintCounts: BenchmarkStreamShapeTriage.primaryConstraintCounts(
+                for: assessments.map(\.primaryConstraint)
+            ),
+            recommendedNextProbeCounts: BenchmarkStreamShapeTriage.recommendedNextProbeCounts(
+                for: assessments.map(\.recommendedNextProbe)
+            ),
             averageReceivedSamplePermille: roundedAverage(reports.compactMap(\.summary.receivedSamplePermille)),
             averageContentSamplePermille: roundedAverage(reports.compactMap(\.summary.contentSamplePermille)),
             averageContentResponsePermille: roundedAverage(reports.compactMap(\.summary.contentResponsePermille)),
@@ -1519,6 +1664,190 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         let label: String
         let transportMode: BenchmarkStreamShapeTransportMode
         let targetName: String
+    }
+}
+
+public struct BenchmarkStreamShapeOptimizationDecision: Codable, Equatable, Sendable {
+    public let targetName: String
+    public let verdict: BenchmarkStreamShapePracticalVerdict
+    public let gateCount: Int
+    public let passGateCount: Int
+    public let warningGateCount: Int
+    public let failGateCount: Int
+    public let disabledGateCount: Int
+    public let blockedGateCount: Int
+    public let primaryIssueCode: BenchmarkStreamShapePracticalIssueCode?
+    public let primaryConstraint: String
+    public let recommendedNextProbe: String
+    public let primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
+    public let recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount]
+
+    private enum CodingKeys: String, CodingKey {
+        case targetName
+        case verdict
+        case gateCount
+        case passGateCount
+        case warningGateCount
+        case failGateCount
+        case disabledGateCount
+        case blockedGateCount
+        case primaryIssueCode
+        case primaryConstraint
+        case recommendedNextProbe
+        case primaryConstraintCounts
+        case recommendedNextProbeCounts
+    }
+
+    public init(
+        targetName: String,
+        verdict: BenchmarkStreamShapePracticalVerdict,
+        gateCount: Int,
+        passGateCount: Int,
+        warningGateCount: Int,
+        failGateCount: Int,
+        disabledGateCount: Int,
+        primaryIssueCode: BenchmarkStreamShapePracticalIssueCode? = nil,
+        primaryConstraint: String? = nil,
+        recommendedNextProbe: String? = nil,
+        primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
+        recommendedNextProbeCounts: [BenchmarkStreamShapeTriageLabelCount] = []
+    ) {
+        self.targetName = targetName
+        self.verdict = verdict
+        self.gateCount = max(gateCount, 0)
+        self.passGateCount = max(passGateCount, 0)
+        self.warningGateCount = max(warningGateCount, 0)
+        self.failGateCount = max(failGateCount, 0)
+        self.disabledGateCount = max(disabledGateCount, 0)
+        self.blockedGateCount = max(self.warningGateCount + self.failGateCount, 0)
+        self.primaryIssueCode = primaryIssueCode
+        let derivedPrimaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: primaryIssueCode)
+        let derivedRecommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: primaryIssueCode)
+        self.primaryConstraint = BenchmarkStreamShapeTriage.safePrimaryConstraint(
+            primaryConstraint,
+            matching: derivedPrimaryConstraint
+        ) ?? derivedPrimaryConstraint.rawValue
+        self.recommendedNextProbe = BenchmarkStreamShapeTriage.safeRecommendedNextProbe(
+            recommendedNextProbe,
+            matching: derivedRecommendedNextProbe
+        ) ?? derivedRecommendedNextProbe.rawValue
+        self.primaryConstraintCounts = primaryConstraintCounts.isEmpty
+            ? BenchmarkStreamShapeTriage.primaryConstraintCounts(for: [self.primaryConstraint])
+            : BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(from: primaryConstraintCounts)
+        self.recommendedNextProbeCounts = recommendedNextProbeCounts.isEmpty
+            ? BenchmarkStreamShapeTriage.recommendedNextProbeCounts(for: [self.recommendedNextProbe])
+            : BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(from: recommendedNextProbeCounts)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawPrimaryIssueCode = try container.decodeIfPresent(String.self, forKey: .primaryIssueCode)
+        self.init(
+            targetName: try container.decode(String.self, forKey: .targetName),
+            verdict: try container.decode(BenchmarkStreamShapePracticalVerdict.self, forKey: .verdict),
+            gateCount: try container.decode(Int.self, forKey: .gateCount),
+            passGateCount: try container.decode(Int.self, forKey: .passGateCount),
+            warningGateCount: try container.decode(Int.self, forKey: .warningGateCount),
+            failGateCount: try container.decode(Int.self, forKey: .failGateCount),
+            disabledGateCount: try container.decode(Int.self, forKey: .disabledGateCount),
+            primaryIssueCode: rawPrimaryIssueCode.flatMap(BenchmarkStreamShapePracticalIssueCode.init(rawValue:)),
+            primaryConstraint: try container.decodeIfPresent(String.self, forKey: .primaryConstraint),
+            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe),
+            primaryConstraintCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .primaryConstraintCounts
+            ) ?? [],
+            recommendedNextProbeCounts: try container.decodeIfPresent(
+                [BenchmarkStreamShapeTriageLabelCount].self,
+                forKey: .recommendedNextProbeCounts
+            ) ?? []
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(targetName, forKey: .targetName)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(gateCount, forKey: .gateCount)
+        try container.encode(passGateCount, forKey: .passGateCount)
+        try container.encode(warningGateCount, forKey: .warningGateCount)
+        try container.encode(failGateCount, forKey: .failGateCount)
+        try container.encode(disabledGateCount, forKey: .disabledGateCount)
+        try container.encode(blockedGateCount, forKey: .blockedGateCount)
+        try container.encodeIfPresent(primaryIssueCode?.rawValue, forKey: .primaryIssueCode)
+        try container.encode(primaryConstraint, forKey: .primaryConstraint)
+        try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
+        try container.encode(primaryConstraintCounts, forKey: .primaryConstraintCounts)
+        try container.encode(recommendedNextProbeCounts, forKey: .recommendedNextProbeCounts)
+    }
+
+    public static func decision(
+        from gates: [BenchmarkStreamShapeProfileGateReport]
+    ) -> BenchmarkStreamShapeOptimizationDecision? {
+        guard let firstGate = gates.first else {
+            return nil
+        }
+        let passGateCount = gates.filter { $0.verdict == .pass }.count
+        let warningGateCount = gates.filter { $0.verdict == .warning }.count
+        let failGateCount = gates.filter { $0.verdict == .fail }.count
+        let disabledGateCount = gates.filter { $0.verdict == .disabled }.count
+        let primaryIssueCode = BenchmarkStreamShapeTriage.primaryIssue(
+            for: gates.compactMap(\.primaryIssueCode)
+        )
+        let primaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: primaryIssueCode)
+        let recommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: primaryIssueCode)
+        return BenchmarkStreamShapeOptimizationDecision(
+            targetName: targetName(from: gates, fallback: firstGate.targetName),
+            verdict: verdict(
+                passGateCount: passGateCount,
+                warningGateCount: warningGateCount,
+                failGateCount: failGateCount,
+                disabledGateCount: disabledGateCount
+            ),
+            gateCount: gates.count,
+            passGateCount: passGateCount,
+            warningGateCount: warningGateCount,
+            failGateCount: failGateCount,
+            disabledGateCount: disabledGateCount,
+            primaryIssueCode: primaryIssueCode,
+            primaryConstraint: primaryConstraint.rawValue,
+            recommendedNextProbe: recommendedNextProbe.rawValue,
+            primaryConstraintCounts: BenchmarkStreamShapeTriage.mergedPrimaryConstraintCounts(
+                from: gates.flatMap(\.primaryConstraintCounts)
+            ),
+            recommendedNextProbeCounts: BenchmarkStreamShapeTriage.mergedRecommendedNextProbeCounts(
+                from: gates.flatMap(\.recommendedNextProbeCounts)
+            )
+        )
+    }
+
+    private static func targetName(
+        from gates: [BenchmarkStreamShapeProfileGateReport],
+        fallback: String
+    ) -> String {
+        let targetNames = Set(gates.map(\.targetName))
+        return targetNames.count <= 1 ? fallback : "mixed-targets"
+    }
+
+    private static func verdict(
+        passGateCount: Int,
+        warningGateCount: Int,
+        failGateCount: Int,
+        disabledGateCount: Int
+    ) -> BenchmarkStreamShapePracticalVerdict {
+        if failGateCount > 0 {
+            return .fail
+        }
+        if warningGateCount > 0 {
+            return .warning
+        }
+        if passGateCount > 0 {
+            return .pass
+        }
+        if disabledGateCount > 0 {
+            return .disabled
+        }
+        return .disabled
     }
 }
 
