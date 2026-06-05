@@ -2146,3 +2146,90 @@ must not include host identity, credentials, framebuffer dimensions, rectangle
 coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
 external command text, command output, hidden preflight frame contents, hidden
 preflight timings, or raw error text.
+
+## D60 — Promote sustained usability to the default benchmark gate
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+- Apple `ProcessInfo.thermalState`:
+  https://developer.apple.com/documentation/foundation/processinfo/thermalstate-swift.property
+
+**Decision**: add `VNCLiveBenchmark` schema v35 with
+`--stream-shape-practical-target
+iphone-practical-baseline-v1|iphone-sustained-usability-v2`, and make
+`iphone-sustained-usability-v2` the default CLI practical target for new
+streaming work. Keep `iphone-practical-baseline-v1` available for legacy
+artifact comparison and direct summary construction.
+
+**Target bands**:
+- Pass controlled-stimulus content FPS: at least 8 fps; fail below 4 fps.
+- Pass average update latency: at most 180 ms; fail above 250 ms.
+- Pass post-warm-up p95 update latency: at most 350 ms; fail above 500 ms.
+- Pass client-processing p95: at most 24 ms; fail above 50 ms.
+- Pass renderer full-upload pressure: 0 permille; fail above 50 permille.
+- Pass adaptive client-pressure pacing: at most 100 permille; fail above 500
+  permille.
+- Require at least 8 content samples for a confident content-FPS read.
+- Treat any very-slow update sample as fail-class.
+- Keep the physical iPhone gate: 10 minutes with immediate local zoom/pan,
+  deterministic Compose route diagnostics, and no `.serious` or `.critical`
+  thermal state.
+
+**Why**:
+- v34 preflight removed one startup tail but content FPS stayed around 2 fps,
+  so the next optimization unit must judge sustained usability rather than only
+  cold-start behavior.
+- Mature VNC viewers expose encoding, quality, color, and pointer-rate controls;
+  Naru should keep defaults automatic, but the automation needs a stricter
+  phone-first benchmark gate before changing stream cadence, app preflight, or
+  encoding defaults.
+
+**Evidence**:
+- `swift build --product VNCLiveBenchmark` passes.
+- `swift build --product VNCLiveStimulusWindow` passes.
+- `swift run VNCLiveBenchmark --help` shows
+  `--stream-shape-practical-target`.
+- `swift test --filter BenchmarkStreamShapeSummaryTests` passes, including v2
+  target selection, average-update issue codes, and v2 JSON encoding.
+- v35 local Screen Sharing request/response run with external animated-window
+  stimulus, `zrle-isolation`, 5 rotated iterations,
+  `--stream-shape-preflight-frames 1`, and
+  `--stream-shape-practical-target iphone-sustained-usability-v2`:
+  - `local-low-latency`: 5/5 usable runs, average update 335 ms, max p95
+    update 2623 ms, average content FPS 1.50, max client p95 2319 ms, max ZRLE
+    tile/apply p95 2247 ms, full-upload pressure 0 permille, one very-slow
+    update.
+  - `zrle-compression-0`: 5/5 usable runs, average update 214 ms, max p95
+    update 484 ms, average content FPS 1.85, max client p95 185 ms, max ZRLE
+    tile/apply p95 178 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor`: 5/5 usable runs, average update 254 ms, max
+    p95 update 524 ms, average content FPS 1.80, max client p95 16 ms, max
+    ZRLE tile/apply p95 16 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-clipboard`: 5/5 usable runs, average update 250 ms,
+    max p95 update 507 ms, average content FPS 1.85, max client p95 14 ms, max
+    ZRLE tile/apply p95 13 ms, full-upload pressure 0 permille.
+  - `zrle-compression-0-cursor-clipboard`: 5/5 usable runs, average update
+    210 ms, max p95 update 379 ms, average content FPS 1.90, max client p95
+    17 ms, max ZRLE tile/apply p95 16 ms, full-upload pressure 0 permille.
+
+**Interpretation**:
+- The v35 order-neutral recommendation selected
+  `zrle-compression-0-cursor-clipboard`, but it still failed v2 on content FPS:
+  1.90 fps is below the 4 fps fail threshold and far below the 8 fps pass band.
+- The selected profile is warning-class on average update and p95 update, not
+  fail-class: 210 ms average and 379 ms max p95.
+- Renderer full-upload pressure remains solved at 0 permille.
+- App-side preflight, server/request cadence, and physical iPhone thermal
+  hand-feel should be evaluated against v2 before production defaults change.
+
+**Privacy rule**: v2 target artifacts may report only fixed target names, fixed
+verdicts, fixed issue codes, fixed stimulus/profile/transport labels, fixed
+requested preflight counts, fixed iteration/order ordinals, aggregate timing
+summaries, aggregate FPS, aggregate renderer/upload counts, and safe failure
+labels. They must not include host identity, credentials, framebuffer
+dimensions, rectangle coordinates, pixels, cursor pixels, byte counts, raw
+samples, raw payloads, external command text, command output, hidden preflight
+frame contents, hidden preflight timings, or raw error text.
