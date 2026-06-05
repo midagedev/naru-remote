@@ -318,6 +318,12 @@ fields. The practical-use target is higher: controlled-stimulus content FPS at
 warm-up, 0 permille renderer full-upload pressure, immediate local zoom/pan
 transforms, deterministic Compose route diagnostics, and a physical iPhone
 10 minute session without `.serious` or `.critical` thermal state.
+The current interaction baseline keeps visible pinch/pan/trackpad movement on
+the UIKit/Core Animation path, defers SwiftUI/PiP viewport mirroring until the
+gesture settles, keeps zoomed trackpad cursor travel finger-paced while
+follow-pan is coupled in, and uses a bounded Compose stabilization window for
+active or recently committed Korean/CJK marked text. Treat regressions against
+those invariants as interaction-gate failures before changing stream defaults.
 Pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.

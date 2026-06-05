@@ -22,6 +22,7 @@ public struct RemoteInputDockView: View {
     #if os(iOS) && canImport(UIKit)
     @StateObject private var composeCommitController = ComposeTextCommitController()
     @State private var isPreparingComposeSend = false
+    @State private var composeSendNeedsMarkedCommitStabilization = false
     #endif
     /// Tracks whether the compose editor has firstResponder.
     /// Forwarded to the parent via `onComposeFocusChange` so future
@@ -491,7 +492,7 @@ public struct RemoteInputDockView: View {
         ComposeTextEditingView(
             text: $text,
             onFocusChange: updateComposeFocus(_:),
-            onCommittedTextChange: handleCommittedComposeText(_:),
+            onMarkedTextCommit: handleMarkedComposeTextCommit(_:),
             commitController: composeCommitController
         )
         #else
@@ -502,10 +503,13 @@ public struct RemoteInputDockView: View {
         #endif
     }
 
-    private func handleCommittedComposeText(_ committedText: String) {
+    private func handleMarkedComposeTextCommit(_ committedText: String) {
         guard !directKeystrokeMode.isActive else {
             return
         }
+        #if os(iOS) && canImport(UIKit)
+        composeSendNeedsMarkedCommitStabilization = true
+        #endif
         if text != committedText {
             text = committedText
         }
@@ -523,13 +527,17 @@ public struct RemoteInputDockView: View {
         guard !isPreparingComposeSend else { return }
         isPreparingComposeSend = true
         let hadMarkedTextBeforeSend = composeCommitController.hasMarkedText
+        let needsMarkedCommitStabilization = composeSendNeedsMarkedCommitStabilization
         let immediateText = composeCommitController.commitMarkedTextAndRead(fallback: text)
         if immediateText != text {
             text = immediateText
         }
         propagateComposeTextToModelIfNeeded(immediateText)
         Task { @MainActor in
-            let plan = Self.composeSendPreparationPlan(hadMarkedTextBeforeSend: hadMarkedTextBeforeSend)
+            let plan = Self.composeSendPreparationPlan(
+                hadMarkedTextBeforeSend: hadMarkedTextBeforeSend,
+                needsMarkedCommitStabilization: needsMarkedCommitStabilization
+            )
             let preparationStartedAt = Date()
             let finalText = await composeCommitController.readStabilizedCurrentText(
                 fallback: immediateText,
@@ -549,6 +557,7 @@ public struct RemoteInputDockView: View {
             }
             propagateComposeTextToModelIfNeeded(finalText)
             onComposeSendPreparation(preparationReport)
+            composeSendNeedsMarkedCommitStabilization = false
             isPreparingComposeSend = false
             guard !finalText.isEmpty else { return }
             onSend(finalText)
@@ -559,13 +568,14 @@ public struct RemoteInputDockView: View {
     }
 
     nonisolated static func composeSendPreparationPlan(
-        hadMarkedTextBeforeSend: Bool
+        hadMarkedTextBeforeSend: Bool,
+        needsMarkedCommitStabilization: Bool = false
     ) -> (
         mode: ComposeSendPreparationMode,
         snapshotCount: Int,
         snapshotDelayNanoseconds: UInt64
     ) {
-        if hadMarkedTextBeforeSend {
+        if hadMarkedTextBeforeSend || needsMarkedCommitStabilization {
             return (
                 .markedTextStabilization,
                 composeSendStabilizationSnapshotCount,
@@ -880,7 +890,7 @@ private struct ComposeTextEditingView: View {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
     #if os(iOS) && canImport(UIKit)
-    let onCommittedTextChange: (String) -> Void
+    let onMarkedTextCommit: (String) -> Void
     let commitController: ComposeTextCommitController
     #endif
 
@@ -889,7 +899,7 @@ private struct ComposeTextEditingView: View {
         MultilingualComposeTextView(
             text: $text,
             onFocusChange: onFocusChange,
-            onCommittedTextChange: onCommittedTextChange,
+            onMarkedTextCommit: onMarkedTextCommit,
             commitController: commitController
         )
         #else
@@ -992,7 +1002,7 @@ final class ComposeTextCommitController: ObservableObject {
 private struct MultilingualComposeTextView: UIViewRepresentable {
     @Binding var text: String
     let onFocusChange: (Bool) -> Void
-    let onCommittedTextChange: (String) -> Void
+    let onMarkedTextCommit: (String) -> Void
     let commitController: ComposeTextCommitController
 
     func makeCoordinator() -> Coordinator {
@@ -1135,7 +1145,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 return
             }
             lastCommittedTextNotification = resolvedText
-            parent.onCommittedTextChange(resolvedText)
+            parent.onMarkedTextCommit(resolvedText)
         }
     }
 }
