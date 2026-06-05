@@ -614,6 +614,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 count: 1
             )
         ])
+        XCTAssertEqual(zrle.failureLabelCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: "stream-request-response-receive-failed",
+                count: 1
+            )
+        ])
         XCTAssertEqual(zrle.averageReceivedSamplePermille, 500)
         XCTAssertEqual(zrle.averageContentSamplePermille, 500)
         XCTAssertEqual(zrle.averageContentResponsePermille, 1_000)
@@ -629,6 +635,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             continuous.primaryConstraint,
             DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
         )
+        XCTAssertEqual(continuous.failureLabelCounts, [])
     }
 
     func testProfileGatesSeparateSameProfileAcrossTargets() {
@@ -826,6 +833,91 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(decision.targetName, "mixed-targets")
         XCTAssertEqual(decision.verdict, .pass)
+    }
+
+    func testOptimizationDecisionMergesFailureLabels() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "local-low-latency",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.probeFailed],
+                failureLabelCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: "stream-continuous-updates-connection-failed",
+                        count: 5
+                    )
+                ]
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.probeFailed],
+                failureLabelCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: "stream-continuous-updates-connection-failed",
+                        count: 4
+                    ),
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: "stream-continuous-updates-timeout",
+                        count: 1
+                    )
+                ]
+            )
+        ]
+
+        let decision = try XCTUnwrap(BenchmarkStreamShapeOptimizationDecision.decision(from: gates))
+
+        XCTAssertEqual(decision.failureLabelCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: "stream-continuous-updates-connection-failed",
+                count: 9
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: "stream-continuous-updates-timeout",
+                count: 1
+            )
+        ])
+    }
+
+    func testProfileGateDecodesMissingFailureLabelCountsAsEmpty() throws {
+        let json = Data(
+            """
+            {
+              "label": "tight-first",
+              "transportMode": "request-response",
+              "targetName": "iphone-sustained-usability-v2",
+              "verdict": "pass",
+              "runCount": 1,
+              "passRunCount": 1,
+              "warningRunCount": 0,
+              "failRunCount": 0,
+              "disabledRunCount": 0,
+              "issueCodes": [],
+              "primaryConstraint": "none",
+              "recommendedNextProbe": "none",
+              "primaryConstraintCounts": [],
+              "recommendedNextProbeCounts": []
+            }
+            """.utf8
+        )
+
+        let gate = try JSONDecoder().decode(BenchmarkStreamShapeProfileGateReport.self, from: json)
+
+        XCTAssertEqual(gate.failureLabelCounts, [])
     }
 
     func testOrderNeutralRecommendationUsesAggregateRuns() throws {

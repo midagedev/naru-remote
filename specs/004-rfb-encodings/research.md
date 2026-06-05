@@ -3063,3 +3063,49 @@ labels, and aggregate label counts. They must not include host identity,
 credentials, port value, TCP errors, RFB errors, framebuffer dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
 timings, draft text, marked text, or IME state.
+
+## D75 — Promote safe failure labels to profile gates
+
+References:
+- D74 report-level benchmark optimization decision.
+- `artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v42 and add
+`failureLabelCounts` to `streamShapeProfileGates` and
+`streamShapeOptimizationDecision`.
+
+**Why**:
+- The first live `sustained-v2-core` routing baseline failed all gates and
+  selected `primaryConstraint=receivePath` with
+  `recommendedNextProbe=inspectServerTransportCadence`.
+- Individual stream-shape probe summaries already carry safe fixed
+  `failureLabel` values. In the live baseline, ContinuousUpdates profile probes
+  failed with `stream-continuous-updates-connection-failed`, while the
+  standalone ContinuousUpdates probe failed with
+  `continuous-probe-receive-connection-failed`.
+- Schema v41 collapses that report-level signal to `probe-failed`, forcing the
+  operator to inspect individual probe entries before choosing the next large
+  transport/cadence PR. Gate-level failure counts make the decision surface
+  directly actionable without exposing raw errors.
+
+**Evidence**:
+- The live baseline showed request-response profiles were usable but far below
+  the sustained v2 8 FPS content target, while ContinuousUpdates yielded no
+  usable samples.
+- Renderer full-upload pressure stayed at 0 permille across usable
+  request-response aggregates, so local upload is not the first blocker for
+  that run.
+
+**Interpretation**:
+- Use `streamShapeOptimizationDecision.failureLabelCounts` to decide whether
+  `inspectServerTransportCadence` should start with connect/first-frame/enable
+  failure, receive failure, timeout, or decode failure.
+- Keep profile recommendation fields subordinate to the report-level decision:
+  a fastest request-response profile is not enough to change defaults while the
+  report-level gate still fails.
+
+**Privacy rule**: failure-label counts may include only existing safe fixed
+benchmark failure labels and aggregate counts. They must not include host
+identity, credentials, port value, raw TCP/RFB errors, framebuffer dimensions,
+coordinates, pixels, cursor pixels, byte counts, raw payloads, raw FPS, raw
+timings, command text, command output, draft text, marked text, or IME state.

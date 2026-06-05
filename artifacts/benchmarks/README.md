@@ -52,6 +52,10 @@ Current baseline artifact:
 That run keeps renderer upload as a regression guard but moves the next large
 optimization unit toward live profile gates and physical iPhone
 hand-feel/thermal verification.
+Current live routing artifact:
+`artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
+That run uses schema v41's report-level decision to choose
+`inspectServerTransportCadence` as the next large benchmark unit.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -308,6 +312,13 @@ report-level routing signal; the existing profile recommendations remain the
 profile-choice signal after the blocking constraint is understood. Its
 `blockedGateCount` is a derived `warningGateCount + failGateCount` value, not a
 separately trusted decoded input.
+Schema v42 adds safe `failureLabelCounts` to `streamShapeProfileGates` and
+`streamShapeOptimizationDecision`. These counts lift existing fixed benchmark
+failure labels from individual stream-shape probe summaries into the decision
+surface, so repeated ContinuousUpdates or request/response failures can be
+triaged without opening raw JSON. Do not add raw TCP/RFB errors, host identity,
+dimensions, coordinates, pixels, cursor pixels, byte counts, payloads, command
+text, command output, draft text, marked text, or IME state to these counts.
 Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw

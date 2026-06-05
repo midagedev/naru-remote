@@ -792,6 +792,16 @@ iPhone) and ships as its own PR.
   byte counts, raw timings, TCP/RFB errors, raw payloads, draft text, marked
   text, or IME state. Owns: benchmark summary kit/tests, CLI schema/text
   report, benchmark docs/artifact, research note. **Done.**
+- **T407** Gate-level benchmark failure-label routing: bump
+  `VNCLiveBenchmark` to schema v42 and lift existing safe stream-shape
+  `failureLabel` values into `failureLabelCounts` on
+  `streamShapeProfileGates` and `streamShapeOptimizationDecision`. Use the
+  redacted sustained-v2-core live baseline to route the next large unit toward
+  server transport/cadence inspection, while keeping raw TCP/RFB errors, host
+  identity, dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+  timings, raw payloads, command text, command output, draft text, marked text,
+  and IME state out of reports. Owns: benchmark summary kit/tests, CLI
+  schema/text report, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
