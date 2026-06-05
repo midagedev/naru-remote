@@ -4097,3 +4097,131 @@ port values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels,
 cursor pixels, byte counts, raw payloads, per-sample raw timings, raw FPS,
 stimulus command text, command output, draft text, marked text, IME state, or
 full diagnostic payloads.
+
+## D95 — Viewport-aware request region is the next large request/response unit
+
+References:
+- D94 static request-region result.
+- `specs/003-session-experience/spec.md` FR-001/014 for true-aspect viewport
+  mapping and shared framebuffer coordinate transforms.
+
+**Decision**: add `VNCLiveBenchmark` schema v52 with a
+`sustained-v2-zrle-viewport-region` preset. The preset holds
+`zrle-compression-0-clipboard`, request/response transport, zero post-content
+request delay, and the sustained v2 controlled stimulus shape constant while
+comparing fixed labels: `full`, `viewport-phone-portrait`, and
+`viewport-phone-portrait-heartbeat`.
+
+**Why**:
+- D94 proved that static center rectangles can starve because the requested
+  rectangle was not coupled to the user's actual visible viewport.
+- The app already has a pure `ViewportTransform` used for zoom, pan, and pointer
+  mapping. Reusing that transform for request-region selection keeps viewport
+  interest and input mapping aligned.
+- Region narrowing must remain recoverable. A viewport region that misses
+  content or waits too long needs a full request heartbeat or timeout-to-full
+  fallback before any production default can be considered.
+
+**Implementation rule**:
+- `ViewportRequestRegionPolicy` is pure Core logic: it converts a
+  `ViewportTransform` into an optional `RFBFramebufferUpdateRegion`, expands the
+  visible area by a fixed margin, rejects low-savings near-full regions, and can
+  force full requests through a heartbeat or timeout streak.
+- Benchmark reports continue to store only fixed request-region labels. The
+  representative phone-portrait viewport dimensions are compile-time benchmark
+  constants, not device identity.
+- Production app streams still use full incremental requests unless a future
+  PR passes the sustained v2 benchmark and physical iPhone promotion gates.
+
+**Evidence**:
+- Unit tests cover fit-to-full, zoomed visible-region conversion, expansion
+  clamp, minimum-savings promotion to full, heartbeat, timeout fallback, and
+  representative phone-portrait crop-fill shape.
+- Benchmark-kit tests cover stable v52 candidate labels, viewport-region
+  sweep membership, heartbeat behavior, and timeout-to-full fallback eligibility.
+- A redacted live schema v52 `sustained-v2-zrle-viewport-region` run reported:
+  - request regions: `full`, `viewport-phone-portrait`,
+    `viewport-phone-portrait-heartbeat`;
+  - `full`: 5 usable runs, average update 124 ms, max p95 update 501 ms,
+    content FPS 6.76, 384 received samples, 338 content samples, 0 permille
+    renderer full-upload pressure, first-byte/payload split 1000/1 permille;
+  - `viewport-phone-portrait`: 1 usable run, 4 failed runs, average update
+    116 ms for the usable aggregate, max p95 update 493 ms, content FPS 6.91,
+    81 received samples, 70 content samples, failure label
+    `stream-incremental-not-connected` x4;
+  - `viewport-phone-portrait-heartbeat`: 0 usable runs, 5 failed runs, failure
+    label `stream-incremental-not-connected` x5;
+  - report-level decision stayed `fail`, primary issue `probe-failed`, primary
+    constraint `receivePath`, recommended next probe
+    `inspectServerTransportCadence`, and transport diagnosis next action
+    `tuneTransportCadence`.
+
+**Interpretation**:
+- Viewport-aware regions are the correct product model, but this implementation
+  evidence does not justify enabling app-side region requests.
+- The current connection/fallback path can still move into a not-connected
+  failure after region experiments. Region narrowing therefore needs a larger
+  transport-cadence and timeout-recovery follow-up before it can be promoted.
+- Production request/response streaming should keep full incremental requests
+  until that follow-up and the physical iPhone gate pass.
+
+**Privacy rule**: viewport request-region reports may emit only fixed labels,
+aggregate counts, aggregate timing summaries, aggregate permille shares, and
+fixed triage labels. They must not emit host identity, credentials, port values,
+raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels,
+byte counts, raw payloads, per-sample raw timings, raw FPS, stimulus command
+text, command output, draft text, marked text, IME state, or full diagnostic
+payloads.
+
+## D96 — Traffic pressure is a promotion target, but byte counts stay private
+
+References:
+- D94 static request-region result.
+- D95 viewport-aware request-region foundation.
+- `specs/004-rfb-encodings/spec.md` FR-016 / SC-007.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v53 and add a redacted
+`requestRegionAreaPermille` traffic-pressure proxy on stream-shape profile
+reports, aggregates, gates, and text output. The metric is the requested
+framebuffer area as a 0...1000 ratio relative to the whole framebuffer; `full`
+is 1000, narrowed request-region candidates are below 1000, and heartbeat
+candidates report their nominal cycle average.
+
+**Why**:
+- Poor network behavior must be optimized explicitly. A candidate that only
+  improves FPS on localhost can still fail in the user's real cellular/tailnet
+  scenario if it requests too much framebuffer area or falls back to full
+  requests too often.
+- Raw received byte counts would be the most direct traffic metric, but they
+  conflict with this feature's diagnostic/export privacy posture. A relative
+  requested-area ratio gives the benchmark a stable, comparable traffic proxy
+  without exposing dimensions, coordinates, pixels, payloads, or byte counts.
+- Area savings alone are not enough: the v52 viewport run showed that narrowed
+  regions can destabilize request/response streaming. Promotion must require
+  traffic pressure reduction and unchanged-or-better hit-rate, p95 tail,
+  failure labels, and full fallback behavior.
+
+**Implementation rule**:
+- `BenchmarkStreamShapeRequestRegion.requestAreaPermille(width:height:)` is
+  pure and safe: invalid dimensions return `full` pressure, `nil` request
+  regions map to 1000, and heartbeat candidates average one fixed heartbeat
+  cycle.
+- Stream-shape reports may emit `requestRegionAreaPermille` and aggregate
+  averages only. They must not emit host identity, credentials, port values,
+  framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+  TCP/RFB errors, raw payloads, per-sample raw timings, raw FPS, stimulus
+  command text, command output, draft text, marked text, IME state, or full
+  diagnostic payloads.
+
+**Evidence**:
+- Benchmark-kit tests cover `full`, `center-half`, `center-third`, invalid
+  dimensions, viewport-phone-portrait, and heartbeat cycle area permille.
+- Summary tests prove profile reports round-trip the new field, legacy JSON
+  without the field still decodes, and aggregates/gates keep request-region
+  area pressure separate across fixed candidates.
+
+**Interpretation**:
+- Traffic is now part of the benchmark contract, not just an intuition. Future
+  request-region/default changes should be rejected if they do not reduce the
+  traffic proxy under the same sustained usability gate, or if they reduce area
+  but increase unanswered requests, timeout/failure labels, or p95 update tail.

@@ -989,6 +989,26 @@ iPhone) and ships as its own PR.
   fallback/heartbeat. Owns: core request boundary, frame pump, benchmark kit,
   CLI schema/text report, fake-server tests, README, benchmark artifact,
   research note. **Done.**
+- **T427** Viewport-aware request-region foundation: stop treating region
+  narrowing as static center rectangles. Add a pure `ViewportTransform` ->
+  `RFBFramebufferUpdateRegion` policy with expansion margin, minimum savings
+  threshold, full-frame heartbeat, and timeout-to-full fallback; add fixed
+  benchmark labels for representative phone-portrait viewport regions; and add
+  a `sustained-v2-zrle-viewport-region` preset that compares full requests
+  against viewport-aware candidates without emitting coordinates, dimensions,
+  pixels, byte counts, host identity, raw timings, raw TCP/RFB errors, command
+  text, draft text, marked text, or IME state. Keep production app defaults on
+  full incremental requests until the sustained v2 benchmark and physical
+  iPhone gate pass. Owns: Core viewport policy/tests, benchmark kit/CLI,
+  README, benchmark artifact, research note. **Done.**
+- **T428** Traffic-pressure promotion metric: make poor-network usability a
+  first-class benchmark target without exporting raw byte counts. Bump
+  `VNCLiveBenchmark` to schema v53, add safe `requestRegionAreaPermille`
+  reporting on profile probes, aggregates, gates, and text output, and record
+  the FR-016 / SC-007 rule that request-region defaults require both traffic
+  pressure reduction and unchanged-or-better stream stability. Owns: benchmark
+  request-region kit/tests, summary kit/tests, CLI schema/text report, README,
+  spec/research notes. **Done.**
 
 ## Cross-cutting (every increment)
 
