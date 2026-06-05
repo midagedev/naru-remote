@@ -1893,3 +1893,65 @@ renderer/upload counts, practical verdict codes, and safe failure labels. They
 must not include host identity, credentials, framebuffer dimensions, rectangle
 coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads, or
 raw error text.
+
+## D56 — Stimulate live content before changing streaming defaults
+
+References:
+- RFC 6143 client-driven framebuffer update flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer performance knobs:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Decision**: add a controlled dynamic-content stimulus path to live
+stream-shape benchmarks before changing request cadence, transport, or encoding
+defaults again. `VNCLiveBenchmark` schema v32 adds
+`--stream-shape-stimulus off|external-command`,
+`streamShapeStimulusMode`, and `streamShapeStimulusWarmupSeconds`.
+`VNCLiveStimulusWindow` provides a repo-native macOS animated-window helper for
+local Screen Sharing runs.
+
+**Why**:
+- PR #223's `core-matrix` baseline showed useful profile/transport shape, but
+  live content FPS still depended on incidental desktop motion. That is too
+  weak for larger default-changing PRs.
+- RFB update flow is client-driven unless extensions alter it, so benchmark
+  runs must separate "we did not ask fast enough" from "the screen did not
+  change enough".
+- External stimulus must not widen the diagnostic privacy boundary. The
+  benchmark therefore records only fixed stimulus mode/warmup labels, starts
+  the child from a minimal launch environment, adds only fixed
+  duration/profile/transport hints, and never emits the command text or output.
+
+**Evidence**:
+- Focused stimulus/failure-label tests pass.
+- `VNCLiveBenchmark` and `VNCLiveStimulusWindow` products build.
+- Help output exposes the stimulus flags and environment contract.
+- v32 local Screen Sharing `core-matrix` request/response run with external
+  animated-window stimulus:
+  - `local-low-latency`: content FPS 1.33, update p50/p95 133/2497 ms, network
+    p95 438 ms, client p95 2213 ms, ZRLE tile/apply p95 2155 ms, full-upload
+    pressure 0 permille, one very-slow update.
+  - `zrle-compression-0`: content FPS 1.83, update p50/p95 196/374 ms,
+    network p95 371 ms, client p95 7 ms, ZRLE tile/apply p95 6 ms,
+    full-upload pressure 0 permille.
+  - `tight-first`: content FPS 1.83, actual Raw, update p50/p95 204/407 ms,
+    client p95 7 ms, full-upload pressure 0 permille.
+  - `adaptive-good-full`: content FPS 1.83, actual ZRLE, update p50/p95
+    187/404 ms, network p95 363 ms, client p95 153 ms, ZRLE tile/apply p95
+    151 ms, full-upload pressure 0 permille.
+
+**Interpretation**:
+- The stimulus path makes content updates repeatable enough to reveal profile
+  differences. Under animated content, `local-low-latency` can still hit a
+  very-slow local ZRLE tile/apply frame, while pure ZRLE compression 0 stayed
+  low on client-processing p95 in the same matrix.
+- Keep the production default unchanged until the next stimulated isolation run
+  compares `local-low-latency`, `zrle-compression-0`,
+  `zrle-compression-0-cursor`, and `zrle-compression-0-clipboard`.
+
+**Privacy rule**: stimulus artifacts may report only fixed stimulus/profile/
+transport labels, aggregate timing summaries, aggregate FPS, aggregate
+renderer/upload counts, practical verdict codes, and safe failure labels. They
+must not include host identity, credentials, framebuffer dimensions, rectangle
+coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
+external command text, command output, or raw error text.

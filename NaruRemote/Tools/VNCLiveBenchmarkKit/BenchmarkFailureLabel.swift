@@ -4,6 +4,7 @@ import NaruRemoteCore
 public enum BenchmarkFailurePhase: String, Codable, Equatable, Sendable {
     case streamConnect = "stream-connect"
     case streamFirstFrame = "stream-first-frame"
+    case streamStimulus = "stream-stimulus"
     case streamIncremental = "stream-incremental"
     case streamContinuousUpdates = "stream-continuous-updates"
     case continuousProbeConnect = "continuous-probe-connect"
