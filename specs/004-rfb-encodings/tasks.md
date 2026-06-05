@@ -442,6 +442,13 @@ iPhone) and ships as its own PR.
   gesture-loop pressure from intentional stream redraw deferral without raw
   timestamps, coordinates, pixels, dimensions, byte counts, or device identity.
   Owns: diagnostic export, app snapshot tests, research note. **Done.**
+- **T365** Smoother physical viewport and Compose send fallback: let a bounded
+  trickle of incoming frames redraw during viewport gestures, treat trackpad
+  drags as a hot viewport interaction even before auto-pan is needed, tighten
+  trackpad pointer/cursor coalescing, and extend Compose send stabilization for
+  slower Korean/CJK marked-text commits. Owns: Metal viewport host, app model
+  pointer cadence, Remote Input Dock send policy, tests, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

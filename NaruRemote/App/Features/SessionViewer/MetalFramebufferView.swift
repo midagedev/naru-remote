@@ -493,16 +493,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval,
-        allowsFirstRedrawDuringGesture: false
+        allowsFirstRedrawDuringGesture: true
     )
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    // Keep expensive remote-frame uploads entirely off the local
-    // touch-tracking path. The current texture still moves at screen
-    // rate on the compositor path, and the latest deferred frame is
-    // flushed once the gesture settles.
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = .infinity
+    // Let a small trickle of remote frames through during touch tracking.
+    // Fully freezing uploads kept the compositor transform cheap, but made
+    // real iPhone sessions feel like low-FPS remote video while zooming or
+    // panning. The latest deferred frame still flushes at gesture end.
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 15.0
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {
@@ -1085,10 +1085,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case .began:
             stopViewportDeceleration()
             isTrackpadDragActive = true
-            trackpadDragOwnsViewportInteraction = canPanViewport
-            if trackpadDragOwnsViewportInteraction {
-                beginViewportTransformGesture()
-            }
+            // Even at fit scale, trackpad drags are a hot pointer-control
+            // path. Keep streaming-frame SwiftUI churn out of the gesture
+            // loop while the Metal host paints immediate cursor feedback.
+            trackpadDragOwnsViewportInteraction = true
+            beginViewportTransformGesture()
             trackpadDragLastTranslation = .zero
             trackpadDragMoved = false
             dispatchTrackpadGesture(.dragBegan(viewPoint: recognizer.location(in: self)))

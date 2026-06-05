@@ -1088,3 +1088,37 @@ References:
 aggregate counts/ratios/buckets. They must not export raw gesture timestamps,
 coordinates, display dimensions, pixels, cursor pixels, byte counts, raw
 network errors, device model, host identity, or Compose draft text.
+
+## D37 — Viewport interaction should trickle remote frames and give IME more settle time
+
+References:
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+- Apple battery-use guidance:
+  https://developer.apple.com/documentation/xcode/reducing-your-app-s-battery-use
+- RFC 6143 framebuffer update request:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: replace strict gesture-time remote redraw suspension with a
+15fps redraw trickle that allows the first incoming frame during pinch/pan, and
+treat every trackpad drag as a viewport interaction for purposes of keeping
+SwiftUI stream-frame churn out of the pointer hot path. Tighten trackpad
+pointer/cursor coalescing to a one-refresh-class cadence and extend Compose
+send stabilization to cover slower Korean/CJK marked-text commits.
+
+**Why**:
+- Physical iPhone feedback still reports stepped zoom/pan and low apparent
+  frame rate. A fully suspended remote redraw path keeps the current texture
+  moving locally, but it can make the remote session look frozen while the user
+  is navigating. A 15fps trickle keeps video continuity without returning to
+  unbounded upload pressure.
+- Trackpad mode now paints the hot cursor in the Metal host immediately, but
+  the remote pointer write cadence must also stay tight enough that server-side
+  hover/cursor echoes do not feel detached from the finger.
+- UIKit IME commit timing can lag the button tap that initiates Compose send.
+  A wider stabilization window is a bounded UX cost and is safer than sending a
+  prefix of marked Korean/CJK text.
+
+**Privacy rule**: the change exports no new raw data. Gesture timings,
+coordinates, pixels, cursor pixels, dimensions, byte counts, host identity,
+device identity, and Compose draft text remain out of diagnostics.
