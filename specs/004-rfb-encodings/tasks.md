@@ -764,6 +764,15 @@ iPhone) and ships as its own PR.
   stronger thermal override, and records only the safe fixed label in
   diagnostic schema v27. Owns: app settings, app model, session controls,
   diagnostics, focused tests, benchmark artifact, research note. **Done.**
+- **T404** Physical iPhone interaction triage surface: promote the app-side
+  sustained-session diagnostic gate from a flat issue-code list to a larger
+  decision surface with fixed `primaryIssueCode`, `primaryConstraint`, and
+  `recommendedNextProbe` labels. This lets real-device reports choose the next
+  large unit between thermal, viewport interaction, renderer/app/decode,
+  stream profile/cadence, adaptive pacing, Compose input, or longer physical
+  sampling without exporting raw FPS, raw timings, host identity, dimensions,
+  coordinates, pixels, byte counts, draft text, marked text, or IME state.
+  Owns: diagnostic schema/tests, benchmark docs/artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

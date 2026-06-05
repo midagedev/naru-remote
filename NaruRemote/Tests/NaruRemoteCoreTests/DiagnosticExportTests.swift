@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 27"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 28"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 27)
+        XCTAssertEqual(decoded.schemaVersion, 28)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -396,7 +396,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 27)
+        XCTAssertEqual(decoded.schemaVersion, 28)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(decoded.viewerStreamEncodingMode, StreamEncodingMode.adaptiveGoodFull.rawValue)
@@ -505,7 +505,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 27)
+        XCTAssertEqual(decoded.schemaVersion, 28)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -790,6 +790,18 @@ final class DiagnosticExportTests: XCTestCase {
                 DiagnosticSustainedSessionIssueCode.composeSendPreparationStalled.rawValue
             ]
         )
+        XCTAssertEqual(
+            assessment.primaryIssueCode,
+            DiagnosticSustainedSessionIssueCode.seriousThermalState.rawValue
+        )
+        XCTAssertEqual(
+            assessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.thermal.rawValue
+        )
+        XCTAssertEqual(
+            assessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runPowerSaverThermalPass.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentPassesCleanMeasuredSession() {
@@ -823,6 +835,127 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertEqual(assessment?.verdict, DiagnosticSustainedSessionVerdict.pass.rawValue)
         XCTAssertEqual(assessment?.issueCodes, [])
+        XCTAssertNil(assessment?.primaryIssueCode)
+        XCTAssertEqual(
+            assessment?.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.none.rawValue
+        )
+        XCTAssertEqual(
+            assessment?.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.none.rawValue
+        )
+    }
+
+    func testSustainedSessionAssessmentTriagePrioritizesViewportHandFeel() {
+        let assessment = DiagnosticSustainedSessionAssessment(
+            issueCodes: [
+                DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
+                DiagnosticSustainedSessionIssueCode.viewportGesturePressure.rawValue,
+                DiagnosticSustainedSessionIssueCode.composeSendPreparationStalled.rawValue
+            ]
+        )
+
+        XCTAssertEqual(assessment.verdict, DiagnosticSustainedSessionVerdict.fail.rawValue)
+        XCTAssertEqual(
+            assessment.primaryIssueCode,
+            DiagnosticSustainedSessionIssueCode.viewportGesturePressure.rawValue
+        )
+        XCTAssertEqual(
+            assessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.viewportInteraction.rawValue
+        )
+        XCTAssertEqual(
+            assessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
+        )
+    }
+
+    func testSustainedSessionAssessmentCodableIncludesTriageSurface() throws {
+        let assessment = DiagnosticSustainedSessionAssessment(
+            issueCodes: [
+                DiagnosticSustainedSessionIssueCode.clientProcessingStalled.rawValue,
+                DiagnosticSustainedSessionIssueCode.composeRouteBlocked.rawValue
+            ]
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payload = String(decoding: try encoder.encode(assessment), as: UTF8.self)
+
+        XCTAssertTrue(payload.contains("\"primaryIssueCode\":\"clientProcessingStalled\""))
+        XCTAssertTrue(payload.contains("\"primaryConstraint\":\"clientDecode\""))
+        XCTAssertTrue(payload.contains("\"recommendedNextProbe\":\"compareEncodingProfileGate\""))
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticSustainedSessionAssessment.self,
+            from: Data(payload.utf8)
+        )
+        XCTAssertEqual(decoded, assessment)
+    }
+
+    func testSustainedSessionAssessmentDecodesV27PayloadWithoutTriageFields() throws {
+        let payload = """
+        {
+          "targetName": "iphone-sustained-usability-v2",
+          "verdict": "warning",
+          "issueCodes": [
+            "contentFrameRateWarning",
+            "viewportIncomingFramePressure"
+          ]
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticSustainedSessionAssessment.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(decoded.verdict, DiagnosticSustainedSessionVerdict.warning.rawValue)
+        XCTAssertEqual(
+            decoded.primaryIssueCode,
+            DiagnosticSustainedSessionIssueCode.viewportIncomingFramePressure.rawValue
+        )
+        XCTAssertEqual(
+            decoded.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.viewportInteraction.rawValue
+        )
+        XCTAssertEqual(
+            decoded.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
+        )
+    }
+
+    func testSustainedSessionAssessmentRecomputesMismatchedDecodedTriageFields() throws {
+        let payload = """
+        {
+          "targetName": "iphone-sustained-usability-v2",
+          "verdict": "warning",
+          "issueCodes": [
+            "contentFrameRateWarning"
+          ],
+          "primaryIssueCode": "contentFrameRateWarning",
+          "primaryConstraint": "thermal",
+          "recommendedNextProbe": "inspectComposeRoute"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticSustainedSessionAssessment.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(
+            decoded.primaryIssueCode,
+            DiagnosticSustainedSessionIssueCode.contentFrameRateWarning.rawValue
+        )
+        XCTAssertEqual(
+            decoded.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue
+        )
+        XCTAssertEqual(
+            decoded.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentSanitizesUnsafeCatalogValues() {
@@ -845,6 +978,18 @@ final class DiagnosticExportTests: XCTestCase {
                 DiagnosticSustainedSessionIssueCode.contentFrameRateFailed.rawValue,
                 DiagnosticSustainedSessionIssueCode.elevatedThermalState.rawValue
             ]
+        )
+        XCTAssertEqual(
+            assessment.primaryIssueCode,
+            DiagnosticSustainedSessionIssueCode.elevatedThermalState.rawValue
+        )
+        XCTAssertEqual(
+            assessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.thermal.rawValue
+        )
+        XCTAssertEqual(
+            assessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runPowerSaverThermalPass.rawValue
         )
     }
 
@@ -1366,8 +1511,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v27 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 27"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v28 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 28"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

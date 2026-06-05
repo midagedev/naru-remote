@@ -1457,28 +1457,108 @@ public enum DiagnosticSustainedSessionIssueCode: String, Codable, Equatable, Cas
     case composeSendPreparationStalled
 }
 
+public enum DiagnosticSustainedSessionPrimaryConstraint: String, Codable, Equatable, CaseIterable, Sendable {
+    case none
+    case sampleSize
+    case contentCadence
+    case receivePath
+    case clientDecode
+    case appFrameApply
+    case rendererUpload
+    case adaptivePacing
+    case thermal
+    case viewportInteraction
+    case composeInput
+}
+
+public enum DiagnosticSustainedSessionNextProbe: String, Codable, Equatable, CaseIterable, Sendable {
+    case none
+    case collectLongerPhysicalRun
+    case runSustainedV2ProfileGate
+    case inspectServerTransportCadence
+    case compareEncodingProfileGate
+    case inspectLocalRenderPipeline
+    case compareAdaptivePacing
+    case runPowerSaverThermalPass
+    case runViewportInteractionTrace
+    case inspectComposeRoute
+}
+
 public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable {
     public static let target = DiagnosticSustainedSessionTarget.iPhoneSustainedUsabilityV2
     private static let minimumContentSamples = 8
+    private static let primaryIssuePriority: [DiagnosticSustainedSessionIssueCode] = [
+        .seriousThermalState,
+        .elevatedThermalState,
+        .viewportGesturePressure,
+        .viewportIncomingFramePressure,
+        .viewportRequestPauseActive,
+        .rendererUploadStalled,
+        .rendererFullUploadFailed,
+        .appFrameApplyStalled,
+        .clientProcessingStalled,
+        .rendererUploadLagging,
+        .rendererFullUploadWarning,
+        .appFrameApplyLagging,
+        .clientProcessingLagging,
+        .contentFrameRateFailed,
+        .noContentFrames,
+        .averageReceiveStalled,
+        .receiveTailStalled,
+        .averageReceiveLagging,
+        .contentFrameRateWarning,
+        .adaptivePressureFailed,
+        .adaptivePressureWarning,
+        .composeRouteBlocked,
+        .composeSendPreparationStalled,
+        .composeSendPreparationLagging,
+        .inputNotMeasured,
+        .insufficientContentSamples
+    ]
 
     private enum CodingKeys: String, CodingKey {
         case targetName
         case verdict
         case issueCodes
+        case primaryIssueCode
+        case primaryConstraint
+        case recommendedNextProbe
     }
 
     public let targetName: String
     public let verdict: String
     public let issueCodes: [String]
+    public let primaryIssueCode: String?
+    public let primaryConstraint: String
+    public let recommendedNextProbe: String
 
     public init(
         targetName: String = Self.target.rawValue,
         verdict: String? = nil,
-        issueCodes: [String]
+        issueCodes: [String],
+        primaryIssueCode: String? = nil,
+        primaryConstraint: String? = nil,
+        recommendedNextProbe: String? = nil
     ) {
         self.targetName = Self.safeTargetName(targetName)
-        self.issueCodes = Self.safeIssueCodes(issueCodes)
-        self.verdict = Self.safeVerdict(verdict) ?? Self.verdict(for: self.issueCodes).rawValue
+        let safeIssueCodes = Self.safeIssueCodes(issueCodes)
+        let primaryIssue = Self.safePrimaryIssueCode(
+            primaryIssueCode,
+            issueCodes: safeIssueCodes
+        ) ?? Self.primaryIssue(for: safeIssueCodes)
+        self.issueCodes = safeIssueCodes
+        self.primaryIssueCode = primaryIssue?.rawValue
+        let derivedPrimaryConstraint = Self.primaryConstraint(for: primaryIssue)
+        let derivedRecommendedNextProbe = Self.recommendedNextProbe(for: primaryIssue)
+        self.primaryConstraint = Self.safePrimaryConstraint(
+            primaryConstraint,
+            matching: derivedPrimaryConstraint
+        ) ?? derivedPrimaryConstraint.rawValue
+        self.recommendedNextProbe = Self.safeRecommendedNextProbe(
+            recommendedNextProbe,
+            matching: derivedRecommendedNextProbe
+        ) ?? derivedRecommendedNextProbe.rawValue
+        self.verdict = Self.safeVerdict(verdict) ?? Self.verdict(for: safeIssueCodes).rawValue
     }
 
     public static func assess(
@@ -1606,8 +1686,21 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
             targetName: try container.decodeIfPresent(String.self, forKey: .targetName)
                 ?? Self.target.rawValue,
             verdict: try container.decodeIfPresent(String.self, forKey: .verdict),
-            issueCodes: try container.decodeIfPresent([String].self, forKey: .issueCodes) ?? []
+            issueCodes: try container.decodeIfPresent([String].self, forKey: .issueCodes) ?? [],
+            primaryIssueCode: try container.decodeIfPresent(String.self, forKey: .primaryIssueCode),
+            primaryConstraint: try container.decodeIfPresent(String.self, forKey: .primaryConstraint),
+            recommendedNextProbe: try container.decodeIfPresent(String.self, forKey: .recommendedNextProbe)
         )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(targetName, forKey: .targetName)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(issueCodes, forKey: .issueCodes)
+        try container.encodeIfPresent(primaryIssueCode, forKey: .primaryIssueCode)
+        try container.encode(primaryConstraint, forKey: .primaryConstraint)
+        try container.encode(recommendedNextProbe, forKey: .recommendedNextProbe)
     }
 
     private static func appendTimingIssues(
@@ -1655,6 +1748,113 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
         }
     }
 
+    private static func primaryIssue(for issueCodes: [String]) -> DiagnosticSustainedSessionIssueCode? {
+        let parsedIssues = issueCodes.compactMap(DiagnosticSustainedSessionIssueCode.init(rawValue:))
+        return primaryIssuePriority.first { parsedIssues.contains($0) }
+    }
+
+    private static func safePrimaryIssueCode(
+        _ value: String?,
+        issueCodes: [String]
+    ) -> DiagnosticSustainedSessionIssueCode? {
+        guard let value,
+              issueCodes.contains(value)
+        else {
+            return nil
+        }
+        return DiagnosticSustainedSessionIssueCode(rawValue: value)
+    }
+
+    private static func safePrimaryConstraint(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionPrimaryConstraint
+    ) -> String? {
+        guard let value else {
+            return nil
+        }
+        guard DiagnosticSustainedSessionPrimaryConstraint(rawValue: value) == expected else {
+            return nil
+        }
+        return value
+    }
+
+    private static func safeRecommendedNextProbe(
+        _ value: String?,
+        matching expected: DiagnosticSustainedSessionNextProbe
+    ) -> String? {
+        guard let value else {
+            return nil
+        }
+        guard DiagnosticSustainedSessionNextProbe(rawValue: value) == expected else {
+            return nil
+        }
+        return value
+    }
+
+    private static func primaryConstraint(
+        for issue: DiagnosticSustainedSessionIssueCode?
+    ) -> DiagnosticSustainedSessionPrimaryConstraint {
+        switch issue {
+        case nil:
+            return .none
+        case .insufficientContentSamples?:
+            return .sampleSize
+        case .noContentFrames?, .contentFrameRateWarning?, .contentFrameRateFailed?:
+            return .contentCadence
+        case .averageReceiveLagging?, .averageReceiveStalled?, .receiveTailStalled?:
+            return .receivePath
+        case .clientProcessingLagging?, .clientProcessingStalled?:
+            return .clientDecode
+        case .appFrameApplyLagging?, .appFrameApplyStalled?:
+            return .appFrameApply
+        case .rendererFullUploadWarning?,
+            .rendererFullUploadFailed?,
+            .rendererUploadLagging?,
+            .rendererUploadStalled?:
+            return .rendererUpload
+        case .adaptivePressureWarning?, .adaptivePressureFailed?:
+            return .adaptivePacing
+        case .elevatedThermalState?, .seriousThermalState?:
+            return .thermal
+        case .viewportGesturePressure?,
+            .viewportIncomingFramePressure?,
+            .viewportRequestPauseActive?:
+            return .viewportInteraction
+        case .inputNotMeasured?,
+            .composeRouteBlocked?,
+            .composeSendPreparationLagging?,
+            .composeSendPreparationStalled?:
+            return .composeInput
+        }
+    }
+
+    private static func recommendedNextProbe(
+        for issue: DiagnosticSustainedSessionIssueCode?
+    ) -> DiagnosticSustainedSessionNextProbe {
+        switch primaryConstraint(for: issue) {
+        case .none:
+            return .none
+        case .sampleSize:
+            return .collectLongerPhysicalRun
+        case .contentCadence:
+            return .runSustainedV2ProfileGate
+        case .receivePath:
+            return .inspectServerTransportCadence
+        case .clientDecode:
+            return .compareEncodingProfileGate
+        case .appFrameApply, .rendererUpload:
+            return .inspectLocalRenderPipeline
+        case .adaptivePacing:
+            return .compareAdaptivePacing
+        case .thermal:
+            return .runPowerSaverThermalPass
+        case .viewportInteraction:
+            return .runViewportInteractionTrace
+        case .composeInput:
+            return .inspectComposeRoute
+        }
+    }
+
     private static func verdict(for issueCodes: [String]) -> DiagnosticSustainedSessionVerdict {
         let failures: Set<DiagnosticSustainedSessionIssueCode> = [
             .noContentFrames,
@@ -1679,7 +1879,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 27
+    public static let currentSchemaVersion = 28
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

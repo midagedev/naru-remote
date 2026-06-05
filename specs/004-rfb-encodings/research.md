@@ -2921,3 +2921,49 @@ include host identity, credentials, port value, stimulus command text, command
 output, TCP errors, RFB errors, framebuffer dimensions, coordinates, pixels,
 cursor pixels, byte counts, raw payloads, draft text, marked text, or IME
 state.
+
+## D72 — Promote app diagnostics to a physical interaction triage surface
+
+References:
+- Existing sustained v2 gate definition in `artifacts/benchmarks/README.md`.
+- Existing diagnostic schema v25-v27 issue-code and viewer-setting fields.
+
+**Decision**: bump diagnostic collection schema to v28 and add deterministic
+triage fields to `sustainedSessionAssessment`: `primaryIssueCode`,
+`primaryConstraint`, and `recommendedNextProbe`.
+
+**Why**:
+- The current physical iPhone feedback combines heat, low FPS, choppy
+  zoom/pan, and Compose failures. A flat issue-code array is safe, but it does
+  not tell the next PR whether to start with thermal, viewport interaction,
+  decode/render pressure, stream profile/cadence, or input routing.
+- The app already exports safe aggregate issue codes for those axes, so the
+  triage layer can stay fixed-catalog and derived. No new raw timing, pixel, or
+  content signal is needed.
+- The priority should favor user-visible physical constraints: thermal first,
+  viewport interaction next, then local decode/apply/render pressure, stream
+  cadence/receive pressure, adaptive pacing, Compose input, and sample size.
+
+**Evidence**:
+- `DiagnosticExportTests` cover priority, pass behavior, Codable output, and
+  unsafe-catalog sanitization.
+- `NaruRemoteAppModelTests` cover the triage fields in an active-session
+  diagnostic export produced by the app model.
+
+**Interpretation**:
+- `primaryConstraint=thermal` should route the next run toward power-saver and
+  10 minute physical thermal comparison before changing streaming defaults.
+- `primaryConstraint=viewportInteraction` should route toward gesture trace and
+  local viewport scheduling work before changing wire encodings.
+- `primaryConstraint=clientDecode`, `appFrameApply`, or `rendererUpload` should
+  route toward local decode/render gates and encoding profile comparison.
+- `primaryConstraint=contentCadence` or `receivePath` should route toward the
+  sustained v2 profile/transport gate and server/transport cadence checks.
+- `primaryConstraint=composeInput` should route toward helper/clipboard route
+  diagnostics rather than stream cadence tuning.
+
+**Privacy rule**: diagnostic triage fields may emit only fixed issue,
+constraint, and next-probe labels derived from existing safe issue codes. They
+must not include host identity, credentials, port value, TCP errors, RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, raw FPS, raw timings, draft text, marked text, or IME state.
