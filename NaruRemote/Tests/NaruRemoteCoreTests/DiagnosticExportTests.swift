@@ -1058,8 +1058,49 @@ final class DiagnosticExportTests: XCTestCase {
             performance.maxViewportInteractionRequestPauseBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
         )
+        XCTAssertEqual(
+            performance.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.notMeasured.rawValue
+        )
         XCTAssertEqual(performance.actualEncodingMix, RFBFramebufferEncodingMix())
         XCTAssertEqual(performance.thermalState, "fair")
+    }
+
+    func testStreamPerformanceReportDerivesRequestPauseHintFromV21Payload() throws {
+        let payload = """
+        {
+          "observedDurationBucket": "threeToTenSeconds",
+          "deliveredFramesPerSecondBucket": "fiveToFifteen",
+          "deliveredFrameCount": 20,
+          "contentFrameCount": 18,
+          "emptyUpdateCount": 2,
+          "transportIdleTimeoutCount": 0,
+          "dirtyRectangleSampleCount": 18,
+          "dirtyRectangleCountMax": 2,
+          "dirtyAreaPermilleMax": 80,
+          "changedPixelsPermilleMax": 70,
+          "viewportInteractionCount": 2,
+          "viewportGestureSampleCount": 10,
+          "viewportGestureLongFrameCount": 3,
+          "viewportIncomingFrameDeferredCount": 1,
+          "viewportRedrawRequestCount": 9,
+          "viewportInteractionRequestPauseCount": 1,
+          "viewportInteractionRequestPausePollCount": 6,
+          "averageViewportInteractionRequestPauseBucket": "interactive",
+          "maxViewportInteractionRequestPauseBucket": "interactive",
+          "thermalState": "fair"
+        }
+        """
+
+        let performance = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(
+            performance.viewportRequestPauseHint,
+            DiagnosticViewportRequestPauseHint.activeGestureLoopPressure.rawValue
+        )
     }
 
     func testStreamPerformanceReportSanitizesDecodedEncodingMixCounts() throws {
