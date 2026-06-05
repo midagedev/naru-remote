@@ -78,6 +78,11 @@ Current physical sustained candidate gate artifact:
 `artifacts/benchmarks/2026-06-06-physical-sustained-candidate-gate-summary.md`.
 The opt-in UI test now injects fixed candidate labels, exercises viewport /
 trackpad / Compose paths, and emits a delayed active-session diagnostic export.
+Current sustained usability candidate contract:
+`artifacts/benchmarks/2026-06-06-sustained-usability-candidate-contract.md`.
+Use this as the merge contract for larger default-changing PRs: benchmark-green
+first, physical iPhone green second, rollback note before production default
+changes.
 
 ## Physical iPhone: Live Connection Smoke
 

@@ -852,6 +852,15 @@ iPhone) and ships as its own PR.
   screenshots, raw text, raw timings, dimensions, coordinates, pixels, or
   command output. Owns: physical UI test, iOS app test hook, app diagnostic
   emission hook, benchmark docs/artifact, research note. **Done.**
+- **T413** Sustained usability candidate contract: consolidate the next larger
+  optimization units around a whole-candidate merge contract for
+  `iphone-sustained-usability-v2`. A production-default change must name fixed
+  candidate labels, pass the redacted benchmark gate, pass the 10 minute
+  physical iPhone hand-feel/thermal/Compose gate, and include a rollback note.
+  Remediation labels route the next larger unit instead of authorizing defaults,
+  and the contract artifact is the source of truth for those promotion
+  requirements. Owns: benchmark artifact, README, spec/plan links, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

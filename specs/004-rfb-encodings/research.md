@@ -3318,3 +3318,46 @@ repo with host identity, credentials, device id, port value, raw TCP/RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, raw FPS, raw timings, command text, command output, draft text, marked
 text, or IME state.
+
+## D81 — Treat sustained usability candidates as whole-product shapes
+
+References:
+- D77 sustained usability promotion ladder.
+- D80 physical candidate gates.
+- `artifacts/benchmarks/2026-06-06-sustained-usability-candidate-contract.md`.
+
+**Decision**: evaluate larger sustained-usability work as complete candidate
+shapes instead of isolated tweaks. A default-changing candidate must name its
+fixed stream power, encoding, startup preflight, transport/cadence, viewport,
+and Compose behavior, then pass both the benchmark gate and the physical iPhone
+gate before production defaults change. The candidate contract artifact is the
+source of truth for this promotion requirement.
+
+**Why**:
+- The user's reported failure mode combines heat, low FPS, stepped zoom/pan,
+  and unreliable Compose. Optimizing one constant without checking the complete
+  candidate can make another symptom worse.
+- The benchmark side now has report-level and transport/cadence diagnosis, while
+  the physical side has `physicalGateVerdict`. The missing layer was a stable
+  merge contract that says when a candidate can graduate.
+- Larger PRs need a shared stop/go language. `runPhysicalDeviceSustainedGate`
+  and `physicalGateVerdict=pass` are promotion labels; remediation labels such
+  as `inspectContinuousUpdatesConnection` or `compareRequestResponseEncodingProfiles`
+  route the next implementation unit instead of authorizing defaults.
+
+**Interpretation**:
+- A benchmark-green candidate can enter physical testing; it is not a default
+  change by itself.
+- A physical-green candidate can support a default-changing PR only when the
+  matching benchmark artifact and a rollback note are included.
+- A blocked physical gate should route the next larger unit by
+  `primaryConstraint` and `recommendedNextProbe`, not by ad hoc gesture or
+  pacing guesses.
+
+**Privacy rule**: candidate contracts and artifacts may include only fixed
+labels, aggregate gate counts, aggregate safe issue counts, and pass/warning/fail
+decisions. They must not include host identity, credentials, device id, port
+values, raw TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor
+pixels, byte counts, raw payloads, raw FPS, raw timings, command text, command
+output, draft text, marked text, IME state, or full physical-device diagnostic
+payloads.

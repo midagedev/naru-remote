@@ -213,6 +213,14 @@ Per constitution §VI/§III, every scenario lists an iPhone path before any iPad
 - **SC-005**: A server-sent un-advertised or malformed encoding never crashes or hangs the client — it always surfaces a typed error that maps to a diagnostic stage and the reconnect path (verified by negative-path unit tests).
 - **SC-006**: No pixel value, tile/palette datum, rectangle coordinate, compressed/decompressed byte count, JPEG payload, cursor pixel, or latency value appears in any diagnostic export or log (constitution §IV) — verified by a `DiagnosticExport` rendering test plus static review of the decode path.
 
+### Default-Change Promotion Contract
+
+Current production-default changes that affect streaming or interaction behavior
+must follow
+`artifacts/benchmarks/2026-06-06-sustained-usability-candidate-contract.md`:
+benchmark-green first, physical iPhone green second, and rollback note before
+changing transport, encoding, preflight, pacing, or interaction defaults.
+
 ## Assumptions
 
 - 32-bit true-colour pixel format remains the working assumption (existing `RFBRawFramebufferDecoder` constraint); ZRLE's "CPIXEL" compaction (3-byte pixels when the format allows) is handled where applicable but the framebuffer stays RGBA8.
