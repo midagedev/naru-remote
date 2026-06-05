@@ -2144,6 +2144,9 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
             return .disabled
         }
         let activeGates = gates.filter { $0.verdict != .disabled }
+        // Only classify explicit transport failures as pre-sample failures. Unlabeled
+        // blocked gates stay below target so future sample-bearing regressions are not
+        // hidden behind the transport/cadence bucket.
         if !activeGates.isEmpty,
            activeGates.allSatisfy({ !$0.failureLabelCounts.isEmpty }) {
             return .failedBeforeSamples
