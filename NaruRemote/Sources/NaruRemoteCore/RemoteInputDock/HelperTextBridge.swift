@@ -119,3 +119,54 @@ public struct HelperTextInsertResult: Codable, Equatable, Sendable {
         self.safeFailureCode = safeFailureCode
     }
 }
+
+public protocol HelperTextInsertClient: AnyObject {
+    var availability: HelperTextBridgeAvailability { get }
+
+    func insertText(
+        _ text: String,
+        metadata: HelperTextInsertRequestMetadata
+    ) async throws -> HelperTextInsertResult
+}
+
+public extension HelperTextInsertClient {
+    var availability: HelperTextBridgeAvailability { .notConfigured }
+}
+
+public enum HelperTextBridgeError: Error, Equatable, LocalizedError, Sendable {
+    case unavailable(HelperTextBridgeFailureCode)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable(let code):
+            return Self.safeMessage(for: code)
+        }
+    }
+
+    public static func safeMessage(for code: HelperTextBridgeFailureCode) -> String {
+        switch code {
+        case .none:
+            return "Text sent through helper."
+        case .notConfigured:
+            return "Helper text bridge is not configured for this profile."
+        case .disabled:
+            return "Helper text bridge is disabled for this profile."
+        case .unreachable:
+            return "Helper text bridge is not reachable."
+        case .revoked:
+            return "Helper text bridge pairing was revoked."
+        case .permissionMissing:
+            return "Helper text bridge needs permission on the Mac."
+        case .focusUnavailable:
+            return "Helper text bridge could not find an insertable focused app."
+        case .insertRejected:
+            return "Helper text bridge rejected the insert request."
+        case .insertTimedOut:
+            return "Helper text bridge insert timed out."
+        case .restoreFailed:
+            return "Helper text bridge inserted text but could not confirm pasteboard restore."
+        case .versionUnsupported:
+            return "Helper text bridge version is unsupported."
+        }
+    }
+}

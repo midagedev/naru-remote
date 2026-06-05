@@ -674,6 +674,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// refreshed on app entry and profile edits; stale states are not
     /// persisted as truth.
     public var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
+    /// Memory-only helper text bridge state keyed by profile id. Raw
+    /// helper endpoints, pairing tokens, and Compose text are not stored
+    /// here; diagnostics export only fixed catalog fields.
+    public var helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState]
     public var directKeystrokeMode: DirectKeystrokeMode
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
@@ -705,6 +709,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestServerCursor: RFBServerCursor? = nil,
         profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
         profileReachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:],
+        helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState] = [:],
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -722,6 +727,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestServerCursor = latestServerCursor
         self.profilePreviews = profilePreviews
         self.profileReachability = profileReachability
+        self.helperTextBridgeState = helperTextBridgeState
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict

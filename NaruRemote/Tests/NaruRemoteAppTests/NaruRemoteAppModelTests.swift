@@ -1746,6 +1746,124 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("😊"))
     }
 
+    func testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        try await waitForHelperInsertRequests(helper, count: 1)
+
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(helper.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(helper.requests.count, 1)
+        XCTAssertEqual(helper.requests.first?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(helper.requests.first?.payloadSizeBucket, .small)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .notAttempted)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+        XCTAssertEqual(model.snapshot.composeDraft?.lastStatusMessage, "Text sent through helper.")
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
+            HelperTextBridgeFailureCode.none
+        )
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(report.input?.latestInjectionPath, TextInjectionPath.helperTextBridge.rawValue)
+        XCTAssertEqual(report.input?.latestInjectionStatus, TextInjectionStatus.sent.rawValue)
+        XCTAssertEqual(report.input?.helperTextBridgeAvailability, HelperTextBridgeAvailability.reachable.rawValue)
+        XCTAssertEqual(report.input?.helperTextBridgeLastFailureCode, HelperTextBridgeFailureCode.none.rawValue)
+        XCTAssertFalse(json.contains("한글과 English"))
+        XCTAssertFalse(json.contains("😊"))
+        XCTAssertFalse(json.contains("helper-pairing"))
+    }
+
+    func testModelRejectsMismatchedHelperInsertResultID() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient(
+            result: HelperTextInsertResult(
+                requestID: UUID(),
+                strategyUsed: .nativeInsert,
+                status: .sent,
+                safeFailureCode: .none
+            )
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(helper.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.safeMessage, "Helper text bridge rejected the insert request.")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .insertRejected)
+    }
+
     func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
@@ -1771,7 +1889,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
-            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is not configured for this profile."
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
+            .notConfigured
         )
     }
 
@@ -2359,6 +2481,22 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(connector.pasteCommands.count, expectedCount, file: file, line: line)
     }
+
+    private func waitForHelperInsertRequests(
+        _ helper: FakeHelperTextInsertClient,
+        count expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<60 {
+            if helper.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(helper.requests.count, expectedCount, file: file, line: line)
+    }
 }
 
 private final class PacingSleepRecorder: @unchecked Sendable {
@@ -2415,6 +2553,58 @@ private final class FakePiPWatchController: PiPWatchControlling {
 
     func stop() {
         stopCount += 1
+    }
+}
+
+private final class FakeHelperTextInsertClient: HelperTextInsertClient {
+    fileprivate struct Recording {
+        var requests: [HelperTextInsertRequestMetadata] = []
+        var insertedTexts: [String] = []
+    }
+
+    private let recording = OSAllocatedUnfairLock(initialState: Recording())
+    let availability: HelperTextBridgeAvailability
+    private let result: HelperTextInsertResult?
+    private let error: Error?
+
+    init(
+        availability: HelperTextBridgeAvailability = .reachable,
+        result: HelperTextInsertResult? = nil,
+        error: Error? = nil
+    ) {
+        self.availability = availability
+        self.result = result
+        self.error = error
+    }
+
+    var requests: [HelperTextInsertRequestMetadata] {
+        recording.withLock { $0.requests }
+    }
+
+    var insertedTexts: [String] {
+        recording.withLock { $0.insertedTexts }
+    }
+
+    func insertText(
+        _ text: String,
+        metadata: HelperTextInsertRequestMetadata
+    ) async throws -> HelperTextInsertResult {
+        if let error {
+            throw error
+        }
+        recording.withLock { state in
+            state.requests.append(metadata)
+            state.insertedTexts.append(text)
+        }
+        if let result {
+            return result
+        }
+        return HelperTextInsertResult(
+            requestID: metadata.id,
+            strategyUsed: .nativeInsert,
+            status: .sent,
+            safeFailureCode: .none
+        )
     }
 }
 
