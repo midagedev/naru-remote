@@ -297,6 +297,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     )
     private var reachabilityProbeTask: Task<Void, Never>?
     private var reachabilityProbeGeneration = UUID()
+    private var helperTextBridgeProbeTask: Task<Void, Never>?
+    private var helperTextBridgeProbeGeneration = UUID()
     @Published public private(set) var profilePersistenceError: String?
     /// Most recent `AppSettingsPersisting` failure, if any.  We do
     /// not crash on settings persistence errors — settings are
@@ -463,6 +465,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func refreshProfileReachability() {
         startReachabilityProbes(for: profiles)
+        startHelperTextBridgeProbes(for: profiles)
     }
 
     /// Loads disk-backed `AppSettings` from the injected
@@ -857,9 +860,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         return HelperTextBridgeProfileState(
             isEnabled: true,
             pairingFingerprint: configuration.pairingFingerprint,
-            availability: .reachable,
+            availability: .checking,
             lastFailureCode: nil,
-            lastCheckedBucket: .recent
+            lastCheckedBucket: .never
         )
     }
 
@@ -1353,6 +1356,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         let state: ProfileReachabilityState
     }
 
+    private struct HelperTextBridgeProbeResult: Sendable {
+        let generation: UUID
+        let profileID: ConnectionProfile.ID
+        let state: HelperTextBridgeProfileState
+    }
+
     private func startReachabilityProbes(for probeProfiles: [ConnectionProfile]) {
         reachabilityProbeTask?.cancel()
         let generation = UUID()
@@ -1478,6 +1487,218 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .needsPassword
         }
         return .unreachable(failedStage: failedStage)
+    }
+
+    private func startHelperTextBridgeProbes(for probeProfiles: [ConnectionProfile]) {
+        helperTextBridgeProbeTask?.cancel()
+        let generation = UUID()
+        helperTextBridgeProbeGeneration = generation
+
+        var helperProfiles: [ConnectionProfile] = []
+        for profile in probeProfiles {
+            guard let initialState = Self.initialHelperTextBridgeState(for: profile) else {
+                continue
+            }
+            let currentState = helperTextBridgeState[profile.id]
+
+            if let currentState,
+               Self.isUserBlockedHelperTextBridgeState(currentState) {
+                continue
+            }
+
+            guard let configuration = profile.helperTextBridge else {
+                continue
+            }
+            guard configuration.isEnabled, configuration.pairingSecretRef != nil else {
+                helperTextBridgeState[profile.id] = initialState
+                continue
+            }
+
+            if let currentState,
+               Self.shouldKeepHelperTextBridgeStateDuringProbe(
+                    currentState,
+                    for: profile
+               ) {
+                helperTextBridgeState[profile.id] = currentState
+            } else {
+                helperTextBridgeState[profile.id] = initialState
+            }
+            helperProfiles.append(profile)
+        }
+
+        guard !helperProfiles.isEmpty else {
+            return
+        }
+
+        guard let credentialStore else {
+            for profile in helperProfiles {
+                helperTextBridgeState[profile.id] = Self.helperTextBridgeProbeState(
+                    for: profile,
+                    failureCode: .notConfigured
+                )
+            }
+            return
+        }
+
+        let timeout = reachabilityProbeTimeout
+        let maximumConcurrency = min(reachabilityProbeMaximumConcurrency, helperProfiles.count)
+        helperTextBridgeProbeTask = Task { [weak self, helperProfiles, generation, credentialStore, timeout, maximumConcurrency] in
+            await withTaskGroup(of: HelperTextBridgeProbeResult.self) { group in
+                var nextIndex = 0
+
+                for _ in 0..<maximumConcurrency {
+                    let profile = helperProfiles[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        await Self.probeHelperTextBridge(
+                            profile: profile,
+                            generation: generation,
+                            credentialStore: credentialStore,
+                            timeout: timeout
+                        )
+                    }
+                }
+
+                while let result = await group.next() {
+                    guard !Task.isCancelled else {
+                        group.cancelAll()
+                        return
+                    }
+
+                    self?.applyHelperTextBridgeProbeResult(result)
+
+                    if nextIndex < helperProfiles.count {
+                        let profile = helperProfiles[nextIndex]
+                        nextIndex += 1
+                        group.addTask {
+                            await Self.probeHelperTextBridge(
+                                profile: profile,
+                                generation: generation,
+                                credentialStore: credentialStore,
+                                timeout: timeout
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyHelperTextBridgeProbeResult(_ result: HelperTextBridgeProbeResult) {
+        guard helperTextBridgeProbeGeneration == result.generation else {
+            return
+        }
+        guard profiles.contains(where: { $0.id == result.profileID }) else {
+            return
+        }
+        if let current = helperTextBridgeState[result.profileID],
+           Self.isUserBlockedHelperTextBridgeState(current),
+           !Self.isUserBlockedHelperTextBridgeState(result.state) {
+            return
+        }
+        helperTextBridgeState[result.profileID] = result.state
+    }
+
+    nonisolated private static func probeHelperTextBridge(
+        profile: ConnectionProfile,
+        generation: UUID,
+        credentialStore: ConnectionCredentialStoreProtocol,
+        timeout: TimeInterval
+    ) async -> HelperTextBridgeProbeResult {
+        guard let configuration = profile.helperTextBridge else {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: HelperTextBridgeProfileState()
+            )
+        }
+        guard configuration.isEnabled else {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(for: profile, failureCode: .disabled)
+            )
+        }
+        guard let secretRef = configuration.pairingSecretRef else {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(for: profile, failureCode: .notConfigured)
+            )
+        }
+
+        let secret: String
+        do {
+            guard let loadedSecret = try await credentialStore.password(for: secretRef),
+                  !loadedSecret.isEmpty
+            else {
+                return HelperTextBridgeProbeResult(
+                    generation: generation,
+                    profileID: profile.id,
+                    state: helperTextBridgeProbeState(for: profile, failureCode: .notConfigured)
+                )
+            }
+            secret = loadedSecret
+        } catch {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(for: profile, failureCode: .notConfigured)
+            )
+        }
+
+        guard let port = UInt16(exactly: configuration.port) else {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(for: profile, failureCode: .unreachable)
+            )
+        }
+
+        let client = NaruHelperNetworkTextInsertClient(
+            host: configuration.resolvedHost(fallback: profile.host),
+            port: port,
+            pairingSecret: secret,
+            timeout: timeout
+        )
+
+        do {
+            let capability = try await client.capability(
+                profilePairingFingerprint: configuration.pairingFingerprint
+            )
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(
+                    for: profile,
+                    availability: capability.availability
+                )
+            )
+        } catch {
+            return HelperTextBridgeProbeResult(
+                generation: generation,
+                profileID: profile.id,
+                state: helperTextBridgeProbeState(
+                    for: profile,
+                    failureCode: helperFailureCode(from: error)
+                )
+            )
+        }
+    }
+
+    nonisolated private static func shouldKeepHelperTextBridgeStateDuringProbe(
+        _ state: HelperTextBridgeProfileState,
+        for profile: ConnectionProfile
+    ) -> Bool {
+        guard let configuration = profile.helperTextBridge,
+              configuration.isEnabled,
+              configuration.pairingSecretRef != nil,
+              state.isEnabled,
+              state.pairingFingerprint == configuration.pairingFingerprint
+        else {
+            return false
+        }
+        return state.availability != .checking
     }
 
     nonisolated private static func diagnosticContext(
@@ -1668,6 +1889,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         cancelPointerEventQueue()
 
         runConnectionChecks()
+        startHelperTextBridgeProbes(for: [profile])
         let diagnosticStartedAt = diagnosticRun?.startedAt ?? Date()
         var nextSession = RemoteSession(
             profileID: profile.id,
@@ -3476,7 +3698,7 @@ public final class NaruRemoteAppModel: ObservableObject {
            utf8Support != .supported,
            let profile,
            let helperState,
-           Self.canRouteThroughStoredHelperTextBridge(
+           Self.canAttemptStoredHelperTextBridge(
                 state: helperState,
                 profile: profile
            ) {
@@ -3919,6 +4141,32 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
 
             do {
+                let capability = try await client.capability(
+                    profilePairingFingerprint: helperState.pairingFingerprint
+                )
+                guard capability.availability == .reachable else {
+                    await Self.finishStoredHelperFailure(
+                        self,
+                        draft: draft,
+                        attempt: attempt,
+                        helperState: helperState,
+                        failureCode: Self.failureCode(for: capability.availability),
+                        profileID: profileID,
+                        draftID: draftID,
+                        sessionID: sessionID,
+                        now: now
+                    )
+                    return
+                }
+                await Self.publishHelperTextBridgeState(
+                    self,
+                    state: Self.updatedHelperTextBridgeState(
+                        helperState,
+                        failureCode: .none
+                    ),
+                    profileID: profileID
+                )
+
                 let result = try await client.insertText(draft.text, metadata: metadata)
                 let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
                 attempt.finishedAt = Date()
@@ -4018,6 +4266,27 @@ public final class NaruRemoteAppModel: ObservableObject {
             configuration.pairingSecretRef != nil
     }
 
+    nonisolated private static func canAttemptStoredHelperTextBridge(
+        state: HelperTextBridgeProfileState,
+        profile: ConnectionProfile
+    ) -> Bool {
+        guard let configuration = profile.helperTextBridge else {
+            return false
+        }
+        guard state.isEnabled,
+              configuration.isEnabled,
+              configuration.pairingSecretRef != nil
+        else {
+            return false
+        }
+        switch state.availability {
+        case .checking, .reachable, .unreachable, .permissionMissing, .versionUnsupported:
+            return true
+        case .notConfigured, .disabled, .revoked:
+            return false
+        }
+    }
+
     nonisolated private static func helperFailureCode(
         state: HelperTextBridgeProfileState?,
         client: (any HelperTextInsertClient)?
@@ -4109,6 +4378,33 @@ public final class NaruRemoteAppModel: ObservableObject {
         return next
     }
 
+    nonisolated private static func helperTextBridgeProbeState(
+        for profile: ConnectionProfile,
+        availability: HelperTextBridgeAvailability
+    ) -> HelperTextBridgeProfileState {
+        helperTextBridgeProbeState(
+            for: profile,
+            failureCode: failureCode(for: availability)
+        )
+    }
+
+    nonisolated private static func helperTextBridgeProbeState(
+        for profile: ConnectionProfile,
+        failureCode: HelperTextBridgeFailureCode
+    ) -> HelperTextBridgeProfileState {
+        let configuration = profile.helperTextBridge
+        let availability = availability(for: failureCode)
+        return HelperTextBridgeProfileState(
+            isEnabled: availability != .disabled &&
+                availability != .notConfigured &&
+                availability != .revoked,
+            pairingFingerprint: availability == .revoked ? nil : configuration?.pairingFingerprint,
+            availability: availability,
+            lastFailureCode: failureCode,
+            lastCheckedBucket: .recent
+        )
+    }
+
     nonisolated private static func availability(
         for failureCode: HelperTextBridgeFailureCode
     ) -> HelperTextBridgeAvailability {
@@ -4125,6 +4421,27 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .revoked
         case .permissionMissing:
             return .permissionMissing
+        case .versionUnsupported:
+            return .versionUnsupported
+        }
+    }
+
+    nonisolated private static func failureCode(
+        for availability: HelperTextBridgeAvailability
+    ) -> HelperTextBridgeFailureCode {
+        switch availability {
+        case .notConfigured:
+            return .notConfigured
+        case .disabled:
+            return .disabled
+        case .checking, .unreachable:
+            return .unreachable
+        case .reachable:
+            return .none
+        case .permissionMissing:
+            return .permissionMissing
+        case .revoked:
+            return .revoked
         case .versionUnsupported:
             return .versionUnsupported
         }
@@ -4202,7 +4519,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             let helperState = model.helperTextBridgeState[profileID]
                 ?? Self.initialHelperTextBridgeState(for: profile)
                 ?? HelperTextBridgeProfileState()
-            guard Self.canRouteThroughStoredHelperTextBridge(
+            guard Self.canAttemptStoredHelperTextBridge(
                 state: helperState,
                 profile: profile
             ) else {
@@ -4242,6 +4559,28 @@ public final class NaruRemoteAppModel: ObservableObject {
                 model.composeDraft = draft
             }
             model.latestInjectionAttempt = attempt
+        }
+    }
+
+    private static func publishHelperTextBridgeState(
+        _ model: NaruRemoteAppModel?,
+        state: HelperTextBridgeProfileState,
+        profileID: ConnectionProfile.ID
+    ) async {
+        await MainActor.run {
+            guard let model,
+                  model.profiles.contains(where: { $0.id == profileID })
+            else {
+                return
+            }
+            let current = model.helperTextBridgeState[profileID]
+            let shouldPreserveUserBlockedState = current.map {
+                Self.isUserBlockedHelperTextBridgeState($0) &&
+                    !Self.isUserBlockedHelperTextBridgeState(state)
+            } ?? false
+            if !shouldPreserveUserBlockedState {
+                model.helperTextBridgeState[profileID] = state
+            }
         }
     }
 
