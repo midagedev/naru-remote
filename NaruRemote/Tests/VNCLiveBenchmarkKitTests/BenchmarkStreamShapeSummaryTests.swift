@@ -1102,6 +1102,49 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
     }
 
+    func testTransportCadenceDiagnosisPrefersPassingTransportOverBelowTargetTransport() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "zrle-compression-0",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.clientProcessingFailed],
+                primaryIssueCode: .clientProcessingFailed,
+                primaryConstraintCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                        count: 5
+                    )
+                ]
+            ),
+            BenchmarkStreamShapeProfileGateReport(
+                label: "tight-first",
+                transportMode: .continuousUpdates,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .pass,
+                runCount: 5,
+                passRunCount: 5,
+                warningRunCount: 0,
+                failRunCount: 0,
+                disabledRunCount: 0,
+                issueCodes: []
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.requestResponseStatus, .belowTarget)
+        XCTAssertEqual(diagnosis.continuousUpdatesStatus, .pass)
+        XCTAssertEqual(diagnosis.recommendedTransportMode, .continuousUpdates)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
+    }
+
     func testTransportCadenceDiagnosisIgnoresDisabledGatesWhenActiveGatePasses() throws {
         let gates = [
             BenchmarkStreamShapeProfileGateReport(

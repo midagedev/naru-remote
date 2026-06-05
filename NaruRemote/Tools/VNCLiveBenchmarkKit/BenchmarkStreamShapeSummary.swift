@@ -2164,10 +2164,16 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         requestResponseStatus: BenchmarkStreamShapeTransportCadenceStatus,
         continuousUpdatesStatus: BenchmarkStreamShapeTransportCadenceStatus
     ) -> BenchmarkStreamShapeTransportMode? {
-        if requestResponseStatus == .pass || requestResponseStatus == .belowTarget {
+        if requestResponseStatus == .pass {
             return .requestResponse
         }
-        if continuousUpdatesStatus == .pass || continuousUpdatesStatus == .belowTarget {
+        if continuousUpdatesStatus == .pass {
+            return .continuousUpdates
+        }
+        if requestResponseStatus == .belowTarget {
+            return .requestResponse
+        }
+        if continuousUpdatesStatus == .belowTarget {
             return .continuousUpdates
         }
         return nil
@@ -2179,6 +2185,9 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount],
         continuousUpdatesFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
     ) -> BenchmarkStreamShapeTransportCadenceNextAction {
+        if requestResponseStatus == .pass || continuousUpdatesStatus == .pass {
+            return .runPhysicalDeviceSustainedGate
+        }
         if continuousUpdatesStatus == .failedBeforeSamples,
            !continuousUpdatesFailureLabelCounts.isEmpty {
             return .inspectContinuousUpdatesConnection
@@ -2190,9 +2199,6 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         }
         if requestResponseStatus == .belowTarget || continuousUpdatesStatus == .belowTarget {
             return .tuneTransportCadence
-        }
-        if requestResponseStatus == .pass || continuousUpdatesStatus == .pass {
-            return .runPhysicalDeviceSustainedGate
         }
         return .none
     }
