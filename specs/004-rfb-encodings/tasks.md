@@ -628,6 +628,23 @@ iPhone) and ships as its own PR.
   order/cold-start neutral scoring as the next larger unit before changing the
   production default. Owns: benchmark profile selection kit/tests, CLI docs,
   benchmark artifact, research note. **Done.**
+- **T388** Order-neutral live profile scoring: extend `VNCLiveBenchmark` schema
+  v33 with repeated stream-shape profile probes, fixed/rotated profile ordering,
+  per-probe iteration/order ordinals, per-profile aggregate reports, and an
+  order-neutral recommendation. Record a redacted stimulated `zrle-isolation`
+  run with every profile leading one iteration, keep the production default
+  unchanged, and use the evidence to target explicit warm-up/preflight behavior
+  next. Owns: benchmark kit/CLI/tests, benchmark docs/artifact, research note.
+  **Done.**
+- **T389** Warm-up/preflight practical-use gate: add an app and benchmark
+  warm-up/preflight policy that absorbs cold first-profile/server tails before
+  user-visible interaction when it improves schema v33 order-neutral scoring.
+  Verify the larger unit with a rotated `zrle-isolation` gate, a sustained
+  stimulated `core-matrix` run against the do-not-regress and practical-use
+  target bands, Compose route diagnostics, and a physical iPhone 10 minute
+  thermal/hand-feel pass before changing production defaults. Owns: stream
+  warm-up policy, benchmark mode or artifact, app pacing, focused tests,
+  physical-device verification note.
 
 ## Cross-cutting (every increment)
 

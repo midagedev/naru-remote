@@ -175,6 +175,12 @@ duration runs can measure content FPS against repeatable screen motion. In
 once per stream-shape probe, starts the child with a minimal launch environment
 plus duration/profile/transport hints, strips VNC target environment variables,
 and does not emit the command text or command output.
+Schema v33 adds `--stream-shape-profile-iterations N`,
+`--stream-shape-profile-order fixed|rotate`, fixed per-probe iteration/order
+ordinals, `streamShapeProfileAggregates`, and
+`streamShapeOrderNeutralRecommendation` so default-changing benchmark runs can
+rotate candidates and score aggregates instead of overfitting to first-profile
+cold-start behavior.
 By default
 stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
@@ -186,6 +192,20 @@ against pure ZRLE compression 0 plus cursor/ExtendedClipboard extension
 variants under the same dynamic stimulus.
 Example:
 `--first-frame-profiles none --stream-shape-profiles zrle-isolation --stream-shape-transport request-response`.
+For order-neutral live scoring, add
+`--stream-shape-profile-iterations 5 --stream-shape-profile-order rotate` so
+each `zrle-isolation` candidate leads one iteration.
+When `--stream-shape-transport both` is used with rotate mode, transport order
+also rotates by iteration so request/response and ContinuousUpdates do not
+always run in the same relative slot.
+Treat the rotated schema v33 run as the do-not-regress gate before larger
+streaming changes: the selected order-neutral profile should keep 0 permille
+renderer full-upload pressure, stay at or below 250 ms average update, 500 ms
+max p95 update, and 30 ms max client-processing p95, and avoid unsafe diagnostic
+fields. The practical-use target is higher: controlled-stimulus content FPS at
+8 fps or better, 180 ms average update or better, p95 below 350 ms after
+warm-up, immediate local zoom/pan transforms, and a physical iPhone 10 minute
+session without `.serious` or `.critical` thermal state.
 Pass
 `--stream-shape-profiles all` when comparing whether Tight/ZRLE/adaptive
 profiles actually improve sustained interaction on the current server.

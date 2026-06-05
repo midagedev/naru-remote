@@ -853,19 +853,164 @@ public struct BenchmarkStreamShapeTailSummary: Codable, Equatable, Sendable {
 public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
+    public let iterationOrdinal: Int?
+    public let orderOrdinal: Int?
     public let firstFrameMilliseconds: Int?
     public let summary: BenchmarkStreamShapeSummary
 
     public init(
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode = .requestResponse,
+        iterationOrdinal: Int? = nil,
+        orderOrdinal: Int? = nil,
         firstFrameMilliseconds: Int?,
         summary: BenchmarkStreamShapeSummary
     ) {
         self.label = label
         self.transportMode = transportMode
+        self.iterationOrdinal = iterationOrdinal.map { max($0, 1) }
+        self.orderOrdinal = orderOrdinal.map { max($0, 1) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.summary = summary
+    }
+}
+
+public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Sendable {
+    public let label: String
+    public let transportMode: BenchmarkStreamShapeTransportMode
+    public let runCount: Int
+    public let usableRunCount: Int
+    public let failedRunCount: Int
+    public let averageUpdateMilliseconds: Int?
+    public let maxP95UpdateMilliseconds: Int?
+    public let averageContentFramesPerSecond: Double?
+    public let averageRendererFullUploadPermille: Int?
+    public let maxClientProcessingP95Milliseconds: Int?
+    public let maxZrleTileApplyP95Milliseconds: Int?
+    public let slowUpdateSamples: Int
+    public let verySlowUpdateSamples: Int
+    public let receivedSamples: Int
+    public let contentUpdateSamples: Int
+
+    public init(
+        label: String,
+        transportMode: BenchmarkStreamShapeTransportMode,
+        runCount: Int,
+        usableRunCount: Int,
+        failedRunCount: Int,
+        averageUpdateMilliseconds: Int?,
+        maxP95UpdateMilliseconds: Int?,
+        averageContentFramesPerSecond: Double?,
+        averageRendererFullUploadPermille: Int?,
+        maxClientProcessingP95Milliseconds: Int?,
+        maxZrleTileApplyP95Milliseconds: Int?,
+        slowUpdateSamples: Int,
+        verySlowUpdateSamples: Int,
+        receivedSamples: Int,
+        contentUpdateSamples: Int
+    ) {
+        self.label = label
+        self.transportMode = transportMode
+        self.runCount = max(runCount, 0)
+        self.usableRunCount = max(usableRunCount, 0)
+        self.failedRunCount = max(failedRunCount, 0)
+        self.averageUpdateMilliseconds = averageUpdateMilliseconds.map { max($0, 0) }
+        self.maxP95UpdateMilliseconds = maxP95UpdateMilliseconds.map { max($0, 0) }
+        self.averageContentFramesPerSecond = averageContentFramesPerSecond.map { max($0, 0) }
+        self.averageRendererFullUploadPermille = averageRendererFullUploadPermille.map {
+            min(max($0, 0), 1_000)
+        }
+        self.maxClientProcessingP95Milliseconds = maxClientProcessingP95Milliseconds.map { max($0, 0) }
+        self.maxZrleTileApplyP95Milliseconds = maxZrleTileApplyP95Milliseconds.map { max($0, 0) }
+        self.slowUpdateSamples = max(slowUpdateSamples, 0)
+        self.verySlowUpdateSamples = max(verySlowUpdateSamples, 0)
+        self.receivedSamples = max(receivedSamples, 0)
+        self.contentUpdateSamples = max(contentUpdateSamples, 0)
+    }
+
+    public static func aggregates(
+        from reports: [BenchmarkStreamShapeProfileReport]
+    ) -> [BenchmarkStreamShapeProfileAggregateReport] {
+        let orderedKeys = orderedAggregateKeys(from: reports)
+        let grouped = Dictionary(grouping: reports) {
+            AggregateKey(label: $0.label, transportMode: $0.transportMode)
+        }
+        return orderedKeys.compactMap { key in
+            grouped[key].map { aggregate(key: key, reports: $0) }
+        }
+    }
+
+    private static func aggregate(
+        key: AggregateKey,
+        reports: [BenchmarkStreamShapeProfileReport]
+    ) -> BenchmarkStreamShapeProfileAggregateReport {
+        let usableReports = reports.filter(isUsable)
+        let updateAverages = usableReports.compactMap { $0.summary.updateLatency?.averageMilliseconds }
+        let updateP95s = usableReports.compactMap { $0.summary.updateLatency?.p95Milliseconds }
+        let contentFPS = usableReports.compactMap(\.summary.contentFramesPerSecond)
+        let fullUploadPermille = usableReports.compactMap(\.summary.rendererFullUploadPermille)
+        let clientP95s = usableReports.compactMap { $0.summary.clientProcessingLatency?.p95Milliseconds }
+        let zrleTileP95s = usableReports.compactMap { $0.summary.zrleTileApplyLatency?.p95Milliseconds }
+        return BenchmarkStreamShapeProfileAggregateReport(
+            label: key.label,
+            transportMode: key.transportMode,
+            runCount: reports.count,
+            usableRunCount: usableReports.count,
+            failedRunCount: reports.count - usableReports.count,
+            averageUpdateMilliseconds: roundedAverage(updateAverages),
+            maxP95UpdateMilliseconds: updateP95s.max(),
+            averageContentFramesPerSecond: average(contentFPS),
+            averageRendererFullUploadPermille: roundedAverage(fullUploadPermille),
+            maxClientProcessingP95Milliseconds: clientP95s.max(),
+            maxZrleTileApplyP95Milliseconds: zrleTileP95s.max(),
+            slowUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.tailLatency.slowUpdateSamples },
+            verySlowUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.tailLatency.verySlowUpdateSamples },
+            receivedSamples: usableReports.reduce(0) { $0 + $1.summary.receivedSamples },
+            contentUpdateSamples: usableReports.reduce(0) { $0 + $1.summary.contentUpdateSamples }
+        )
+    }
+
+    private static func isUsable(_ report: BenchmarkStreamShapeProfileReport) -> Bool {
+        report.summary.failureLabel == nil
+            && report.summary.receivedSamples > 0
+            && report.summary.contentUpdateSamples > 0
+            && report.summary.rendererUploadSampleCount > 0
+            && report.summary.updateLatency != nil
+            && report.summary.contentFramesPerSecond != nil
+            && report.summary.rendererFullUploadPermille != nil
+    }
+
+    private static func orderedAggregateKeys(
+        from reports: [BenchmarkStreamShapeProfileReport]
+    ) -> [AggregateKey] {
+        var seen: Set<AggregateKey> = []
+        var keys: [AggregateKey] = []
+        for report in reports {
+            let key = AggregateKey(label: report.label, transportMode: report.transportMode)
+            if seen.insert(key).inserted {
+                keys.append(key)
+            }
+        }
+        return keys
+    }
+
+    private static func roundedAverage(_ values: [Int]) -> Int? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    private static func average(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private struct AggregateKey: Hashable {
+        let label: String
+        let transportMode: BenchmarkStreamShapeTransportMode
     }
 }
 
@@ -873,6 +1018,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     public let label: String
     public let transportMode: BenchmarkStreamShapeTransportMode
     public let reason: String
+    public let runCount: Int?
+    public let usableRunCount: Int?
     public let averageUpdateMilliseconds: Int
     public let p95UpdateMilliseconds: Int
     public let contentFramesPerSecond: Double
@@ -885,6 +1032,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         label: String,
         transportMode: BenchmarkStreamShapeTransportMode,
         reason: String,
+        runCount: Int? = nil,
+        usableRunCount: Int? = nil,
         averageUpdateMilliseconds: Int,
         p95UpdateMilliseconds: Int,
         contentFramesPerSecond: Double,
@@ -896,6 +1045,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
         self.label = label
         self.transportMode = transportMode
         self.reason = reason
+        self.runCount = runCount.map { max($0, 0) }
+        self.usableRunCount = usableRunCount.map { max($0, 0) }
         self.averageUpdateMilliseconds = max(averageUpdateMilliseconds, 0)
         self.p95UpdateMilliseconds = max(p95UpdateMilliseconds, 0)
         self.contentFramesPerSecond = max(contentFramesPerSecond, 0)
@@ -910,6 +1061,15 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
     ) -> BenchmarkStreamShapeRecommendation? {
         reports
             .compactMap(BenchmarkStreamShapeRecommendation.init(report:))
+            .sorted(by: isPreferred)
+            .first
+    }
+
+    public static func recommendedOrderNeutralRequestResponseProfile(
+        from aggregates: [BenchmarkStreamShapeProfileAggregateReport]
+    ) -> BenchmarkStreamShapeRecommendation? {
+        aggregates
+            .compactMap(BenchmarkStreamShapeRecommendation.init(aggregate:))
             .sorted(by: isPreferred)
             .first
     }
@@ -931,6 +1091,8 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             label: report.label,
             transportMode: report.transportMode,
             reason: "lowest-average-update-latency-among-request-response-profiles",
+            runCount: report.iterationOrdinal == nil ? nil : 1,
+            usableRunCount: report.iterationOrdinal == nil ? nil : 1,
             averageUpdateMilliseconds: updateLatency.averageMilliseconds,
             p95UpdateMilliseconds: updateLatency.p95Milliseconds,
             contentFramesPerSecond: contentFramesPerSecond,
@@ -938,6 +1100,34 @@ public struct BenchmarkStreamShapeRecommendation: Codable, Equatable, Sendable {
             slowUpdateSamples: report.summary.tailLatency.slowUpdateSamples,
             receivedSamples: report.summary.receivedSamples,
             contentUpdateSamples: report.summary.contentUpdateSamples
+        )
+    }
+
+    private init?(aggregate: BenchmarkStreamShapeProfileAggregateReport) {
+        guard aggregate.transportMode == .requestResponse,
+              aggregate.usableRunCount > 0,
+              aggregate.contentUpdateSamples > 0,
+              let averageUpdateMilliseconds = aggregate.averageUpdateMilliseconds,
+              let maxP95UpdateMilliseconds = aggregate.maxP95UpdateMilliseconds,
+              let averageContentFramesPerSecond = aggregate.averageContentFramesPerSecond,
+              let averageRendererFullUploadPermille = aggregate.averageRendererFullUploadPermille
+        else {
+            return nil
+        }
+
+        self.init(
+            label: aggregate.label,
+            transportMode: aggregate.transportMode,
+            reason: "lowest-average-update-latency-across-order-neutral-request-response-runs",
+            runCount: aggregate.runCount,
+            usableRunCount: aggregate.usableRunCount,
+            averageUpdateMilliseconds: averageUpdateMilliseconds,
+            p95UpdateMilliseconds: maxP95UpdateMilliseconds,
+            contentFramesPerSecond: averageContentFramesPerSecond,
+            rendererFullUploadPermille: averageRendererFullUploadPermille,
+            slowUpdateSamples: aggregate.slowUpdateSamples,
+            receivedSamples: aggregate.receivedSamples,
+            contentUpdateSamples: aggregate.contentUpdateSamples
         )
     }
 
