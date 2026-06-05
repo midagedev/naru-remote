@@ -540,6 +540,11 @@ iPhone) and ships as its own PR.
   clipboard or reachable helper fails before writing clipboard bytes. Owns:
   Core pacing defaults, pointer resolver, text-injection policy, focused app /
   core tests, research note, benchmark artifact. **Done.**
+- **T378** Trace-backed trackpad edge auto-pan smoothness: add a synthetic
+  high-refresh gesture trace proving near-edge zoomed trackpad auto-pan cannot
+  move the visible cursor opposite the finger, then cap reveal-only follow pan
+  to the current touch sample. Owns: pointer resolver/tests, session task note,
+  research note, smoothness benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
