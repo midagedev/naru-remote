@@ -2452,7 +2452,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.pipWatchSession?.lastFrame?.changeActivity, .high)
     }
 
-    func testViewportInteractionPublishesBoundedLiveFramesDuringGesture() async throws {
+    func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1,
@@ -2496,10 +2496,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
             requestCountAtGestureStart,
             "Viewport interaction should no longer pause the request loop while a frame is visible."
         )
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             model.snapshot.latestFramebuffer,
             firstFramebuffer,
-            "Content frames should publish at the bounded live cadence instead of waiting for gesture end."
+            "Content frames should stay deferred while touch navigation owns the main-thread visual path."
         )
 
         model.setViewportInteractionActive(false)
@@ -2508,6 +2508,51 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
+    }
+
+    func testViewportInteractionDropsDeferredFrameWhenStreamFails() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let deferredFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, deferredFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: nil, frameInterval: 0.05),
+            reconnectPolicy: ReconnectPolicy(maxAttempts: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<50 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.setViewportInteractionActive(true)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertNil(model.snapshot.latestFramebuffer)
+
+        model.setViewportInteractionActive(false)
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertNil(
+            model.snapshot.latestFramebuffer,
+            "A deferred gesture-time frame from a failed stream must not publish after the user lifts their fingers."
+        )
     }
 
     // MARK: - Per-profile diagnostic verdict cache (UX punch-list #109)

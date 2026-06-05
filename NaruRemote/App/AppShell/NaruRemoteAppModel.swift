@@ -10,6 +10,14 @@ private struct PendingPointerMove {
     let profileID: ConnectionProfile.ID?
 }
 
+private struct DeferredViewportInteractionFrame {
+    let frame: RFBFramePumpFrame
+    let serverInit: RFBServerInit
+    let profile: ConnectionProfile
+    let sessionID: RemoteSession.ID
+    let streamID: UUID
+}
+
 private struct RemoteClipboardTextClientBox: @unchecked Sendable {
     let client: any RemoteClipboardTextClient
     private let identity: ObjectIdentifier
@@ -228,6 +236,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
     private var isViewportInteractionActive = false
+    private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     /// Last profile + credential pair we successfully started a
     /// streaming session against.  Captured at stream start so an
@@ -2037,6 +2046,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         isViewportInteractionActive = false
+        flushDeferredViewportInteractionFrame()
     }
 
     private func applyStreamFrame(
@@ -2047,6 +2057,17 @@ public final class NaruRemoteAppModel: ObservableObject {
         streamID: UUID
     ) {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
+            return
+        }
+
+        if isViewportInteractionActive, latestFramebuffer != nil {
+            deferredViewportInteractionFrame = DeferredViewportInteractionFrame(
+                frame: frame,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
             return
         }
 
@@ -2149,6 +2170,20 @@ public final class NaruRemoteAppModel: ObservableObject {
             updatedSession.markFirstFrameReceived(at: capturedAt)
             session = updatedSession
         }
+    }
+
+    private func flushDeferredViewportInteractionFrame() {
+        guard let deferred = deferredViewportInteractionFrame else {
+            return
+        }
+        deferredViewportInteractionFrame = nil
+        applyStreamFrame(
+            deferred.frame,
+            serverInit: deferred.serverInit,
+            profile: deferred.profile,
+            sessionID: deferred.sessionID,
+            streamID: deferred.streamID
+        )
     }
 
     /// Memory-only update for the RFB Cursor pseudo-encoding when no
@@ -2311,6 +2346,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
             return
         }
+        deferredViewportInteractionFrame = nil
 
         activeTextClient = nil
         activePointerClient = nil
@@ -2591,6 +2627,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFramePump = nil
         activeFrameStreamID = nil
         isViewportInteractionActive = false
+        deferredViewportInteractionFrame = nil
         cancelPointerEventQueue()
     }
 
