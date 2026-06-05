@@ -493,17 +493,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var pendingViewportRedrawDiagnostics = ViewportRedrawDiagnostics()
     private var viewportGestureRedrawThrottle = ViewportGestureRedrawThrottle(
         minimumInterval: MetalFramebufferHostingView.viewportGestureRedrawMinimumInterval,
-        allowsFirstRedrawDuringGesture: true
+        allowsFirstRedrawDuringGesture: false
     )
     private var deferredFramebufferRedrawDuringViewportGesture = false
     private static let minimumDecelerationVelocity: CGFloat = 18
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
-    // Let a bounded trickle of remote frames through during touch tracking.
-    // Fully freezing uploads kept the compositor transform cheap, but made
-    // real iPhone sessions feel like low-FPS remote video while zooming or
-    // panning. 30 Hz keeps visible remote change moving without opening the
-    // 60 Hz content-frame flood that previously made phones run hot.
-    private static let viewportGestureRedrawMinimumInterval: TimeInterval = 1.0 / 30.0
+    // Real-device feedback showed that even bounded gesture-time uploads can
+    // contend with the touch loop on iPhone-sized thermal budgets. During a
+    // pinch/pan, prefer Photos-like local continuity: keep the current texture
+    // on the compositor path and flush the latest remote frame once the
+    // gesture settles.
+    private static let viewportGestureRedrawMinimumInterval: TimeInterval = .infinity
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {

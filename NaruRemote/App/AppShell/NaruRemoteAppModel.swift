@@ -3118,32 +3118,34 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         let utf8Support = activeTextClient.utf8ClipboardSupport
         let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
+        let profileID = session?.profileID ?? selectedProfileID
+        let helperState = helperTextBridgeState(for: profileID)
+        if payloadEncoding == .utf8ExtensionRequired,
+           utf8Support != .supported,
+           let profileID,
+           let helperState,
+           let helperTextInsertClient,
+           Self.canRouteThroughHelperTextBridge(
+                state: helperState,
+                client: helperTextInsertClient
+           ) {
+            sendComposedTextThroughHelper(
+                draft: draft,
+                payloadEncoding: payloadEncoding,
+                transferMode: transferMode,
+                utf8Support: utf8Support,
+                profileID: profileID,
+                helperState: helperState,
+                helperTextInsertClient: helperTextInsertClient,
+                now: now
+            )
+            return
+        }
+
         if let message = TextInjectionClipboardPolicy.unsupportedPayloadMessage(
             payloadEncoding: payloadEncoding,
             utf8Support: utf8Support
         ) {
-            let profileID = session?.profileID ?? selectedProfileID
-            let helperState = helperTextBridgeState(for: profileID)
-            if let profileID,
-               let helperState,
-               let helperTextInsertClient,
-               Self.canRouteThroughHelperTextBridge(
-                    state: helperState,
-                    client: helperTextInsertClient
-               ) {
-                sendComposedTextThroughHelper(
-                    draft: draft,
-                    payloadEncoding: payloadEncoding,
-                    transferMode: transferMode,
-                    utf8Support: utf8Support,
-                    profileID: profileID,
-                    helperState: helperState,
-                    helperTextInsertClient: helperTextInsertClient,
-                    now: now
-                )
-                return
-            }
-
             let helperFailureCode = Self.helperFailureCode(
                 state: helperState,
                 client: helperTextInsertClient

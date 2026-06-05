@@ -1236,3 +1236,46 @@ bounded throttle slot and the final gesture-end flush.
 raw timing samples, display dimensions, pixels, cursor pixels, byte counts,
 host identity, device identity, power state, and Compose draft text remain out
 of diagnostics and benchmark artifacts.
+
+## D41 — Prefer strict local continuity during gestures and best-effort UTF-8 unknown sends
+
+References:
+- RFC 6143 framebuffer updates and ClientCutText:
+  https://www.rfc-editor.org/rfc/rfc6143
+- Apple `CADisplayLink.preferredFrameRateRange`:
+  https://developer.apple.com/documentation/quartzcore/cadisplaylink/preferredframeraterange
+
+**Decision**: supersede the D40 production behavior for physical iPhone
+sessions: while a local viewport gesture is active, do not allow a first or
+periodic pending framebuffer upload bypass. Keep pinch/pan/trackpad viewport
+navigation on the current Metal texture and flush the latest deferred remote
+frame when the gesture settles. Also hold the immersive control-bar auto-hide
+transition while the viewport is being manipulated so SwiftUI chrome animation
+does not overlap the UIKit/Metal hot path.
+
+For Compose, supersede the D39 "unknown equals failure" behavior without
+claiming reliability: if a UTF-8 payload needs more than Latin-1 and the helper
+text bridge is reachable, route through the helper first. If the VNC server has
+explicitly reported UTF-8 clipboard as unsupported, fail before writing
+clipboard bytes. If support is still unknown and no helper route is available,
+attempt a legacy VNC clipboard paste as best-effort and leave the result
+`unknown` with a warning that Korean/CJK text may paste incorrectly.
+
+**Why**:
+- Physical feedback after the D40 30 Hz redraw candidate still reports choppy
+  zoom/pan. On small iPhone thermal budgets, local continuity is more important
+  than sampling fresh remote content mid-gesture; a single gesture-end flush is
+  easier to reason about and matches the Photos-like local navigation target.
+- The app model already coalesces incoming changed frames while viewport
+  interaction is active. Making the Metal host strict as well closes race
+  windows where a SwiftUI update can still ask for a gesture-time upload.
+- RFC 6143 keeps base `ClientCutText` constrained to ISO 8859-1, so unknown
+  UTF-8 cannot be reported as reliable. However, failing before any attempt is
+  too conservative for real private-network VNC deployments that may accept
+  UTF-8 bytes without confirming Extended Clipboard caps. Status `unknown`
+  preserves honesty while giving the user a practical retry path.
+
+**Privacy rule**: the change exports no new raw data. Gesture coordinates,
+raw timing samples, display dimensions, pixels, cursor pixels, byte counts,
+host identity, device identity, power state, paste payload bytes, and Compose
+draft text remain out of diagnostics and benchmark artifacts.

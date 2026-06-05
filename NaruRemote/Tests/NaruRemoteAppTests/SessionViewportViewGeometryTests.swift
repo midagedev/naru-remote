@@ -85,6 +85,30 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testImmersiveControlsDoNotAutoHideDuringViewportInteraction() {
+        XCTAssertFalse(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: true,
+                isViewportInteractionActive: true
+            )
+        )
+    }
+
+    func testImmersiveControlsAutoHideOnlyWhenVisibleAndIdle() {
+        XCTAssertTrue(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: true,
+                isViewportInteractionActive: false
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: false,
+                isViewportInteractionActive: false
+            )
+        )
+    }
+
     func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
         XCTAssertEqual(
             SessionViewportView.cursorOverlayKind(serverCursor: nil),
