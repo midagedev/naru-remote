@@ -24,7 +24,7 @@ description: "Tasks: Host Helper Text Bridge"
 - [x] T005 [US1] Add `HelperTextBridgeAvailability`, `HelperTextBridgeFailureCode`, and helper request/result value types in `NaruRemote/Sources/NaruRemoteCore/RemoteInputDock/`; verify with `swift test --filter HelperTextBridge`. **Done.**
 - [x] T006 [US1] Add a fake helper text client in `NaruRemote/Tests/NaruRemoteCoreTests/` or `NaruRemote/Tests/NaruRemoteAppTests/`; verify routing without a real helper. **Done.**
 - [x] T007 [US3] Extend diagnostic export model with helper text bridge state in `NaruRemote/Sources/NaruRemoteCore/Diagnostics/` and tests in `NaruRemote/Tests/NaruRemoteCoreTests/DiagnosticExportTests.swift`. **Done.**
-- [ ] T008 [US2] Add profile-level helper enabled/revoked state tests in `NaruRemote/Tests/NaruRemoteAppTests/`.
+- [x] T008 [US2] Add profile-level helper enabled/revoked state tests in `NaruRemote/Tests/NaruRemoteAppTests/`. **Done.**
 - [x] T009 Update `specs/006-host-helper-text-bridge/quickstart.md` with exact implementation commands after test names exist. **Done.**
 
 **Checkpoint**: Verification tools exist and fail for missing routing implementation where applicable.
@@ -59,14 +59,14 @@ description: "Tasks: Host Helper Text Bridge"
 
 ### Tests First
 
-- [ ] T016 [P] [US2] Add failing tests for disabled/revoked helper state in app snapshot/model tests.
-- [ ] T017 [P] [US2] Add diagnostic export tests for permission and revocation catalog values.
+- [x] T016 [P] [US2] Add failing tests for disabled/revoked helper state in app snapshot/model tests. **Done.**
+- [x] T017 [P] [US2] Add diagnostic export tests for permission and revocation catalog values. **Done.**
 
 ### Implementation
 
-- [ ] T018 [US2] Add profile/helper state to `NaruRemote/App/AppShell/NaruRemoteAppSnapshot.swift` or profile state as selected by implementation design.
+- [x] T018 [US2] Add profile/helper state to `NaruRemote/App/AppShell/NaruRemoteAppSnapshot.swift` or profile state as selected by implementation design. **Done.**
 - [ ] T019 [US2] Surface helper availability in session/input UI with concise fixed copy.
-- [ ] T020 [US2] Add helper revocation handling that prevents helper requests before transport creation.
+- [x] T020 [US2] Add helper revocation handling that prevents helper requests before transport creation. **Done.**
 
 **Checkpoint**: Revocation blocks helper insert and diagnostics remain safe.
 

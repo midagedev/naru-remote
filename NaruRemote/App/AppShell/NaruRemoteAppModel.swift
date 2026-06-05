@@ -559,6 +559,33 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperTextBridgeState[profileID] = state
     }
 
+    public func disableHelperTextBridge(for profileID: ConnectionProfile.ID? = nil) {
+        guard let profileID = profileID ?? selectedProfileID else {
+            return
+        }
+
+        var state = helperTextBridgeState[profileID] ?? HelperTextBridgeProfileState()
+        state.isEnabled = false
+        state.availability = .disabled
+        state.lastFailureCode = .disabled
+        state.lastCheckedBucket = .recent
+        helperTextBridgeState[profileID] = state
+    }
+
+    public func revokeHelperTextBridge(for profileID: ConnectionProfile.ID? = nil) {
+        guard let profileID = profileID ?? selectedProfileID else {
+            return
+        }
+
+        var state = helperTextBridgeState[profileID] ?? HelperTextBridgeProfileState()
+        state.isEnabled = false
+        state.pairingFingerprint = nil
+        state.availability = .revoked
+        state.lastFailureCode = .revoked
+        state.lastCheckedBucket = .recent
+        helperTextBridgeState[profileID] = state
+    }
+
     public var canStartPiPWatch: Bool {
         snapshot.isPiPWatchAvailable && (pipWatchController?.isSupported ?? false)
     }
@@ -3440,7 +3467,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .notConfigured
         }
         guard state.isEnabled else {
-            return state.availability == .notConfigured ? .notConfigured : .disabled
+            switch state.availability {
+            case .notConfigured:
+                return .notConfigured
+            case .revoked:
+                return .revoked
+            default:
+                return .disabled
+            }
         }
 
         switch state.availability {
@@ -3557,6 +3591,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             else {
                 return false
             }
+            let helperState = model.helperTextBridgeState[profileID] ?? HelperTextBridgeProfileState()
+            guard Self.canRouteThroughHelperTextBridge(
+                state: helperState,
+                client: helperBox.client
+            ) else {
+                return false
+            }
             return model.composeDraft?.id == draftID
         }
     }
@@ -3577,7 +3618,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
             if let helperProfileID, let helperTextBridgeState {
-                model.helperTextBridgeState[helperProfileID] = helperTextBridgeState
+                let current = model.helperTextBridgeState[helperProfileID]
+                let shouldPreserveUserBlockedState = current.map {
+                    Self.isUserBlockedHelperTextBridgeState($0) &&
+                        !Self.isUserBlockedHelperTextBridgeState(helperTextBridgeState)
+                } ?? false
+                if !shouldPreserveUserBlockedState {
+                    model.helperTextBridgeState[helperProfileID] = helperTextBridgeState
+                }
             }
             if model.composeDraft?.id == draftID,
                model.composeDraft?.sessionID == sessionID {
@@ -3629,6 +3677,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         return TextInjectionError
             .pasteCommandFailed("Remote paste command could not be delivered.")
             .localizedDescription
+    }
+
+    nonisolated private static func isUserBlockedHelperTextBridgeState(
+        _ state: HelperTextBridgeProfileState
+    ) -> Bool {
+        state.availability == .disabled || state.availability == .revoked
     }
 
     private func enqueuePointerCommands(
