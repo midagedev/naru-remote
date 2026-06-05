@@ -3557,3 +3557,40 @@ command output, host identity, credentials, port values, raw TCP/RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, raw FPS, raw timings, draft text, marked text, IME state, or full
 diagnostic payloads.
+
+## D87 — Sustained v2 presets should measure steady stream cadence
+
+References:
+- D86 controlled stimulus cadence target.
+- `artifacts/benchmarks/2026-06-06-steady-stream-v2-gate-summary.md`.
+
+**Decision**: keep `sustained-v2-core`, `sustained-v2-request-response`, and
+`sustained-v2-pixel-format` as steady-stream gates by setting
+`streamShapeViewportInteractionMode = off` inside the presets.
+
+**Why**:
+- The v2 benchmark target requires controlled-stimulus content FPS of at least
+  8fps against a 12Hz stimulus.
+- The app's active viewport-interaction stream floor is intentionally
+  4Hz-class so local pinch/pan/trackpad movement can stay on the touch hot path.
+  That is a different requirement from steady stream throughput.
+- Combining the 8fps target and active viewport-interaction pacing in one preset
+  makes the gate internally conflicted: the benchmark simulates local gesture
+  protection while judging the result with a steady-stream FPS floor.
+
+**Implications**:
+- The standard sustained v2 live benchmark is now the steady-stream promotion
+  gate for transport, encoding, preflight, and cadence candidates.
+- Active zoom/pan hand-feel remains blocked by the physical iPhone gate before
+  any production default change.
+- Custom active-interaction benchmarks can still be run with
+  `--stream-shape-viewport-interaction app`, but they should not be interpreted
+  with the steady 8fps pass target alone.
+- Production app defaults are unchanged.
+
+**Privacy rule**: this separation may emit only fixed target, preset, mode,
+verdict, issue, action, and aggregate metric labels already allowed by the
+benchmark report. It must not emit host identity, credentials, port values, raw
+TCP/RFB errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
+counts, raw payloads, raw FPS, raw timings, stimulus command text, command
+output, draft text, marked text, IME state, or full diagnostic payloads.

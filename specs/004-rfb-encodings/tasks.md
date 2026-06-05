@@ -903,6 +903,14 @@ iPhone) and ships as its own PR.
   ambiguous stimulus suspicion. Owns: benchmark CLI/report, benchmark-kit
   environment tests, stimulus helper, README, benchmark artifact, research
   note. **Done.**
+- **T419** Steady-stream sustained v2 gate alignment: keep the
+  `sustained-v2-*` benchmark presets as steady-stream gates by disabling
+  viewport-interaction parity inside the presets, while leaving active
+  viewport-interaction stream pressure to custom benchmark commands and the
+  physical iPhone promotion gate. This keeps the 8fps controlled-stimulus target
+  from being capped by the app's intentional 4Hz-class local-gesture pacing
+  floor. Owns: benchmark CLI preset, README, benchmark artifact, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
