@@ -747,6 +747,10 @@ public struct BenchmarkStreamShapeTailSummary: Codable, Equatable, Sendable {
     public let slowFullDirtyAreaSamples: Int
     public let slowRendererFullUploadSamples: Int
     public let verySlowUpdateSamples: Int
+    public let firstSlowUpdateOrdinal: Int?
+    public let firstSlowContentUpdateOrdinal: Int?
+    public let firstVerySlowUpdateOrdinal: Int?
+    public let firstVerySlowContentUpdateOrdinal: Int?
 
     public init(
         samples: [BenchmarkStreamShapeSample],
@@ -768,6 +772,49 @@ public struct BenchmarkStreamShapeTailSummary: Codable, Equatable, Sendable {
         self.verySlowUpdateSamples = samples.filter {
             $0.durationMilliseconds >= verySlowThreshold
         }.count
+        self.firstSlowUpdateOrdinal = Self.firstUpdateOrdinal(
+            in: samples,
+            atOrAbove: slowThreshold
+        )
+        self.firstSlowContentUpdateOrdinal = Self.firstContentUpdateOrdinal(
+            in: samples,
+            atOrAbove: slowThreshold
+        )
+        self.firstVerySlowUpdateOrdinal = Self.firstUpdateOrdinal(
+            in: samples,
+            atOrAbove: verySlowThreshold
+        )
+        self.firstVerySlowContentUpdateOrdinal = Self.firstContentUpdateOrdinal(
+            in: samples,
+            atOrAbove: verySlowThreshold
+        )
+    }
+
+    private static func firstUpdateOrdinal(
+        in samples: [BenchmarkStreamShapeSample],
+        atOrAbove thresholdMilliseconds: Int
+    ) -> Int? {
+        for (index, sample) in samples.enumerated() where sample.durationMilliseconds >= thresholdMilliseconds {
+            return index + 1
+        }
+        return nil
+    }
+
+    private static func firstContentUpdateOrdinal(
+        in samples: [BenchmarkStreamShapeSample],
+        atOrAbove thresholdMilliseconds: Int
+    ) -> Int? {
+        var contentOrdinal = 0
+        for sample in samples {
+            guard sample.kind == .contentUpdate else {
+                continue
+            }
+            contentOrdinal += 1
+            if sample.durationMilliseconds >= thresholdMilliseconds {
+                return contentOrdinal
+            }
+        }
+        return nil
     }
 }
 

@@ -255,6 +255,10 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(summary.tailLatency.slowFullDirtyAreaSamples, 2)
         XCTAssertEqual(summary.tailLatency.slowRendererFullUploadSamples, 1)
         XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 1)
+        XCTAssertEqual(summary.tailLatency.firstSlowUpdateOrdinal, 2)
+        XCTAssertEqual(summary.tailLatency.firstSlowContentUpdateOrdinal, 2)
+        XCTAssertEqual(summary.tailLatency.firstVerySlowUpdateOrdinal, 4)
+        XCTAssertEqual(summary.tailLatency.firstVerySlowContentUpdateOrdinal, 3)
     }
 
     func testProfileReportRoundTripsThroughJSON() throws {
