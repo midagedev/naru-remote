@@ -430,6 +430,12 @@ iPhone) and ships as its own PR.
   binding state without propagating draft text to the model until composition
   commits. Owns: pointer resolver, Remote Input Dock UIKit bridge, tests,
   research note. **Done.**
+- **T363** Viewport stutter diagnostic ratios: make active-session diagnostics
+  export safe aggregate permille ratios for gesture long-frame density and
+  incoming-frame redraw deferral during viewport interaction, and wire the
+  existing redraw request/flush counters to the UIKit viewport hot path. Owns:
+  Metal viewport host, app stream stats, diagnostic export, tests, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 

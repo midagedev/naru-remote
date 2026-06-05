@@ -313,6 +313,17 @@ public struct SessionStreamStats: Equatable, Sendable {
         streamPacingDelayMax(streamPacingDelayMillisecondsMax)
     }
 
+    public var viewportGestureLongFramePermille: Int? {
+        permille(viewportGestureLongFrameCount, of: viewportGestureSampleCount)
+    }
+
+    public var viewportIncomingFrameDeferredPermille: Int? {
+        permille(
+            viewportIncomingFrameDeferredCount,
+            of: viewportIncomingFrameDeferredCount + viewportRedrawRequestCount
+        )
+    }
+
     public var diagnosticStreamPerformanceReport: DiagnosticStreamPerformanceReport? {
         guard deliveredFrameCount > 0 else {
             return nil
@@ -351,6 +362,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             viewportInteractionCount: viewportInteractionCount,
             viewportGestureSampleCount: viewportGestureSampleCount,
             viewportGestureLongFrameCount: viewportGestureLongFrameCount,
+            viewportGestureLongFramePermille: viewportGestureLongFramePermille,
             viewportGestureMaxIntervalBucket: DiagnosticTimingBucket
                 .bucket(
                     milliseconds: viewportGestureMaxIntervalMilliseconds > 0
@@ -359,6 +371,7 @@ public struct SessionStreamStats: Equatable, Sendable {
                 )
                 .rawValue,
             viewportIncomingFrameDeferredCount: viewportIncomingFrameDeferredCount,
+            viewportIncomingFrameDeferredPermille: viewportIncomingFrameDeferredPermille,
             viewportRedrawRequestCount: viewportRedrawRequestCount,
             viewportRedrawFlushCount: viewportRedrawFlushCount,
             viewportDecelerationFrameCount: viewportDecelerationFrameCount,
