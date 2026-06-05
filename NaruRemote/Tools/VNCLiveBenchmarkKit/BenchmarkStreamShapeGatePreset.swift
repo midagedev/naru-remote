@@ -6,6 +6,7 @@ public enum BenchmarkStreamShapeGatePreset: String, Codable, Equatable, Sendable
     case sustainedV2ZrleZeroDelay = "sustained-v2-zrle-zero-delay"
     case sustainedV2ZrlePacingSweep = "sustained-v2-zrle-pacing-sweep"
     case sustainedV2ZrleRegionSweep = "sustained-v2-zrle-region-sweep"
+    case sustainedV2ZrleViewportRegion = "sustained-v2-zrle-viewport-region"
     case sustainedV2PixelFormat = "sustained-v2-pixel-format"
 
     public static var usageDescription: String {

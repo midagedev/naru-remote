@@ -439,6 +439,7 @@ enum VNCLiveBenchmark {
             failureLabel = safeFailureLabel(for: error, phase: .streamConnect)
             return StreamShapeProbeReport(
                 transportMode: transportMode,
+                requestRegionAreaPermille: nil,
                 requestedSamples: streamShapeRequestedSamples(
                     maxSamples: maxSamples,
                     durationLimit: durationLimit,
@@ -453,11 +454,10 @@ enum VNCLiveBenchmark {
                 practicalTargets: practicalTargets
             )
         }
-        let incrementalRequestRegion = requestRegion.region(
+        let requestRegionAreaPermille = requestRegion.requestAreaPermille(
             width: serverInit.width,
             height: serverInit.height
         )
-
         let stimulusStart = startStreamShapeStimulus(
             mode: stimulusMode,
             profile: profile,
@@ -471,6 +471,7 @@ enum VNCLiveBenchmark {
         guard stimulusStart.failureLabel == nil else {
             return StreamShapeProbeReport(
                 transportMode: transportMode,
+                requestRegionAreaPermille: requestRegionAreaPermille,
                 requestedSamples: streamShapeRequestedSamples(
                     maxSamples: maxSamples,
                     durationLimit: durationLimit,
@@ -504,6 +505,7 @@ enum VNCLiveBenchmark {
             failureLabel = safeFailureLabel(for: error, phase: .streamFirstFrame)
             return StreamShapeProbeReport(
                 transportMode: transportMode,
+                requestRegionAreaPermille: requestRegionAreaPermille,
                 requestedSamples: streamShapeRequestedSamples(
                     maxSamples: maxSamples,
                     durationLimit: durationLimit,
@@ -527,6 +529,7 @@ enum VNCLiveBenchmark {
             )
             return StreamShapeProbeReport(
                 transportMode: transportMode,
+                requestRegionAreaPermille: requestRegionAreaPermille,
                 requestedSamples: streamShapeRequestedSamples(
                     maxSamples: maxSamples,
                     durationLimit: durationLimit,
@@ -546,11 +549,14 @@ enum VNCLiveBenchmark {
             count: preflightFrames,
             pump: pump,
             transportMode: transportMode,
-            requestRegion: incrementalRequestRegion,
+            requestRegion: requestRegion,
+            framebufferWidth: serverInit.width,
+            framebufferHeight: serverInit.height,
             idleTimeout: idleTimeout
         )
 
         let streamStartedAt = Date()
+        var regionTimeoutStreak = 0
         while shouldRequestAnotherStreamShapeSample(
             receivedSamples: samples.count,
             maxSamples: maxSamples,
@@ -568,10 +574,15 @@ enum VNCLiveBenchmark {
             }
             attemptedSamples += 1
             do {
-                guard let frame = try pump.nextFrame(
+                guard let frame = try nextStreamShapeFrame(
+                    pump: pump,
                     requestTimeout: requestTimeout,
                     updateMode: transportMode.framePumpUpdateMode,
-                    requestRegion: incrementalRequestRegion
+                    requestRegion: requestRegion,
+                    framebufferWidth: serverInit.width,
+                    framebufferHeight: serverInit.height,
+                    incrementalRequestIndex: attemptedSamples,
+                    regionTimeoutStreak: &regionTimeoutStreak
                 ) else {
                     break
                 }
@@ -629,6 +640,7 @@ enum VNCLiveBenchmark {
 
         return StreamShapeProbeReport(
             transportMode: transportMode,
+            requestRegionAreaPermille: requestRegionAreaPermille,
             requestedSamples: streamShapeRequestedSamples(
                 maxSamples: maxSamples,
                 durationLimit: durationLimit,
@@ -689,6 +701,7 @@ enum VNCLiveBenchmark {
             transportMode: transportMode,
             pacingWindow: pacingWindow,
             requestRegion: requestRegion,
+            requestRegionAreaPermille: probe.requestRegionAreaPermille,
             iterationOrdinal: iterationOrdinal,
             orderOrdinal: orderOrdinal,
             firstFrameMilliseconds: probe.firstFrameMilliseconds,
@@ -819,7 +832,9 @@ enum VNCLiveBenchmark {
         count: Int,
         pump: RFBFramePump,
         transportMode: BenchmarkStreamShapeTransportMode,
-        requestRegion: RFBFramebufferUpdateRegion?,
+        requestRegion: BenchmarkStreamShapeRequestRegion,
+        framebufferWidth: Int,
+        framebufferHeight: Int,
         idleTimeout: TimeInterval
     ) {
         guard count > 0 else {
@@ -827,12 +842,18 @@ enum VNCLiveBenchmark {
         }
         // Hidden preflight is best-effort warm-up: measured samples remain
         // the source of truth, and failure details stay out of redacted reports.
-        for _ in 0..<count {
+        var regionTimeoutStreak = 0
+        for offset in 0..<count {
             do {
-                guard try pump.nextFrame(
+                guard try nextStreamShapeFrame(
+                    pump: pump,
                     requestTimeout: idleTimeout,
                     updateMode: transportMode.framePumpUpdateMode,
-                    requestRegion: requestRegion
+                    requestRegion: requestRegion,
+                    framebufferWidth: framebufferWidth,
+                    framebufferHeight: framebufferHeight,
+                    incrementalRequestIndex: offset + 1,
+                    regionTimeoutStreak: &regionTimeoutStreak
                 ) != nil else {
                     return
                 }
@@ -844,6 +865,67 @@ enum VNCLiveBenchmark {
                 return
             }
         }
+    }
+
+    private static func nextStreamShapeFrame(
+        pump: RFBFramePump,
+        requestTimeout: TimeInterval,
+        updateMode: RFBFramePumpUpdateMode,
+        requestRegion: BenchmarkStreamShapeRequestRegion,
+        framebufferWidth: Int,
+        framebufferHeight: Int,
+        incrementalRequestIndex: Int,
+        regionTimeoutStreak: inout Int
+    ) throws -> RFBFramePumpFrame? {
+        let incrementalRequestRegion = requestRegion.region(
+            width: framebufferWidth,
+            height: framebufferHeight,
+            incrementalRequestIndex: incrementalRequestIndex,
+            regionTimeoutStreak: regionTimeoutStreak
+        )
+
+        do {
+            let frame = try pump.nextFrame(
+                requestTimeout: requestTimeout,
+                updateMode: updateMode,
+                requestRegion: incrementalRequestRegion
+            )
+            regionTimeoutStreak = 0
+            return frame
+        } catch RFBNetworkClientError.timedOut where incrementalRequestRegion != nil
+            && requestRegion.allowsRegionTimeoutFullFallback {
+            regionTimeoutStreak += 1
+            return try requestFullStreamShapeFallbackFrame(
+                pump: pump,
+                requestTimeout: requestTimeout,
+                updateMode: updateMode,
+                regionTimeoutStreak: &regionTimeoutStreak
+            )
+        } catch RFBNetworkClientError.readTimedOut where incrementalRequestRegion != nil
+            && requestRegion.allowsRegionTimeoutFullFallback {
+            regionTimeoutStreak += 1
+            return try requestFullStreamShapeFallbackFrame(
+                pump: pump,
+                requestTimeout: requestTimeout,
+                updateMode: updateMode,
+                regionTimeoutStreak: &regionTimeoutStreak
+            )
+        }
+    }
+
+    private static func requestFullStreamShapeFallbackFrame(
+        pump: RFBFramePump,
+        requestTimeout: TimeInterval,
+        updateMode: RFBFramePumpUpdateMode,
+        regionTimeoutStreak: inout Int
+    ) throws -> RFBFramePumpFrame? {
+        let frame = try pump.nextFrame(
+            requestTimeout: requestTimeout,
+            updateMode: updateMode,
+            requestRegion: nil
+        )
+        regionTimeoutStreak = 0
+        return frame
     }
 
     private static func startStreamShapeStimulus(
@@ -1338,6 +1420,16 @@ private struct BenchmarkOptions: Equatable {
                 contentFrameInterval: 0
             )
             streamShapeRequestRegions = BenchmarkStreamShapeRequestRegion.requestRegionSweep
+            continuousUpdateSamples = 0
+        case .sustainedV2ZrleViewportRegion:
+            try applySustainedV2Gate(
+                profileSelection: "zrle-compression-0-clipboard",
+                invalidProfileSelectionMessage:
+                    "internal sustained-v2-zrle-viewport-region preset profile selection is invalid.",
+                transportModes: .requestResponse,
+                contentFrameInterval: 0
+            )
+            streamShapeRequestRegions = BenchmarkStreamShapeRequestRegion.viewportRequestRegionSweep
             continuousUpdateSamples = 0
         case .sustainedV2PixelFormat:
             try applySustainedV2Gate(
@@ -1839,7 +1931,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 51
+        self.schemaVersion = 53
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1922,6 +2014,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
             "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "stream-shape request-region comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
+            "request-region traffic-pressure metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
             "stream-shape phase-budget diagnostics emit only fixed phase/subphase labels, aggregate millisecond summaries, and permille shares",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
@@ -2021,17 +2114,20 @@ private enum IdleProbeStatus: String, Codable {
 
 private struct StreamShapeProbeReport: Codable, Equatable {
     let transportMode: BenchmarkStreamShapeTransportMode
+    let requestRegionAreaPermille: Int?
     let firstFrameMilliseconds: Int?
     let summary: BenchmarkStreamShapeSummary
 
     init(profileReport: BenchmarkStreamShapeProfileReport) {
         self.transportMode = profileReport.transportMode
+        self.requestRegionAreaPermille = profileReport.requestRegionAreaPermille
         self.firstFrameMilliseconds = profileReport.firstFrameMilliseconds
         self.summary = profileReport.summary
     }
 
     init(
         transportMode: BenchmarkStreamShapeTransportMode,
+        requestRegionAreaPermille: Int? = nil,
         requestedSamples: Int,
         attemptedSamples: Int? = nil,
         firstFrameMilliseconds: Int?,
@@ -2047,6 +2143,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         practicalTargets: BenchmarkStreamShapePracticalTargets = .iPhonePracticalBaseline
     ) {
         self.transportMode = transportMode
+        self.requestRegionAreaPermille = requestRegionAreaPermille.map { min(max($0, 0), 1_000) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.summary = BenchmarkStreamShapeSummary(
             requestedSamples: requestedSamples,
@@ -2304,6 +2401,9 @@ private func renderText(_ report: BenchmarkReport) {
                     + "\(profileProbe.pacingWindow.rawValue), "
                     + "\(profileProbe.requestRegion.rawValue)]\(ordinalSuffix):"
             )
+            if let requestRegionArea = profileProbe.requestRegionAreaPermille {
+                print("  request-region area permille: \(requestRegionArea)")
+            }
             renderStreamShapeSummary(
                 firstFrameMilliseconds: profileProbe.firstFrameMilliseconds,
                 summary: profileProbe.summary,
@@ -2324,6 +2424,9 @@ private func renderText(_ report: BenchmarkReport) {
                 "  runs usable/total/failed: "
                     + "\(aggregate.usableRunCount)/\(aggregate.runCount)/\(aggregate.failedRunCount)"
             )
+            if let requestRegionArea = aggregate.averageRequestRegionAreaPermille {
+                print("  request-region area permille avg: \(requestRegionArea)")
+            }
             if let averageUpdate = aggregate.averageUpdateMilliseconds,
                let maxP95 = aggregate.maxP95UpdateMilliseconds {
                 print("  update ms avg/max-p95: \(averageUpdate)/\(maxP95)")
@@ -2387,6 +2490,9 @@ private func renderText(_ report: BenchmarkReport) {
                     + "\(gate.pacingWindow.rawValue), "
                     + "\(gate.requestRegion.rawValue)]: \(gate.verdict.rawValue)"
             )
+            if let requestRegionArea = gate.averageRequestRegionAreaPermille {
+                print("  request-region area permille avg: \(requestRegionArea)")
+            }
             print(
                 "  target: \(gate.targetName); runs pass/warning/fail/disabled/total: "
                     + "\(gate.passRunCount)/\(gate.warningRunCount)/\(gate.failRunCount)/"
@@ -2953,7 +3059,7 @@ private func printUsage() {
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v51 request-region plus first-byte wait split reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v53 viewport request-region area plus first-byte wait split reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

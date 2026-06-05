@@ -144,6 +144,7 @@ On a poor connection-quality bucket (`specs/003`'s `ConnectionQuality`), Naru re
 - **FR-013**: Naru SHOULD adapt the advertised Tight quality-level (-23…-32) and compression-level (0…-9) pseudo-encodings to the current `ConnectionQuality` bucket; and SHOULD negotiate continuous updates / fence (-312/-313) pacing when available. These are optimizations gated behind the encodings they ride on.
 - **FR-014**: All multi-byte protocol fields MUST be parsed/serialized big-endian per RFC 6143; decoders MUST never read past the declared length of a rectangle or compressed block.
 - **FR-015**: Naru MAY expose a fixed-catalog, opt-in app stream profile experiment gate for benchmark candidates before any production default changes. The gate MUST default to the existing automatic profile, persist only a safe fixed label, apply no earlier than the next connection unless a separately tested live renegotiation path exists, and be recorded in diagnostics only as that fixed label.
+- **FR-016**: Benchmark promotion for poor-network usability MUST treat traffic pressure as a first-class target. Request-region candidates MUST report a redacted framebuffer-relative `requestRegionAreaPermille` traffic proxy alongside hit-rate, latency, dirty-area, and renderer-upload aggregates; reports MUST NOT emit raw byte counts, framebuffer dimensions, coordinates, pixels, or payloads. A production request-region default MUST preserve full-frame fallback/heartbeat behavior and must not be promoted solely on FPS if it increases unanswered requests, timeout/failure labels, or tail latency.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -212,6 +213,7 @@ Per constitution §VI/§III, every scenario lists an iPhone path before any iPad
 - **SC-004**: Naru sends a well-formed `SetEncodings` advertising CopyRect/Hextile (and ZRLE/Tight where shipped) ahead of Raw, with Raw always present; verified in the recorded `FakeRFBServer` client transcript.
 - **SC-005**: A server-sent un-advertised or malformed encoding never crashes or hangs the client — it always surfaces a typed error that maps to a diagnostic stage and the reconnect path (verified by negative-path unit tests).
 - **SC-006**: No pixel value, tile/palette datum, rectangle coordinate, compressed/decompressed byte count, JPEG payload, cursor pixel, or latency value appears in any diagnostic export or log (constitution §IV) — verified by a `DiagnosticExport` rendering test plus static review of the decode path.
+- **SC-007**: Viewport-aware request-region candidates are considered promotion-ready for poor network conditions only when the benchmark shows a meaningful requested-area reduction versus `full` (reported as `requestRegionAreaPermille`), while matching or improving the incumbent's usable-run count, content FPS band, hit-rate band, p95 update tail, and failure-label profile. A candidate that saves area but destabilizes the stream remains a research result, not a production default.
 
 ### Default-Change Promotion Contract
 

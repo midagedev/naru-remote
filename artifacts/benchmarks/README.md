@@ -573,6 +573,22 @@ requests remained the only usable candidate while static `center-half` and
 `center-third` requests starved with incremental read timeouts. Treat this as a
 guardrail: request-region optimization must be viewport-aware and carry a
 full-request fallback or heartbeat before any production default changes.
+Schema v52 adds the benchmark-only
+`--stream-shape-gate-preset sustained-v2-zrle-viewport-region` shape. It keeps
+the same ZRLE request/response controlled-stimulus gate but compares `full`
+against fixed phone-portrait viewport-aware labels, including a heartbeat
+candidate. Reports still contain only labels and aggregate metrics; actual
+request rectangles remain unreported. The first v52 live artifact is
+`2026-06-06-viewport-region-foundation-summary.md`; it keeps `full` as the only
+stable candidate and routes the next larger unit to request/response transport
+cadence plus region-timeout recovery before any app default changes.
+Schema v53 adds `requestRegionAreaPermille`, a traffic-pressure proxy for
+poor-network promotion work. It reports only the requested framebuffer area as a
+0...1000 ratio relative to the full framebuffer (`full` = 1000); it does not
+emit byte counts, dimensions, coordinates, pixels, or payloads. Treat this
+metric together with usable runs, hit-rate, p95 update tail, failure labels, and
+full fallback/heartbeat behavior: area savings without stability is not a
+production default candidate.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

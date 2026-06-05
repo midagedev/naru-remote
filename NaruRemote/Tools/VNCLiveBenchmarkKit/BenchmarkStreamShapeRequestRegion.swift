@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import NaruRemoteCore
 
@@ -5,6 +6,8 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
     case full
     case centerHalf = "center-half"
     case centerThird = "center-third"
+    case viewportPhonePortrait = "viewport-phone-portrait"
+    case viewportPhonePortraitHeartbeat = "viewport-phone-portrait-heartbeat"
 
     public static var usageDescription: String {
         allCases.map(\.rawValue).joined(separator: "|")
@@ -16,7 +19,50 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         .centerThird
     ]
 
+    public static let viewportRequestRegionSweep: [BenchmarkStreamShapeRequestRegion] = [
+        .full,
+        .viewportPhonePortrait,
+        .viewportPhonePortraitHeartbeat
+    ]
+
+    public var allowsRegionTimeoutFullFallback: Bool {
+        switch self {
+        case .viewportPhonePortrait, .viewportPhonePortraitHeartbeat:
+            return true
+        case .full, .centerHalf, .centerThird:
+            return false
+        }
+    }
+
     public func region(width: Int, height: Int) -> RFBFramebufferUpdateRegion? {
+        region(width: width, height: height, incrementalRequestIndex: 1)
+    }
+
+    public func requestAreaPermille(width: Int, height: Int) -> Int {
+        let safeWidth = min(max(width, 0), Int(UInt16.max))
+        let safeHeight = min(max(height, 0), Int(UInt16.max))
+        guard safeWidth > 0, safeHeight > 0 else {
+            return 1_000
+        }
+
+        switch self {
+        case .viewportPhonePortraitHeartbeat:
+            return heartbeatRequestAreaPermille(width: safeWidth, height: safeHeight, interval: 5)
+        case .full, .centerHalf, .centerThird, .viewportPhonePortrait:
+            return requestAreaPermille(
+                for: region(width: safeWidth, height: safeHeight, incrementalRequestIndex: 1),
+                framebufferWidth: safeWidth,
+                framebufferHeight: safeHeight
+            )
+        }
+    }
+
+    public func region(
+        width: Int,
+        height: Int,
+        incrementalRequestIndex: Int,
+        regionTimeoutStreak: Int = 0
+    ) -> RFBFramebufferUpdateRegion? {
         switch self {
         case .full:
             return nil
@@ -24,6 +70,22 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
             return centeredRegion(width: width, height: height, divisor: 2)
         case .centerThird:
             return centeredRegion(width: width, height: height, divisor: 3)
+        case .viewportPhonePortrait:
+            return phonePortraitViewportRegion(
+                width: width,
+                height: height,
+                incrementalRequestIndex: incrementalRequestIndex,
+                regionTimeoutStreak: regionTimeoutStreak,
+                fullHeartbeatInterval: nil
+            )
+        case .viewportPhonePortraitHeartbeat:
+            return phonePortraitViewportRegion(
+                width: width,
+                height: height,
+                incrementalRequestIndex: incrementalRequestIndex,
+                regionTimeoutStreak: regionTimeoutStreak,
+                fullHeartbeatInterval: 5
+            )
         }
     }
 
@@ -43,6 +105,70 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
             y: UInt16(y),
             width: UInt16(regionWidth),
             height: UInt16(regionHeight)
+        )
+    }
+
+    private func heartbeatRequestAreaPermille(width: Int, height: Int, interval: Int) -> Int {
+        let interval = max(interval, 1)
+        let permilles = (1...interval).map { index in
+            requestAreaPermille(
+                for: region(width: width, height: height, incrementalRequestIndex: index),
+                framebufferWidth: width,
+                framebufferHeight: height
+            )
+        }
+        return Int((Double(permilles.reduce(0, +)) / Double(interval)).rounded())
+    }
+
+    private func requestAreaPermille(
+        for region: RFBFramebufferUpdateRegion?,
+        framebufferWidth: Int,
+        framebufferHeight: Int
+    ) -> Int {
+        guard let region else {
+            return 1_000
+        }
+        let framebufferArea = max(framebufferWidth * framebufferHeight, 1)
+        let regionArea = Int(region.width) * Int(region.height)
+        let rounded = Int((Double(regionArea) / Double(framebufferArea) * 1_000).rounded())
+        return regionArea > 0 ? min(max(rounded, 1), 1_000) : 0
+    }
+
+    private func phonePortraitViewportRegion(
+        width: Int,
+        height: Int,
+        incrementalRequestIndex: Int,
+        regionTimeoutStreak: Int,
+        fullHeartbeatInterval: Int?
+    ) -> RFBFramebufferUpdateRegion? {
+        let safeWidth = min(max(width, 0), Int(UInt16.max))
+        let safeHeight = min(max(height, 0), Int(UInt16.max))
+        guard safeWidth > 0, safeHeight > 0 else {
+            return nil
+        }
+
+        let framebufferSize = CGSize(width: safeWidth, height: safeHeight)
+        let viewSize = CGSize(width: 390, height: 844)
+        let fit = ViewportTransform(framebufferSize: framebufferSize, viewSize: viewSize)
+        let fillZoom = max(
+            viewSize.width / framebufferSize.width,
+            viewSize.height / framebufferSize.height
+        ) / fit.fitScale
+        let transform = ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: viewSize,
+            zoomScale: fillZoom
+        )
+        let policy = ViewportRequestRegionPolicy(
+            expansionMarginPixels: 96,
+            minimumSavingsPermille: 100,
+            fullHeartbeatInterval: fullHeartbeatInterval,
+            fullFallbackTimeoutStreak: 1
+        )
+        return policy.requestRegion(
+            for: transform,
+            incrementalRequestIndex: incrementalRequestIndex,
+            regionTimeoutStreak: regionTimeoutStreak
         )
     }
 }
