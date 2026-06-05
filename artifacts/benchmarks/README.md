@@ -102,6 +102,11 @@ candidate deserves the same sustained v2 gate. The first live run with this
 preset routes to `compareRequestResponseEncodingProfiles`, with
 `adaptive-good-full` as the order-neutral request/response label, but remains
 not benchmark-green.
+Current request/response probe isolation cleanup:
+`artifacts/benchmarks/2026-06-06-request-response-preset-skips-continuous-probe.md`.
+The request/response preset now sets `continuousUpdateSamples` to 0 so the
+standalone `continuousUpdatesProbe` reports `not-tested` instead of adding known
+ContinuousUpdates blocker noise to request/response-only comparisons.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -388,6 +393,9 @@ stream-shape options without the preset for custom experiments.
 `sustained-v2-request-response` keeps the core matrix gate shape but measures
 request/response only, so request/response candidates can be compared after
 ContinuousUpdates has already been routed to support inspection.
+For this preset the standalone ContinuousUpdates probe is also skipped:
+`continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
+`not-tested`.
 Schema v40 extends stream-shape `practicalAssessment` with
 `primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe`, using the
 same fixed sustained-session triage catalog as diagnostic JSON v28. Treat these
