@@ -1056,3 +1056,35 @@ gesture-time redraw decisions.
 catalog buckets, and fixed labels. They must not export gesture coordinates,
 display dimensions, pixels, cursor pixels, byte counts, raw timestamps, raw
 timing samples, host identity, raw errors, device model, or Compose draft text.
+
+## D36 — Viewport stutter diagnostics need a fixed hint label
+
+References:
+- Apple MetricKit `MXAnimationMetric`:
+  https://developer.apple.com/documentation/metrickit/mxanimationmetric
+- Apple MetricKit overview:
+  https://developer.apple.com/documentation/metrickit
+- RFC 6143 framebuffer update request:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: active-session diagnostics schema v19 derives a fixed-catalog
+`viewportStutterHint` from the safe v18 viewport ratios:
+`notMeasured`, `none`, `gestureLoopPressure`, `incomingFrameDeferral`, or
+`mixedViewportPressure`.
+
+**Why**:
+- Physical iPhone feedback can arrive as a copied diagnostic JSON without raw
+  trace files. A fixed label gives the next debugging turn an immediate branch:
+  tune the local gesture/render loop, tune stream redraw deferral, or investigate
+  both.
+- Apple MetricKit treats animation hitches as ratios rather than raw frame
+  timestamps in its aggregate animation metrics. Naru's hint follows that same
+  privacy-preserving shape while remaining session-local and manually shared.
+- RFC 6143 permits a fast client to regulate incremental update requests to
+  avoid excessive traffic. That makes `incomingFrameDeferral` a legitimate
+  protocol-side signal, not automatically a local rendering failure.
+
+**Privacy rule**: diagnostics export only the fixed hint label and the existing
+aggregate counts/ratios/buckets. They must not export raw gesture timestamps,
+coordinates, display dimensions, pixels, cursor pixels, byte counts, raw
+network errors, device model, host identity, or Compose draft text.
