@@ -681,6 +681,14 @@ iPhone) and ships as its own PR.
   so delayed IME commits have more room to settle before paste dispatch. Owns:
   pointer resolver tuning/tests, Metal viewport host, RemoteInputDock sync
   tests, benchmark artifact, research note. **Done.**
+- **T394** Compose Send preparation diagnostics for T390: after T393 widened
+  marked-text stabilization, expose safe diagnostic JSON v24 fields for the
+  latest Compose Send preparation mode, bounded snapshot count, and timing
+  bucket so physical iPhone tests can tell whether perceived send delay comes
+  from fast snapshots or marked-text stabilization. Do not export draft text,
+  raw timings, IME contents, host identity, or coordinates. Owns: Core
+  diagnostic schema/tests, RemoteInputDock callback, app model diagnostic
+  plumbing/tests, benchmark artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

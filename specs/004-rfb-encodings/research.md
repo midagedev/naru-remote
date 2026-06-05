@@ -2339,3 +2339,46 @@ fixed tuning labels, safe pass/fail verification status, and target names. They
 must not include host identity, credentials, framebuffer dimensions, rectangle
 coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads,
 raw text entered by a user, hidden preflight contents, or raw error text.
+
+## D63 — Add safe Compose Send preparation diagnostics before T390
+
+References:
+- Apple Text Programming Guide for iOS, managing text views:
+  https://developer.apple.com/library/archive/documentation/StringsTextFonts/Conceptual/TextAndWebiPhoneOS/
+
+**Decision**: bump diagnostic JSON to schema v24 and export three safe fields
+for the latest Compose Send preparation step: fixed mode
+(`fastSnapshot` or `markedTextStabilization`), bounded snapshot count, and a
+coarse `DiagnosticTimingBucket` duration.
+
+**Why**:
+- T393 deliberately widened marked-text stabilization to avoid delayed Korean
+  or CJK IME commit loss, but that can make Send feel slower. T390 needs enough
+  diagnostic detail to distinguish a normal fast Compose Send from a
+  marked-text stabilization Send without exporting draft text.
+- The preparation step happens in the local input dock before app-model text
+  injection begins, so `latestInjectionDurationBucket` alone cannot explain
+  user-perceived delay before paste dispatch.
+- Mode, count, and bucket are fixed catalog/aggregate signals. They explain the
+  local input path while preserving the project's diagnostic privacy boundary.
+
+**Evidence**:
+- `RemoteInputDockSyncPolicyTests` cover fast vs marked-text preparation plans.
+- `NaruRemoteAppModelTests` prove the diagnostic export includes preparation
+  mode/count/bucket without exporting the Compose draft, and clears stale
+  preparation diagnostics when the user edits the draft.
+- `DiagnosticExportTests` cover schema v24, JSON rendering, decoding, and
+  unsafe catalog value clamping.
+
+**Interpretation**:
+- During the physical iPhone T390 pass, a `markedTextStabilization` mode paired
+  with a lagging/stalled bucket means the extra local IME settle window is a
+  plausible contributor to perceived send delay. A `fastSnapshot` mode with a
+  sub-frame/interactive bucket points the investigation back to paste transport
+  or remote app behavior.
+
+**Privacy rule**: Compose Send preparation diagnostics may report only fixed
+mode labels, bounded snapshot count, and coarse timing bucket. They must not
+include draft text, marked text, raw timings, raw IME state, host identity,
+credentials, framebuffer dimensions, coordinates, pixels, cursor pixels, byte
+counts, raw payloads, or raw errors.

@@ -993,6 +993,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case composePlannedPath
         case composeUTF8ClipboardSupport
         case composeRouteBlocker
+        case latestComposeSendPreparationMode
+        case latestComposeSendPreparationSnapshotCount
+        case latestComposeSendPreparationDurationBucket
         case helperTextBridgeAvailability
         case helperTextBridgeLastFailureCode
         case helperTextBridgeLastCheckedBucket
@@ -1015,6 +1018,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let composePlannedPath: String?
     public let composeUTF8ClipboardSupport: String?
     public let composeRouteBlocker: String?
+    public let latestComposeSendPreparationMode: String?
+    public let latestComposeSendPreparationSnapshotCount: Int?
+    public let latestComposeSendPreparationDurationBucket: String?
     public let helperTextBridgeAvailability: String?
     public let helperTextBridgeLastFailureCode: String?
     public let helperTextBridgeLastCheckedBucket: String?
@@ -1037,6 +1043,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         composePlannedPath: String? = nil,
         composeUTF8ClipboardSupport: String? = nil,
         composeRouteBlocker: String? = nil,
+        latestComposeSendPreparationMode: String? = nil,
+        latestComposeSendPreparationSnapshotCount: Int? = nil,
+        latestComposeSendPreparationDurationBucket: String? = nil,
         helperTextBridgeAvailability: String? = nil,
         helperTextBridgeLastFailureCode: String? = nil,
         helperTextBridgeLastCheckedBucket: String? = nil,
@@ -1058,6 +1067,15 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.composePlannedPath = Self.safeInjectionPath(composePlannedPath)
         self.composeUTF8ClipboardSupport = Self.safeUTF8ClipboardSupport(composeUTF8ClipboardSupport)
         self.composeRouteBlocker = Self.safeComposeRouteBlocker(composeRouteBlocker)
+        self.latestComposeSendPreparationMode = Self.safeComposeSendPreparationMode(
+            latestComposeSendPreparationMode
+        )
+        self.latestComposeSendPreparationSnapshotCount = latestComposeSendPreparationSnapshotCount.map {
+            max($0, 0)
+        }
+        self.latestComposeSendPreparationDurationBucket = Self.safeOptionalTimingBucket(
+            latestComposeSendPreparationDurationBucket
+        )
         self.helperTextBridgeAvailability = Self.safeHelperTextBridgeAvailability(
             helperTextBridgeAvailability
         )
@@ -1092,6 +1110,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         composePlannedPath: TextInjectionPath? = nil,
         composeUTF8ClipboardSupport: RemoteClipboardUTF8Support? = nil,
         composeRouteBlocker: DiagnosticComposeRouteBlocker? = nil,
+        latestComposeSendPreparation: ComposeSendPreparationReport? = nil,
         helperTextBridgeState: HelperTextBridgeProfileState? = nil
     ) {
         self.init(
@@ -1104,6 +1123,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             composePlannedPath: composePlannedPath?.rawValue,
             composeUTF8ClipboardSupport: composeUTF8ClipboardSupport?.rawValue,
             composeRouteBlocker: composeRouteBlocker?.rawValue,
+            latestComposeSendPreparationMode: latestComposeSendPreparation?.mode.rawValue,
+            latestComposeSendPreparationSnapshotCount: latestComposeSendPreparation?.snapshotCount,
+            latestComposeSendPreparationDurationBucket: latestComposeSendPreparation?.durationBucket.rawValue,
             helperTextBridgeAvailability: helperTextBridgeState?.availability.rawValue,
             helperTextBridgeLastFailureCode: helperTextBridgeState?.lastFailureCode?.rawValue,
             helperTextBridgeLastCheckedBucket: helperTextBridgeState?.lastCheckedBucket.rawValue,
@@ -1144,6 +1166,18 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
                 forKey: .composeUTF8ClipboardSupport
             ),
             composeRouteBlocker: try container.decodeIfPresent(String.self, forKey: .composeRouteBlocker),
+            latestComposeSendPreparationMode: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestComposeSendPreparationMode
+            ),
+            latestComposeSendPreparationSnapshotCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .latestComposeSendPreparationSnapshotCount
+            ),
+            latestComposeSendPreparationDurationBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestComposeSendPreparationDurationBucket
+            ),
             helperTextBridgeAvailability: try container.decodeIfPresent(
                 String.self,
                 forKey: .helperTextBridgeAvailability
@@ -1199,6 +1233,17 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safeComposeRouteBlocker(_ value: String?) -> String? {
         safe(value, allowed: Set(DiagnosticComposeRouteBlocker.allCases.map(\.rawValue)))
+    }
+
+    private static func safeComposeSendPreparationMode(_ value: String?) -> String? {
+        safe(value, allowed: Set(ComposeSendPreparationMode.allCases.map(\.rawValue)))
+    }
+
+    private static func safeOptionalTimingBucket(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        return DiagnosticTimingBucket(rawValue: value)?.rawValue
     }
 
     private static func safeHelperTextBridgeAvailability(_ value: String?) -> String? {
@@ -1294,7 +1339,7 @@ public enum DiagnosticFailureCodeCatalog {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 23
+    public static let currentSchemaVersion = 24
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

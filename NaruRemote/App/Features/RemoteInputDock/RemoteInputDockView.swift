@@ -38,6 +38,7 @@ public struct RemoteInputDockView: View {
     private let helperStatusText: String?
     private let onSend: (String) -> Void
     private let onTextChange: (String) -> Void
+    private let onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
     private let stickyModifierState: StickyModifierState
     private let layoutStyle: RemoteInputDockLayoutStyle
@@ -61,6 +62,7 @@ public struct RemoteInputDockView: View {
         helperStatusText: String? = nil,
         onSend: @escaping (String) -> Void = { _ in },
         onTextChange: @escaping (String) -> Void = { _ in },
+        onComposeSendPreparation: @escaping (ComposeSendPreparationReport) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         layoutStyle: RemoteInputDockLayoutStyle = .standard,
@@ -82,6 +84,7 @@ public struct RemoteInputDockView: View {
         self.helperStatusText = helperStatusText
         self.onSend = onSend
         self.onTextChange = onTextChange
+        self.onComposeSendPreparation = onComposeSendPreparation
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.layoutStyle = layoutStyle
@@ -526,21 +529,26 @@ public struct RemoteInputDockView: View {
         }
         propagateComposeTextToModelIfNeeded(immediateText)
         Task { @MainActor in
-            let snapshotCount = hadMarkedTextBeforeSend
-                ? Self.composeSendStabilizationSnapshotCount
-                : Self.composeSendFastSnapshotCount
-            let snapshotDelayNanoseconds = hadMarkedTextBeforeSend
-                ? Self.composeSendStabilizationDelayNanoseconds
-                : Self.composeSendFastDelayNanoseconds
+            let plan = Self.composeSendPreparationPlan(hadMarkedTextBeforeSend: hadMarkedTextBeforeSend)
+            let preparationStartedAt = Date()
             let finalText = await composeCommitController.readStabilizedCurrentText(
                 fallback: immediateText,
-                snapshotCount: snapshotCount,
-                snapshotDelayNanoseconds: snapshotDelayNanoseconds
+                snapshotCount: plan.snapshotCount,
+                snapshotDelayNanoseconds: plan.snapshotDelayNanoseconds
+            )
+            let preparationMilliseconds = Int(
+                (Date().timeIntervalSince(preparationStartedAt) * 1_000).rounded()
+            )
+            let preparationReport = ComposeSendPreparationReport(
+                mode: plan.mode,
+                snapshotCount: plan.snapshotCount,
+                durationBucket: DiagnosticTimingBucket.bucket(milliseconds: preparationMilliseconds)
             )
             if finalText != text {
                 text = finalText
             }
             propagateComposeTextToModelIfNeeded(finalText)
+            onComposeSendPreparation(preparationReport)
             isPreparingComposeSend = false
             guard !finalText.isEmpty else { return }
             onSend(finalText)
@@ -548,6 +556,27 @@ public struct RemoteInputDockView: View {
         #else
         onSend(text)
         #endif
+    }
+
+    nonisolated static func composeSendPreparationPlan(
+        hadMarkedTextBeforeSend: Bool
+    ) -> (
+        mode: ComposeSendPreparationMode,
+        snapshotCount: Int,
+        snapshotDelayNanoseconds: UInt64
+    ) {
+        if hadMarkedTextBeforeSend {
+            return (
+                .markedTextStabilization,
+                composeSendStabilizationSnapshotCount,
+                composeSendStabilizationDelayNanoseconds
+            )
+        }
+        return (
+            .fastSnapshot,
+            composeSendFastSnapshotCount,
+            composeSendFastDelayNanoseconds
+        )
     }
 
     private func shouldApplyExternalComposeText(_ newValue: String) -> Bool {
