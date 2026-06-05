@@ -107,6 +107,12 @@ Current request/response probe isolation cleanup:
 The request/response preset now sets `continuousUpdateSamples` to 0 so the
 standalone `continuousUpdatesProbe` reports `not-tested` instead of adding known
 ContinuousUpdates blocker noise to request/response-only comparisons.
+Current controlled stimulus cadence artifact:
+`artifacts/benchmarks/2026-06-06-stimulus-cadence-target-summary.md`.
+Schema v44 reports the configured stimulus frame interval and expected FPS,
+and passes the same cadence to `VNCLiveStimulusWindow`, so low content FPS can
+be interpreted against a known 12 Hz controlled stimulus before changing app
+defaults.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -435,6 +441,16 @@ request-response encoding profiles, or move to a physical-device sustained
 gate. Do not add raw timings, raw TCP/RFB errors, host identity, dimensions,
 coordinates, pixels, cursor pixels, byte counts, raw payloads, command text,
 command output, draft text, marked text, or IME state to this diagnosis.
+Schema v44 adds `streamShapeStimulusFrameIntervalSeconds` and
+`streamShapeStimulusExpectedFramesPerSecond`. The sustained v2 presets pass the
+same configured 12 Hz cadence to `VNCLiveStimulusWindow` through
+`NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS`. Treat the v2 content-FPS target as
+8fps against that known stimulus: if expected stimulus FPS is 12 but measured
+content FPS stays near 2, route the next unit to server/transport/profile
+cadence inspection rather than blaming the stimulus helper or renderer upload
+alone. Do not emit stimulus command text, command output, host identity,
+coordinates, pixels, cursor pixels, byte counts, raw timings, draft text,
+marked text, or IME state with these fields.
 Diagnostic collection schema v27 adds the app-side
 `viewerStreamEncodingMode` fixed label so physical iPhone runs can be matched
 to the benchmark candidate selected in app settings without exporting raw

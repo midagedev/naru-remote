@@ -101,6 +101,7 @@ enum VNCLiveBenchmark {
                 pacingPolicy: streamShapePacingPolicy,
                 stimulusMode: options.streamShapeStimulusMode,
                 stimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds,
+                stimulusFrameInterval: options.streamShapeStimulusFrameInterval,
                 preflightFrames: options.streamShapePreflightFrames,
                 practicalTargets: options.streamShapePracticalTarget.targets,
                 iterationOrdinal: scheduledProbe.iterationOrdinal,
@@ -136,6 +137,7 @@ enum VNCLiveBenchmark {
             streamShapeViewportInteractionPauseSeconds: options.streamShapeViewportInteractionPauseSeconds,
             streamShapeStimulusMode: options.streamShapeStimulusMode,
             streamShapeStimulusWarmupSeconds: options.streamShapeStimulusWarmupSeconds,
+            streamShapeStimulusFrameInterval: options.streamShapeStimulusFrameInterval,
             streamShapePreflightFrames: options.streamShapePreflightFrames,
             streamShapePracticalTarget: options.streamShapePracticalTarget,
             streamShapeGatePreset: options.streamShapeGatePreset,
@@ -380,6 +382,7 @@ enum VNCLiveBenchmark {
         pacingPolicy: BenchmarkStreamShapePacingPolicy,
         stimulusMode: BenchmarkStreamShapeStimulusMode,
         stimulusWarmupSeconds: TimeInterval,
+        stimulusFrameInterval: TimeInterval,
         preflightFrames: Int,
         practicalTargets: BenchmarkStreamShapePracticalTargets
     ) -> StreamShapeProbeReport {
@@ -449,7 +452,8 @@ enum VNCLiveBenchmark {
             maxSamples: maxSamples,
             durationLimit: durationLimit,
             idleTimeout: idleTimeout,
-            warmupSeconds: stimulusWarmupSeconds
+            warmupSeconds: stimulusWarmupSeconds,
+            frameInterval: stimulusFrameInterval
         )
         guard stimulusStart.failureLabel == nil else {
             return StreamShapeProbeReport(
@@ -641,6 +645,7 @@ enum VNCLiveBenchmark {
         pacingPolicy: BenchmarkStreamShapePacingPolicy,
         stimulusMode: BenchmarkStreamShapeStimulusMode,
         stimulusWarmupSeconds: TimeInterval,
+        stimulusFrameInterval: TimeInterval,
         preflightFrames: Int,
         practicalTargets: BenchmarkStreamShapePracticalTargets,
         iterationOrdinal: Int? = nil,
@@ -657,6 +662,7 @@ enum VNCLiveBenchmark {
             pacingPolicy: pacingPolicy,
             stimulusMode: stimulusMode,
             stimulusWarmupSeconds: stimulusWarmupSeconds,
+            stimulusFrameInterval: stimulusFrameInterval,
             preflightFrames: preflightFrames,
             practicalTargets: practicalTargets
         )
@@ -765,7 +771,8 @@ enum VNCLiveBenchmark {
         maxSamples: Int,
         durationLimit: TimeInterval?,
         idleTimeout: TimeInterval,
-        warmupSeconds: TimeInterval
+        warmupSeconds: TimeInterval,
+        frameInterval: TimeInterval
     ) -> StreamShapeStimulusStart {
         switch mode {
         case .off:
@@ -795,6 +802,7 @@ enum VNCLiveBenchmark {
                         warmupSeconds: warmupSeconds
                     )
                 ),
+                frameIntervalSeconds: String(frameInterval),
                 profileLabel: profile.label,
                 transportMode: transportMode.rawValue
             )
@@ -960,6 +968,7 @@ private struct BenchmarkOptions: Equatable {
         .appViewportInteractionSyntheticPauseSeconds
     var streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode = .off
     var streamShapeStimulusWarmupSeconds: TimeInterval = 0.25
+    var streamShapeStimulusFrameInterval: TimeInterval = 1.0 / 12.0
     var streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.defaultValue
     var streamShapePracticalTarget = BenchmarkStreamShapePracticalTargetSelection.defaultSelection
     var streamShapeGatePreset: BenchmarkStreamShapeGatePreset = .none
@@ -1081,6 +1090,13 @@ private struct BenchmarkOptions: Equatable {
             case "--stream-shape-stimulus-warmup-seconds":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.streamShapeStimulusWarmupSeconds = try nonNegativeTimeInterval(
+                    value,
+                    option: argument
+                )
+                index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-stimulus-frame-interval":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.streamShapeStimulusFrameInterval = try positiveTimeInterval(
                     value,
                     option: argument
                 )
@@ -1216,6 +1232,7 @@ private struct BenchmarkOptions: Equatable {
         streamShapeViewportInteractionMode = .app
         streamShapeStimulusMode = .externalCommand
         streamShapeStimulusWarmupSeconds = 0.25
+        streamShapeStimulusFrameInterval = 1.0 / 12.0
         streamShapePreflightFrames = 0
         streamShapePracticalTarget = .iPhoneSustainedUsability
         firstFrameProfiles = .none
@@ -1588,6 +1605,8 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeViewportInteractionMode: BenchmarkStreamShapeViewportInteractionMode
     let streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode
     let streamShapeStimulusWarmupSeconds: TimeInterval
+    let streamShapeStimulusFrameIntervalSeconds: TimeInterval
+    let streamShapeStimulusExpectedFramesPerSecond: Double?
     let streamShapePreflightFrames: Int
     let streamShapePracticalTarget: BenchmarkStreamShapePracticalTargetSelection
     let streamShapeGatePreset: BenchmarkStreamShapeGatePreset
@@ -1646,6 +1665,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeViewportInteractionPauseSeconds _: TimeInterval,
         streamShapeStimulusMode: BenchmarkStreamShapeStimulusMode,
         streamShapeStimulusWarmupSeconds: TimeInterval,
+        streamShapeStimulusFrameInterval: TimeInterval,
         streamShapePreflightFrames: Int,
         streamShapePracticalTarget: BenchmarkStreamShapePracticalTargetSelection,
         streamShapeGatePreset: BenchmarkStreamShapeGatePreset,
@@ -1660,7 +1680,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 43
+        self.schemaVersion = 44
         self.target = "configured-redacted"
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -1675,6 +1695,10 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeViewportInteractionMode = streamShapeViewportInteractionMode
         self.streamShapeStimulusMode = streamShapeStimulusMode
         self.streamShapeStimulusWarmupSeconds = streamShapeStimulusWarmupSeconds
+        self.streamShapeStimulusFrameIntervalSeconds = streamShapeStimulusFrameInterval
+        self.streamShapeStimulusExpectedFramesPerSecond = streamShapeStimulusMode == .externalCommand
+            ? 1 / max(streamShapeStimulusFrameInterval, 0.001)
+            : nil
         self.streamShapePreflightFrames = BenchmarkStreamShapePreflightFrames.clamped(streamShapePreflightFrames)
         self.streamShapePracticalTarget = streamShapePracticalTarget
         self.streamShapeGatePreset = streamShapeGatePreset
@@ -1727,7 +1751,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "renderer upload metrics emit aggregate strategy counts only",
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
             "zrle decode phase timing metrics emit aggregate millisecond summaries only",
-            "stream-shape stimulus reports emit only fixed mode labels and warmup seconds; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
+            "stream-shape stimulus reports emit only fixed mode labels, warmup seconds, and configured cadence; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
             "profile-order metrics emit only fixed iteration/order ordinals and aggregate per-profile summaries",
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
             "practical target reports emit only fixed target names, fixed verdicts, fixed issue codes, fixed triage labels, and aggregate threshold outcomes",
@@ -1986,6 +2010,13 @@ private func renderText(_ report: BenchmarkReport) {
     print("stream-shape viewport interaction: \(report.streamShapeViewportInteractionMode.rawValue)")
     print("stream-shape stimulus: \(report.streamShapeStimulusMode.rawValue)")
     print("stream-shape stimulus warmup seconds: \(formatSeconds(report.streamShapeStimulusWarmupSeconds))")
+    print(
+        "stream-shape stimulus frame interval seconds: "
+            + "\(formatSeconds(report.streamShapeStimulusFrameIntervalSeconds))"
+    )
+    if let expectedFPS = report.streamShapeStimulusExpectedFramesPerSecond {
+        print("stream-shape stimulus expected FPS: \(formatFramesPerSecond(expectedFPS))")
+    }
     print("stream-shape preflight frames: \(report.streamShapePreflightFrames)")
     print("stream-shape practical target: \(report.streamShapePracticalTarget.rawValue)")
     print("stream-shape gate preset: \(report.streamShapeGatePreset.rawValue)")
@@ -2554,13 +2585,13 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app pressure/viewport pacing, 10 second duration, and schema v43 gate reporting. Use individual stream-shape options without a preset for custom experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app pressure/viewport pacing, 10 second duration, 12 Hz stimulus cadence, and schema v44 gate reporting. Use individual stream-shape options without a preset for custom experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
@@ -2581,6 +2612,8 @@ private func printUsage() {
                                 Optional dynamic-content stimulus for stream-shape probes. Defaults to off. external-command runs NARU_LIVE_STIMULUS_COMMAND once per stream-shape probe and never emits the command text or output.
       --stream-shape-stimulus-warmup-seconds SECONDS
                                 Delay after launching the external stimulus before starting stream-shape samples. Defaults to 0.25 seconds.
+      --stream-shape-stimulus-frame-interval SECONDS
+                                Configured frame interval passed to the external stimulus child. Defaults to 0.083 seconds, i.e. a 12 Hz controlled stimulus.
       --stream-shape-preflight-frames N
                                 Hidden incremental frames to consume after the first stream-shape frame and before measured samples. Defaults to 0; maximum 5.
       --stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2
@@ -2606,7 +2639,7 @@ private func printUsage() {
       NARU_LIVE_MAC_PASSWORD   redacted from output; optional when --ask-password is used
       NARU_LIVE_MAC_PORT       optional, defaults to 5900
       NARU_LIVE_STIMULUS_COMMAND
-                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, and NARU_LIVE_STIMULUS_TRANSPORT_MODE.
+                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, and NARU_LIVE_STIMULUS_TRANSPORT_MODE.
 
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.
