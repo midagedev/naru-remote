@@ -113,6 +113,11 @@ Schema v44 reports the configured stimulus frame interval and expected FPS,
 and passes the same cadence to `VNCLiveStimulusWindow`, so low content FPS can
 be interpreted against a known 12 Hz controlled stimulus before changing app
 defaults.
+Current steady-stream gate alignment artifact:
+`artifacts/benchmarks/2026-06-06-steady-stream-v2-gate-summary.md`.
+The sustained v2 presets now keep viewport-interaction mode off so the 8fps
+content target measures steady stream cadence. Active zoom/pan smoothness stays
+gated by the physical iPhone pass and by custom interaction experiments.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -402,6 +407,12 @@ ContinuousUpdates has already been routed to support inspection.
 For this preset the standalone ContinuousUpdates probe is also skipped:
 `continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
 `not-tested`.
+The sustained v2 presets are steady-stream gates: they keep
+`streamShapeViewportInteractionMode=off` so the 8fps controlled-stimulus target
+is not capped by the app's active viewport-interaction 4 Hz pacing floor. Use a
+custom non-preset command with `--stream-shape-viewport-interaction app` only
+when measuring active zoom/pan stream pressure; physical iPhone diagnostics
+remain the promotion gate for hand-feel.
 Schema v40 extends stream-shape `practicalAssessment` with
 `primaryIssueCode`, `primaryConstraint`, and `recommendedNextProbe`, using the
 same fixed sustained-session triage catalog as diagnostic JSON v28. Treat these
@@ -492,10 +503,11 @@ streaming changes: the selected order-neutral profile should keep 0 permille
 renderer full-upload pressure, stay at or below 250 ms average update, 500 ms
 max p95 update, and 30 ms max client-processing p95, and avoid unsafe diagnostic
 fields. The practical-use target is higher: controlled-stimulus content FPS at
-8 fps or better, 180 ms average update or better, p95 below 350 ms after
-warm-up, 0 permille renderer full-upload pressure, immediate local zoom/pan
-transforms, deterministic Compose route diagnostics, and a physical iPhone
-10 minute session without `.serious` or `.critical` thermal state.
+8 fps or better in the steady-stream gate, 180 ms average update or better,
+p95 below 350 ms after warm-up, 0 permille renderer full-upload pressure,
+immediate local zoom/pan transforms in the physical gate, deterministic Compose
+route diagnostics, and a physical iPhone 10 minute session without `.serious`
+or `.critical` thermal state.
 The current interaction baseline keeps visible pinch/pan/trackpad movement on
 the UIKit/Core Animation path, defers SwiftUI/PiP viewport mirroring until the
 gesture settles, keeps zoomed trackpad cursor travel finger-paced while
