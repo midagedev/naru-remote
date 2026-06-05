@@ -607,6 +607,19 @@ public struct RemoteInputDockView: View {
             return true
         }
 
+        if isFirstResponder,
+           !currentUIKitText.isEmpty,
+           proposedText.isEmpty {
+            return true
+        }
+
+        if isFirstResponder,
+           !proposedText.isEmpty,
+           proposedText.count < currentUIKitText.count,
+           currentUIKitText.hasPrefix(proposedText) {
+            return true
+        }
+
         return isFirstResponder
             && proposedText == lastAppliedBindingText
             && currentUIKitText != proposedText
@@ -633,6 +646,11 @@ public struct RemoteInputDockView: View {
         }
 
         if newValue.isEmpty {
+            if isComposeFieldFocused,
+               !currentText.isEmpty,
+               currentText != lastAppliedInitialText {
+                return false
+            }
             return true
         }
 

@@ -196,11 +196,16 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var pendingTrackpadCursor: TrackpadCursor?
     private var trackpadCursorPublishTask: Task<Void, Never>?
     private var resolvedTrackpadCursor: TrackpadCursor = TrackpadCursor()
-    /// Roughly one 120 Hz display frame. Keep only the newest move in
-    /// that window so high-refresh touch streams feel live without
-    /// building stale VNC write backlog.
-    private static let pointerMoveCoalescingDelay: Duration = .milliseconds(8)
-    private static let trackpadCursorPublishDelay: Duration = .milliseconds(8)
+    /// Direct button-drag keeps a 120 Hz-class wire cadence because the
+    /// remote object under the pointer is actively being dragged.
+    private static let directPointerMoveCoalescingDelay: Duration = .milliseconds(8)
+    /// Trackpad mode has immediate local cursor feedback, so the remote
+    /// pointer can ride a 60 Hz-class cadence. This keeps stale pointer
+    /// writes from piling up behind the socket on hot phones.
+    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(16)
+    /// Published SwiftUI cursor snapshots are only a mirror; the Metal
+    /// host paints the hot cursor immediately from the gesture result.
+    private static let trackpadCursorPublishDelay: Duration = .milliseconds(33)
     /// Serial tail for outbound pointer events. RFB pointer writes must
     /// preserve gesture order even when Network.framework back-pressures
     /// an individual write; otherwise two quick taps can interleave as
@@ -2670,7 +2675,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 pointerClient: pointerClient,
                 streamID: streamID,
                 sessionID: sessionID,
-                profileID: profileID
+                profileID: profileID,
+                coalescingDelay: Self.trackpadPointerMoveCoalescingDelay
             )
             return result
         }
@@ -3336,8 +3342,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerClient: RFBPointerEventClient,
         streamID: UUID?,
         sessionID: RemoteSession.ID?,
-        profileID: ConnectionProfile.ID?
+        profileID: ConnectionProfile.ID?,
+        coalescingDelay: Duration? = nil
     ) {
+        let coalescingDelay = coalescingDelay ?? Self.directPointerMoveCoalescingDelay
         pendingPointerMove = PendingPointerMove(
             command: command,
             pointerClient: pointerClient,
@@ -3350,7 +3358,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let delay = Self.pointerMoveCoalescingDelay
+        let delay = coalescingDelay
         pointerMoveFlushTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)
