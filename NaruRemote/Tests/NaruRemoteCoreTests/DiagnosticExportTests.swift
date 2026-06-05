@@ -528,6 +528,60 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertFalse(rendered.contains(sessionID.uuidString))
     }
 
+    func testInputReportExportsHelperDisabledAndRevokedCatalogStates() {
+        let disabled = DiagnosticInputReport(
+            composeDraft: nil,
+            latestInjectionAttempt: nil,
+            directKeystrokeModeActive: false,
+            helperTextBridgeState: HelperTextBridgeProfileState(
+                isEnabled: false,
+                pairingFingerprint: "sha256:should-not-export",
+                availability: .disabled,
+                lastFailureCode: .disabled,
+                lastCheckedBucket: .recent
+            )
+        )
+
+        XCTAssertEqual(
+            disabled.helperTextBridgeAvailability,
+            HelperTextBridgeAvailability.disabled.rawValue
+        )
+        XCTAssertEqual(
+            disabled.helperTextBridgeLastFailureCode,
+            HelperTextBridgeFailureCode.disabled.rawValue
+        )
+        XCTAssertEqual(
+            disabled.helperTextBridgeLastCheckedBucket,
+            HelperTextBridgeLastCheckedBucket.recent.rawValue
+        )
+
+        let revoked = DiagnosticInputReport(
+            composeDraft: nil,
+            latestInjectionAttempt: nil,
+            directKeystrokeModeActive: false,
+            helperTextBridgeState: HelperTextBridgeProfileState(
+                isEnabled: false,
+                pairingFingerprint: nil,
+                availability: .revoked,
+                lastFailureCode: .revoked,
+                lastCheckedBucket: .recent
+            )
+        )
+
+        XCTAssertEqual(
+            revoked.helperTextBridgeAvailability,
+            HelperTextBridgeAvailability.revoked.rawValue
+        )
+        XCTAssertEqual(
+            revoked.helperTextBridgeLastFailureCode,
+            HelperTextBridgeFailureCode.revoked.rawValue
+        )
+        XCTAssertEqual(
+            revoked.helperTextBridgeLastCheckedBucket,
+            HelperTextBridgeLastCheckedBucket.recent.rawValue
+        )
+    }
+
     func testInputReportClampsUnsafeCatalogValues() {
         let input = DiagnosticInputReport(
             directKeystrokeModeActive: true,

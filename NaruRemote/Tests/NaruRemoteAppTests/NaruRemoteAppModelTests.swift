@@ -1703,6 +1703,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
         XCTAssertEqual(connector.pasteCommands, [.controlV])
+        for _ in 0..<20
+            where model.snapshot.latestInjectionAttempt?.pasteCommandStatus != .succeeded {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommand, .controlV)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
@@ -1895,6 +1899,159 @@ final class NaruRemoteAppModelTests: XCTestCase {
             model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
             .notConfigured
         )
+    }
+
+    func testDisablingHelperTextBridgeBlocksFutureHelperInsert() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: HelperTextBridgeFailureCode.none,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        model.disableHelperTextBridge(for: profile.id)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+
+        XCTAssertTrue(helper.requests.isEmpty)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, false)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.pairingFingerprint, "sha256:helper-pairing")
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .disabled)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .disabled)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is disabled for this profile."
+        )
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(report.input?.helperTextBridgeAvailability, HelperTextBridgeAvailability.disabled.rawValue)
+        XCTAssertEqual(report.input?.helperTextBridgeLastFailureCode, HelperTextBridgeFailureCode.disabled.rawValue)
+        XCTAssertFalse(json.contains("helper-pairing"))
+    }
+
+    func testRevokingHelperTextBridgeClearsPairingAndBlocksFutureHelperInsert() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: HelperTextBridgeFailureCode.none,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        model.revokeHelperTextBridge(for: profile.id)
+
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, false)
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.pairingFingerprint)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .revoked)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .revoked)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+
+        XCTAssertTrue(helper.requests.isEmpty)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .revoked)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .revoked)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge pairing was revoked."
+        )
+    }
+
+    func testRevokedHelperStateIsNotOverwrittenByLateHelperResult() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient(insertDelayNanoseconds: 120_000_000)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        try await waitForHelperInsertRequests(helper, count: 1)
+
+        model.revokeHelperTextBridge(for: profile.id)
+        for _ in 0..<40 where model.snapshot.latestInjectionAttempt?.status != .sent {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(helper.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, false)
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.pairingFingerprint)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .revoked)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .revoked)
     }
 
     func testModelUpdatesComposeDraftAsUserTypes() throws {
@@ -2566,15 +2723,18 @@ private final class FakeHelperTextInsertClient: HelperTextInsertClient {
     let availability: HelperTextBridgeAvailability
     private let result: HelperTextInsertResult?
     private let error: Error?
+    private let insertDelayNanoseconds: UInt64
 
     init(
         availability: HelperTextBridgeAvailability = .reachable,
         result: HelperTextInsertResult? = nil,
-        error: Error? = nil
+        error: Error? = nil,
+        insertDelayNanoseconds: UInt64 = 0
     ) {
         self.availability = availability
         self.result = result
         self.error = error
+        self.insertDelayNanoseconds = insertDelayNanoseconds
     }
 
     var requests: [HelperTextInsertRequestMetadata] {
@@ -2595,6 +2755,9 @@ private final class FakeHelperTextInsertClient: HelperTextInsertClient {
         recording.withLock { state in
             state.requests.append(metadata)
             state.insertedTexts.append(text)
+        }
+        if insertDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: insertDelayNanoseconds)
         }
         if let result {
             return result
