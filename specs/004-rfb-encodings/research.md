@@ -3882,3 +3882,79 @@ emit host identity, credentials, port values, raw TCP/RFB errors, framebuffer
 dimensions, coordinates, pixels, cursor pixels, byte counts, raw payloads, raw
 timings, raw FPS, stimulus command text, command output, draft text, marked
 text, IME state, or full diagnostic payloads.
+
+## D92 — Phase budget diagnostics decide the next large optimization lane
+
+References:
+- RFC 6143 FramebufferUpdateRequest flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- D90 request cadence health report.
+- D91 request pacing window sweep.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v49 and add a safe aggregate
+`phaseBudget` to stream-shape summaries. The budget derives only from existing
+aggregate-safe timing fields:
+
+- `network-read`: socket/read time already measured inside the receive path;
+- `client-processing`: receive total minus network read, already emitted as
+  client-processing latency;
+- `request-loop`: benchmark sample duration minus receive total, used as a
+  coarse fixed-label bucket for request send, wait outside the measured receive
+  call, scheduling, and frame-pump overhead.
+
+Reports emit only aggregate millisecond summaries, permille shares, and fixed
+dominant phase labels. They do not emit per-sample timings or any target,
+framebuffer, coordinate, byte-count, pixel, cursor, raw error, stimulus command,
+draft, marked-text, or IME data.
+
+**Why**:
+- D91 showed that slower request pacing does not make the current macOS Screen
+  Sharing path practically usable: the best window still misses the 8fps target,
+  while the 12Hz-aligned window lowers p95 only by sacrificing content FPS.
+- The next useful question is not "which pacing delay next?" but whether the
+  p95 tail is dominated by request-loop wait, network/server read, or local
+  decode/client processing.
+- Request cadence health can now route high-content-hit p95 failures to
+  update-wait inspection when the slow-tail dominant phase is request-loop or
+  network-read, and to encoding-profile comparison when it is client-processing.
+
+**Implementation rule**: keep this as a benchmark-diagnostics PR. Do not change
+production stream defaults until a v49 live artifact identifies the dominant
+tail phase and a follow-up optimization PR can target that specific lane.
+
+**Evidence**:
+- Focused tests cover phase-budget share calculation, legacy summary decoding
+  without `phaseBudget`, aggregate phase dominance, and request cadence health
+  routing from high-content-hit p95 failure to `inspectUpdateWaitTiming` when
+  the slow-tail phase is outside client-processing.
+- Help output exposes schema v49 phase-budget gate reporting.
+- A redacted live v49 pacing sweep reported:
+  - `sampleStatus = high-content-hit`;
+  - `latencyStatus = p95-failed`;
+  - `recommendedNextProbe = inspectUpdateWaitTiming`;
+  - `dominantPhase = network-read`;
+  - `slowDominantPhase = network-read`;
+  - `zero-content-delay`: average update 125 ms, max p95 update 505 ms,
+    content FPS 6.52, phase shares network/client/request-loop
+    913/81/5 permille;
+  - `app-balanced-30hz`: average update 137 ms, max p95 update 501 ms,
+    content FPS 4.74, phase shares 962/29/9 permille;
+  - `stimulus-aligned-12hz`: average update 163 ms, max p95 update 459 ms,
+    content FPS 3.04, phase shares 910/83/7 permille.
+
+**Interpretation**:
+- The p95 blocker is not primarily local decode/render in this run. The measured
+  tail is dominated by network/read wait across all pacing windows.
+- Another pacing-delay sweep is unlikely to be the right next unit: the only
+  window that lowers p95 below the hard-fail threshold does so by collapsing
+  content FPS to about 3fps.
+- The next large unit should inspect and reduce request/response update-wait
+  and network-read tail, while keeping production defaults unchanged until that
+  optimization has its own live artifact.
+
+**Privacy rule**: phase-budget reports may emit only fixed phase labels,
+aggregate sample counts, aggregate millisecond summaries, and aggregate permille
+shares. They must not emit host identity, credentials, port values, raw TCP/RFB
+errors, framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts,
+raw payloads, per-sample raw timings, raw FPS, stimulus command text, command
+output, draft text, marked text, IME state, or full diagnostic payloads.

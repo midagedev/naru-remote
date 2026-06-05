@@ -79,6 +79,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
         XCTAssertEqual(try XCTUnwrap(summary.zrleInflateLatency).averageMilliseconds, 3)
         XCTAssertEqual(try XCTUnwrap(summary.zrleTileApplyLatency).p95Milliseconds, 7)
+        XCTAssertEqual(summary.phaseBudget.sampleCount, 2)
+        XCTAssertEqual(summary.phaseBudget.networkReadSharePermille, 838)
+        XCTAssertEqual(summary.phaseBudget.clientProcessingSharePermille, 75)
+        XCTAssertEqual(summary.phaseBudget.requestLoopSharePermille, 88)
+        XCTAssertEqual(summary.phaseBudget.dominantPhase, .networkRead)
+        XCTAssertEqual(summary.phaseBudget.slowUpdateSampleCount, 0)
+        XCTAssertEqual(summary.phaseBudget.slowDominantPhase, .unknown)
+        XCTAssertEqual(try XCTUnwrap(summary.phaseBudget.requestLoopLatency).averageMilliseconds, 3)
+        XCTAssertEqual(try XCTUnwrap(summary.phaseBudget.requestLoopLatency).p95Milliseconds, 5)
         XCTAssertEqual(summary.tailLatency.slowUpdateSamples, 0)
         XCTAssertEqual(summary.tailLatency.verySlowUpdateSamples, 0)
         XCTAssertEqual(summary.rendererUploadSampleCount, 1)
@@ -407,6 +416,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decodedSummary.viewportInteractionPausedRequestPermille, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPausePollCount, 0)
         XCTAssertEqual(decodedSummary.viewportInteractionPausedMilliseconds, 0)
+        XCTAssertEqual(decodedSummary.phaseBudget, .empty)
         XCTAssertEqual(decodedSummary.attemptedSamples, 1)
         XCTAssertEqual(decodedSummary.receivedSamplePermille, 1_000)
         XCTAssertEqual(decodedSummary.unansweredSamplePermille, 0)
@@ -1346,7 +1356,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
     }
 
-    func testRequestCadenceHealthRoutesHighHitSlowTailToPacingWindowTuning() throws {
+    func testRequestCadenceHealthRoutesHighHitRequestLoopTailToUpdateWaitInspection() throws {
         let reports = [
             BenchmarkStreamShapeProfileReport(
                 label: "zrle-compression-0-cursor",
@@ -1357,8 +1367,20 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 summary: BenchmarkStreamShapeSummary(
                     requestedSamples: 8,
                     attemptedSamples: 8,
-                    samples: (0..<7).map { _ in sustainedContentSample(duration: 116) } + [
-                        sustainedContentSample(duration: 508)
+                    samples: (0..<7).map { _ in
+                        phaseBudgetContentSample(
+                            duration: 116,
+                            receiveTotal: 100,
+                            networkRead: 90,
+                            clientProcessing: 10
+                        )
+                    } + [
+                        phaseBudgetContentSample(
+                            duration: 508,
+                            receiveTotal: 120,
+                            networkRead: 100,
+                            clientProcessing: 20
+                        )
                     ],
                     elapsedMilliseconds: 1_320,
                     firstTimeoutMilliseconds: nil,
@@ -1379,7 +1401,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(health.targetName, "iphone-sustained-usability-v2")
         XCTAssertEqual(health.sampleStatus, .highContentHit)
         XCTAssertEqual(health.latencyStatus, .p95Failed)
-        XCTAssertEqual(health.recommendedNextProbe, .tuneRequestPacingWindow)
+        XCTAssertEqual(health.dominantPhase, .networkRead)
+        XCTAssertEqual(health.slowDominantPhase, .requestLoop)
+        XCTAssertEqual(health.recommendedNextProbe, .inspectUpdateWaitTiming)
         XCTAssertEqual(health.requestResponseGateCount, 1)
         XCTAssertEqual(health.requestResponseBlockedGateCount, 1)
         XCTAssertEqual(health.requestResponseAggregateCount, 1)
@@ -1985,6 +2009,27 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             rendererUploadStrategy: .partial,
             rendererUploadRegionCount: 1,
             clientProcessingMilliseconds: 8,
+            zrleTileApplyMilliseconds: 7
+        )
+    }
+
+    private func phaseBudgetContentSample(
+        duration: Int,
+        receiveTotal: Int,
+        networkRead: Int,
+        clientProcessing: Int
+    ) -> BenchmarkStreamShapeSample {
+        BenchmarkStreamShapeSample(
+            kind: .contentUpdate,
+            durationMilliseconds: duration,
+            dirtyRectangleCount: 1,
+            dirtyAreaPermille: 10,
+            changedPixelsPermille: 10,
+            rendererUploadStrategy: .partial,
+            rendererUploadRegionCount: 1,
+            receiveTotalMilliseconds: receiveTotal,
+            networkReadMilliseconds: networkRead,
+            clientProcessingMilliseconds: clientProcessing,
             zrleTileApplyMilliseconds: 7
         )
     }

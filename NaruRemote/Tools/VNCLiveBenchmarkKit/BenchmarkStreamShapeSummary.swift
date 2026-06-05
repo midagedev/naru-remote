@@ -626,6 +626,164 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     }
 }
 
+public enum BenchmarkStreamShapeDominantPhase: String, Codable, Equatable, Sendable, CaseIterable {
+    case unknown
+    case requestLoop = "request-loop"
+    case networkRead = "network-read"
+    case clientProcessing = "client-processing"
+}
+
+public struct BenchmarkStreamShapePhaseBudgetSummary: Codable, Equatable, Sendable {
+    public let sampleCount: Int
+    public let slowUpdateSampleCount: Int
+    public let requestLoopLatency: BenchmarkLatencySummary?
+    public let networkReadSharePermille: Int?
+    public let clientProcessingSharePermille: Int?
+    public let requestLoopSharePermille: Int?
+    public let dominantPhase: BenchmarkStreamShapeDominantPhase
+    public let slowNetworkReadSharePermille: Int?
+    public let slowClientProcessingSharePermille: Int?
+    public let slowRequestLoopSharePermille: Int?
+    public let slowDominantPhase: BenchmarkStreamShapeDominantPhase
+
+    public init(
+        samples: [BenchmarkStreamShapeSample],
+        slowUpdateThresholdMilliseconds: Int = BenchmarkStreamShapeTailSummary.defaultSlowUpdateThresholdMilliseconds
+    ) {
+        let phaseSamples = samples.compactMap(PhaseSample.init(sample:))
+        let slowPhaseSamples = phaseSamples.filter {
+            $0.durationMilliseconds >= max(slowUpdateThresholdMilliseconds, 0)
+        }
+        let phaseTotals = PhaseTotals(samples: phaseSamples)
+        let slowPhaseTotals = PhaseTotals(samples: slowPhaseSamples)
+
+        self.sampleCount = phaseSamples.count
+        self.slowUpdateSampleCount = slowPhaseSamples.count
+        self.requestLoopLatency = BenchmarkLatencySummary(phaseSamples.map(\.requestLoopMilliseconds))
+        self.networkReadSharePermille = Self.permille(
+            phaseTotals.networkReadMilliseconds,
+            of: phaseTotals.totalMilliseconds
+        )
+        self.clientProcessingSharePermille = Self.permille(
+            phaseTotals.clientProcessingMilliseconds,
+            of: phaseTotals.totalMilliseconds
+        )
+        self.requestLoopSharePermille = Self.permille(
+            phaseTotals.requestLoopMilliseconds,
+            of: phaseTotals.totalMilliseconds
+        )
+        self.dominantPhase = Self.dominantPhase(for: phaseTotals)
+        self.slowNetworkReadSharePermille = Self.permille(
+            slowPhaseTotals.networkReadMilliseconds,
+            of: slowPhaseTotals.totalMilliseconds
+        )
+        self.slowClientProcessingSharePermille = Self.permille(
+            slowPhaseTotals.clientProcessingMilliseconds,
+            of: slowPhaseTotals.totalMilliseconds
+        )
+        self.slowRequestLoopSharePermille = Self.permille(
+            slowPhaseTotals.requestLoopMilliseconds,
+            of: slowPhaseTotals.totalMilliseconds
+        )
+        self.slowDominantPhase = Self.dominantPhase(for: slowPhaseTotals)
+    }
+
+    public init(
+        sampleCount: Int,
+        slowUpdateSampleCount: Int,
+        requestLoopLatency: BenchmarkLatencySummary? = nil,
+        networkReadSharePermille: Int? = nil,
+        clientProcessingSharePermille: Int? = nil,
+        requestLoopSharePermille: Int? = nil,
+        dominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
+        slowNetworkReadSharePermille: Int? = nil,
+        slowClientProcessingSharePermille: Int? = nil,
+        slowRequestLoopSharePermille: Int? = nil,
+        slowDominantPhase: BenchmarkStreamShapeDominantPhase = .unknown
+    ) {
+        self.sampleCount = max(sampleCount, 0)
+        self.slowUpdateSampleCount = max(slowUpdateSampleCount, 0)
+        self.requestLoopLatency = requestLoopLatency
+        self.networkReadSharePermille = Self.clampOptionalPermille(networkReadSharePermille)
+        self.clientProcessingSharePermille = Self.clampOptionalPermille(clientProcessingSharePermille)
+        self.requestLoopSharePermille = Self.clampOptionalPermille(requestLoopSharePermille)
+        self.dominantPhase = dominantPhase
+        self.slowNetworkReadSharePermille = Self.clampOptionalPermille(slowNetworkReadSharePermille)
+        self.slowClientProcessingSharePermille = Self.clampOptionalPermille(slowClientProcessingSharePermille)
+        self.slowRequestLoopSharePermille = Self.clampOptionalPermille(slowRequestLoopSharePermille)
+        self.slowDominantPhase = slowDominantPhase
+    }
+
+    public static var empty: BenchmarkStreamShapePhaseBudgetSummary {
+        BenchmarkStreamShapePhaseBudgetSummary(sampleCount: 0, slowUpdateSampleCount: 0)
+    }
+
+    private static func dominantPhase(
+        for totals: PhaseTotals
+    ) -> BenchmarkStreamShapeDominantPhase {
+        guard totals.totalMilliseconds > 0 else {
+            return .unknown
+        }
+        if totals.requestLoopMilliseconds >= totals.networkReadMilliseconds,
+           totals.requestLoopMilliseconds >= totals.clientProcessingMilliseconds {
+            return .requestLoop
+        }
+        if totals.networkReadMilliseconds >= totals.clientProcessingMilliseconds {
+            return .networkRead
+        }
+        return .clientProcessing
+    }
+
+    private static func permille(_ value: Int, of total: Int) -> Int? {
+        guard total > 0 else {
+            return nil
+        }
+        let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
+        return value > 0 ? min(max(rounded, 1), 1_000) : 0
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+
+    private struct PhaseSample {
+        let durationMilliseconds: Int
+        let requestLoopMilliseconds: Int
+        let networkReadMilliseconds: Int
+        let clientProcessingMilliseconds: Int
+
+        init?(sample: BenchmarkStreamShapeSample) {
+            let networkReadMilliseconds = sample.networkReadMilliseconds ?? 0
+            let clientProcessingMilliseconds = sample.clientProcessingMilliseconds ?? 0
+            let requestLoopMilliseconds = sample.receiveTotalMilliseconds
+                .map { max(sample.durationMilliseconds - $0, 0) } ?? 0
+            guard networkReadMilliseconds + clientProcessingMilliseconds + requestLoopMilliseconds > 0 else {
+                return nil
+            }
+            self.durationMilliseconds = sample.durationMilliseconds
+            self.requestLoopMilliseconds = requestLoopMilliseconds
+            self.networkReadMilliseconds = networkReadMilliseconds
+            self.clientProcessingMilliseconds = clientProcessingMilliseconds
+        }
+    }
+
+    private struct PhaseTotals {
+        let requestLoopMilliseconds: Int
+        let networkReadMilliseconds: Int
+        let clientProcessingMilliseconds: Int
+        let totalMilliseconds: Int
+
+        init(samples: [PhaseSample]) {
+            self.requestLoopMilliseconds = samples.reduce(0) { $0 + $1.requestLoopMilliseconds }
+            self.networkReadMilliseconds = samples.reduce(0) { $0 + $1.networkReadMilliseconds }
+            self.clientProcessingMilliseconds = samples.reduce(0) { $0 + $1.clientProcessingMilliseconds }
+            self.totalMilliseconds = requestLoopMilliseconds
+                + networkReadMilliseconds
+                + clientProcessingMilliseconds
+        }
+    }
+}
+
 public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let status: BenchmarkStreamShapeStatus
     public let requestedSamples: Int
@@ -652,6 +810,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let zrleInflateLatency: BenchmarkLatencySummary?
     public let zrleTileApplyLatency: BenchmarkLatencySummary?
     public let tailLatency: BenchmarkStreamShapeTailSummary
+    public let phaseBudget: BenchmarkStreamShapePhaseBudgetSummary
     public let rendererUploadSampleCount: Int
     public let rendererPartialUploadSamples: Int
     public let rendererFullUploadSamples: Int
@@ -697,6 +856,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case zrleInflateLatency
         case zrleTileApplyLatency
         case tailLatency
+        case phaseBudget
         case rendererUploadSampleCount
         case rendererPartialUploadSamples
         case rendererFullUploadSamples
@@ -796,6 +956,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.zrleInflateLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleInflateMilliseconds))
         self.zrleTileApplyLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleTileApplyMilliseconds))
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
+        self.phaseBudget = BenchmarkStreamShapePhaseBudgetSummary(
+            samples: samples,
+            slowUpdateThresholdMilliseconds: tailLatency.slowUpdateThresholdMilliseconds
+        )
         self.rendererUploadSampleCount = rendererUploadSamples.count
         self.rendererPartialUploadSamples = rendererPartialUploadSamples
         self.rendererFullUploadSamples = rendererFullUploadSamples
@@ -928,6 +1092,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
             forKey: .zrleTileApplyLatency
         )
         self.tailLatency = try container.decode(BenchmarkStreamShapeTailSummary.self, forKey: .tailLatency)
+        self.phaseBudget = try container.decodeIfPresent(
+            BenchmarkStreamShapePhaseBudgetSummary.self,
+            forKey: .phaseBudget
+        ) ?? .empty
         self.rendererUploadSampleCount = try container.decode(Int.self, forKey: .rendererUploadSampleCount)
         self.rendererPartialUploadSamples = try container.decode(Int.self, forKey: .rendererPartialUploadSamples)
         self.rendererFullUploadSamples = try container.decode(Int.self, forKey: .rendererFullUploadSamples)
@@ -1219,6 +1387,7 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         try container.encodeIfPresent(zrleInflateLatency, forKey: .zrleInflateLatency)
         try container.encodeIfPresent(zrleTileApplyLatency, forKey: .zrleTileApplyLatency)
         try container.encode(tailLatency, forKey: .tailLatency)
+        try container.encode(phaseBudget, forKey: .phaseBudget)
         try container.encode(rendererUploadSampleCount, forKey: .rendererUploadSampleCount)
         try container.encode(rendererPartialUploadSamples, forKey: .rendererPartialUploadSamples)
         try container.encode(rendererFullUploadSamples, forKey: .rendererFullUploadSamples)
@@ -1406,6 +1575,39 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     public let averageContentSamplePermille: Int?
     public let averageContentResponsePermille: Int?
     public let averageUnansweredSamplePermille: Int?
+    public let averageNetworkReadSharePermille: Int?
+    public let averageClientProcessingSharePermille: Int?
+    public let averageRequestLoopSharePermille: Int?
+    public let dominantPhase: BenchmarkStreamShapeDominantPhase
+    public let slowDominantPhase: BenchmarkStreamShapeDominantPhase
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case transportMode
+        case pacingWindow
+        case runCount
+        case usableRunCount
+        case failedRunCount
+        case averageUpdateMilliseconds
+        case maxP95UpdateMilliseconds
+        case averageContentFramesPerSecond
+        case averageRendererFullUploadPermille
+        case maxClientProcessingP95Milliseconds
+        case maxZrleTileApplyP95Milliseconds
+        case slowUpdateSamples
+        case verySlowUpdateSamples
+        case receivedSamples
+        case contentUpdateSamples
+        case averageReceivedSamplePermille
+        case averageContentSamplePermille
+        case averageContentResponsePermille
+        case averageUnansweredSamplePermille
+        case averageNetworkReadSharePermille
+        case averageClientProcessingSharePermille
+        case averageRequestLoopSharePermille
+        case dominantPhase
+        case slowDominantPhase
+    }
 
     public init(
         label: String,
@@ -1427,7 +1629,12 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         averageReceivedSamplePermille: Int? = nil,
         averageContentSamplePermille: Int? = nil,
         averageContentResponsePermille: Int? = nil,
-        averageUnansweredSamplePermille: Int? = nil
+        averageUnansweredSamplePermille: Int? = nil,
+        averageNetworkReadSharePermille: Int? = nil,
+        averageClientProcessingSharePermille: Int? = nil,
+        averageRequestLoopSharePermille: Int? = nil,
+        dominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
+        slowDominantPhase: BenchmarkStreamShapeDominantPhase = .unknown
     ) {
         self.label = label
         self.transportMode = transportMode
@@ -1451,6 +1658,90 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         self.averageContentSamplePermille = Self.clampOptionalPermille(averageContentSamplePermille)
         self.averageContentResponsePermille = Self.clampOptionalPermille(averageContentResponsePermille)
         self.averageUnansweredSamplePermille = Self.clampOptionalPermille(averageUnansweredSamplePermille)
+        self.averageNetworkReadSharePermille = Self.clampOptionalPermille(averageNetworkReadSharePermille)
+        self.averageClientProcessingSharePermille = Self.clampOptionalPermille(averageClientProcessingSharePermille)
+        self.averageRequestLoopSharePermille = Self.clampOptionalPermille(averageRequestLoopSharePermille)
+        self.dominantPhase = dominantPhase
+        self.slowDominantPhase = slowDominantPhase
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            label: try container.decode(String.self, forKey: .label),
+            transportMode: try container.decode(BenchmarkStreamShapeTransportMode.self, forKey: .transportMode),
+            pacingWindow: try container.decodeIfPresent(
+                BenchmarkStreamShapePacingWindow.self,
+                forKey: .pacingWindow
+            ) ?? .single,
+            runCount: try container.decode(Int.self, forKey: .runCount),
+            usableRunCount: try container.decode(Int.self, forKey: .usableRunCount),
+            failedRunCount: try container.decode(Int.self, forKey: .failedRunCount),
+            averageUpdateMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageUpdateMilliseconds
+            ),
+            maxP95UpdateMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .maxP95UpdateMilliseconds
+            ),
+            averageContentFramesPerSecond: try container.decodeIfPresent(
+                Double.self,
+                forKey: .averageContentFramesPerSecond
+            ),
+            averageRendererFullUploadPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageRendererFullUploadPermille
+            ),
+            maxClientProcessingP95Milliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .maxClientProcessingP95Milliseconds
+            ),
+            maxZrleTileApplyP95Milliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .maxZrleTileApplyP95Milliseconds
+            ),
+            slowUpdateSamples: try container.decode(Int.self, forKey: .slowUpdateSamples),
+            verySlowUpdateSamples: try container.decode(Int.self, forKey: .verySlowUpdateSamples),
+            receivedSamples: try container.decode(Int.self, forKey: .receivedSamples),
+            contentUpdateSamples: try container.decode(Int.self, forKey: .contentUpdateSamples),
+            averageReceivedSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageReceivedSamplePermille
+            ),
+            averageContentSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageContentSamplePermille
+            ),
+            averageContentResponsePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageContentResponsePermille
+            ),
+            averageUnansweredSamplePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageUnansweredSamplePermille
+            ),
+            averageNetworkReadSharePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageNetworkReadSharePermille
+            ),
+            averageClientProcessingSharePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageClientProcessingSharePermille
+            ),
+            averageRequestLoopSharePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageRequestLoopSharePermille
+            ),
+            dominantPhase: try container.decodeIfPresent(
+                BenchmarkStreamShapeDominantPhase.self,
+                forKey: .dominantPhase
+            ) ?? .unknown,
+            slowDominantPhase: try container.decodeIfPresent(
+                BenchmarkStreamShapeDominantPhase.self,
+                forKey: .slowDominantPhase
+            ) ?? .unknown
+        )
     }
 
     public static func aggregates(
@@ -1480,6 +1771,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let contentSamplePermille = usableReports.compactMap(\.summary.contentSamplePermille)
         let contentResponsePermille = usableReports.compactMap(\.summary.contentResponsePermille)
         let unansweredSamplePermille = usableReports.compactMap(\.summary.unansweredSamplePermille)
+        let phaseBudgets = usableReports
+            .map(\.summary.phaseBudget)
+            .filter { $0.sampleCount > 0 }
+        let slowPhaseBudgets = phaseBudgets.filter { $0.slowUpdateSampleCount > 0 }
         // Keep profile aggregates as run-level means so rotated benchmark
         // iterations have equal weight even when duration-capped attempts vary.
         return BenchmarkStreamShapeProfileAggregateReport(
@@ -1502,7 +1797,18 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             averageReceivedSamplePermille: roundedAverage(receivedSamplePermille),
             averageContentSamplePermille: roundedAverage(contentSamplePermille),
             averageContentResponsePermille: roundedAverage(contentResponsePermille),
-            averageUnansweredSamplePermille: roundedAverage(unansweredSamplePermille)
+            averageUnansweredSamplePermille: roundedAverage(unansweredSamplePermille),
+            averageNetworkReadSharePermille: roundedAverage(
+                phaseBudgets.compactMap(\.networkReadSharePermille)
+            ),
+            averageClientProcessingSharePermille: roundedAverage(
+                phaseBudgets.compactMap(\.clientProcessingSharePermille)
+            ),
+            averageRequestLoopSharePermille: roundedAverage(
+                phaseBudgets.compactMap(\.requestLoopSharePermille)
+            ),
+            dominantPhase: dominantPhase(from: phaseBudgets.map(\.dominantPhase)),
+            slowDominantPhase: dominantPhase(from: slowPhaseBudgets.map(\.slowDominantPhase))
         )
     }
 
@@ -1539,6 +1845,24 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             return nil
         }
         return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    private static func dominantPhase(
+        from phases: [BenchmarkStreamShapeDominantPhase]
+    ) -> BenchmarkStreamShapeDominantPhase {
+        let phases = phases.filter { $0 != .unknown }
+        guard !phases.isEmpty else {
+            return .unknown
+        }
+        let counts = Dictionary(grouping: phases, by: { $0 }).mapValues(\.count)
+        let priority: [BenchmarkStreamShapeDominantPhase] = [
+            .requestLoop,
+            .networkRead,
+            .clientProcessing
+        ]
+        return priority.max { lhs, rhs in
+            (counts[lhs] ?? 0) < (counts[rhs] ?? 0)
+        } ?? .unknown
     }
 
     private static func average(_ values: [Double]) -> Double? {
@@ -2138,6 +2462,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
     public let averageUpdateMilliseconds: Int?
     public let maxP95UpdateMilliseconds: Int?
     public let averageContentFramesPerSecond: Double?
+    public let dominantPhase: BenchmarkStreamShapeDominantPhase
+    public let slowDominantPhase: BenchmarkStreamShapeDominantPhase
     public let requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount]
     public let requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount]
 
@@ -2157,6 +2483,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
         averageUpdateMilliseconds: Int? = nil,
         maxP95UpdateMilliseconds: Int? = nil,
         averageContentFramesPerSecond: Double? = nil,
+        dominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
+        slowDominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
         requestResponsePrimaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount] = [],
         requestResponseFailureLabelCounts: [BenchmarkStreamShapeTriageLabelCount] = []
     ) {
@@ -2175,6 +2503,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
         self.averageUpdateMilliseconds = averageUpdateMilliseconds.map { max($0, 0) }
         self.maxP95UpdateMilliseconds = maxP95UpdateMilliseconds.map { max($0, 0) }
         self.averageContentFramesPerSecond = averageContentFramesPerSecond.map { max($0, 0) }
+        self.dominantPhase = dominantPhase
+        self.slowDominantPhase = slowDominantPhase
         self.requestResponsePrimaryConstraintCounts = BenchmarkStreamShapeTriage
             .mergedPrimaryConstraintCounts(from: requestResponsePrimaryConstraintCounts)
         self.requestResponseFailureLabelCounts = BenchmarkStreamShapeTriage
@@ -2223,6 +2553,12 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
         let averageContentFramesPerSecond = average(
             usableAggregates.compactMap(\.averageContentFramesPerSecond)
         )
+        let dominantPhase = aggregateDominantPhase(
+            from: usableAggregates.map(\.dominantPhase)
+        )
+        let slowDominantPhase = aggregateDominantPhase(
+            from: usableAggregates.map(\.slowDominantPhase)
+        )
         let sampleStatus = sampleStatus(
             usableAggregateCount: usableAggregates.count,
             averageReceivedSamplePermille: averageReceivedSamplePermille,
@@ -2240,6 +2576,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
             sampleStatus: sampleStatus,
             latencyStatus: latencyStatus,
             primaryConstraintCounts: primaryConstraintCounts,
+            dominantPhase: dominantPhase,
+            slowDominantPhase: slowDominantPhase,
             blockedGateCount: blockedGateCount,
             usableAggregateCount: usableAggregates.count
         )
@@ -2260,6 +2598,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
             averageUpdateMilliseconds: averageUpdateMilliseconds,
             maxP95UpdateMilliseconds: maxP95UpdateMilliseconds,
             averageContentFramesPerSecond: averageContentFramesPerSecond,
+            dominantPhase: dominantPhase,
+            slowDominantPhase: slowDominantPhase,
             requestResponsePrimaryConstraintCounts: primaryConstraintCounts,
             requestResponseFailureLabelCounts: failureLabelCounts
         )
@@ -2322,6 +2662,8 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
         sampleStatus: BenchmarkStreamShapeRequestCadenceSampleStatus,
         latencyStatus: BenchmarkStreamShapeRequestCadenceLatencyStatus,
         primaryConstraintCounts: [BenchmarkStreamShapeTriageLabelCount],
+        dominantPhase: BenchmarkStreamShapeDominantPhase,
+        slowDominantPhase: BenchmarkStreamShapeDominantPhase,
         blockedGateCount: Int,
         usableAggregateCount: Int
     ) -> BenchmarkStreamShapeRequestCadenceNextProbe {
@@ -2366,12 +2708,37 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
         }
         switch latencyStatus {
         case .averageWarning, .averageFailed, .p95Warning, .p95Failed:
-            return .tuneRequestPacingWindow
+            switch slowDominantPhase == .unknown ? dominantPhase : slowDominantPhase {
+            case .requestLoop, .networkRead:
+                return .inspectUpdateWaitTiming
+            case .clientProcessing:
+                return .compareRequestResponseEncodingProfiles
+            case .unknown:
+                return .tuneRequestPacingWindow
+            }
         case .notMeasured:
             return .collectLongerRun
         case .pass:
             return blockedGateCount > 0 ? .tuneRequestPacingWindow : .none
         }
+    }
+
+    private static func aggregateDominantPhase(
+        from phases: [BenchmarkStreamShapeDominantPhase]
+    ) -> BenchmarkStreamShapeDominantPhase {
+        let phases = phases.filter { $0 != .unknown }
+        guard !phases.isEmpty else {
+            return .unknown
+        }
+        let counts = Dictionary(grouping: phases, by: { $0 }).mapValues(\.count)
+        let priority: [BenchmarkStreamShapeDominantPhase] = [
+            .requestLoop,
+            .networkRead,
+            .clientProcessing
+        ]
+        return priority.max { lhs, rhs in
+            (counts[lhs] ?? 0) < (counts[rhs] ?? 0)
+        } ?? .unknown
     }
 
     private static func primaryConstraint(
