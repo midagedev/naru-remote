@@ -3573,7 +3573,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 28)
+        XCTAssertEqual(report.schemaVersion, 29)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.standard.rawValue)
@@ -3648,7 +3648,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let performance = try XCTUnwrap(report.streamPerformance)
         let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
-        XCTAssertEqual(report.schemaVersion, 28)
+        XCTAssertEqual(report.schemaVersion, 29)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.zrleCompressionZero.rawValue)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
@@ -3723,10 +3723,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
             assessment.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runPowerSaverThermalPass.rawValue
         )
+        XCTAssertEqual(
+            assessment.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
+        )
         XCTAssertTrue(json.contains("\"actualEncodingMix\""))
         XCTAssertTrue(json.contains("\"sustainedSessionAssessment\""))
         XCTAssertTrue(json.contains("\"primaryConstraint\" : \"thermal\""))
         XCTAssertTrue(json.contains("\"recommendedNextProbe\" : \"runPowerSaverThermalPass\""))
+        XCTAssertTrue(json.contains("\"physicalGateVerdict\" : \"blocked\""))
         XCTAssertTrue(json.contains("\"zrleRectangles\" : 1"))
         XCTAssertTrue(json.contains("\"averageReceiveTotalTimingBucket\" : \"stalled\""))
         XCTAssertFalse(json.contains("totalMilliseconds"))

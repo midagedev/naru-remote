@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 28"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 29"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 28)
+        XCTAssertEqual(decoded.schemaVersion, 29)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -396,7 +396,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 28)
+        XCTAssertEqual(decoded.schemaVersion, 29)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(decoded.viewerStreamEncodingMode, StreamEncodingMode.adaptiveGoodFull.rawValue)
@@ -505,7 +505,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 28)
+        XCTAssertEqual(decoded.schemaVersion, 29)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -802,6 +802,10 @@ final class DiagnosticExportTests: XCTestCase {
             assessment.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runPowerSaverThermalPass.rawValue
         )
+        XCTAssertEqual(
+            assessment.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentPassesCleanMeasuredSession() {
@@ -844,6 +848,10 @@ final class DiagnosticExportTests: XCTestCase {
             assessment?.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.none.rawValue
         )
+        XCTAssertEqual(
+            assessment?.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.pass.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentTriagePrioritizesViewportHandFeel() {
@@ -868,6 +876,10 @@ final class DiagnosticExportTests: XCTestCase {
             assessment.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
         )
+        XCTAssertEqual(
+            assessment.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentCodableIncludesTriageSurface() throws {
@@ -885,6 +897,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(payload.contains("\"primaryIssueCode\":\"clientProcessingStalled\""))
         XCTAssertTrue(payload.contains("\"primaryConstraint\":\"clientDecode\""))
         XCTAssertTrue(payload.contains("\"recommendedNextProbe\":\"compareEncodingProfileGate\""))
+        XCTAssertTrue(payload.contains("\"physicalGateVerdict\":\"blocked\""))
 
         let decoded = try JSONDecoder().decode(
             DiagnosticSustainedSessionAssessment.self,
@@ -923,6 +936,10 @@ final class DiagnosticExportTests: XCTestCase {
             decoded.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
         )
+        XCTAssertEqual(
+            decoded.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
+        )
     }
 
     func testSustainedSessionAssessmentRecomputesMismatchedDecodedTriageFields() throws {
@@ -935,7 +952,8 @@ final class DiagnosticExportTests: XCTestCase {
           ],
           "primaryIssueCode": "contentFrameRateWarning",
           "primaryConstraint": "thermal",
-          "recommendedNextProbe": "inspectComposeRoute"
+          "recommendedNextProbe": "inspectComposeRoute",
+          "physicalGateVerdict": "pass"
         }
         """
 
@@ -955,6 +973,10 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             decoded.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
+        XCTAssertEqual(
+            decoded.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
         )
     }
 
@@ -990,6 +1012,10 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             assessment.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runPowerSaverThermalPass.rawValue
+        )
+        XCTAssertEqual(
+            assessment.physicalGateVerdict,
+            DiagnosticSustainedSessionPhysicalGateVerdict.blocked.rawValue
         )
     }
 
@@ -1511,8 +1537,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v28 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 28"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v29 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 29"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }

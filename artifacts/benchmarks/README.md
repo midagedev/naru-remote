@@ -69,6 +69,11 @@ Current ContinuousUpdates confirmation artifact:
 `artifacts/benchmarks/2026-06-06-continuous-updates-confirmation-gate-smoke.md`.
 That smoke verifies unconfirmed ContinuousUpdates support is reported as a fixed
 compatibility label instead of being hidden behind request/response fallback.
+Current physical interaction gate artifact:
+`artifacts/benchmarks/2026-06-06-physical-interaction-triage-gate-summary.md`.
+Schema v29 adds `physicalGateVerdict` so the 10 minute iPhone gate can block
+production default promotion even when the detailed diagnostic verdict is only a
+warning.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -356,6 +361,11 @@ Compose issues route to helper/clipboard route diagnostics. The fields are
 fixed catalog labels derived from existing safe issue codes only; do not add
 raw FPS, raw timings, host identity, dimensions, coordinates, pixels, cursor
 pixels, byte counts, raw payloads, draft text, marked text, or IME state.
+Diagnostic collection schema v29 adds `physicalGateVerdict`, which is `pass`
+only when no sustained-session issue codes are present and `blocked` otherwise.
+Use it as the strict physical-device promotion signal; keep
+`primaryConstraint` and `recommendedNextProbe` for choosing the next large work
+unit.
 By default, stream-shape uses the app's `local-low-latency` profile; pass
 `--stream-shape-profiles core-matrix` for the standard practical candidate
 set (`local-low-latency`, `zrle-compression-0`, `tight-first`, and

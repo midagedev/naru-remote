@@ -834,6 +834,14 @@ iPhone) and ships as its own PR.
   frame pump capability boundary, app diagnostic mapping, benchmark failure
   labels/summary tests, fake-server tests, benchmark docs/artifact, research
   note. **Done.**
+- **T411** Physical gate verdict for larger interaction units: bump diagnostic
+  collection schema to v29 and add `physicalGateVerdict` to
+  `sustainedSessionAssessment`. The detailed assessment `verdict` may remain
+  `warning` for non-fatal triage, but `physicalGateVerdict` is `pass` only when
+  no sustained-session issue code is present; any viewport, Compose, thermal,
+  renderer, receive, cadence, adaptive, or sample-size issue blocks production
+  default promotion. Owns: diagnostic schema/tests, app export test, benchmark
+  docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 
