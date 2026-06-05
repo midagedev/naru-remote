@@ -94,11 +94,11 @@ public protocol RFBContinuousFramebufferUpdateReceiving: RFBFramebufferUpdateRec
     func receiveContinuousFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
 }
 
-/// Reports whether the active RFB session has advertised the
-/// ContinuousUpdates pseudo-encoding and may safely send message 150
-/// `EnableContinuousUpdates`. Frame pumps use this as a guard so merely
-/// implementing the transport-control method never opts a connection into
-/// a server extension that was not negotiated.
+/// Reports whether the active RFB session requested ContinuousUpdates and
+/// observed the server's extension-specific confirmation, so it may safely
+/// send message 150 `EnableContinuousUpdates`. Frame pumps use this as a
+/// guard so merely implementing the transport-control method never opts a
+/// connection into a server extension that was not confirmed.
 public protocol RFBContinuousUpdateCapabilityReporting: Sendable {
     var canEnableContinuousUpdates: Bool { get }
 }

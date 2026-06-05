@@ -16,6 +16,10 @@ final class BenchmarkFailureLabelTests: XCTestCase {
             BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.writeTimedOut),
             "write-timeout"
         )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.continuousUpdatesNotConfirmed),
+            "continuous-updates-not-confirmed"
+        )
     }
 
     func testDecodeAndZlibLabelsStayCatalogOnly() {
@@ -56,6 +60,13 @@ final class BenchmarkFailureLabelTests: XCTestCase {
                 phase: .continuousProbeEnable
             ),
             "continuous-probe-enable-write-timeout"
+        )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBNetworkClientError.continuousUpdatesNotConfirmed,
+                phase: .streamContinuousUpdates
+            ),
+            "stream-continuous-updates-continuous-updates-not-confirmed"
         )
         XCTAssertEqual(
             BenchmarkFailureLabel.safeLabel(

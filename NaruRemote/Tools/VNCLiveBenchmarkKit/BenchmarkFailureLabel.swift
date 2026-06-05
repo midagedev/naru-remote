@@ -40,6 +40,8 @@ public enum BenchmarkFailureLabel {
             return "unsupported-framebuffer-encoding"
         case RFBNetworkClientError.notConnected:
             return "not-connected"
+        case RFBNetworkClientError.continuousUpdatesNotConfirmed:
+            return "continuous-updates-not-confirmed"
         case RFBProtocolDecoderError.insufficientData:
             return "protocol-insufficient-data"
         case RFBProtocolDecoderError.invalidProtocolVersion:

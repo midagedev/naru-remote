@@ -32,7 +32,7 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
     /// default remains request/response for universal RFB compatibility.
     /// `continuousUpdates` is opportunistic: it activates only when the
     /// source exposes receive/control boundaries *and* reports that the
-    /// current session advertised the ContinuousUpdates pseudo-encoding.
+    /// current session confirmed the ContinuousUpdates extension.
     public let updateMode: RFBFramePumpUpdateMode
 
     public init(

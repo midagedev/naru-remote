@@ -823,6 +823,17 @@ iPhone) and ships as its own PR.
   ContinuousUpdates needs connection/receive inspection, and no production
   default should change from the current benchmark evidence alone. Owns:
   benchmark artifact, README, research note. **Done.**
+- **T410** ContinuousUpdates support-confirmation gate: require an active RFB
+  session to observe the server's ContinuousUpdates confirmation before sending
+  `EnableContinuousUpdates`, keep the frame pump on request/response until that
+  happens, and make `VNCLiveBenchmark` report the fixed safe label
+  `stream-continuous-updates-continuous-updates-not-confirmed` instead of
+  silently measuring request/response fallback under the ContinuousUpdates
+  transport label. Keep production ContinuousUpdates off by default and keep raw
+  TCP/RFB details out of diagnostics and benchmark reports. Owns: network client,
+  frame pump capability boundary, app diagnostic mapping, benchmark failure
+  labels/summary tests, fake-server tests, benchmark docs/artifact, research
+  note. **Done.**
 
 ## Cross-cutting (every increment)
 
