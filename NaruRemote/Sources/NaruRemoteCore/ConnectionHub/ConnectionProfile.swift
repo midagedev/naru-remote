@@ -1,5 +1,35 @@
 import Foundation
 
+public struct HelperTextBridgeConnectionConfiguration: Codable, Equatable, Sendable {
+    public var isEnabled: Bool
+    public var host: String?
+    public var port: Int
+    public var pairingSecretRef: String?
+    public var pairingFingerprint: String?
+
+    public init(
+        isEnabled: Bool = false,
+        host: String? = nil,
+        port: Int = naruHelperTextBridgeDefaultPort,
+        pairingSecretRef: String? = nil,
+        pairingFingerprint: String? = nil
+    ) throws {
+        guard (1...65535).contains(port) else {
+            throw ConnectionProfileValidationError.invalidHelperPort(port)
+        }
+
+        self.isEnabled = isEnabled
+        self.host = host?.nilIfBlank
+        self.port = port
+        self.pairingSecretRef = pairingSecretRef?.nilIfBlank
+        self.pairingFingerprint = pairingFingerprint?.nilIfBlank
+    }
+
+    public func resolvedHost(fallback: String) -> String {
+        host ?? fallback
+    }
+}
+
 public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
     public enum HostKind: String, Codable, Equatable, Sendable {
         case magicDNS
@@ -18,6 +48,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
     public var lastDiagnosticSummary: String?
     public var hostKind: HostKind
     public var allowsPiPWatch: Bool
+    public var helperTextBridge: HelperTextBridgeConnectionConfiguration?
 
     public init(
         id: UUID = UUID(),
@@ -30,7 +61,8 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
         lastConnectedAt: Date? = nil,
         lastDiagnosticSummary: String? = nil,
         hostKind: HostKind = .magicDNS,
-        allowsPiPWatch: Bool = true
+        allowsPiPWatch: Bool = true,
+        helperTextBridge: HelperTextBridgeConnectionConfiguration? = nil
     ) throws {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -58,6 +90,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
         self.lastDiagnosticSummary = lastDiagnosticSummary?.nilIfBlank
         self.hostKind = hostKind
         self.allowsPiPWatch = allowsPiPWatch
+        self.helperTextBridge = helperTextBridge
     }
 
     public var endpoint: String {
@@ -78,6 +111,7 @@ public extension ConnectionProfile {
         case lastDiagnosticSummary
         case hostKind
         case allowsPiPWatch
+        case helperTextBridge
     }
 
     init(from decoder: Decoder) throws {
@@ -94,7 +128,11 @@ public extension ConnectionProfile {
             lastConnectedAt: container.decodeIfPresent(Date.self, forKey: .lastConnectedAt),
             lastDiagnosticSummary: container.decodeIfPresent(String.self, forKey: .lastDiagnosticSummary),
             hostKind: container.decodeIfPresent(HostKind.self, forKey: .hostKind) ?? .magicDNS,
-            allowsPiPWatch: container.decodeIfPresent(Bool.self, forKey: .allowsPiPWatch) ?? true
+            allowsPiPWatch: container.decodeIfPresent(Bool.self, forKey: .allowsPiPWatch) ?? true,
+            helperTextBridge: container.decodeIfPresent(
+                HelperTextBridgeConnectionConfiguration.self,
+                forKey: .helperTextBridge
+            )
         )
     }
 }
@@ -103,6 +141,7 @@ public enum ConnectionProfileValidationError: Error, Equatable, LocalizedError {
     case emptyDisplayName
     case emptyHost
     case invalidPort(Int)
+    case invalidHelperPort(Int)
 
     public var errorDescription: String? {
         switch self {
@@ -112,6 +151,8 @@ public enum ConnectionProfileValidationError: Error, Equatable, LocalizedError {
             "Host is required."
         case .invalidPort(let port):
             "VNC port must be between 1 and 65535. Received \(port)."
+        case .invalidHelperPort(let port):
+            "Helper port must be between 1 and 65535. Received \(port)."
         }
     }
 }

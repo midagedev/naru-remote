@@ -18,15 +18,25 @@ public struct ProfileEditorFormState: Equatable, Sendable {
     /// back to the user verbatim with an inline error caption rather
     /// than being silently coerced.
     public var port: String
+    public var helperTextBridgeEnabled: Bool
+    /// Optional override. Empty means "use the VNC profile host".
+    public var helperHost: String
+    public var helperPort: String
 
     public init(
         displayName: String = "",
         host: String = "",
-        port: String = "5900"
+        port: String = "5900",
+        helperTextBridgeEnabled: Bool = false,
+        helperHost: String = "",
+        helperPort: String = String(naruHelperTextBridgeDefaultPort)
     ) {
         self.displayName = displayName
         self.host = host
         self.port = port
+        self.helperTextBridgeEnabled = helperTextBridgeEnabled
+        self.helperHost = helperHost
+        self.helperPort = helperPort
     }
 
     // MARK: - Field-level validation
@@ -66,6 +76,24 @@ public struct ProfileEditorFormState: Equatable, Sendable {
         return nil
     }
 
+    public var helperPortError: String? {
+        guard helperTextBridgeEnabled else {
+            return nil
+        }
+
+        let trimmed = helperPort.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Helper port is required."
+        }
+        guard let value = Int(trimmed) else {
+            return "Helper port must be a number."
+        }
+        if !(1...65535).contains(value) {
+            return "Helper port must be between 1 and 65535."
+        }
+        return nil
+    }
+
     // MARK: - Aggregate gate
 
     /// `true` when every field is valid.  The Save button binds to
@@ -74,7 +102,10 @@ public struct ProfileEditorFormState: Equatable, Sendable {
     /// `ConnectionProfile.init(...)` so the error never bubbles up
     /// from the throwing initializer at save time.
     public var isValid: Bool {
-        displayNameError == nil && hostError == nil && portError == nil
+        displayNameError == nil &&
+            hostError == nil &&
+            portError == nil &&
+            helperPortError == nil
     }
 
     /// Parsed port value when the form is valid, or `nil` otherwise.
@@ -82,6 +113,18 @@ public struct ProfileEditorFormState: Equatable, Sendable {
     /// have to re-parse the string.
     public var parsedPort: Int? {
         guard let value = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65535).contains(value)
+        else {
+            return nil
+        }
+        return value
+    }
+
+    public var parsedHelperPort: Int? {
+        guard helperTextBridgeEnabled else {
+            return nil
+        }
+        guard let value = Int(helperPort.trimmingCharacters(in: .whitespacesAndNewlines)),
               (1...65535).contains(value)
         else {
             return nil

@@ -21,6 +21,26 @@ Lifecycle:
 - Disabled or deleted when the user revokes helper support.
 - Updated by reachability/capability checks and helper insert attempts.
 
+## HelperTextBridgeConnectionConfiguration
+
+Represents non-secret helper transport metadata stored with a
+`ConnectionProfile`.
+
+Fields:
+- `isEnabled`: whether this profile may use helper-native text insertion.
+- `host`: optional private helper host. Blank means use the VNC profile host.
+- `port`: TCP helper port, constrained to `1...65535`.
+- `pairingSecretRef`: secure-storage reference for the raw pairing secret.
+- `pairingFingerprint`: non-secret fingerprint shown in diagnostics/UI matching.
+
+Rules:
+- The raw pairing secret is written only to the credential store and never to
+  profile JSON, diagnostics, logs, or screenshots.
+- Removing helper configuration from a profile deletes the existing helper
+  secret reference on a best-effort basis.
+- Stored configurations are sufficient for the app to construct the
+  authenticated helper network client when VNC UTF-8 is unconfirmed.
+
 ## HelperTextBridgeAvailability
 
 Fixed catalog:

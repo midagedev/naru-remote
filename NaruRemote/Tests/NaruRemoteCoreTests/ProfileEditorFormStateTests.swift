@@ -78,6 +78,41 @@ final class ProfileEditorFormStateTests: XCTestCase {
         XCTAssertNil(state.portError)
     }
 
+    // MARK: - helperPortError
+
+    func testHelperPortErrorNilWhenHelperDisabled() {
+        let state = ProfileEditorFormState(
+            displayName: "Studio",
+            host: "studio.tailnet.ts.net",
+            helperTextBridgeEnabled: false,
+            helperPort: "not-a-port"
+        )
+        XCTAssertNil(state.helperPortError)
+        XCTAssertTrue(state.isValid)
+    }
+
+    func testHelperPortErrorWhenEnabledAndNonNumeric() {
+        let state = ProfileEditorFormState(
+            displayName: "Studio",
+            host: "studio.tailnet.ts.net",
+            helperTextBridgeEnabled: true,
+            helperPort: "helper"
+        )
+        XCTAssertEqual(state.helperPortError, "Helper port must be a number.")
+        XCTAssertFalse(state.isValid)
+    }
+
+    func testHelperPortParsesWhenEnabled() {
+        let state = ProfileEditorFormState(
+            displayName: "Studio",
+            host: "studio.tailnet.ts.net",
+            helperTextBridgeEnabled: true,
+            helperPort: "5974"
+        )
+        XCTAssertNil(state.helperPortError)
+        XCTAssertEqual(state.parsedHelperPort, 5974)
+    }
+
     // MARK: - isValid
 
     func testIsValidFalseWhenNameEmpty() {
