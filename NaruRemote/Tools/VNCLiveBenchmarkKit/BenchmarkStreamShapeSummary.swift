@@ -2192,15 +2192,37 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
            !continuousUpdatesFailureLabelCounts.isEmpty {
             return .inspectContinuousUpdatesConnection
         }
-        if requestResponsePrimaryConstraintCounts.contains(where: {
-            $0.label == DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue
-        }) {
+        if requestResponseStatus == .belowTarget,
+           primaryConstraint(
+               DiagnosticSustainedSessionPrimaryConstraint.clientDecode,
+               dominates: DiagnosticSustainedSessionPrimaryConstraint.receivePath,
+               in: requestResponsePrimaryConstraintCounts
+           ) {
             return .compareRequestResponseEncodingProfiles
         }
         if requestResponseStatus == .belowTarget || continuousUpdatesStatus == .belowTarget {
             return .tuneTransportCadence
         }
         return .none
+    }
+
+    private static func primaryConstraint(
+        _ candidate: DiagnosticSustainedSessionPrimaryConstraint,
+        dominates baseline: DiagnosticSustainedSessionPrimaryConstraint,
+        in counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> Bool {
+        let candidateCount = count(for: candidate.rawValue, in: counts)
+        guard candidateCount > 0 else {
+            return false
+        }
+        return candidateCount > count(for: baseline.rawValue, in: counts)
+    }
+
+    private static func count(
+        for label: String,
+        in counts: [BenchmarkStreamShapeTriageLabelCount]
+    ) -> Int {
+        counts.first { $0.label == label }?.count ?? 0
     }
 
     private static func blockedGateCount(

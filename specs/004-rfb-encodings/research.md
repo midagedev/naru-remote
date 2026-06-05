@@ -3661,3 +3661,79 @@ not emit host identity, credentials, port values, raw TCP/RFB errors,
 framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
 payloads, raw timings, raw FPS, stimulus command text, command output, draft
 text, marked text, IME state, or full diagnostic payloads.
+
+## D89 — Zero post-content request delay is not enough for sustained v2
+
+References:
+- RFC 6143 FramebufferUpdateRequest flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer automatic protocol selection:
+  https://tigervnc.org/doc/vncviewer.html
+- D88 request/response ZRLE isolation preset.
+- `artifacts/benchmarks/2026-06-06-sustained-v2-zrle-zero-delay-summary.md`.
+
+**Decision**: add `sustained-v2-zrle-zero-delay` as a benchmark-only request
+cadence pressure test, and route receive-path-majority mixed request/response
+failures to `tuneTransportCadence`.
+
+**Why**:
+- RFC 6143 makes incremental framebuffer updates client-request driven and
+  explicitly allows clients to regulate request rate. The v45 result therefore
+  left one direct question: does removing the benchmark's post-content delay
+  get the current macOS Screen Sharing target to the 8fps steady-stream floor?
+- TigerVNC documents dynamic encoding and pixel-format selection for
+  interactive feel. Naru's benchmark presets need the same kind of measured
+  candidate separation before changing app defaults.
+- The existing transport diagnosis routed to encoding-profile comparison when
+  any client-decode constraint was present. The v46 live shape can contain a
+  minority of client-decode constraints while receive-path constraints dominate,
+  so the next action should follow the majority transport/cadence signal.
+
+**Evidence**:
+- Focused preset tests pass with the new raw value and usage string.
+- Focused transport diagnosis tests pass, including a receive-path-majority
+  mixed request/response failure routing to `tuneTransportCadence`.
+- Help output exposes `sustained-v2-zrle-zero-delay` and schema v46 gate
+  reporting.
+- A redacted live v46 request/response zero-delay run reported:
+  - `streamShapeGatePreset = sustained-v2-zrle-zero-delay`
+  - `streamShapeProfiles = zrle-isolation`
+  - `streamShapeTransportModes = request-response`
+  - `streamShapeFrameIntervalSeconds = 0`
+  - `continuousUpdatesProbe.status = not-tested`
+  - expected stimulus FPS 12
+  - transport cadence next action `tuneTransportCadence`
+  - order-neutral recommendation `zrle-compression-0-clipboard`
+- Safe aggregate comparison:
+  - `local-low-latency`: fail; average content FPS 6.09; average update 128 ms;
+    max p95 update 507 ms; max client p95 138 ms; full upload 0 permille.
+  - `zrle-compression-0`: fail; average content FPS 6.90; average update
+    118 ms; max p95 update 502 ms; max client p95 12 ms; full upload 0 permille.
+  - `zrle-compression-0-cursor`: fail; average content FPS 7.09; average update
+    116 ms; max p95 update 508 ms; max client p95 12 ms; full upload 0 permille.
+  - `zrle-compression-0-clipboard`: fail; average content FPS 7.02; average
+    update 116 ms; max p95 update 502 ms; max client p95 13 ms; full upload
+    0 permille.
+  - `zrle-compression-0-cursor-clipboard`: fail; average content FPS 6.67;
+    average update 118 ms; max p95 update 510 ms; max client p95 135 ms; full
+    upload 0 permille.
+
+**Interpretation**:
+- Removing post-content delay improves the strongest ZRLE candidates into the
+  6.9-7.1fps band, but still misses the 8fps steady-stream floor.
+- Max p95 update remains around 500 ms, so the remaining blocker is not simply
+  benchmark-side post-content pacing.
+- Pure ZRLE/cursor-only/clipboard-only keep client and ZRLE tile p95 low, while
+  `local-low-latency` and cursor+clipboard still show client/tile tail.
+- Renderer full-upload pressure remains 0 permille.
+- The next large unit should inspect or tune request/response cadence beyond
+  post-content delay: update wait behavior, request region assumptions, and
+  sample hit-rate under the current macOS Screen Sharing server.
+- Production app defaults are unchanged.
+
+**Privacy rule**: the preset and artifact may emit only fixed target, preset,
+mode, profile, verdict, issue, action, and aggregate metric labels. They must
+not emit host identity, credentials, port values, raw TCP/RFB errors,
+framebuffer dimensions, coordinates, pixels, cursor pixels, byte counts, raw
+payloads, raw timings, raw FPS, stimulus command text, command output, draft
+text, marked text, IME state, or full diagnostic payloads.

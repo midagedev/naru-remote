@@ -990,6 +990,50 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         ])
     }
 
+    func testTransportCadenceDiagnosisTunesCadenceWhenReceivePathDominatesDecodePressure() throws {
+        let gates = [
+            BenchmarkStreamShapeProfileGateReport(
+                label: "zrle-compression-0",
+                transportMode: .requestResponse,
+                targetName: "iphone-sustained-usability-v2",
+                verdict: .fail,
+                runCount: 5,
+                passRunCount: 0,
+                warningRunCount: 0,
+                failRunCount: 5,
+                disabledRunCount: 0,
+                issueCodes: [.contentFPSWarning, .p95UpdateFailed, .clientProcessingFailed],
+                primaryIssueCode: .clientProcessingFailed,
+                primaryConstraintCounts: [
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue,
+                        count: 20
+                    ),
+                    BenchmarkStreamShapeTriageLabelCount(
+                        label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                        count: 5
+                    )
+                ]
+            )
+        ]
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
+
+        XCTAssertEqual(diagnosis.requestResponseStatus, .belowTarget)
+        XCTAssertEqual(diagnosis.recommendedTransportMode, .requestResponse)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .tuneTransportCadence)
+        XCTAssertEqual(diagnosis.requestResponsePrimaryConstraintCounts, [
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue,
+                count: 20
+            ),
+            BenchmarkStreamShapeTriageLabelCount(
+                label: DiagnosticSustainedSessionPrimaryConstraint.clientDecode.rawValue,
+                count: 5
+            )
+        ])
+    }
+
     func testTransportCadenceDiagnosisKeepsMixedTransportBelowTarget() throws {
         let gates = [
             BenchmarkStreamShapeProfileGateReport(

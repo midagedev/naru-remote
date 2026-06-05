@@ -125,6 +125,13 @@ profile/cadence is still the next large unit. The first live v45 run shows pure
 ZRLE and cursor-only ZRLE reduce client/tile tail, but every candidate still
 misses the 8fps steady-stream target, so the next unit routes to
 `inspectServerTransportCadence` before production default changes.
+Current request/response zero-delay cadence artifact:
+`artifacts/benchmarks/2026-06-06-sustained-v2-zrle-zero-delay-summary.md`.
+Use `sustained-v2-zrle-zero-delay` to test whether removing post-content
+request delay is enough to reach the sustained target. The first live v46 run
+raises the strongest ZRLE candidates to roughly 7fps but still misses 8fps and
+keeps max p95 near 500 ms, so the next unit remains transport cadence tuning
+instead of production default promotion.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -415,7 +422,11 @@ ContinuousUpdates has already been routed to support inspection.
 `sustained-v2-zrle-isolation` keeps that same request/response-only shape but
 uses `zrle-isolation` to compare the current default against pure ZRLE
 compression 0 and cursor/ExtendedClipboard extension variants. Schema v45 adds
-this fixed preset label. For request/response-only presets the standalone
+this fixed preset label. `sustained-v2-zrle-zero-delay` keeps the ZRLE
+isolation shape but sets `streamShapeFrameIntervalSeconds=0` as a benchmark-only
+request-cadence pressure test. Schema v46 adds this fixed preset label and makes
+transport/cadence diagnosis route receive-path-majority mixed failures to
+`tuneTransportCadence`. For request/response-only presets the standalone
 ContinuousUpdates probe is also skipped:
 `continuousUpdateSamples` is 0 and `continuousUpdatesProbe.status` is
 `not-tested`.
@@ -504,6 +515,8 @@ Pass `--stream-shape-profiles pixel-format-isolation` to compare benchmark-only
 full-color/RGB565-in-32 pairs without changing the app's normal connection path.
 Example:
 `--stream-shape-gate-preset sustained-v2-zrle-isolation`.
+For zero post-content request delay comparison, use:
+`--stream-shape-gate-preset sustained-v2-zrle-zero-delay`.
 The preset already applies
 `--stream-shape-profile-iterations 5 --stream-shape-profile-order rotate` so
 each `zrle-isolation` candidate leads one iteration. Use custom commands only
