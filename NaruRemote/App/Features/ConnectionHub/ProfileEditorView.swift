@@ -1,14 +1,31 @@
+import CryptoKit
+import Foundation
 import NaruRemoteCore
 import SwiftUI
+
+public struct ProfileEditorCredentialUpdate: Equatable, Sendable {
+    public var vncPassword: String?
+    public var helperPairingSecret: String?
+
+    public init(
+        vncPassword: String? = nil,
+        helperPairingSecret: String? = nil
+    ) {
+        self.vncPassword = vncPassword
+        self.helperPairingSecret = helperPairingSecret
+    }
+}
 
 public struct ProfileEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var formState: ProfileEditorFormState
     @State private var password: String
+    @State private var helperPairingSecret: String
     @State private var hostKind: ConnectionProfile.HostKind
     @State private var allowsPiPWatch: Bool
     @State private var replacePassword: Bool
+    @State private var replaceHelperPairingSecret: Bool
     @State private var validationMessage: String?
 
     /// Bumped on every Save tap so the field-level captions appear
@@ -33,7 +50,8 @@ public struct ProfileEditorView: View {
 
     private let editingProfile: ConnectionProfile?
     private let hasExistingCredential: Bool
-    private let onSave: (ConnectionProfile, String?) -> Void
+    private let hasExistingHelperPairingSecret: Bool
+    private let onSave: (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     /// Reachability-check runner injected by the SwiftUI wiring.  In
     /// production the shell passes
     /// `model.runProfileEditorReachabilityTest`; tests pass a stub.
@@ -46,26 +64,32 @@ public struct ProfileEditorView: View {
         case host
         case port
         case password
+        case helperHost
+        case helperPort
+        case helperPairingSecret
     }
 
     /// Add-mode initializer — fields start empty and the password
     /// box, when non-empty, becomes the new keychain credential.
     public init(
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
-        onSave: @escaping (ConnectionProfile, String?) -> Void
+        onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     ) {
         self.editingProfile = nil
         self.hasExistingCredential = false
+        self.hasExistingHelperPairingSecret = false
         self.onSave = onSave
         self.onTest = onTest
         _formState = State(initialValue: ProfileEditorFormState())
         _password = State(initialValue: "")
+        _helperPairingSecret = State(initialValue: "")
         _hostKind = State(initialValue: .magicDNS)
         _allowsPiPWatch = State(initialValue: true)
         // In add mode the toggle is irrelevant; treat it as "on" so
         // an empty password box maps to "no credential" via the
         // existing add-mode rule.
         _replacePassword = State(initialValue: true)
+        _replaceHelperPairingSecret = State(initialValue: true)
     }
 
     /// Edit-mode initializer — fields are pre-filled from the
@@ -83,18 +107,24 @@ public struct ProfileEditorView: View {
         editing profile: ConnectionProfile,
         hasExistingCredential: Bool,
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
-        onSave: @escaping (ConnectionProfile, String?) -> Void
+        onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     ) {
         self.editingProfile = profile
         self.hasExistingCredential = hasExistingCredential
+        self.hasExistingHelperPairingSecret = profile.helperTextBridge?.pairingSecretRef != nil
         self.onSave = onSave
         self.onTest = onTest
+        let helperConfig = profile.helperTextBridge
         _formState = State(initialValue: ProfileEditorFormState(
             displayName: profile.displayName,
             host: profile.host,
-            port: String(profile.port)
+            port: String(profile.port),
+            helperTextBridgeEnabled: helperConfig?.isEnabled ?? false,
+            helperHost: helperConfig?.host ?? "",
+            helperPort: String(helperConfig?.port ?? naruHelperTextBridgeDefaultPort)
         ))
         _password = State(initialValue: "")
+        _helperPairingSecret = State(initialValue: "")
         _hostKind = State(initialValue: profile.hostKind)
         _allowsPiPWatch = State(initialValue: profile.allowsPiPWatch)
         // Default off when there is an existing credential — the
@@ -103,6 +133,7 @@ public struct ProfileEditorView: View {
         // is no existing credential the field is just an add-style
         // password box.
         _replacePassword = State(initialValue: !hasExistingCredential)
+        _replaceHelperPairingSecret = State(initialValue: profile.helperTextBridge?.pairingSecretRef == nil)
     }
 
     public var body: some View {
@@ -171,6 +202,41 @@ public struct ProfileEditorView: View {
                         Text("Advanced public").tag(ConnectionProfile.HostKind.advancedManualPublicEndpoint)
                     }
                     Toggle("Allow PiP Watch", isOn: $allowsPiPWatch)
+                }
+
+                Section("Helper text bridge") {
+                    Toggle("Enable helper text bridge", isOn: $formState.helperTextBridgeEnabled)
+                        .accessibilityIdentifier("naru.profile.editor.helper.enabled")
+
+                    if formState.helperTextBridgeEnabled {
+                        TextField("Helper host (blank uses VNC host)", text: $formState.helperHost)
+                            .focused($focusedField, equals: .helperHost)
+                            .accessibilityIdentifier("naru.profile.editor.helper.host")
+
+                        LabeledContent("Helper port") {
+                            helperPortField
+                        }
+                        if shouldShowError(for: .helperPort), let message = formState.helperPortError {
+                            captionView(message)
+                                .accessibilityIdentifier("naru.profile.editor.helper.port.error")
+                        }
+
+                        if isEditing && hasExistingHelperPairingSecret {
+                            Toggle("Replace helper token", isOn: $replaceHelperPairingSecret)
+                                .accessibilityIdentifier("naru.profile.editor.helper.replaceToken")
+                        }
+
+                        if shouldShowHelperPairingSecretField {
+                            SecureField(helperPairingSecretPlaceholder, text: $helperPairingSecret)
+                                .focused($focusedField, equals: .helperPairingSecret)
+                                .textContentType(.oneTimeCode)
+                                .accessibilityIdentifier("naru.profile.editor.helper.token")
+                        } else {
+                            Text("Saved helper token kept")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 if onTest != nil {
@@ -255,6 +321,21 @@ public struct ProfileEditorView: View {
         #endif
     }
 
+    @ViewBuilder
+    private var helperPortField: some View {
+        #if os(iOS)
+        TextField("Helper port", text: $formState.helperPort)
+            .keyboardType(.numberPad)
+            .multilineTextAlignment(.trailing)
+            .focused($focusedField, equals: .helperPort)
+            .accessibilityIdentifier("naru.profile.editor.helper.port")
+        #else
+        TextField("Helper port", text: $formState.helperPort)
+            .focused($focusedField, equals: .helperPort)
+            .accessibilityIdentifier("naru.profile.editor.helper.port")
+        #endif
+    }
+
     private var isEditing: Bool {
         editingProfile != nil
     }
@@ -277,11 +358,31 @@ public struct ProfileEditorView: View {
         return replacePassword
     }
 
+    private var shouldShowHelperPairingSecretField: Bool {
+        guard formState.helperTextBridgeEnabled else {
+            return false
+        }
+        if !isEditing {
+            return true
+        }
+        if !hasExistingHelperPairingSecret {
+            return true
+        }
+        return replaceHelperPairingSecret
+    }
+
     private var passwordPlaceholder: String {
         if isEditing && hasExistingCredential && replacePassword {
             return "New VNC password (empty to clear)"
         }
         return "VNC password"
+    }
+
+    private var helperPairingSecretPlaceholder: String {
+        if isEditing && hasExistingHelperPairingSecret && replaceHelperPairingSecret {
+            return "New helper token"
+        }
+        return "Helper token"
     }
 
     /// The Test affordance only requires a non-empty host and a
@@ -333,6 +434,58 @@ public struct ProfileEditorView: View {
         isTesting = false
     }
 
+    private func resolveHelperTextBridge(
+        profileID: ConnectionProfile.ID,
+        existingConfiguration: HelperTextBridgeConnectionConfiguration?
+    ) throws -> (
+        configuration: HelperTextBridgeConnectionConfiguration?,
+        pairingSecretUpdate: String?
+    ) {
+        if !formState.helperTextBridgeEnabled {
+            return (
+                configuration: nil,
+                pairingSecretUpdate: existingConfiguration?.pairingSecretRef == nil ? nil : ""
+            )
+        }
+
+        guard let helperPort = formState.parsedHelperPort else {
+            throw ProfileEditorValidationError.invalidHelperPort
+        }
+
+        let trimmedSecret = helperPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secretRef: String
+        let secretUpdate: String?
+        let fingerprint: String?
+
+        if isEditing && hasExistingHelperPairingSecret && !replaceHelperPairingSecret {
+            guard let existingRef = existingConfiguration?.pairingSecretRef else {
+                throw ProfileEditorValidationError.helperTokenRequired
+            }
+            secretRef = existingRef
+            secretUpdate = nil
+            fingerprint = existingConfiguration?.pairingFingerprint
+        } else {
+            guard !trimmedSecret.isEmpty else {
+                throw ProfileEditorValidationError.helperTokenRequired
+            }
+            secretRef = existingConfiguration?.pairingSecretRef
+                ?? Self.helperPairingSecretReference(for: profileID)
+            secretUpdate = trimmedSecret
+            fingerprint = Self.pairingFingerprint(for: trimmedSecret)
+        }
+
+        return (
+            configuration: try HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: formState.helperHost,
+                port: helperPort,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: fingerprint
+            ),
+            pairingSecretUpdate: secretUpdate
+        )
+    }
+
     private func save() {
         saveAttemptCount += 1
         guard formState.isValid, let portValue = formState.parsedPort else {
@@ -345,6 +498,11 @@ public struct ProfileEditorView: View {
             let credentialRef: String?
 
             if let editingProfile {
+                let helper = try resolveHelperTextBridge(
+                    profileID: editingProfile.id,
+                    existingConfiguration: editingProfile.helperTextBridge
+                )
+
                 if hasExistingCredential && !replacePassword {
                     // Toggle is off → keep the keychain credential
                     // untouched.  Pass `nil` to the model so the
@@ -372,14 +530,25 @@ public struct ProfileEditorView: View {
                     lastConnectedAt: editingProfile.lastConnectedAt,
                     lastDiagnosticSummary: editingProfile.lastDiagnosticSummary,
                     hostKind: hostKind,
-                    allowsPiPWatch: allowsPiPWatch
+                    allowsPiPWatch: allowsPiPWatch,
+                    helperTextBridge: helper.configuration
                 )
-                onSave(profile, resolvedPassword)
+                onSave(
+                    profile,
+                    ProfileEditorCredentialUpdate(
+                        vncPassword: resolvedPassword,
+                        helperPairingSecret: helper.pairingSecretUpdate
+                    )
+                )
                 dismiss()
                 return
             }
 
             let profileID = UUID()
+            let helper = try resolveHelperTextBridge(
+                profileID: profileID,
+                existingConfiguration: nil
+            )
             let profile = try ConnectionProfile(
                 id: profileID,
                 displayName: formState.displayName,
@@ -387,12 +556,42 @@ public struct ProfileEditorView: View {
                 port: portValue,
                 credentialRef: trimmedPassword.isEmpty ? nil : "vnc-password:\(profileID.uuidString)",
                 hostKind: hostKind,
-                allowsPiPWatch: allowsPiPWatch
+                allowsPiPWatch: allowsPiPWatch,
+                helperTextBridge: helper.configuration
             )
-            onSave(profile, trimmedPassword.isEmpty ? nil : trimmedPassword)
+            onSave(
+                profile,
+                ProfileEditorCredentialUpdate(
+                    vncPassword: trimmedPassword.isEmpty ? nil : trimmedPassword,
+                    helperPairingSecret: helper.pairingSecretUpdate
+                )
+            )
             dismiss()
         } catch {
             validationMessage = error.localizedDescription
+        }
+    }
+
+    private static func helperPairingSecretReference(for profileID: ConnectionProfile.ID) -> String {
+        "helper-token:\(profileID.uuidString)"
+    }
+
+    private static func pairingFingerprint(for secret: String) -> String {
+        let digest = SHA256.hash(data: Data(secret.utf8))
+        return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private enum ProfileEditorValidationError: LocalizedError {
+    case invalidHelperPort
+    case helperTokenRequired
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidHelperPort:
+            "Helper port must be between 1 and 65535."
+        case .helperTokenRequired:
+            "Helper token is required when helper text bridge is enabled."
         }
     }
 }

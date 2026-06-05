@@ -76,7 +76,7 @@ let package = Package(
         ),
         .testTarget(
             name: "NaruRemoteAppTests",
-            dependencies: ["NaruRemoteApp", "NaruRemoteCore"],
+            dependencies: ["NaruRemoteApp", "NaruRemoteCore", "NaruHelperKit"],
             path: "NaruRemote/Tests/NaruRemoteAppTests"
         ),
         .testTarget(

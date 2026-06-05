@@ -400,6 +400,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         profiles = storedProfiles
+        for profile in storedProfiles {
+            publishInitialHelperTextBridgeState(for: profile)
+        }
         if selectedProfileID == nil {
             selectedProfileID = storedProfiles.first?.id
         }
@@ -543,7 +546,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let profileID else {
             return nil
         }
-        return helperTextBridgeState[profileID] ?? HelperTextBridgeProfileState()
+        if let state = helperTextBridgeState[profileID] {
+            return state
+        }
+        guard let profile = profiles.first(where: { $0.id == profileID }) else {
+            return HelperTextBridgeProfileState()
+        }
+        return Self.initialHelperTextBridgeState(for: profile)
     }
 
     private func setHelperTextBridgeState(_ state: HelperTextBridgeProfileState, for profileID: ConnectionProfile.ID) {
@@ -629,7 +638,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         selectedProfileID = id
     }
 
-    public func addProfile(_ profile: ConnectionProfile, password: String? = nil) async {
+    public func addProfile(
+        _ profile: ConnectionProfile,
+        password: String? = nil,
+        helperPairingSecret: String? = nil
+    ) async {
         profilePersistenceError = nil
         var profileToSave = profile
         let trimmedPassword = password?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -650,11 +663,20 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
 
+        guard await applyHelperPairingSecretUpdate(
+            helperPairingSecret,
+            to: &profileToSave,
+            existingProfile: nil
+        ) else {
+            return
+        }
+
         if let index = profiles.firstIndex(where: { $0.id == profileToSave.id }) {
             profiles[index] = profileToSave
         } else {
             profiles.append(profileToSave)
         }
+        publishInitialHelperTextBridgeState(for: profileToSave)
 
         do {
             try await profileStore?.save(profileToSave)
@@ -711,10 +733,14 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// place (the user is iterating on the same target).  If the
     /// profile id is unknown, this is a no-op so a stale UI never
     /// resurrects a deleted profile.
-    public func editProfile(_ profile: ConnectionProfile, password: String?) async {
+    public func editProfile(
+        _ profile: ConnectionProfile,
+        password: String?,
+        helperPairingSecret: String? = nil
+    ) async {
         profilePersistenceError = nil
 
-        guard profiles.contains(where: { $0.id == profile.id }) else {
+        guard let existingProfile = profiles.first(where: { $0.id == profile.id }) else {
             return
         }
 
@@ -754,9 +780,18 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
 
+        guard await applyHelperPairingSecretUpdate(
+            helperPairingSecret,
+            to: &profileToSave,
+            existingProfile: existingProfile
+        ) else {
+            return
+        }
+
         if let index = profiles.firstIndex(where: { $0.id == profileToSave.id }) {
             profiles[index] = profileToSave
         }
+        publishInitialHelperTextBridgeState(for: profileToSave)
 
         do {
             try await profileStore?.save(profileToSave)
@@ -764,6 +799,97 @@ public final class NaruRemoteAppModel: ObservableObject {
             profilePersistenceError = "Profile could not be saved on this device."
         }
         refreshProfileReachability()
+    }
+
+    private func publishInitialHelperTextBridgeState(for profile: ConnectionProfile) {
+        guard let state = Self.initialHelperTextBridgeState(for: profile) else {
+            helperTextBridgeState.removeValue(forKey: profile.id)
+            return
+        }
+        helperTextBridgeState[profile.id] = state
+    }
+
+    nonisolated private static func initialHelperTextBridgeState(
+        for profile: ConnectionProfile
+    ) -> HelperTextBridgeProfileState? {
+        guard let configuration = profile.helperTextBridge else {
+            return nil
+        }
+        guard configuration.isEnabled else {
+            return HelperTextBridgeProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .disabled,
+                lastFailureCode: .disabled,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard configuration.pairingSecretRef != nil else {
+            return HelperTextBridgeProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .notConfigured,
+                lastFailureCode: .notConfigured,
+                lastCheckedBucket: .never
+            )
+        }
+        return HelperTextBridgeProfileState(
+            isEnabled: true,
+            pairingFingerprint: configuration.pairingFingerprint,
+            availability: .reachable,
+            lastFailureCode: nil,
+            lastCheckedBucket: .recent
+        )
+    }
+
+    private func applyHelperPairingSecretUpdate(
+        _ helperPairingSecret: String?,
+        to profile: inout ConnectionProfile,
+        existingProfile: ConnectionProfile?
+    ) async -> Bool {
+        guard let helperPairingSecret else {
+            return true
+        }
+
+        let trimmedSecret = helperPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingRef = existingProfile?.helperTextBridge?.pairingSecretRef
+
+        guard !trimmedSecret.isEmpty else {
+            if let existingRef {
+                do {
+                    try await credentialStore?.deletePassword(for: existingRef)
+                } catch {
+                    profilePersistenceError = "Helper token could not be removed on this device."
+                    return false
+                }
+            }
+            return true
+        }
+
+        guard let credentialStore else {
+            profilePersistenceError = "Helper token could not be saved on this device."
+            return false
+        }
+        guard var configuration = profile.helperTextBridge else {
+            profilePersistenceError = "Helper token could not be saved on this device."
+            return false
+        }
+
+        let secretRef = configuration.pairingSecretRef
+            ?? Self.helperPairingSecretReference(for: profile.id)
+        do {
+            try await credentialStore.savePassword(trimmedSecret, for: secretRef)
+            if let existingRef, existingRef != secretRef {
+                try await credentialStore.deletePassword(for: existingRef)
+            }
+        } catch {
+            profilePersistenceError = "Helper token could not be saved on this device."
+            return false
+        }
+
+        configuration.pairingSecretRef = secretRef
+        profile.helperTextBridge = configuration
+        return true
     }
 
     /// Remove a saved profile from the store.  Best-effort cleans up
@@ -804,6 +930,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profilePersistenceError = "Saved password could not be removed on this device."
             }
         }
+
+        if let helperSecretRef = removedProfile.helperTextBridge?.pairingSecretRef {
+            do {
+                try await credentialStore?.deletePassword(for: helperSecretRef)
+            } catch {
+                profilePersistenceError = "Helper token could not be removed on this device."
+            }
+        }
+        helperTextBridgeState.removeValue(forKey: id)
 
         do {
             _ = try await profileStore?.deleteProfile(id: id)
@@ -1379,6 +1514,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private static func credentialReference(for profileID: ConnectionProfile.ID) -> String {
         "vnc-password:\(profileID.uuidString)"
+    }
+
+    private static func helperPairingSecretReference(for profileID: ConnectionProfile.ID) -> String {
+        "helper-token:\(profileID.uuidString)"
     }
 
     public func connectSelectedProfile() async {
@@ -3075,6 +3214,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
         let profileID = session?.profileID ?? selectedProfileID
         let helperState = helperTextBridgeState(for: profileID)
+        let profile = profileID.flatMap { id in
+            profiles.first { $0.id == id }
+        }
         if payloadEncoding == .utf8ExtensionRequired,
            utf8Support != .supported,
            let profileID,
@@ -3092,6 +3234,25 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profileID: profileID,
                 helperState: helperState,
                 helperTextInsertClient: helperTextInsertClient,
+                now: now
+            )
+            return
+        }
+        if payloadEncoding == .utf8ExtensionRequired,
+           utf8Support != .supported,
+           let profile,
+           let helperState,
+           Self.canRouteThroughStoredHelperTextBridge(
+                state: helperState,
+                profile: profile
+           ) {
+            sendComposedTextThroughStoredHelper(
+                draft: draft,
+                payloadEncoding: payloadEncoding,
+                transferMode: transferMode,
+                utf8Support: utf8Support,
+                profile: profile,
+                helperState: helperState,
                 now: now
             )
             return
@@ -3407,6 +3568,200 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    private func sendComposedTextThroughStoredHelper(
+        draft: ComposeDraft,
+        payloadEncoding: TextInjectionPayloadEncoding,
+        transferMode: TextClipboardTransferMode,
+        utf8Support: RemoteClipboardUTF8Support,
+        profile: ConnectionProfile,
+        helperState: HelperTextBridgeProfileState,
+        now: Date
+    ) {
+        guard let configuration = profile.helperTextBridge,
+              let secretRef = configuration.pairingSecretRef,
+              let helperPort = UInt16(exactly: configuration.port)
+        else {
+            return
+        }
+
+        var sendingDraft = draft
+        let metadata = HelperTextInsertRequestMetadata(
+            sessionID: sendingDraft.sessionID,
+            payloadEncoding: payloadEncoding,
+            payloadSizeBucket: HelperTextPayloadSizeBucket.bucket(
+                utf8ByteCount: sendingDraft.text.utf8.count
+            )
+        )
+        let draftID = sendingDraft.id
+        let sessionID = sendingDraft.sessionID
+        let profileID = profile.id
+        let helperHost = configuration.resolvedHost(fallback: profile.host)
+        let credentialStore = credentialStore
+
+        sendingDraft.markSending(path: .helperTextBridge, at: now)
+        composeDraft = sendingDraft
+        latestInjectionAttempt = TextInjectionAttempt(
+            draftID: sendingDraft.id,
+            sessionID: sendingDraft.sessionID,
+            path: .helperTextBridge,
+            payloadEncoding: payloadEncoding,
+            clipboardTransferMode: transferMode,
+            utf8ClipboardSupport: utf8Support,
+            startedAt: now,
+            status: .unknown,
+            remoteClipboardRestore: .notAttempted,
+            safeMessage: "Sending through helperTextBridge"
+        )
+
+        Task.detached(priority: .userInitiated) { [weak self, credentialStore, sendingDraft, metadata, now, profileID, helperState, secretRef, helperHost, helperPort] in
+            var draft = sendingDraft
+            var attempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .helperTextBridge,
+                payloadEncoding: metadata.payloadEncoding,
+                clipboardTransferMode: transferMode,
+                utf8ClipboardSupport: utf8Support,
+                startedAt: now,
+                remoteClipboardRestore: .notAttempted
+            )
+
+            guard await Self.isCurrentStoredHelperTextInjection(
+                self,
+                draftID: draftID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) else {
+                await Self.cancelTextInjection(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID
+                )
+                return
+            }
+
+            let secret: String
+            do {
+                guard let loadedSecret = try await credentialStore?.password(for: secretRef),
+                      !loadedSecret.isEmpty
+                else {
+                    throw HelperTextBridgeError.unavailable(.notConfigured)
+                }
+                secret = loadedSecret
+            } catch let error as HelperTextBridgeError {
+                await Self.finishStoredHelperFailure(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    helperState: helperState,
+                    failureCode: Self.helperFailureCode(from: error),
+                    profileID: profileID,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    now: now
+                )
+                return
+            } catch {
+                await Self.finishStoredHelperFailure(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    helperState: helperState,
+                    failureCode: .notConfigured,
+                    profileID: profileID,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    now: now
+                )
+                return
+            }
+
+            let client = NaruHelperNetworkTextInsertClient(
+                host: helperHost,
+                port: helperPort,
+                pairingSecret: secret
+            )
+
+            do {
+                let result = try await client.insertText(draft.text, metadata: metadata)
+                let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
+                attempt.finishedAt = Date()
+                attempt.status = result.status
+                attempt.safeMessage = message
+                attempt.remoteClipboardRestore = Self.remoteClipboardRestoreStatus(for: result)
+                let nextState = Self.updatedHelperTextBridgeState(
+                    helperState,
+                    result: result
+                )
+
+                switch result.status {
+                case .sent:
+                    draft.markSent(message: message, at: attempt.finishedAt ?? now)
+                case .failed:
+                    draft.markFailed(reason: message, at: attempt.finishedAt ?? now)
+                case .unknown:
+                    draft.markUnknown(message: message, at: attempt.finishedAt ?? now)
+                }
+
+                await Self.finishTextInjection(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    helperTextBridgeState: nextState,
+                    helperProfileID: profileID
+                )
+            } catch {
+                await Self.finishStoredHelperFailure(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    helperState: helperState,
+                    failureCode: Self.helperFailureCode(from: error),
+                    profileID: profileID,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    now: now
+                )
+            }
+        }
+    }
+
+    private static func finishStoredHelperFailure(
+        _ model: NaruRemoteAppModel?,
+        draft: ComposeDraft,
+        attempt: TextInjectionAttempt,
+        helperState: HelperTextBridgeProfileState,
+        failureCode: HelperTextBridgeFailureCode,
+        profileID: ConnectionProfile.ID,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID,
+        now: Date
+    ) async {
+        var failedDraft = draft
+        var failedAttempt = attempt
+        let message = HelperTextBridgeError.safeMessage(for: failureCode)
+        failedAttempt.finishedAt = Date()
+        failedAttempt.status = .failed
+        failedAttempt.safeMessage = message
+        failedDraft.markFailed(reason: message, at: failedAttempt.finishedAt ?? now)
+        await finishTextInjection(
+            model,
+            draft: failedDraft,
+            attempt: failedAttempt,
+            draftID: draftID,
+            sessionID: sessionID,
+            helperTextBridgeState: updatedHelperTextBridgeState(
+                helperState,
+                failureCode: failureCode
+            ),
+            helperProfileID: profileID
+        )
+    }
+
     nonisolated private static func canRouteThroughHelperTextBridge(
         state: HelperTextBridgeProfileState,
         client: any HelperTextInsertClient
@@ -3414,6 +3769,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         state.isEnabled &&
             state.availability == .reachable &&
             client.availability == .reachable
+    }
+
+    nonisolated private static func canRouteThroughStoredHelperTextBridge(
+        state: HelperTextBridgeProfileState,
+        profile: ConnectionProfile
+    ) -> Bool {
+        guard let configuration = profile.helperTextBridge else {
+            return false
+        }
+        return state.isEnabled &&
+            state.availability == .reachable &&
+            configuration.isEnabled &&
+            configuration.pairingSecretRef != nil
     }
 
     nonisolated private static func helperFailureCode(
@@ -3552,6 +3920,34 @@ public final class NaruRemoteAppModel: ObservableObject {
             guard Self.canRouteThroughHelperTextBridge(
                 state: helperState,
                 client: helperBox.client
+            ) else {
+                return false
+            }
+            return model.composeDraft?.id == draftID
+        }
+    }
+
+    private static func isCurrentStoredHelperTextInjection(
+        _ model: NaruRemoteAppModel?,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) async -> Bool {
+        await MainActor.run {
+            guard let model,
+                  model.session?.id == sessionID,
+                  model.session?.profileID == profileID,
+                  model.session?.state == .active,
+                  let profile = model.profiles.first(where: { $0.id == profileID })
+            else {
+                return false
+            }
+            let helperState = model.helperTextBridgeState[profileID]
+                ?? Self.initialHelperTextBridgeState(for: profile)
+                ?? HelperTextBridgeProfileState()
+            guard Self.canRouteThroughStoredHelperTextBridge(
+                state: helperState,
+                profile: profile
             ) else {
                 return false
             }

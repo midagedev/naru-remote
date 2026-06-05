@@ -132,6 +132,19 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
         self.listener = try NWListener(using: .tcp, on: endpointPort)
     }
 
+    public init(
+        handler: NaruHelperNetworkRequestHandler,
+        queue: DispatchQueue = DispatchQueue(label: "com.naruremote.helper-network-server")
+    ) throws {
+        self.handler = handler
+        self.queue = queue
+        self.listener = try NWListener(using: .tcp)
+    }
+
+    public var port: UInt16? {
+        listener.port?.rawValue
+    }
+
     public func start() {
         listener.newConnectionHandler = { [handler, queue] connection in
             connection.start(queue: queue)

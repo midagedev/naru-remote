@@ -290,8 +290,14 @@ public struct NaruRemoteAppShell: View {
                         password: password
                     )
                 },
-                onSave: { profile, password in
-                    Task { await model.addProfile(profile, password: password) }
+                onSave: { profile, credentials in
+                    Task {
+                        await model.addProfile(
+                            profile,
+                            password: credentials.vncPassword,
+                            helperPairingSecret: credentials.helperPairingSecret
+                        )
+                    }
                 }
             )
         }
@@ -306,8 +312,14 @@ public struct NaruRemoteAppShell: View {
                         password: password
                     )
                 },
-                onSave: { profile, password in
-                    Task { await model.editProfile(profile, password: password) }
+                onSave: { profile, credentials in
+                    Task {
+                        await model.editProfile(
+                            profile,
+                            password: credentials.vncPassword,
+                            helperPairingSecret: credentials.helperPairingSecret
+                        )
+                    }
                 }
             )
         }

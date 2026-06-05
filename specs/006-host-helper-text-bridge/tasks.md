@@ -89,6 +89,7 @@ description: "Tasks: Host Helper Text Bridge"
 - [x] T026 [US1] Implement first text insertion strategy with privacy-preserving tests. **Done.**
 - [x] T027 [US1] Implement pasteboard fallback only with restore attempt and restore-failure reporting. **Done.**
 - [x] T030 [US1] Add authenticated length-prefixed helper network transport, macOS listen mode, and client/server tests. **Done.**
+- [x] T031 [US1] Persist per-profile helper endpoint metadata and keychain-backed pairing secret references, then route Compose through the stored network helper transport from `NaruRemoteAppModel`. Verify with profile JSON, credential-store, load-state, and loopback helper transport tests. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T029 [US1] Record physical iPhone + Mac manual verification evidence.
 

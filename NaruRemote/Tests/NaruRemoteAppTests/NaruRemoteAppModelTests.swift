@@ -1,6 +1,7 @@
 import Foundation
 import os
 import XCTest
+import NaruHelperKit
 import NaruRemoteCore
 @testable import NaruRemoteApp
 
@@ -642,6 +643,97 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(storedPassword, "secret")
         XCTAssertFalse(credentialRef.contains("secret"))
         XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testModelSavesHelperPairingSecretInCredentialStoreAndKeepsOnlyReferenceInProfile() async throws {
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(credentialStore: credentialStore)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: nil,
+                port: naruHelperTextBridgeDefaultPort,
+                pairingSecretRef: nil,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+
+        await model.addProfile(profile, helperPairingSecret: " helper-secret ")
+
+        let savedProfile = try XCTUnwrap(model.snapshot.selectedProfile)
+        let helperConfiguration = try XCTUnwrap(savedProfile.helperTextBridge)
+        let credentialRef = try XCTUnwrap(helperConfiguration.pairingSecretRef)
+        let storedSecret = try await credentialStore.password(for: credentialRef)
+        XCTAssertEqual(storedSecret, "helper-secret")
+        XCTAssertFalse(credentialRef.contains("helper-secret"))
+        XCTAssertEqual(helperConfiguration.resolvedHost(fallback: savedProfile.host), "desk.tailnet.ts.net")
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, true)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testModelDeletesHelperPairingSecretWhenHelperIsRemovedFromProfile() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                port: naruHelperTextBridgeDefaultPort,
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore
+        )
+        let updatedProfile = try ConnectionProfile(
+            id: profile.id,
+            displayName: profile.displayName,
+            host: profile.host,
+            port: profile.port
+        )
+
+        await model.editProfile(updatedProfile, password: nil, helperPairingSecret: "")
+
+        XCTAssertNil(model.snapshot.selectedProfile?.helperTextBridge)
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id])
+        let storedSecret = try await credentialStore.password(for: helperSecretRef)
+        XCTAssertNil(storedSecret)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testModelInitializesStoredHelperTextBridgeStateWhenLoadingProfiles() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                port: naruHelperTextBridgeDefaultPort,
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let model = NaruRemoteAppModel(profileStore: store)
+
+        await model.loadStoredProfiles()
+
+        XCTAssertEqual(model.snapshot.selectedProfile?.id, profile.id)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.isEnabled, true)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
+        XCTAssertNil(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode)
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.pairingFingerprint,
+            "sha256:helper-fingerprint"
+        )
     }
 
     func testModelUsesStoredVNCPasswordForStreamingConnection() async throws {
@@ -1849,6 +1941,83 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("helper-pairing"))
     }
 
+    func testModelRoutesUTF8ComposeThroughStoredHelperProfileTransport() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let recorder = NetworkHelperInsertRecorder()
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: "helper-secret",
+            capabilityProvider: {
+                NaruHelperCapabilityResponse(
+                    availability: .reachable,
+                    permissionState: NaruHelperPermissionState(
+                        accessibility: "granted",
+                        inputMonitoring: "notRequired",
+                        pasteboardFallback: "available",
+                        activeUserSession: "available"
+                    ),
+                    supportedStrategies: [.pasteboardPasteWithRestore]
+                )
+            },
+            insertHandler: { request in
+                recorder.record(request)
+                return NaruHelperInsertTextResponse(
+                    requestID: request.requestID,
+                    status: .sent,
+                    strategyUsed: .pasteboardPasteWithRestore
+                )
+            }
+        )
+        let server = try NaruHelperNetworkServer(handler: handler)
+        server.start()
+        defer { server.cancel() }
+        let helperPort = try await waitForHelperServerPort(server)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: "127.0.0.1",
+                port: Int(helperPort),
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        try await waitForNetworkHelperInsertRequests(recorder, count: 1)
+
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(recorder.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(recorder.requests.first?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
+            HelperTextBridgeFailureCode.none
+        )
+    }
+
     func testModelRejectsMismatchedHelperInsertResultID() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
@@ -2747,6 +2916,38 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(helper.requests.count, expectedCount, file: file, line: line)
     }
+
+    private func waitForHelperServerPort(
+        _ server: NaruHelperNetworkServer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> UInt16 {
+        for _ in 0..<60 {
+            if let port = server.port, port > 0 {
+                return port
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for helper server port.", file: file, line: line)
+        throw HelperTextBridgeError.unavailable(.unreachable)
+    }
+
+    private func waitForNetworkHelperInsertRequests(
+        _ recorder: NetworkHelperInsertRecorder,
+        count expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if recorder.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(recorder.requests.count, expectedCount, file: file, line: line)
+    }
 }
 
 private final class PacingSleepRecorder: @unchecked Sendable {
@@ -2768,6 +2969,25 @@ private final class PacingSleepRecorder: @unchecked Sendable {
 
 private enum FakePiPWatchError: Error {
     case renderFailed
+}
+
+private final class NetworkHelperInsertRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedRequests: [NaruHelperInsertTextRequest] = []
+
+    var requests: [NaruHelperInsertTextRequest] {
+        lock.withLock { recordedRequests }
+    }
+
+    var insertedTexts: [String] {
+        requests.map(\.text)
+    }
+
+    func record(_ request: NaruHelperInsertTextRequest) {
+        lock.withLock {
+            recordedRequests.append(request)
+        }
+    }
 }
 
 @MainActor
