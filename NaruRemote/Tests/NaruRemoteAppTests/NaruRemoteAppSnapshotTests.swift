@@ -208,6 +208,52 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.inputStatusText, "Paste command sent; remote app confirmation unavailable.")
     }
 
+    func testInputHelperStatusSurfacesUTF8ComposeRequirement() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "한글과 English")
+        )
+
+        XCTAssertEqual(
+            snapshot.inputHelperStatusText,
+            "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+        )
+    }
+
+    func testInputHelperStatusHidesForAsciiDraftWithoutHelperState() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "hello")
+        )
+
+        XCTAssertNil(snapshot.inputHelperStatusText)
+    }
+
+    func testInputHelperStatusShowsReachableHelperState() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            helperTextBridgeState: [
+                profile.id: HelperTextBridgeProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper-pairing",
+                    availability: .reachable,
+                    lastCheckedBucket: .recent
+                )
+            ]
+        )
+
+        XCTAssertEqual(snapshot.inputHelperStatusText, "Helper ready for multilingual Compose")
+    }
+
     func testDiagnosticRowsExposeSafeStageText() {
         let profileID = UUID()
         let run = ConnectionDiagnosticRun(

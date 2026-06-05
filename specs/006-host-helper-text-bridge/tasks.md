@@ -65,7 +65,7 @@ description: "Tasks: Host Helper Text Bridge"
 ### Implementation
 
 - [x] T018 [US2] Add profile/helper state to `NaruRemote/App/AppShell/NaruRemoteAppSnapshot.swift` or profile state as selected by implementation design. **Done.**
-- [ ] T019 [US2] Surface helper availability in session/input UI with concise fixed copy.
+- [x] T019 [US2] Surface helper availability in session/input UI with concise fixed copy. **Done.**
 - [x] T020 [US2] Add helper revocation handling that prevents helper requests before transport creation. **Done.**
 
 **Checkpoint**: Revocation blocks helper insert and diagnostics remain safe.

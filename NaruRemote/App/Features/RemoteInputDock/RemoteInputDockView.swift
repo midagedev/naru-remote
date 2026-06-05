@@ -33,6 +33,7 @@ public struct RemoteInputDockView: View {
 
     private let initialText: String
     private let statusText: String
+    private let helperStatusText: String?
     private let onSend: (String) -> Void
     private let onTextChange: (String) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
@@ -55,6 +56,7 @@ public struct RemoteInputDockView: View {
     public init(
         initialText: String,
         statusText: String,
+        helperStatusText: String? = nil,
         onSend: @escaping (String) -> Void = { _ in },
         onTextChange: @escaping (String) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
@@ -75,6 +77,7 @@ public struct RemoteInputDockView: View {
         self._lastAppliedInitialText = State(initialValue: initialText)
         self._lastPropagatedComposeText = State(initialValue: initialText)
         self.statusText = statusText
+        self.helperStatusText = helperStatusText
         self.onSend = onSend
         self.onTextChange = onTextChange
         self.directKeystrokeMode = directKeystrokeMode
@@ -164,11 +167,7 @@ public struct RemoteInputDockView: View {
                 Spacer()
 
                 if !directKeystrokeMode.isActive {
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.trailing)
+                    statusBlock
                 }
             }
 
@@ -204,11 +203,8 @@ public struct RemoteInputDockView: View {
                 directKeyboard
             } else {
                 compactComposeRow
-                if Self.shouldShowCompactStatusText(
-                    hasStatus: showsCompactStatusText,
-                    statusText: statusText
-                ) {
-                    compactStatusLine
+                if let compactStatusText {
+                    compactStatusLine(compactStatusText)
                 }
             }
         }
@@ -291,8 +287,36 @@ public struct RemoteInputDockView: View {
         }
     }
 
-    private var compactStatusLine: some View {
-        Text(statusText)
+    private var statusBlock: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(statusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+
+            if let helperStatusText = helperStatusText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !helperStatusText.isEmpty {
+                Text(helperStatusText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityIdentifier("naru.input.helper-status")
+            }
+        }
+    }
+
+    private var compactStatusText: String? {
+        Self.resolvedCompactStatusText(
+            hasStatus: showsCompactStatusText,
+            statusText: statusText,
+            helperStatusText: helperStatusText
+        )
+    }
+
+    private func compactStatusLine(_ text: String) -> some View {
+        Text(text)
             .font(.caption2)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -751,6 +775,22 @@ public struct RemoteInputDockView: View {
     ) -> Bool {
         let trimmed = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         return hasStatus && !trimmed.isEmpty
+    }
+
+    nonisolated static func resolvedCompactStatusText(
+        hasStatus: Bool,
+        statusText: String,
+        helperStatusText: String?
+    ) -> String? {
+        if shouldShowCompactStatusText(hasStatus: hasStatus, statusText: statusText) {
+            return statusText
+        }
+
+        let helperStatusText = helperStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let helperStatusText, !helperStatusText.isEmpty else {
+            return nil
+        }
+        return helperStatusText
     }
 
     nonisolated static func resolvedCurrentComposeText(

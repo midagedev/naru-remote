@@ -832,6 +832,49 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         }
     }
 
+    public var inputHelperStatusText: String? {
+        let profileID = session?.profileID ?? selectedProfile?.id ?? selectedProfileID
+        let helperState = profileID.flatMap { helperTextBridgeState[$0] } ?? HelperTextBridgeProfileState()
+        let composeNeedsUTF8 = composeDraft.map { draft in
+            TextInjectionPayloadEncoding.classify(draft.text) == .utf8ExtensionRequired
+        } ?? false
+        let latestAttemptNeedsUTF8 = latestInjectionAttempt?.payloadEncoding == .utf8ExtensionRequired
+        let helperHasVisibleState = helperState.isEnabled
+            || helperState.pairingFingerprint != nil
+            || helperState.availability != .notConfigured
+            || (helperState.lastFailureCode.map { $0 != .none } ?? false)
+
+        guard composeNeedsUTF8 || latestAttemptNeedsUTF8 || helperHasVisibleState else {
+            return nil
+        }
+
+        if !helperState.isEnabled,
+           helperState.pairingFingerprint != nil {
+            return "Helper disabled for this profile"
+        }
+
+        switch helperState.availability {
+        case .notConfigured:
+            return "Korean/CJK/emoji needs UTF-8 clipboard or helper"
+        case .disabled:
+            return "Helper disabled for this profile"
+        case .checking:
+            return "Checking helper text bridge"
+        case .reachable:
+            return helperState.isEnabled
+                ? "Helper ready for multilingual Compose"
+                : "Helper disabled for this profile"
+        case .unreachable:
+            return "Helper not reachable"
+        case .permissionMissing:
+            return "Helper needs Mac permission"
+        case .revoked:
+            return "Helper pairing revoked"
+        case .versionUnsupported:
+            return "Helper version unsupported"
+        }
+    }
+
     public var isPiPWatchAvailable: Bool {
         guard selectedProfile?.allowsPiPWatch ?? true else {
             return false
