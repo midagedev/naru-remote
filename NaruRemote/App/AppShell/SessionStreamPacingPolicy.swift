@@ -26,6 +26,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
         usesViewportInteractionPacing: Bool = false,
+        viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
         decision(
@@ -34,6 +35,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             thermalState: thermalState,
             usesPowerSaverPacing: usesPowerSaverPacing,
             usesViewportInteractionPacing: usesViewportInteractionPacing,
+            viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval,
             emptyUpdateStreak: emptyUpdateStreak
         ).delay
     }
@@ -44,6 +46,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
         usesViewportInteractionPacing: Bool = false,
+        viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
         emptyUpdateStreak: Int = 1
     ) -> SessionStreamPacingDecision {
         let configuredDelay = max(configuredDelay, 0)
@@ -71,7 +74,8 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         )
         let viewportInteractionMinimum = minimumDelayForViewportInteraction(
             for: event,
-            usesViewportInteractionPacing: usesViewportInteractionPacing
+            usesViewportInteractionPacing: usesViewportInteractionPacing,
+            contentFrameInterval: viewportInteractionContentFrameInterval
         )
         let effectiveDelay = max(
             configuredDelayWithBackoff,
@@ -169,7 +173,8 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
 
     private static func minimumDelayForViewportInteraction(
         for event: SessionStreamPacingEvent,
-        usesViewportInteractionPacing: Bool
+        usesViewportInteractionPacing: Bool,
+        contentFrameInterval: TimeInterval
     ) -> TimeInterval {
         guard usesViewportInteractionPacing else {
             return 0
@@ -177,9 +182,63 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
 
         switch event {
         case .contentFrame:
-            return StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+            return max(contentFrameInterval, 0)
         case .emptyUpdate:
             return StreamPressurePacingDefaults.viewportInteractionIdleFrameIntervalSeconds
         }
+    }
+}
+
+struct ViewportInteractionFramePublishPolicy: Equatable, Sendable {
+    static let partialUploadContentFrameIntervalSeconds: TimeInterval =
+        StreamPressurePacingDefaults.viewportInteractionPartialContentFrameIntervalSeconds
+    static let fullUploadContentFrameIntervalSeconds: TimeInterval =
+        StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+
+    static func uploadPlan(
+        for frame: RFBFramePumpFrame,
+        currentFramebuffer: RFBRawFramebuffer?
+    ) -> FramebufferUploadPlan {
+        FramebufferUploadPlan.plan(
+            framebufferWidth: frame.framebuffer.width,
+            framebufferHeight: frame.framebuffer.height,
+            dirtyRectangles: frame.isIncremental ? frame.dirtyRectangles : nil,
+            requiresTextureRecreation: currentFramebuffer.map { current in
+                current.width != frame.framebuffer.width || current.height != frame.framebuffer.height
+            } ?? true
+        )
+    }
+
+    static func contentFrameInterval(for uploadPlan: FramebufferUploadPlan) -> TimeInterval {
+        switch uploadPlan.strategy {
+        case .partial:
+            return partialUploadContentFrameIntervalSeconds
+        case .full, .none:
+            return fullUploadContentFrameIntervalSeconds
+        }
+    }
+
+    static func shouldPublish(
+        uploadPlan: FramebufferUploadPlan,
+        capturedAt: Date,
+        lastPublishedAt: Date?,
+        interactionStartedAt: Date?
+    ) -> Bool {
+        if let lastPublishedAt {
+            return capturedAt.timeIntervalSince(lastPublishedAt) >= contentFrameInterval(for: uploadPlan)
+        }
+
+        if uploadPlan.strategy == .partial {
+            return true
+        }
+
+        guard uploadPlan.strategy == .full,
+              let interactionStartedAt
+        else {
+            return false
+        }
+
+        return capturedAt.timeIntervalSince(interactionStartedAt)
+            >= contentFrameInterval(for: uploadPlan)
     }
 }

@@ -244,6 +244,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameStreamID: UUID?
     private var isViewportInteractionActive = false
     private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
+    private var lastViewportInteractionFramePublishedAt: Date?
+    private var viewportInteractionStartedAt: Date?
     private var activeIncomingClipboardTask: Task<Void, Never>?
     /// Last profile + credential pair we successfully started a
     /// streaming session against.  Captured at stream start so an
@@ -2002,6 +2004,12 @@ public final class NaruRemoteAppModel: ObservableObject {
                         || appSettings.streamPowerMode == .powerSaver
                         || usesAdaptiveClientPressurePacing
                     let usesViewportInteractionPacing = isViewportInteractionActive
+                    let viewportInteractionContentFrameInterval = isEmptyUpdate
+                        ? StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+                        : Self.viewportInteractionContentFrameInterval(
+                            for: frame,
+                            currentFramebuffer: latestFramebuffer
+                        )
 
                     // Adaptive pacing: request the next content frame as
                     // fast as the configured active cap allows
@@ -2024,7 +2032,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                             configuredDelay: configuration.frameInterval,
                             thermalState: thermalState,
                             usesPowerSaverPacing: usesPowerSaverPacing,
-                            usesViewportInteractionPacing: usesViewportInteractionPacing
+                            usesViewportInteractionPacing: usesViewportInteractionPacing,
+                            viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval
                         )
                     recordSessionStreamPacingDecision(pacingDecision)
                     let pacingDelay = pacingDecision.delay
@@ -2153,7 +2162,12 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func setViewportInteractionActive(_ isActive: Bool) {
         if isActive {
+            guard !isViewportInteractionActive else {
+                return
+            }
             isViewportInteractionActive = true
+            viewportInteractionStartedAt = Date()
+            lastViewportInteractionFramePublishedAt = nil
             return
         }
 
@@ -2161,6 +2175,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         isViewportInteractionActive = false
+        viewportInteractionStartedAt = nil
+        lastViewportInteractionFramePublishedAt = nil
         flushDeferredViewportInteractionFrame()
     }
 
@@ -2175,15 +2191,20 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        if isViewportInteractionActive, latestFramebuffer != nil {
-            deferredViewportInteractionFrame = DeferredViewportInteractionFrame(
-                frame: frame,
+        if isViewportInteractionActive,
+           latestFramebuffer != nil,
+           !shouldPublishFrameDuringViewportInteraction(frame) {
+            deferViewportInteractionFrame(
+                frame,
                 serverInit: serverInit,
                 profile: profile,
                 sessionID: sessionID,
                 streamID: streamID
             )
             return
+        }
+        if isViewportInteractionActive {
+            lastViewportInteractionFramePublishedAt = frame.capturedAt
         }
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
@@ -2299,6 +2320,46 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: deferred.sessionID,
             streamID: deferred.streamID
         )
+    }
+
+    private func deferViewportInteractionFrame(
+        _ frame: RFBFramePumpFrame,
+        serverInit: RFBServerInit,
+        profile: ConnectionProfile,
+        sessionID: RemoteSession.ID,
+        streamID: UUID
+    ) {
+        deferredViewportInteractionFrame = DeferredViewportInteractionFrame(
+            frame: frame,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+    }
+
+    private func shouldPublishFrameDuringViewportInteraction(_ frame: RFBFramePumpFrame) -> Bool {
+        let uploadPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
+            for: frame,
+            currentFramebuffer: latestFramebuffer
+        )
+        return ViewportInteractionFramePublishPolicy.shouldPublish(
+            uploadPlan: uploadPlan,
+            capturedAt: frame.capturedAt,
+            lastPublishedAt: lastViewportInteractionFramePublishedAt,
+            interactionStartedAt: viewportInteractionStartedAt
+        )
+    }
+
+    private static func viewportInteractionContentFrameInterval(
+        for frame: RFBFramePumpFrame,
+        currentFramebuffer: RFBRawFramebuffer?
+    ) -> TimeInterval {
+        let uploadPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
+            for: frame,
+            currentFramebuffer: currentFramebuffer
+        )
+        return ViewportInteractionFramePublishPolicy.contentFrameInterval(for: uploadPlan)
     }
 
     /// Memory-only update for the RFB Cursor pseudo-encoding when no
@@ -2462,6 +2523,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         deferredViewportInteractionFrame = nil
+        lastViewportInteractionFramePublishedAt = nil
+        viewportInteractionStartedAt = nil
 
         activeTextClient = nil
         activePointerClient = nil
@@ -2743,6 +2806,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameStreamID = nil
         isViewportInteractionActive = false
         deferredViewportInteractionFrame = nil
+        lastViewportInteractionFramePublishedAt = nil
+        viewportInteractionStartedAt = nil
         cancelPointerEventQueue()
     }
 

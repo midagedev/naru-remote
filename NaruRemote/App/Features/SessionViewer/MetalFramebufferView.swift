@@ -501,11 +501,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private static let decelerationVelocityDecayPerSecond: CGFloat = 0.12
     // The local transform stays on the compositor path, but real-device
     // feedback showed that deferring every streamed frame until gesture end
-    // makes remote cursor/desktop changes appear frozen. Allow one bounded
-    // refresh slot while pinching/panning; request pacing keeps this at the
-    // same sustained phone cadence instead of racing touch samples.
+    // makes remote cursor/desktop changes appear frozen. Allow localized
+    // dirty-rect refresh slots while pinching/panning; request pacing keeps
+    // full uploads conservative and only promotes partial cursor/text echo.
     private static let viewportGestureRedrawMinimumInterval: TimeInterval =
-        StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+        StreamPressurePacingDefaults.viewportInteractionPartialContentFrameIntervalSeconds
     private static let viewportGestureLongFrameInterval: TimeInterval = 0.024
 
     private enum ViewportStatePublishCadence {

@@ -1376,8 +1376,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
             )
         }
         let connector = FakeStreamingConnector(
-            width: 1,
-            height: 1,
+            width: 10,
+            height: 10,
             name: "Desk",
             updateResults: updates
         )
@@ -1427,8 +1427,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
     func testModelKeepsFrameRequestsAliveWithViewportInteractionPacing() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
-            width: 1,
-            height: 1,
+            width: 10,
+            height: 10,
             fill: RFBColor(red: 10, green: 0, blue: 0)
         )
         let updates = (0..<3).map { _ in
@@ -1473,12 +1473,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(delays[0], 1.0 / 60.0, accuracy: 0.0001)
         XCTAssertEqual(
             delays[1],
-            StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
+            ViewportInteractionFramePublishPolicy.partialUploadContentFrameIntervalSeconds,
             accuracy: 0.0001
         )
         XCTAssertEqual(
             delays[2],
-            StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
+            ViewportInteractionFramePublishPolicy.partialUploadContentFrameIntervalSeconds,
             accuracy: 0.0001
         )
         XCTAssertGreaterThan(
@@ -1507,6 +1507,96 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(performance.thermalPacingSampleCount, 0)
         model.disconnect()
         try await Task.sleep(for: .milliseconds(10))
+    }
+
+    func testViewportInteractionFramePublishPolicyPublishesOnlyBoundedPartialFrames() {
+        let current = RFBRawFramebuffer(
+            width: 10,
+            height: 10,
+            fill: RFBColor(red: 1, green: 0, blue: 0)
+        )
+        let partialFrame = RFBFramePumpFrame(
+            sequence: 2,
+            framebuffer: RFBRawFramebuffer(
+                width: 10,
+                height: 10,
+                fill: RFBColor(red: 2, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 2, height: 2)],
+            changedPixelCount: 4,
+            capturedAt: Date(timeIntervalSince1970: 10),
+            isIncremental: true
+        )
+        let fullFrame = RFBFramePumpFrame(
+            sequence: 3,
+            framebuffer: RFBRawFramebuffer(
+                width: 10,
+                height: 10,
+                fill: RFBColor(red: 3, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: 100,
+            capturedAt: Date(timeIntervalSince1970: 10),
+            isIncremental: false
+        )
+
+        let partialPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
+            for: partialFrame,
+            currentFramebuffer: current
+        )
+        let fullPlan = ViewportInteractionFramePublishPolicy.uploadPlan(
+            for: fullFrame,
+            currentFramebuffer: current
+        )
+        let interactionStartedAt = Date(timeIntervalSince1970: 10)
+
+        XCTAssertEqual(partialPlan.strategy, FramebufferUploadStrategy.partial)
+        XCTAssertEqual(fullPlan.strategy, FramebufferUploadStrategy.full)
+        XCTAssertTrue(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: partialPlan,
+                capturedAt: partialFrame.capturedAt,
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
+            ),
+            "Small dirty-rect updates should be allowed through so remote cursor/text echo does not freeze during pinch/pan."
+        )
+        XCTAssertFalse(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: fullPlan,
+                capturedAt: fullFrame.capturedAt,
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
+            ),
+            "Full uploads should still be coalesced at gesture start to protect touch tracking."
+        )
+        XCTAssertTrue(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: fullPlan,
+                capturedAt: interactionStartedAt.addingTimeInterval(
+                    ViewportInteractionFramePublishPolicy.fullUploadContentFrameIntervalSeconds
+                ),
+                lastPublishedAt: nil,
+                interactionStartedAt: interactionStartedAt
+            ),
+            "Full-frame-only servers should still get bounded refresh slots during a long pinch/pan."
+        )
+        XCTAssertFalse(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: partialPlan,
+                capturedAt: Date(timeIntervalSince1970: 10.02),
+                lastPublishedAt: Date(timeIntervalSince1970: 10),
+                interactionStartedAt: interactionStartedAt
+            )
+        )
+        XCTAssertTrue(
+            ViewportInteractionFramePublishPolicy.shouldPublish(
+                uploadPlan: partialPlan,
+                capturedAt: Date(timeIntervalSince1970: 10.07),
+                lastPublishedAt: Date(timeIntervalSince1970: 10),
+                interactionStartedAt: interactionStartedAt
+            )
+        )
     }
 
     func testModelKeepsBalancedEncodingProfileWithoutPowerSaverSignal() async throws {
