@@ -74,6 +74,10 @@ Current physical interaction gate artifact:
 Schema v29 adds `physicalGateVerdict` so the 10 minute iPhone gate can block
 production default promotion even when the detailed diagnostic verdict is only a
 warning.
+Current physical sustained candidate gate artifact:
+`artifacts/benchmarks/2026-06-06-physical-sustained-candidate-gate-summary.md`.
+The opt-in UI test now injects fixed candidate labels, exercises viewport /
+trackpad / Compose paths, and emits a delayed active-session diagnostic export.
 
 ## Physical iPhone: Live Connection Smoke
 
@@ -100,10 +104,55 @@ xcodebuild \
 unset NARU_PHYSICAL_E2E_PASSWORD
 ```
 
+For the larger sustained candidate gate, keep the same target variables and run
+the opt-in sustained UI test. The recommended production-promotion duration is
+600 seconds. The three candidate labels below are required; the test fails
+configuration early rather than silently running with the phone's existing
+settings or defaults. The test injects only fixed candidate labels into the app,
+performs viewport pinch/pan, trackpad movement, and a Compose send attempt, then
+keeps the session alive while the app emits a delayed diagnostic JSON block
+through the safe `makeDiagnosticExport()` path.
+
+```bash
+read -rs NARU_PHYSICAL_E2E_PASSWORD
+export NARU_PHYSICAL_E2E_PASSWORD
+export NARU_PHYSICAL_E2E_HOST=<private Mac address or MagicDNS name>
+export NARU_PHYSICAL_E2E_PORT=5900
+export NARU_PHYSICAL_E2E_HOST_KIND=privateAddress
+export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS=600
+export NARU_PHYSICAL_E2E_STREAM_POWER_MODE=balanced
+export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=standard
+export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=one-hidden-frame
+
+xcodebuild \
+  -project NaruRemote.xcodeproj \
+  -scheme NaruRemote \
+  -destination 'platform=iOS,id=<physical-device-id>' \
+  -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate \
+  DEVELOPMENT_TEAM=<local-development-team-id> \
+  test
+
+unset NARU_PHYSICAL_E2E_PASSWORD
+```
+
+Use the last `NARU_DIAGNOSTIC_EXPORT_BEGIN` / `NARU_DIAGNOSTIC_EXPORT_END`
+block from the xcodebuild log as the diagnostic evidence. The production
+promotion signal is
+`sustainedSessionAssessment.physicalGateVerdict == "pass"` with matching manual
+hand-feel notes; `blocked` means the next PR should follow
+`primaryConstraint` / `recommendedNextProbe` instead of changing defaults.
+Set `NARU_PHYSICAL_E2E_COMPOSE_TEXT` only when intentionally testing a specific
+IME payload; the UI test attachment records only `ascii`/`unicode`, never the
+text.
+
 If Xcode reports that the destination may need to be unlocked after a
 preparation error, unlock the device and rerun the same command. Do not
 store the password, device identifier, screenshots, or diagnostic
 payloads in this folder.
+If Xcode stops before install with missing iOS development provisioning
+profiles, create or refresh the local development profiles in Xcode first (or
+run the command with an explicit, intentional provisioning update flow). Treat
+that as signing setup, not as VNC/session evidence.
 
 ## Live VNC Target: Encoding And Update Latency
 

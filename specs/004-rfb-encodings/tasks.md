@@ -842,6 +842,16 @@ iPhone) and ships as its own PR.
   renderer, receive, cadence, adaptive, or sample-size issue blocks production
   default promotion. Owns: diagnostic schema/tests, app export test, benchmark
   docs/artifact, research note. **Done.**
+- **T412** Physical sustained candidate gate runner: extend the physical iPhone
+  UI test from connect-only smoke to an opt-in sustained candidate gate that
+  injects fixed stream power / encoding / startup-preflight labels, performs
+  viewport pinch-pan, zoomed trackpad movement, and a Compose Send attempt, and
+  emits delayed active-session diagnostic JSON through `makeDiagnosticExport()`.
+  Use the final safe `physicalGateVerdict` plus manual hand-feel notes before
+  promoting app defaults; do not export host identity, credentials, device id,
+  screenshots, raw text, raw timings, dimensions, coordinates, pixels, or
+  command output. Owns: physical UI test, iOS app test hook, app diagnostic
+  emission hook, benchmark docs/artifact, research note. **Done.**
 
 ## Cross-cutting (every increment)
 

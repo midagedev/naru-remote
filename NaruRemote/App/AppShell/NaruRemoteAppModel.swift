@@ -308,6 +308,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// non-critical and a stale in-memory `appSettings` is still
     /// safe to use until the next launch.  See ROADMAP Phase 7.
     @Published public private(set) var settingsPersistenceError: String?
+    private var hasScheduledActiveDiagnosticExportForTesting = false
+    private var activeDiagnosticExportTaskForTesting: Task<Void, Never>?
 
     public init(
         snapshot: NaruRemoteAppSnapshot = NaruRemoteAppSnapshot(),
@@ -485,6 +487,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// No-op if no `settingsPersistence` was injected or if the
     /// user has already toggled a setting in this session.
     public func loadStoredSettings() async {
+        guard !Self.testSkipsSettingsStoreLoad() else {
+            return
+        }
         guard let settingsPersistence else {
             return
         }
@@ -551,6 +556,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func toggleStartupPreflightMode() {
         setStartupPreflightMode(appSettings.startupPreflightMode.toggled)
+    }
+
+    /// XCUITest hook for physical-device candidate gates. Unlike the user
+    /// setters above, this does not persist to disk; it keeps a launched test
+    /// candidate isolated from whichever settings the phone had before.
+    public func applyAppSettingsOverrideForTesting(_ settings: AppSettings) {
+        appSettings = settings
     }
 
     /// Settings are non-critical. The in-memory value flips first so
@@ -1872,19 +1884,66 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func emitDiagnosticExportForTestingIfRequested(_ run: ConnectionDiagnosticRun?) {
         guard ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1",
-              let run,
-              run.finishedAt != nil
+              run?.finishedAt != nil
         else {
             return
         }
 
-        let payload = DiagnosticExport(run: run).renderCollectionJSON(
-            buildVersion: "test-device",
+        emitDiagnosticExportForTesting(buildVersion: "test-device")
+    }
+
+    public func emitDiagnosticExportForTesting(buildVersion: String?) {
+        guard ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1" else {
+            return
+        }
+
+        let payload = makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: buildVersion ?? "test-device",
             now: Date()
         )
         print("NARU_DIAGNOSTIC_EXPORT_BEGIN")
         print(payload)
         print("NARU_DIAGNOSTIC_EXPORT_END")
+    }
+
+    private func scheduleActiveDiagnosticExportForTestingIfRequested() {
+        guard !hasScheduledActiveDiagnosticExportForTesting,
+              ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1",
+              let rawDelay = ProcessInfo.processInfo
+                .environment["NARU_TEST_EMIT_DIAGNOSTIC_EXPORT_AFTER_ACTIVE_SECONDS"],
+              let delaySeconds = TimeInterval(rawDelay),
+              delaySeconds >= 0
+        else {
+            return
+        }
+
+        hasScheduledActiveDiagnosticExportForTesting = true
+        activeDiagnosticExportTaskForTesting = Task { [weak self] in
+            if delaySeconds > 0 {
+                do {
+                    try await Task.sleep(for: .milliseconds(Int((delaySeconds * 1_000).rounded())))
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                guard let self, self.hasScheduledActiveDiagnosticExportForTesting else {
+                    return
+                }
+                self.emitDiagnosticExportForTesting(buildVersion: "test-device")
+                self.activeDiagnosticExportTaskForTesting = nil
+            }
+        }
+    }
+
+    private static func testSkipsSettingsStoreLoad() -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_SKIP_SETTINGS_STORE_LOAD"],
+              !raw.isEmpty
+        else { return false }
+        return raw != "0" && raw.lowercased() != "false"
     }
 
     private func connectionCredential(for profile: ConnectionProfile) async throws -> RFBConnectionCredential {
@@ -2301,6 +2360,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         appFrameApplyMilliseconds: appFrameApplyMilliseconds
                     )
                     if frame.sequence == 1 {
+                        scheduleActiveDiagnosticExportForTestingIfRequested()
                         let startupPreflightResult = await performStartupPreflightFrames(
                             policy: currentStreamStartupPreflightPolicy(),
                             configuration: configuration,
@@ -2546,6 +2606,9 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func resetSessionStreamStats() {
         sessionStreamStats = SessionStreamStats()
+        hasScheduledActiveDiagnosticExportForTesting = false
+        activeDiagnosticExportTaskForTesting?.cancel()
+        activeDiagnosticExportTaskForTesting = nil
     }
 
     private func resetPreviewThrottle(for profileID: ConnectionProfile.ID) {
