@@ -50,7 +50,7 @@ public enum RFBClientMessageEncodingError: Error, Equatable {
 
 public enum RFBClientMessageEncoder {
     private static let keySymControlLeft: UInt32 = 0xffe3
-    private static let keySymMetaLeft: UInt32 = 0xffe7
+    private static let keySymAltLeft: UInt32 = 0xffe9
     private static let keySymLowercaseV: UInt32 = 0x0076
     private static let maxFencePayloadLength = 64
 
@@ -186,10 +186,11 @@ public enum RFBClientMessageEncoder {
     public static func pasteCommand(_ command: PasteCommand) -> Data {
         let modifier: UInt32 = switch command {
         case .commandV:
-            // Match the Direct-mode Command-key path: macOS VNC servers
-            // interpret Meta_L as Command, while Alt_L is Option and will
-            // not paste in normal text fields.
-            keySymMetaLeft
+            // Mac VNC servers commonly map Alt_L from a non-Mac viewer to
+            // the remote left Command key. Meta_L is not part of the
+            // documented RealVNC Mac default mapping and can fail to paste
+            // against macOS Screen Sharing.
+            keySymAltLeft
         case .controlV:
             keySymControlLeft
         }
