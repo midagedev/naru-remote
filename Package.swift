@@ -24,6 +24,10 @@ let package = Package(
         .executable(
             name: "VNCLiveBenchmark",
             targets: ["VNCLiveBenchmark"]
+        ),
+        .executable(
+            name: "NaruHelper",
+            targets: ["NaruHelper"]
         )
     ],
     targets: [
@@ -55,6 +59,16 @@ let package = Package(
             dependencies: ["NaruRemoteCore", "VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tools/VNCLiveBenchmark"
         ),
+        .target(
+            name: "NaruHelperKit",
+            dependencies: ["NaruRemoteCore"],
+            path: "NaruHelper/Sources/NaruHelperKit"
+        ),
+        .executableTarget(
+            name: "NaruHelper",
+            dependencies: ["NaruHelperKit"],
+            path: "NaruHelper/Sources/NaruHelper"
+        ),
         .testTarget(
             name: "NaruRemoteCoreTests",
             dependencies: ["NaruRemoteCore"],
@@ -79,6 +93,11 @@ let package = Package(
             name: "NaruRemoteBenchmarkTests",
             dependencies: ["NaruRemoteApp", "NaruRemoteCore"],
             path: "NaruRemote/Tests/NaruRemoteBenchmarkTests"
+        ),
+        .testTarget(
+            name: "NaruHelperKitTests",
+            dependencies: ["NaruHelperKit", "NaruRemoteCore"],
+            path: "NaruHelper/Tests/NaruHelperKitTests"
         )
     ]
 )
