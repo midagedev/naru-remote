@@ -231,7 +231,7 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(model.trackpadCursor.position.x, 150, accuracy: 1e-6)
         XCTAssertEqual(model.trackpadCursor.position.y, 50, accuracy: 1e-6)
         XCTAssertEqual(updated.zoomScale, 2, accuracy: 1e-6)
-        XCTAssertEqual(updated.panOffset.width, -72, accuracy: 1e-6)
+        XCTAssertEqual(updated.panOffset.width, -48, accuracy: 1e-6)
         XCTAssertEqual(updated.panOffset.height, 0, accuracy: 1e-6)
         try await waitForPointerEvents(connector, count: 1)
         let event = try XCTUnwrap(connector.recordedPointerEvents.first)

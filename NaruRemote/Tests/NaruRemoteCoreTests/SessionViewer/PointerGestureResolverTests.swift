@@ -203,13 +203,35 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -180,
+            -120,
             accuracy: 1e-6,
             "Zoomed trackpad movement should pan continuously with the cursor instead of waiting for the edge."
         )
         XCTAssertEqual(outcome.commands, [
             RFBPointerCommand(buttonMask: 0x00, x: 625, y: 500)
         ])
+    }
+
+    func testZoomedTrackpadCursorKeepsMostTouchTravelVisible() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
+        let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
+        let startCursorViewPoint = zoomed.viewPoint(fromFramebufferPoint: cursor.position)
+        let touchTranslation = CGSize(width: 240, height: 0)
+
+        let outcome = resolver.resolve(
+            .dragChanged(viewPoint: .zero, translation: touchTranslation),
+            transform: zoomed,
+            cursor: cursor
+        )
+        let endCursorViewPoint = outcome.transform.viewPoint(fromFramebufferPoint: outcome.cursor.position)
+        let visibleCursorTravel = endCursorViewPoint.x - startCursorViewPoint.x
+
+        XCTAssertGreaterThanOrEqual(
+            visibleCursorTravel,
+            touchTranslation.width * 0.5,
+            "Zoomed trackpad panning should not cancel most visible cursor travel."
+        )
     }
 
     func testTrackpadFollowZoneStartsNearViewportEdgeWhenZoomed() {
@@ -246,7 +268,7 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(
             outcome.transform.panOffset.width,
-            -70,
+            -45,
             "Trackpad auto-pan should move with the cursor instead of lagging at the edge."
         )
         XCTAssertGreaterThan(

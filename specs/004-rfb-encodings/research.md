@@ -964,3 +964,59 @@ aggregate viewport-interaction pacing sample count and permille.
 aggregate pacing sample counts, and permille ratios. They must not export
 coordinates, dimensions, pixels, cursor pixels, byte counts, raw delays, raw
 timing samples, host identity, raw errors, or Compose draft text.
+
+## D33 — Zoomed trackpad pan should preserve visible cursor travel
+
+References:
+- Apple Metal command buffer guidance:
+  https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/CommandBuffers.html
+- RFC 6143 pointer event message:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: reduce the default zoomed trackpad pan coupling from `0.72` to
+`0.48`. The viewport still pans with the cursor while zoomed, but at least half
+of a representative touch delta remains visible as cursor travel on screen
+before edge-reveal auto-pan contributes additional movement.
+
+**Why**:
+- Physical iPhone feedback reported that zoom/pan and trackpad navigation still
+  felt choppy and unnatural. The previous coupling made the viewport cancel too
+  much of the visual cursor movement, so the cursor appeared to lag or stick
+  while the framebuffer moved.
+- Apple Metal guidance warns that excessive command-buffer work and CPU/GPU
+  synchronization can cause stalls; the app should keep navigation on the
+  UIKit/Core Animation transform path rather than reintroducing per-sample
+  Metal redraws. This tuning changes pure gesture math instead of adding render
+  work.
+- RFB pointer moves remain coalesced separately from the local cursor path,
+  preserving protocol order while bounding socket pressure.
+
+**Verification**:
+- `PointerGestureResolverTests.testZoomedTrackpadCursorKeepsMostTouchTravelVisible`
+  proves a zoomed trackpad drag leaves at least 50% of the touch delta as
+  visible cursor travel.
+- Existing auto-pan tests continue to prove viewport pan still starts before
+  the cursor reaches the edge and does not snap to the full reveal delta.
+
+## D34 — Marked-text Compose changes should refresh local binding state
+
+**Decision**: while UIKit reports marked text, the Compose bridge now adopts the
+resolved current `UITextView` string into the local SwiftUI binding, but still
+does not propagate draft changes to the app model until marked text commits.
+
+**Why**:
+- Korean/CJK IMEs can keep candidate text in UIKit even when SwiftUI's binding
+  snapshot is stale. Leaving the binding stale made later external model sync or
+  send stabilization more likely to compare against an old prefix.
+- Writing the local binding is safe because `updateUIView` still defers writes
+  back into `UITextView` while marked text exists. The data flow is one-way
+  UIKit -> local state during composition, not SwiftUI -> UIKit overwrite.
+- The product boundary remains unchanged: Compose & Send still sends only when
+  the user taps Send, and marked text is not treated as a remote injection
+  event.
+
+**Verification**:
+- `RemoteInputDockSyncPolicyTests.testAdoptsUIKitComposeTextChangeWhileMarkedTextUpdatesLocalBinding`
+  covers the local adoption policy.
+- `RemoteInputDockSyncPolicyTests.testDefersLocalComposeTextPropagationWhileMarkedTextIsActive`
+  continues to prove model propagation is blocked during active marked text.
