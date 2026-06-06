@@ -105,6 +105,7 @@ enum VNCLiveBenchmark {
                 transportMode: scheduledProbe.transportMode,
                 pacingWindow: scheduledProbe.pacingWindow.label,
                 requestRegion: scheduledProbe.requestRegion,
+                firstFrameRequestMode: options.streamShapeFirstFrameRequestMode,
                 configuration: configuration,
                 timeout: options.timeout,
                 idleTimeout: options.idleTimeout,
@@ -158,6 +159,7 @@ enum VNCLiveBenchmark {
             streamShapeProfileOrderMode: options.streamShapeProfileOrderMode,
             streamShapePacingWindows: streamShapePacingWindowCandidates.map(\.label),
             streamShapeRequestRegions: streamShapeRequestRegions,
+            streamShapeFirstFrameRequestMode: options.streamShapeFirstFrameRequestMode,
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
@@ -390,6 +392,7 @@ enum VNCLiveBenchmark {
         profile: BenchmarkProfile,
         transportMode: BenchmarkStreamShapeTransportMode,
         requestRegion: BenchmarkStreamShapeRequestRegion,
+        firstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode,
         configuration: LiveTargetConfiguration,
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
@@ -504,9 +507,15 @@ enum VNCLiveBenchmark {
 
         do {
             let firstFrameStartedAt = Date()
+            let firstFrameRequestRegion = firstFrameRequestMode.initialRegion(
+                matching: requestRegion,
+                framebufferWidth: serverInit.width,
+                framebufferHeight: serverInit.height
+            )
             _ = try pump.nextFrame(
                 requestTimeout: timeout,
-                updateMode: transportMode.framePumpUpdateMode
+                updateMode: transportMode.framePumpUpdateMode,
+                initialRequestRegion: firstFrameRequestRegion
             )
             firstFrameMilliseconds = milliseconds(since: firstFrameStartedAt)
         } catch {
@@ -674,6 +683,7 @@ enum VNCLiveBenchmark {
         transportMode: BenchmarkStreamShapeTransportMode,
         pacingWindow: BenchmarkStreamShapePacingWindow,
         requestRegion: BenchmarkStreamShapeRequestRegion,
+        firstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode,
         configuration: LiveTargetConfiguration,
         timeout: TimeInterval,
         idleTimeout: TimeInterval,
@@ -692,6 +702,7 @@ enum VNCLiveBenchmark {
             profile: profile,
             transportMode: transportMode,
             requestRegion: requestRegion,
+            firstFrameRequestMode: firstFrameRequestMode,
             configuration: configuration,
             timeout: timeout,
             idleTimeout: idleTimeout,
@@ -1164,6 +1175,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode = .fixed
     var streamShapePacingWindowCandidates: [BenchmarkStreamShapePacingWindowCandidate] = []
     var streamShapeRequestRegions: [BenchmarkStreamShapeRequestRegion] = []
+    var streamShapeFirstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode = .full
     var networkConditionProfile: BenchmarkNetworkConditionProfile = .none
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
@@ -1379,6 +1391,17 @@ private struct BenchmarkOptions: Equatable {
                 }
                 options.streamShapeRequestRegions = [region]
                 index = arguments.index(index, offsetBy: 2)
+            case "--stream-shape-first-frame-request":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkStreamShapeFirstFrameRequestMode(rawValue: value) else {
+                    throw UsageError(
+                        "stream-shape-first-frame-request must be "
+                            + BenchmarkStreamShapeFirstFrameRequestMode.usageDescription
+                            + "."
+                    )
+                }
+                options.streamShapeFirstFrameRequestMode = mode
+                index = arguments.index(index, offsetBy: 2)
             case "--timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.timeout = try positiveTimeInterval(value, option: argument)
@@ -1467,24 +1490,38 @@ private struct BenchmarkOptions: Equatable {
                     "internal sustained-v2-pixel-format preset profile selection is invalid."
             )
         case .sustainedV2ConstrainedCellularBootstrap:
-            try applySustainedV2Gate(
-                profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
+            try applyConstrainedCellularBootstrapGate(
                 invalidProfileSelectionMessage:
-                    "internal sustained-v2-constrained-cellular-bootstrap preset profile selection is invalid.",
-                transportModes: .requestResponse,
-                contentFrameInterval: 0
+                    "internal sustained-v2-constrained-cellular-bootstrap preset profile selection is invalid."
             )
-            networkConditionProfile = .constrainedCellular
-            streamShapePracticalTarget = .iPhonePoorNetworkTraffic
-            streamShapeRequestRegions = [.viewportPhonePortrait]
-            streamShapeSamples = 4
-            streamShapeDuration = nil
-            streamShapeProfileIterations = 1
-            streamShapeProfileOrderMode = .fixed
-            continuousUpdateSamples = 0
-            timeout = 30
-            idleTimeout = 5
+        case .sustainedV2ConstrainedCellularVisibleStartup:
+            try applyConstrainedCellularBootstrapGate(
+                invalidProfileSelectionMessage:
+                    "internal sustained-v2-constrained-cellular-visible-startup preset profile selection is invalid."
+            )
+            streamShapeFirstFrameRequestMode = .matchRequestRegion
         }
+    }
+
+    private mutating func applyConstrainedCellularBootstrapGate(
+        invalidProfileSelectionMessage: String
+    ) throws {
+        try applySustainedV2Gate(
+            profileSelection: BenchmarkStreamShapeProfileSelection.pixelFormatIsolationSelection,
+            invalidProfileSelectionMessage: invalidProfileSelectionMessage,
+            transportModes: .requestResponse,
+            contentFrameInterval: 0
+        )
+        networkConditionProfile = .constrainedCellular
+        streamShapePracticalTarget = .iPhonePoorNetworkTraffic
+        streamShapeRequestRegions = [.viewportPhonePortrait]
+        streamShapeSamples = 4
+        streamShapeDuration = nil
+        streamShapeProfileIterations = 1
+        streamShapeProfileOrderMode = .fixed
+        continuousUpdateSamples = 0
+        timeout = 30
+        idleTimeout = 5
     }
 
     private mutating func applySustainedV2Gate(
@@ -1932,6 +1969,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode
     let streamShapePacingWindows: [BenchmarkStreamShapePacingWindow]
     let streamShapeRequestRegions: [BenchmarkStreamShapeRequestRegion]
+    let streamShapeFirstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode
     let streamShapeViewportInteractionPauseSeconds: TimeInterval
     let streamShapeViewportInteractionRequestPausePollSeconds: TimeInterval
     let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
@@ -1995,6 +2033,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode,
         streamShapePacingWindows: [BenchmarkStreamShapePacingWindow],
         streamShapeRequestRegions: [BenchmarkStreamShapeRequestRegion],
+        streamShapeFirstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode,
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
@@ -2004,7 +2043,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 56
+        self.schemaVersion = 57
         self.target = "configured-redacted"
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
@@ -2031,6 +2070,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.streamShapeProfileOrderMode = streamShapeProfileOrderMode
         self.streamShapePacingWindows = streamShapePacingWindows.isEmpty ? [.single] : streamShapePacingWindows
         self.streamShapeRequestRegions = streamShapeRequestRegions.isEmpty ? [.full] : streamShapeRequestRegions
+        self.streamShapeFirstFrameRequestMode = streamShapeFirstFrameRequestMode
         self.streamShapeViewportInteractionPauseSeconds = 0
         self.streamShapeViewportInteractionRequestPausePollSeconds = 0
         self.streamShapeLowPowerContentFrameIntervalSeconds =
@@ -2088,6 +2128,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape request cadence health emits only fixed sample/latency/action labels plus aggregate request-response counts, permille ratios, and millisecond summaries",
             "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "stream-shape request-region comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
+            "stream-shape first-frame request mode emits only a fixed mode label and never dimensions, coordinates, bytes, or pixels",
             "request-region traffic-pressure metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
             "network conditioning reports emit only fixed condition labels; proxy ports, upstream hosts, and byte counters are not emitted",
             "stream-shape phase-budget diagnostics emit only fixed phase/subphase labels, aggregate millisecond summaries, and permille shares",
@@ -2416,6 +2457,7 @@ private func renderText(_ report: BenchmarkReport) {
         "stream-shape request regions: "
             + report.streamShapeRequestRegions.map(\.rawValue).joined(separator: ",")
     )
+    print("stream-shape first-frame request: \(report.streamShapeFirstFrameRequestMode.rawValue)")
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
@@ -3129,7 +3171,7 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
@@ -3137,7 +3179,7 @@ private func printUsage() {
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v56 reports network-condition plus viewport request-region area without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v57 reports network-condition, viewport request-region area, and first-frame request mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
@@ -3178,6 +3220,8 @@ private func printUsage() {
                                 Profile order for repeated stream-shape probes. Defaults to fixed; rotate moves a different profile to the front each iteration for order-neutral scoring.
       --stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)
                                 Fixed incremental framebuffer request region for stream-shape probes. Defaults to full. Region labels are benchmark-only and do not emit coordinates or dimensions.
+      --stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)
+                                First non-incremental stream-shape frame request mode. Defaults to full; match-request-region uses the fixed stream-shape request-region label for the first frame without emitting coordinates or dimensions.
       --continuous-update-samples N
                                 Maximum pushed updates to sample after enabling continuous updates. Defaults to 1; use 0 to skip the standalone ContinuousUpdates probe.
       --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.

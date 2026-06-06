@@ -34,11 +34,12 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
     /// source exposes receive/control boundaries *and* reports that the
     /// current session confirmed the ContinuousUpdates extension.
     public let updateMode: RFBFramePumpUpdateMode
-    /// Optional fixed remote-framebuffer region for incremental update
-    /// requests. The first frame always requests the full framebuffer so
-    /// the local backing store is initialized before any region-limited
-    /// benchmark or viewport experiment starts.
+    /// Optional fixed remote-framebuffer region for incremental update requests.
     public let requestRegion: RFBFramebufferUpdateRegion?
+    /// Optional fixed remote-framebuffer region for the first non-incremental
+    /// update request. `nil` preserves the default full-frame bootstrap; a
+    /// region is an opt-in benchmark/viewport startup experiment.
+    public let initialRequestRegion: RFBFramebufferUpdateRegion?
 
     public init(
         maxFrames: Int? = nil,
@@ -46,7 +47,8 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
         frameInterval: TimeInterval = 0,
         idleFrameInterval: TimeInterval = 0,
         updateMode: RFBFramePumpUpdateMode = .requestResponse,
-        requestRegion: RFBFramebufferUpdateRegion? = nil
+        requestRegion: RFBFramebufferUpdateRegion? = nil,
+        initialRequestRegion: RFBFramebufferUpdateRegion? = nil
     ) {
         self.maxFrames = maxFrames
         self.requestTimeout = requestTimeout
@@ -54,6 +56,7 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
         self.idleFrameInterval = max(idleFrameInterval, 0)
         self.updateMode = updateMode
         self.requestRegion = requestRegion
+        self.initialRequestRegion = initialRequestRegion
     }
 }
 
@@ -193,7 +196,8 @@ public final class RFBFramePump: @unchecked Sendable {
             guard let frame = try nextFrame(
                 requestTimeout: configuration.requestTimeout,
                 updateMode: configuration.updateMode,
-                requestRegion: configuration.requestRegion
+                requestRegion: configuration.requestRegion,
+                initialRequestRegion: configuration.initialRequestRegion
             ) else {
                 break
             }
@@ -232,7 +236,8 @@ public final class RFBFramePump: @unchecked Sendable {
     public func nextFrame(
         requestTimeout: TimeInterval = 2,
         updateMode: RFBFramePumpUpdateMode = .requestResponse,
-        requestRegion: RFBFramebufferUpdateRegion? = nil
+        requestRegion: RFBFramebufferUpdateRegion? = nil,
+        initialRequestRegion: RFBFramebufferUpdateRegion? = nil
     ) throws -> RFBFramePumpFrame? {
         let nextSequence: Int? = lock.withRFBFramePumpLock {
             guard !cancelled else {
@@ -246,10 +251,8 @@ public final class RFBFramePump: @unchecked Sendable {
         }
 
         let isIncremental = nextSequence > 1
+        let regionForRequest = isIncremental ? requestRegion : initialRequestRegion
         let updateResult: RFBFramebufferUpdateResult
-        // The region-limited path is intentionally incremental-only:
-        // frame 1 must initialize the full backing framebuffer before a
-        // benchmark or future viewport-driven stream narrows interest.
         if updateMode == .continuousUpdates,
            isIncremental,
            canUseContinuousUpdates,
@@ -258,7 +261,7 @@ public final class RFBFramePump: @unchecked Sendable {
         {
             try enableContinuousUpdatesIfNeeded(
                 transportControl,
-                region: requestRegion,
+                region: regionForRequest,
                 timeout: requestTimeout
             )
             if let continuousReceiver = source as? any RFBContinuousFramebufferUpdateReceiving {
@@ -266,12 +269,12 @@ public final class RFBFramePump: @unchecked Sendable {
             } else {
                 updateResult = try receiver.receiveFramebufferUpdate(timeout: requestTimeout)
             }
-        } else if isIncremental,
+        } else if (isIncremental || regionForRequest != nil),
                   let regionSource = source as? any RFBRegionFramebufferUpdating {
             updateResult = try regionSource.requestFramebufferUpdate(
-                incremental: true,
+                incremental: isIncremental,
                 timeout: requestTimeout,
-                region: requestRegion
+                region: regionForRequest
             )
         } else if let damageTrackingSource = source as? any RFBDamageTrackingFramebufferUpdating {
             updateResult = try damageTrackingSource.requestFramebufferUpdate(

@@ -9,6 +9,7 @@ public enum BenchmarkStreamShapeGatePreset: String, Codable, Equatable, Sendable
     case sustainedV2ZrleViewportRegion = "sustained-v2-zrle-viewport-region"
     case sustainedV2PixelFormat = "sustained-v2-pixel-format"
     case sustainedV2ConstrainedCellularBootstrap = "sustained-v2-constrained-cellular-bootstrap"
+    case sustainedV2ConstrainedCellularVisibleStartup = "sustained-v2-constrained-cellular-visible-startup"
 
     public static var usageDescription: String {
         allCases.map(\.rawValue).joined(separator: "|")

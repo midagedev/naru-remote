@@ -1039,6 +1039,18 @@ iPhone) and ships as its own PR.
   bootstrap work before any production default change. Owns: benchmark summary
   kit/tests, CLI preset/help/report schema, README, spec/research notes,
   benchmark artifact. **Done.**
+- **T432** First-visible-region startup benchmark: add an opt-in
+  `initialRequestRegion` path to `RFBFramePump`, keep the production/default
+  first frame full, and let `VNCLiveBenchmark` schema v57 report a fixed
+  `streamShapeFirstFrameRequestMode` label. Add
+  `sustained-v2-constrained-cellular-visible-startup` so constrained-cellular
+  traffic work can compare full-frame startup against first visible phone
+  viewport startup without emitting coordinates, dimensions, byte counts,
+  pixels, payloads, host identity, command text, draft text, marked text, or
+  IME state. Record the live constrained-cellular result and keep any
+  production request-region default blocked until benchmark and physical
+  iPhone gates pass. Owns: `RFBFramePump`, benchmark kit/CLI/report/help,
+  tests, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
