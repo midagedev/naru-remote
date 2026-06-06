@@ -1261,6 +1261,18 @@ iPhone) and ships as its own PR.
   coordinates, dimensions, pixels, byte counts, stimulus text, draft text,
   marked text, or IME state. Owns: launchctl runner, README, research note,
   benchmark artifact. **Done.**
+- **T452** Bounded VNC profile drilldown runner: add a launchctl-backed mode
+  that builds `VNCLiveBenchmark` once, runs the fixed
+  `tight-first,zrle-compression-0,adaptive-good-full` candidates one at a time
+  with per-profile wall-clock guards, rejects caller overrides for managed
+  benchmark dimensions, and records whether failures are profile-specific or
+  shared across candidates. Emit only catalog profile labels, fixed ordinals,
+  fixed phase labels, fixed safe failure labels, and successful benchmark JSON;
+  avoid host identity, credentials, ports, executable paths, command lines,
+  raw stdout/stderr, raw TCP/RFB errors, request coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, or IME
+  state. Owns: launchctl runner, README, research note, benchmark artifact.
+  **Done.**
 
 ## Cross-cutting (every increment)
 
