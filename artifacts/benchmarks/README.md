@@ -627,6 +627,15 @@ poor-network startup traffic pressure against the v56 full-frame baseline
 before any production request-region default. The first v57 live artifact is
 `2026-06-06-constrained-cellular-visible-startup-summary.md`; it improves
 RGB565 startup by roughly 8.6 seconds but remains below the poor-network gate.
+Schema v58 adds `--stream-shape-first-frame-request visible-core`,
+`firstFrameRequestAreaPermille`, and `--stream-shape-gate-preset
+sustained-v2-constrained-cellular-visible-core-startup`. The new preset keeps
+the constrained-cellular v57 shape but removes the startup-only visible-region
+margin for the first non-incremental frame while sustained requests keep the
+normal viewport margin and fallback behavior. Poor-network traffic gates now
+judge the larger of sustained request area and first-frame request area, and
+reports still emit only fixed labels and framebuffer-relative permille ratios,
+never coordinates, dimensions, byte counts, pixels, or payloads.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

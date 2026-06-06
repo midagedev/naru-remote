@@ -1051,6 +1051,16 @@ iPhone) and ships as its own PR.
   production request-region default blocked until benchmark and physical
   iPhone gates pass. Owns: `RFBFramePump`, benchmark kit/CLI/report/help,
   tests, README, research note, benchmark artifact. **Done.**
+- **T433** First-visible-core startup traffic gate: add a benchmark-only
+  `visible-core` first-frame request mode and
+  `sustained-v2-constrained-cellular-visible-core-startup` preset. Bump
+  `VNCLiveBenchmark` to schema v58 so profile probes, aggregates, and gates
+  report redacted `firstFrameRequestAreaPermille`, and make poor-network
+  traffic gates judge the larger of sustained request area and first-frame
+  request area without emitting coordinates, dimensions, byte counts, pixels,
+  payloads, host identity, command text, draft text, marked text, or IME state.
+  Owns: benchmark kit/CLI/report/help, tests, README, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

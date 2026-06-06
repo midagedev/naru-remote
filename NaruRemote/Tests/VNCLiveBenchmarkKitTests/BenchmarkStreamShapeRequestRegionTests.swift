@@ -110,6 +110,39 @@ final class BenchmarkStreamShapeRequestRegionTests: XCTestCase {
         XCTAssertLessThan(heartbeatArea, 1_000)
     }
 
+    func testFirstFrameVisibleCoreAreaIsSmallerThanMarginExpandedViewport() {
+        let expandedArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.requestAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+        let coreArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleCoreAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+
+        XCTAssertGreaterThan(coreArea, 0)
+        XCTAssertLessThan(coreArea, expandedArea)
+    }
+
+    func testFirstFrameVisibleCoreIgnoresHeartbeatEscalation() {
+        XCTAssertNotNil(
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.firstFrameVisibleCoreRegion(
+                width: 1920,
+                height: 1080
+            )
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.firstFrameVisibleCoreAreaPermille(
+                width: 1920,
+                height: 1080
+            ),
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleCoreAreaPermille(
+                width: 1920,
+                height: 1080
+            )
+        )
+    }
+
     func testViewportPhonePortraitHeartbeatUsesFullRequestPeriodically() throws {
         XCTAssertNotNil(
             BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.region(
