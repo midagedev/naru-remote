@@ -242,6 +242,16 @@ update, `627` ms p95 update, `626` ms first-byte wait p95, and a `fail`
 decision with `content-fps-failed`, `average-update-failed`,
 `p95-update-failed`, `first-byte-wait-failed`, and
 `first-frame-payload-read-failed`.
+Current remote desktop 10fps readiness artifact:
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-readiness-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` to run
+the fixed 10fps VNC gate together with helper-video capability/preflight,
+external synthetic H.264, and external ScreenCaptureKit checks in one
+privacy-safe JSON object. The current live run confirms that VNC is still a
+10fps product failure (`1.89` content FPS, `508` ms average update, `626` ms
+p95 update, `receivePath` primary constraint), while external synthetic
+helper-video passes and true ScreenCaptureKit helper-video remains blocked by
+missing Screen Recording permission for the helper app bundle.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps
@@ -1115,3 +1125,10 @@ zoomed trackpad cursor-follow publish pending viewport state on a bounded
 display link while `liveRemoteFrames` is active. This should reduce the
 half-step feel between local panning and remote cursor/text echo without
 promoting a new traffic profile.
+The physical-freeze mitigation artifact is
+`2026-06-07-ui-frame-processing-unblock-summary.md`; it records the first
+MainActor split after physical iPhone testing showed that a real VNC
+connection could freeze gestures and keyboard input. The patch moves the VNC
+frame loop off MainActor, stops foreground frames from feeding PiP
+sample-buffer conversion, detaches preview-thumbnail sampling, and makes the
+helper-video runner non-MainActor with an explicit main-actor renderer box.

@@ -6104,6 +6104,65 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D135 Add A Remote Desktop 10fps Readiness Dashboard
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-readiness-summary.md`
+- D134 remote desktop 10fps target.
+- `specs/007-host-helper-video-stream/` helper-video transport workstream.
+
+**Decision**: add `scripts/run-naru-live-benchmark.sh
+remote-desktop-10fps-readiness`, a fixed launchctl-backed dashboard that emits
+the current VNC 10fps gate and helper-video readiness in one JSON object. The
+mode imports live credentials and the selected helper executable from
+environment/`launchctl`, rejects extra arguments, and combines:
+
+- helper capability and environment preflight,
+- external synthetic H.264 helper-video probe,
+- external ScreenCaptureKit helper-video probe,
+- fixed `glance-025-10fps-duration-probe` VNC gate.
+
+**Why**:
+- The user set a clear floor: `~2fps` is not acceptable and the product should
+  target at least `10fps`.
+- Separate helper and VNC commands made it too easy to continue narrow VNC
+  tweaks after the 10fps evidence already showed product failure.
+- A larger-grain dashboard makes the next decision explicit: VNC remains
+  control/input/fallback unless it reaches a step-change, while helper-video is
+  the primary smoothness candidate once Screen Recording and physical iPhone
+  gates pass.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `remote-desktop-10fps-readiness`.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- A clean live `remote-desktop-10fps-readiness` run exited `rc=0`.
+- Live helper-video synthetic result: `pass`, `healthy`.
+- Live helper-video ScreenCaptureKit result: `fail` with
+  `helper-video-permission-missing` and related safe helper-video failure
+  labels.
+- Live VNC 10fps result: `fail`, `1.89` content FPS, `508` ms average update,
+  `626` ms p95 update, `623` ms first-byte wait p95, `4938` ms first-frame
+  payload read, primary issue `first-frame-payload-read-failed`, and primary
+  constraint `receivePath`.
+
+**Interpretation**:
+- The current VNC request/response path is not close to the 10fps product bar.
+- The next large unit should focus on true helper-video ScreenCaptureKit live
+  capture and physical iPhone verification after Screen Recording permission
+  is granted.
+- Continue VNC work as fallback/diagnostic/server-cadence investigation, not
+  as the default route for Chrome-Remote-like smoothness.
+
+**Privacy rule**: the dashboard emits only fixed labels, safe setup/action
+labels, aggregate benchmark values, and existing privacy-safe benchmark
+reports. It must not print or export host identity, credentials, ports, helper
+paths, endpoints, command lines, raw stdout/stderr, raw TCP/RFB errors, raw OS
+errors, coordinates, dimensions, pixels, byte counts, stimulus command text,
+draft text, marked text, IME state, or exact helper timings.
+
 ### D134 Add A Remote Desktop 10fps Target
 
 References:

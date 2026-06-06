@@ -100,6 +100,7 @@ scripts/run-naru-live-benchmark.sh glance-scale-sweep
 scripts/run-naru-live-benchmark.sh glance-025-duration-probe
 scripts/run-naru-live-benchmark.sh glance-025-profile-sweep
 scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe
+scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
 ```
@@ -156,6 +157,13 @@ default stream profile for poor-network startup.
 `iphone-remote-desktop-10fps-v1` target, where content FPS below `10` is a
 failure. Use this as the product-grade sustained smoothness gate before
 claiming Chrome-Remote-like hand feel.
+`remote-desktop-10fps-readiness` emits one JSON object that combines the fixed
+10fps VNC probe, helper capability/preflight, external synthetic helper-video,
+and external ScreenCaptureKit helper-video checks. Use it when deciding whether
+to keep tuning VNC or move the primary visual path to helper-video. It rejects
+extra arguments so the dashboard remains repeatable and still emits only fixed
+labels plus the privacy-safe benchmark reports produced by the underlying
+tools.
 
 ## Implemented Helper Video Encoder Prototype
 

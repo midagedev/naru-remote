@@ -235,6 +235,26 @@ without unsafe report fields.
   account, and provisioning blockers without printing device IDs or raw
   xcodebuild logs. Discovery must filter to physical iPhones rather than any
   physical iOS device. **Done.**
+- [x] T029AA [US2] Add a combined
+  `remote-desktop-10fps-readiness` runner that emits the fixed VNC 10fps gate
+  plus helper capability/preflight, external synthetic H.264, and external
+  ScreenCaptureKit helper-video checks in one privacy-safe JSON object. Use it
+  to decide when VNC is a fallback-only path and helper-video is the primary
+  smoothness candidate. **Done.**
+- [x] T029AB [US1] Split the live VNC frame loop from MainActor by running
+  session connect, framebuffer requests, decode waits, and pacing sleeps in a
+  detached worker while hopping to the app model only for current-session
+  checks, framebuffer publication, diagnostics, and stats. This is the first
+  physical-iPhone freeze mitigation after real connections made gestures and
+  keyboard input stop responding. **Done.**
+- [x] T029AC [US1] Keep foreground VNC frames out of the PiP sample-buffer
+  conversion path and move profile-preview thumbnail sampling off MainActor;
+  PiP sample conversion now runs only while PiP watch is preparing/active/stale.
+  **Done.**
+- [x] T029AD [US2] Make the helper-video session runner non-MainActor and wrap
+  the AVSampleBuffer renderer in an explicit main-actor box so helper start
+  networking and result state-machine work do not inherit the app chrome
+  executor. **Done.**
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**

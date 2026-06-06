@@ -28,10 +28,10 @@ public final class PiPLayerHost {
     }
 
     /// Forwards a freshly received remote framebuffer to the hosted
-    /// display layer.  Called by `NaruRemoteAppModel` for every frame
-    /// it stores in `latestFramebuffer`, regardless of whether system
-    /// PiP is currently active — the same layer is reused so attaching
-    /// the controller later does not require a separate render path.
+    /// display layer.  `NaruRemoteAppModel` calls this only while PiP
+    /// watch is preparing, active, or stale; foreground VNC viewing uses
+    /// the Metal framebuffer path directly so full-frame sample-buffer
+    /// conversion cannot compete with gestures or text input.
     @discardableResult
     public func enqueue(_ framebuffer: RFBRawFramebuffer) throws -> CMSampleBuffer {
         try renderer.enqueue(framebuffer, viewport: currentViewport)
