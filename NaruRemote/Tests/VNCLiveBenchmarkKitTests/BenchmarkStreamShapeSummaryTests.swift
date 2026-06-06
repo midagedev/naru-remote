@@ -1930,7 +1930,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
         XCTAssertEqual(
             BenchmarkStreamShapePracticalTargetSelection.usageDescription,
-            "iphone-practical-baseline-v1|iphone-sustained-usability-v2|iphone-poor-network-traffic-v1"
+            "iphone-practical-baseline-v1|iphone-sustained-usability-v2|iphone-poor-network-traffic-v1|iphone-remote-desktop-10fps-v1"
         )
         XCTAssertEqual(
             BenchmarkStreamShapePracticalTargetSelection.iPhoneSustainedUsability.targets.name,
@@ -1940,6 +1940,51 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             BenchmarkStreamShapePracticalTargetSelection.iPhonePoorNetworkTraffic.targets.name,
             "iphone-poor-network-traffic-v1"
         )
+        XCTAssertEqual(
+            BenchmarkStreamShapePracticalTargetSelection.iPhoneRemoteDesktop10FPS.targets.name,
+            "iphone-remote-desktop-10fps-v1"
+        )
+    }
+
+    func testRemoteDesktop10FPSTargetFailsBelowMinimumContentFPS() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 9,
+            samples: (0..<9).map { _ in sustainedContentSample(duration: 90) },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneRemoteDesktop10FPS
+        )
+
+        XCTAssertEqual(summary.contentFramesPerSecond, 9)
+        XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-remote-desktop-10fps-v1")
+        XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.contentFPSFailed))
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .contentFPSFailed)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.contentCadence.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
+        )
+    }
+
+    func testRemoteDesktop10FPSTargetPassesAtMinimumContentFPS() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 10,
+            samples: (0..<10).map { _ in sustainedContentSample(duration: 90) },
+            elapsedMilliseconds: 1_000,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhoneRemoteDesktop10FPS
+        )
+
+        XCTAssertEqual(summary.contentFramesPerSecond, 10)
+        XCTAssertEqual(summary.practicalAssessment.targetName, "iphone-remote-desktop-10fps-v1")
+        XCTAssertEqual(summary.practicalAssessment.verdict, .pass)
+        XCTAssertEqual(summary.practicalAssessment.issueCodes, [])
     }
 
     func testSustainedUsabilityTargetPassesOnlyWhenV2BandsAreMet() {

@@ -1435,6 +1435,25 @@ iPhone) and ships as its own PR.
   TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus
   command text, draft text, marked text, or IME state. Owns: launchctl runner,
   README, quickstart, research note, benchmark artifact. **Done.**
+- **T465** Remote desktop 10fps target: add
+  `iphone-remote-desktop-10fps-v1` as a stricter sustained smoothness target
+  where content FPS below `10` is a failure, average update latency must be
+  near the 10fps frame budget, and first-byte/update tails route to receive-path
+  investigation. Add `scripts/run-naru-live-benchmark.sh
+  glance-025-10fps-duration-probe` for the current `0.25` +
+  `local-low-latency-rgb565` candidate, reject extra arguments, and record live
+  evidence that the current VNC request/response path still fails with
+  `1.97` content FPS, `508` ms average update, `627` ms p95 update,
+  `626` ms first-byte wait p95, and fixed failure labels including
+  `content-fps-failed`. Use this target before claiming Chrome-Remote-like
+  sustained hand feel. Emit only fixed target/mode/profile labels, fixed
+  target/transport/request labels, scale permille values, fixed verdict/issue
+  labels, aggregate counts, permille ratios, and aggregate timings; do not
+  print/export host identity, credentials, ports, executable paths, command
+  lines, raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, or IME
+  state. Owns: benchmark target, launchctl runner, tests, spec, quickstart,
+  research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

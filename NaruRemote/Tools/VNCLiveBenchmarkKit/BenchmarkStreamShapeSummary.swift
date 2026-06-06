@@ -123,6 +123,37 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         failPayloadReadSharePermille: 850
     )
 
+    public static let iPhoneRemoteDesktop10FPS = BenchmarkStreamShapePracticalTargets(
+        name: "iphone-remote-desktop-10fps-v1",
+        passContentFramesPerSecond: 10,
+        failContentFramesPerSecond: 10,
+        passAverageUpdateMilliseconds: 100,
+        failAverageUpdateMilliseconds: 180,
+        passP95UpdateMilliseconds: 180,
+        failP95UpdateMilliseconds: 350,
+        passClientProcessingP95Milliseconds: 16,
+        failClientProcessingP95Milliseconds: 33,
+        passRendererFullUploadPermille: 0,
+        failRendererFullUploadPermille: 50,
+        passAdaptivePressurePermille: 100,
+        failAdaptivePressurePermille: 500,
+        minimumContentUpdateSamples: 8,
+        passFirstFrameMilliseconds: 3_000,
+        failFirstFrameMilliseconds: 8_000,
+        passRequestRegionAreaPermille: 400,
+        failRequestRegionAreaPermille: 700,
+        passFirstFramePayloadReadMilliseconds: 1_000,
+        failFirstFramePayloadReadMilliseconds: 3_000,
+        passFirstFramePayloadReadSharePermille: 650,
+        failFirstFramePayloadReadSharePermille: 850,
+        passFirstByteWaitP95Milliseconds: 100,
+        failFirstByteWaitP95Milliseconds: 250,
+        passPayloadReadP95Milliseconds: 100,
+        failPayloadReadP95Milliseconds: 250,
+        passPayloadReadSharePermille: 650,
+        failPayloadReadSharePermille: 850
+    )
+
     public let name: String
     public let passContentFramesPerSecond: Double
     public let failContentFramesPerSecond: Double
@@ -254,6 +285,7 @@ public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equat
     case iPhonePracticalBaseline = "iphone-practical-baseline-v1"
     case iPhoneSustainedUsability = "iphone-sustained-usability-v2"
     case iPhonePoorNetworkTraffic = "iphone-poor-network-traffic-v1"
+    case iPhoneRemoteDesktop10FPS = "iphone-remote-desktop-10fps-v1"
 
     public static let defaultSelection = Self.iPhoneSustainedUsability
 
@@ -269,6 +301,8 @@ public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equat
             return .iPhoneSustainedUsability
         case .iPhonePoorNetworkTraffic:
             return .iPhonePoorNetworkTraffic
+        case .iPhoneRemoteDesktop10FPS:
+            return .iPhoneRemoteDesktop10FPS
         }
     }
 }

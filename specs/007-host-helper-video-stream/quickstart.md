@@ -99,6 +99,7 @@ scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh glance-scale-sweep
 scripts/run-naru-live-benchmark.sh glance-025-duration-probe
 scripts/run-naru-live-benchmark.sh glance-025-profile-sweep
+scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
 ```
@@ -150,6 +151,11 @@ with the fixed missing-environment-variable setup message.
 duration probe, but compares the current app-selectable stream profile
 candidates. It rejects extra arguments and should be rerun before changing the
 default stream profile for poor-network startup.
+`glance-025-10fps-duration-probe` runs the leading `0.25` +
+`local-low-latency-rgb565` candidate against the stricter
+`iphone-remote-desktop-10fps-v1` target, where content FPS below `10` is a
+failure. Use this as the product-grade sustained smoothness gate before
+claiming Chrome-Remote-like hand feel.
 
 ## Implemented Helper Video Encoder Prototype
 
