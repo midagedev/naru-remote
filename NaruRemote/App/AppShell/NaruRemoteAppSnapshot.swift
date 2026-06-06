@@ -751,6 +751,19 @@ public struct SessionStreamStats: Equatable, Sendable {
     }
 }
 
+public enum VisualTransportMode: String, Codable, Equatable, CaseIterable, Sendable {
+    case vncFramebuffer
+    case helperVideo
+}
+
+public enum HelperVideoVisualSelectionFailureReason: String, Codable, Equatable, CaseIterable, Sendable {
+    case noActiveSession
+    case profileMismatch
+    case sessionInactive
+    case helperVideoUnavailable
+    case streamHealthRequiresVNCFallback
+}
+
 public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     public var profiles: [ConnectionProfile]
     public var selectedProfileID: ConnectionProfile.ID?
@@ -790,6 +803,23 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// helper endpoints, pairing tokens, and Compose text are not stored
     /// here; diagnostics export only fixed catalog fields.
     public var helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState]
+    /// The active visual source for the session viewport. VNC remains
+    /// the control/input transport even when helper video is selected.
+    public var visualTransportMode: VisualTransportMode
+    /// Memory-only helper video readiness keyed by profile id. Raw helper
+    /// endpoints, pairing tokens, host names, and frame payloads never
+    /// live here.
+    public var helperVideoProfileState: [ConnectionProfile.ID: HelperVideoProfileState]
+    /// Active helper video stream descriptor, when the viewport is reading
+    /// visual frames from the helper-video path. Does not contain endpoint,
+    /// token, host identity, raw timings, byte counts, or payload bytes.
+    public var helperVideoStreamDescriptor: HelperVideoStreamDescriptor?
+    /// Coarse helper video stream health used to decide visual fallback.
+    public var helperVideoStreamHealth: HelperVideoStreamHealth
+    /// Fixed catalog reason for the most recent helper-video visual
+    /// selection rejection. This is UI/debug-safe and never stores raw
+    /// endpoint, token, timing, frame, or profile identity data.
+    public var helperVideoVisualSelectionFailureReason: HelperVideoVisualSelectionFailureReason?
     public var directKeystrokeMode: DirectKeystrokeMode
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
@@ -823,6 +853,11 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:],
         profileReachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:],
         helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState] = [:],
+        visualTransportMode: VisualTransportMode = .vncFramebuffer,
+        helperVideoProfileState: [ConnectionProfile.ID: HelperVideoProfileState] = [:],
+        helperVideoStreamDescriptor: HelperVideoStreamDescriptor? = nil,
+        helperVideoStreamHealth: HelperVideoStreamHealth = HelperVideoStreamHealth(),
+        helperVideoVisualSelectionFailureReason: HelperVideoVisualSelectionFailureReason? = nil,
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -842,6 +877,11 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.profilePreviews = profilePreviews
         self.profileReachability = profileReachability
         self.helperTextBridgeState = helperTextBridgeState
+        self.visualTransportMode = visualTransportMode
+        self.helperVideoProfileState = helperVideoProfileState
+        self.helperVideoStreamDescriptor = helperVideoStreamDescriptor
+        self.helperVideoStreamHealth = helperVideoStreamHealth
+        self.helperVideoVisualSelectionFailureReason = helperVideoVisualSelectionFailureReason
         self.directKeystrokeMode = directKeystrokeMode
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict

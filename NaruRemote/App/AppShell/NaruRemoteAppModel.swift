@@ -97,6 +97,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
     @Published public private(set) var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
     @Published public private(set) var helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState]
+    @Published public private(set) var visualTransportMode: VisualTransportMode
+    @Published public private(set) var helperVideoProfileState: [ConnectionProfile.ID: HelperVideoProfileState]
+    @Published public private(set) var helperVideoStreamDescriptor: HelperVideoStreamDescriptor?
+    @Published public private(set) var helperVideoStreamHealth: HelperVideoStreamHealth
+    @Published public private(set) var helperVideoVisualSelectionFailureReason:
+        HelperVideoVisualSelectionFailureReason?
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -388,6 +394,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.profilePreviews = snapshot.profilePreviews
         self.profileReachability = snapshot.profileReachability
         self.helperTextBridgeState = snapshot.helperTextBridgeState
+        self.visualTransportMode = snapshot.visualTransportMode
+        self.helperVideoProfileState = snapshot.helperVideoProfileState
+        self.helperVideoStreamDescriptor = snapshot.helperVideoStreamDescriptor
+        self.helperVideoStreamHealth = snapshot.helperVideoStreamHealth
+        self.helperVideoVisualSelectionFailureReason = snapshot.helperVideoVisualSelectionFailureReason
         self.appSettings = AppSettings()
         self.settingsPersistenceError = nil
         self.profileStore = profileStore
@@ -663,6 +674,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             profilePreviews: profilePreviews,
             profileReachability: profileReachability,
             helperTextBridgeState: helperTextBridgeState,
+            visualTransportMode: visualTransportMode,
+            helperVideoProfileState: helperVideoProfileState,
+            helperVideoStreamDescriptor: helperVideoStreamDescriptor,
+            helperVideoStreamHealth: helperVideoStreamHealth,
+            helperVideoVisualSelectionFailureReason: helperVideoVisualSelectionFailureReason,
             directKeystrokeMode: directKeystrokeMode,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -688,6 +704,143 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func setHelperTextBridgeState(_ state: HelperTextBridgeProfileState, for profileID: ConnectionProfile.ID) {
         helperTextBridgeState[profileID] = state
+    }
+
+    private func helperVideoState(for profileID: ConnectionProfile.ID?) -> HelperVideoProfileState {
+        guard let profileID else {
+            return HelperVideoProfileState()
+        }
+        return helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+    }
+
+    public func setHelperVideoProfileState(
+        _ state: HelperVideoProfileState,
+        for profileID: ConnectionProfile.ID,
+        sessionID: RemoteSession.ID? = nil
+    ) {
+        if let sessionID {
+            guard isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profileID) else {
+                return
+            }
+        }
+        helperVideoProfileState[profileID] = state
+        guard profileID == session?.profileID,
+              visualTransportMode == .helperVideo,
+              state.shouldUseVNCVisualFallback
+        else {
+            return
+        }
+        fallbackToVNCVisualTransport(
+            health: HelperVideoStreamHealth(
+                state: .fallbackToVNC,
+                fallbackCountBucket: .one
+            ),
+            profileID: profileID
+        )
+    }
+
+    @discardableResult
+    public func selectHelperVideoVisualTransport(
+        descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
+        health: HelperVideoStreamHealth = HelperVideoStreamHealth(state: .starting)
+    ) -> Bool {
+        if let failureReason = helperVideoVisualSelectionFailureReason(for: health) {
+            helperVideoVisualSelectionFailureReason = failureReason
+            return false
+        }
+
+        helperVideoStreamDescriptor = descriptor
+        helperVideoStreamHealth = health
+        helperVideoVisualSelectionFailureReason = nil
+        visualTransportMode = .helperVideo
+        return true
+    }
+
+    private func helperVideoVisualSelectionFailureReason(
+        for health: HelperVideoStreamHealth
+    ) -> HelperVideoVisualSelectionFailureReason? {
+        guard let activeSession = session else {
+            return .noActiveSession
+        }
+        guard selectedProfileID == activeSession.profileID else {
+            return .profileMismatch
+        }
+        guard activeSession.state == .active else {
+            return .sessionInactive
+        }
+        guard helperVideoState(for: activeSession.profileID).canAttemptHelperVideoStream else {
+            return .helperVideoUnavailable
+        }
+        guard !health.shouldUseVNCVisualFallback else {
+            return .streamHealthRequiresVNCFallback
+        }
+        return nil
+    }
+
+    public func updateHelperVideoStreamHealth(
+        _ health: HelperVideoStreamHealth,
+        sessionID: RemoteSession.ID? = nil,
+        profileID: ConnectionProfile.ID? = nil
+    ) {
+        guard isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profileID) else {
+            return
+        }
+        helperVideoStreamHealth = health
+        guard health.shouldUseVNCVisualFallback else {
+            return
+        }
+        fallbackToVNCVisualTransport(
+            health: health,
+            profileID: session?.profileID ?? selectedProfileID
+        )
+    }
+
+    private func fallbackToVNCVisualTransport(
+        health: HelperVideoStreamHealth,
+        profileID: ConnectionProfile.ID?
+    ) {
+        visualTransportMode = .vncFramebuffer
+        helperVideoStreamDescriptor = nil
+        helperVideoStreamHealth = HelperVideoStreamHealth(
+            state: .fallbackToVNC,
+            startupBand: health.startupBand,
+            sustainedUpdateBand: health.sustainedUpdateBand,
+            decodePressure: health.decodePressure,
+            fallbackCountBucket: health.fallbackCountBucket == .none ? .one : health.fallbackCountBucket
+        )
+        helperVideoVisualSelectionFailureReason = .streamHealthRequiresVNCFallback
+
+        guard let profileID else {
+            return
+        }
+        var state = helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+        state.lastFailureCode = .fallbackToVNC
+        state.lastCheckedBucket = .recent
+        helperVideoProfileState[profileID] = state
+    }
+
+    private func resetVisualTransportState() {
+        visualTransportMode = .vncFramebuffer
+        helperVideoStreamDescriptor = nil
+        helperVideoStreamHealth = HelperVideoStreamHealth()
+        helperVideoVisualSelectionFailureReason = nil
+    }
+
+    private func isCurrentHelperVideoCallback(
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) -> Bool {
+        if let sessionID, session?.id != sessionID {
+            return false
+        }
+        if let profileID {
+            guard session?.profileID == profileID,
+                  selectedProfileID == profileID
+            else {
+                return false
+            }
+        }
+        return true
     }
 
     public func disableHelperTextBridge(for profileID: ConnectionProfile.ID? = nil) {
@@ -760,6 +913,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
             resetSessionStreamStats()
+            resetVisualTransportState()
             latestServerCursor = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
@@ -836,6 +990,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
             resetSessionStreamStats()
+            resetVisualTransportState()
             latestServerCursor = nil
             activeTextClient = nil
             activePointerClient = nil
@@ -1075,6 +1230,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
         helperTextBridgeState.removeValue(forKey: id)
+        helperVideoProfileState.removeValue(forKey: id)
 
         do {
             _ = try await profileStore?.deleteProfile(id: id)
@@ -1115,6 +1271,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
             resetSessionStreamStats()
+            resetVisualTransportState()
             latestServerCursor = nil
             clearPiPWatchSession()
             selectedProfileID = nil
@@ -2079,6 +2236,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         resetConnectionQuality()
         resetPointerControl()
         cancelOutboundInputEventQueues()
+        resetVisualTransportState()
 
         runConnectionChecks()
         startHelperTextBridgeProbes(for: [profile])
@@ -3298,6 +3456,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
             resetSessionStreamStats()
+            resetVisualTransportState()
             latestServerCursor = nil
             session = updatedSession
             activeStreamProfile = nil
@@ -3349,6 +3508,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestFrameDirtyRectangles = nil
         latestFrameChangedPixelCount = nil
         resetSessionStreamStats()
+        resetVisualTransportState()
         latestServerCursor = nil
         session = updatedSession
         activeStreamProfile = nil
@@ -3516,6 +3676,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestFrameDirtyRectangles = nil
         latestFrameChangedPixelCount = nil
         resetSessionStreamStats()
+        resetVisualTransportState()
         latestServerCursor = nil
         resetConnectionQuality()
         resetPointerControl()

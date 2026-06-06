@@ -59,19 +59,20 @@ visual state and VNC control state coexist.
 
 ### Tests First
 
-- [ ] T011 [P] [US1] Add failing app-model test for selecting helper video on
+- [x] T011 [P] [US1] Add failing app-model test for selecting helper video on
   a paired reachable profile in `NaruRemote/Tests/NaruRemoteAppTests/`.
-- [ ] T012 [P] [US1] Add failing fallback test for helper stream stall
-  returning to VNC visual state without clearing Compose draft.
+  **Done.**
+- [x] T012 [P] [US1] Add failing fallback test for helper stream stall
+  returning to VNC visual state without clearing Compose draft. **Done.**
 
 ### Implementation
 
-- [ ] T013 [US1] Add `VisualTransportMode` or equivalent app model state in
-  `NaruRemote/App/AppShell/`.
-- [ ] T014 [US1] Wire fake helper video visual source into the session snapshot
-  without changing VNC control/input paths.
-- [ ] T015 [US1] Add health-driven fallback from helper video to VNC visual
-  source.
+- [x] T013 [US1] Add `VisualTransportMode` or equivalent app model state in
+  `NaruRemote/App/AppShell/`. **Done.**
+- [x] T014 [US1] Wire fake helper video visual source into the session snapshot
+  without changing VNC control/input paths. **Done.**
+- [x] T015 [US1] Add health-driven fallback from helper video to VNC visual
+  source. **Done.**
 
 **Checkpoint**: US1 works independently with fake helper video.
 

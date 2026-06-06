@@ -20,10 +20,11 @@ swift test --filter DiagnosticExportTests
 swift test --filter BenchmarkHelperVideoReportTests
 ```
 
-## Planned Unit And App Tests
+## Implemented App Model Tests
 
 ```bash
-swift test --filter NaruRemoteAppModelTests/testHelperVideo
+swift test --filter NaruRemoteAppModelTests/testModelSelectsHelperVideoVisualTransportForPairedReachableProfile
+swift test --filter NaruRemoteAppModelTests/testHelperVideoStallFallsBackToVNCWithoutClearingComposeDraft
 ```
 
 ## Planned Helper Build
