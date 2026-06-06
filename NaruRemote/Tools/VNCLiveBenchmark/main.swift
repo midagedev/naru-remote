@@ -1644,6 +1644,14 @@ private struct BenchmarkOptions: Equatable {
     }
 
     private func validate() throws {
+        if helperVideoProbeOnly {
+            guard visualTransports.transports.contains(.helperVideo) else {
+                throw UsageError("helper-video-probe-only requires --visual-transport helper-video or all.")
+            }
+            guard helperVideoProbeMode != .disabled else {
+                throw UsageError("helper-video-probe-only requires a non-disabled --helper-video-probe.")
+            }
+        }
         guard streamShapeRequestPipelineDepth > 1 else {
             return
         }
