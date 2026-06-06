@@ -86,6 +86,10 @@ Current helper-video encoder prototype artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-encoder-prototype-summary.md`.
 The macOS helper now gates a VideoToolbox H.264 session-prepare prototype
 behind `NARU_HELPER_VIDEO_ENCODER_PROTOTYPE`.
+Current helper-video auth transport artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-auth-transport-summary.md`.
+The helper-video request contract now signs capability/start/keyframe/stop
+request envelopes with HMAC proof material scoped to saved profile fingerprints.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to

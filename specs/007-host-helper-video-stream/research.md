@@ -180,3 +180,37 @@ VideoToolbox H.264 compression session only when
   transport, payload handling, and privacy review need to land separately.
 - Report dimensions, output size, or exact timing from the probe: rejected by
   the helper-video diagnostic privacy boundary.
+
+## D8 - Authenticate helper-video request envelopes with HMAC
+
+**Decision**: Helper-video app-to-helper request envelopes carry an
+`hmac-sha256` `authProof` over schema version, request ID, message type, and
+profile fingerprint using the pairing secret as local key material. Helper
+responses omit `authProof`.
+
+**Rationale**:
+- The transport is private-network scoped, but private networks still need
+  per-profile request authentication before any screen-stream capability or
+  stream-start operation.
+- Apple CryptoKit documents HMAC as a message authentication code based on a
+  shared symmetric key and notes that HMAC authenticates data but does not hide
+  it. That matches this slice: request integrity/authentication first, no claim
+  of payload encryption.
+- Signing the message type and profile fingerprint prevents replaying a proof
+  across helper-video message kinds or saved profiles.
+- Omitting `authProof` from helper responses keeps diagnostics and logs from
+  accidentally treating proofs as safe catalog data.
+
+**Sources**:
+- Apple CryptoKit: https://developer.apple.com/documentation/cryptokit
+- Apple HMAC: https://developer.apple.com/documentation/cryptokit/hmac
+- Apple SymmetricKey: https://developer.apple.com/documentation/cryptokit/symmetrickey
+
+**Alternatives considered**:
+- Send the raw pairing secret in each helper-video envelope: rejected because
+  the wire contract should not serialize reusable secrets.
+- Leave helper video authenticated only by network locality: rejected because
+  helper video crosses a stronger screen-capture privacy boundary.
+- Add encryption in this transport PR: deferred; the current task is request
+  authentication and typed framing, while encrypted transport policy needs a
+  separate compatibility/security review.
