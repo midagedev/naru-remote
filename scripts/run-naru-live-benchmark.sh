@@ -168,7 +168,8 @@ run_with_wall_timeout() {
 
 json_benchmark_or_timeout_failure() {
   local wall_timeout_seconds="$1"
-  shift
+  local phase_file="$2"
+  shift 2
 
   local output_file
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-benchmark-output.XXXXXX")"
@@ -180,11 +181,120 @@ json_benchmark_or_timeout_failure() {
   fi
 
   if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
-    printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":"benchmarkStep.boundedVNCProfileSweep.timedOut"}\n'
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file"
   else
-    printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":"benchmarkStep.boundedVNCProfileSweep.failed"}\n'
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
   fi
   rm -f "$output_file"
+}
+
+json_string() {
+  local value="$1"
+  local escaped
+  escaped="${value//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  escaped="${escaped//$'\n'/\\n}"
+  escaped="${escaped//$'\r'/\\r}"
+  escaped="${escaped//$'\t'/\\t}"
+  printf '"%s"' "$escaped"
+}
+
+write_bounded_sweep_phase() {
+  local phase_file="$1"
+  local phase_label="$2"
+  case "$phase_label" in
+    runner-starting|swift-build|benchmark-running)
+      printf '%s' "$phase_label" >"$phase_file"
+      ;;
+    *)
+      printf 'unknown' >"$phase_file"
+      ;;
+  esac
+}
+
+bounded_sweep_phase_label() {
+  local phase_file="$1"
+  local phase_label="runner-starting"
+  if [[ -s "$phase_file" ]]; then
+    phase_label="$(cat "$phase_file" 2>/dev/null || true)"
+  fi
+  case "$phase_label" in
+    runner-starting|swift-build|benchmark-running)
+      printf '%s' "$phase_label"
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+json_bounded_sweep_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  printf '}\n'
+}
+
+bounded_benchmark_executable() {
+  local build_bin_path
+  build_bin_path="$(cd "$repo_root" && swift build --show-bin-path 2>/dev/null || true)"
+
+  local candidates=()
+  if [[ -n "$build_bin_path" ]]; then
+    candidates+=("$build_bin_path/VNCLiveBenchmark")
+  fi
+  candidates+=("$repo_root/.build/debug/VNCLiveBenchmark")
+
+  local candidate
+  for candidate in "$repo_root"/.build/*/debug/VNCLiveBenchmark; do
+    [[ -e "$candidate" ]] && candidates+=("$candidate")
+  done
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+}
+
+run_bounded_vnc_profile_sweep() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-sweep-phase.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  local bounded_args=("$@")
+  write_bounded_sweep_phase "$phase_file" swift-build
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if ! run_with_wall_timeout 30 swift build --product VNCLiveBenchmark >/dev/null 2>/dev/null; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file"
+    else
+      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
+    fi
+    rm -f "$phase_file"
+    return
+  fi
+
+  local benchmark_executable
+  benchmark_executable="$(bounded_benchmark_executable)"
+  if [[ -z "$benchmark_executable" ]]; then
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
+    rm -f "$phase_file"
+    return
+  fi
+
+  write_bounded_sweep_phase "$phase_file" benchmark-running
+  json_benchmark_or_timeout_failure \
+    45 \
+    "$phase_file" \
+    "$benchmark_executable" "${bounded_args[@]}"
+  rm -f "$phase_file"
 }
 
 reject_extra_args() {
@@ -618,9 +728,7 @@ case "$mode" in
     if ((extra_arg_count)); then
       bounded_args+=("${extra_args[@]}")
     fi
-    json_benchmark_or_timeout_failure \
-      45 \
-      swift run --quiet VNCLiveBenchmark "${bounded_args[@]}"
+    run_bounded_vnc_profile_sweep "${bounded_args[@]}"
     ;;
   physical-device-preflight)
     physical_preflight
