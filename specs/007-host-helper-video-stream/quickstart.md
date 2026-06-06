@@ -74,6 +74,28 @@ Screen Recording prompt, emits only fixed catalog labels such as `granted` or
 helper/app relaunch. Its schema `2` response carries the same
 `permissionIdentity` labels as `--video-capability`.
 
+## Implemented Launchctl-Backed Live Benchmark Runner
+
+Use the wrapper when live benchmark credentials and helper paths are already
+stored in `launchctl` environment variables. It imports values into the child
+process only and never prints the variable values.
+
+```bash
+scripts/run-naru-live-benchmark.sh preflight
+scripts/run-naru-live-benchmark.sh helper-synthetic-probe
+scripts/run-naru-live-benchmark.sh helper-screen-probe
+scripts/run-naru-live-benchmark.sh short-live-comparison
+scripts/run-naru-live-benchmark.sh helper-capability
+scripts/run-naru-live-benchmark.sh request-screen-recording
+```
+
+The modes emit the same privacy-safe JSON/report output as the underlying
+tools. `helper-synthetic-probe` does not require live VNC target credentials.
+`helper-screen-probe` and `preflight` are the fastest checks after granting
+Screen Recording to `NaruHelperDev`. `short-live-comparison` is a compact
+constrained-cellular VNC plus external synthetic helper-video gate for ongoing
+fallback and traffic work.
+
 ## Implemented Helper Video Encoder Prototype
 
 ```bash
