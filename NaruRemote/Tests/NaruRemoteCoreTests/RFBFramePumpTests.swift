@@ -341,6 +341,21 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.requestedRegions, [initialRegion])
     }
 
+    func testInitialRequestRegionFallsBackToFullWhenSourceCannotRequestRegions() throws {
+        let initialRegion = RFBFramebufferUpdateRegion(x: 10, y: 20, width: 30, height: 40)
+        let source = FakeDamageTrackingFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let frame = try pump.nextFrame(initialRequestRegion: initialRegion)
+
+        XCTAssertEqual(frame?.isIncremental, false)
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+    }
+
     func testPumpFallsBackToRequestResponseUntilContinuousUpdatesAreAdvertised() throws {
         let source = FakeContinuousFramebufferUpdateSource(
             requestedResults: [

@@ -253,6 +253,8 @@ public final class RFBFramePump: @unchecked Sendable {
         let isIncremental = nextSequence > 1
         let regionForRequest = isIncremental ? requestRegion : initialRequestRegion
         let updateResult: RFBFramebufferUpdateResult
+        // Region requests require a region-capable source. Sources that only
+        // expose damage tracking keep the compatible full-frame bootstrap path.
         if updateMode == .continuousUpdates,
            isIncremental,
            canUseContinuousUpdates,

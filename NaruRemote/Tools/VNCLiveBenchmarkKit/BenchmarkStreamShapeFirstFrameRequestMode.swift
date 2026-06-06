@@ -18,6 +18,9 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
         case .full:
             return nil
         case .matchRequestRegion:
+            // Use the request-region policy's first visible candidate for the
+            // first non-incremental frame. Heartbeat/fallback escalation starts
+            // only after measured incremental requests begin.
             return requestRegion.region(
                 width: framebufferWidth,
                 height: framebufferHeight,
