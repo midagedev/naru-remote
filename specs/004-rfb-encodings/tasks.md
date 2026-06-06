@@ -1061,6 +1061,16 @@ iPhone) and ships as its own PR.
   payloads, host identity, command text, draft text, marked text, or IME state.
   Owns: benchmark kit/CLI/report/help, tests, README, research note, benchmark
   artifact. **Done.**
+- **T434** First-frame receive timing diagnostics: bump `VNCLiveBenchmark` to
+  schema v59 and report redacted first-frame receive timing on profile probes
+  and aggregates so startup failures can be separated into first-byte wait,
+  payload read, and client processing. Keep the fields to aggregate
+  milliseconds and permille shares only, with no coordinates, dimensions, byte
+  counts, pixels, payloads, host identity, command text, draft text, marked
+  text, or IME state. Record the constrained-cellular visible-core timing
+  result and use it to split the next work into startup payload pressure and
+  sustained update-wait cadence tracks. Owns: benchmark summary kit/tests, CLI
+  report/help, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

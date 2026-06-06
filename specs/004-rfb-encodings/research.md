@@ -4494,3 +4494,47 @@ cellular probe for this mode.
   until physical iPhone verification proves the partial first-frame behavior
   works with real zoom/pan navigation and does not regress sustained-session
   smoothness.
+
+### D102 First-Frame Receive Timing Diagnosis
+
+**Decision**: bump `VNCLiveBenchmark` to schema v59 and add
+`firstFrameReceiveTiming` plus aggregate first-frame receive timing fields.
+Report only total/network/first-byte/payload/client millisecond summaries and
+first-byte/payload network-share permille ratios. Keep production streaming
+defaults unchanged.
+
+**Why**:
+- The schema v58 visible-core run showed that reducing first-frame area from
+  364 to 300 permille was not enough to pass the poor-network 20 s startup
+  gate. The report still could not say whether successful RGB565 startup was
+  waiting for the first server byte or reading payload.
+- Existing sustained samples already include first-byte/payload split, but the
+  first-frame path only reported wall-clock startup time. That hid the most
+  important startup bottleneck.
+
+**Live result**:
+- In the schema v59 constrained-cellular visible-core run, RGB565 first-frame
+  startup remained around 20.76 s.
+- Successful RGB565 first frames spent about 0.95 s waiting for the first byte,
+  about 18.6-18.7 s reading payload, and about 1.1-1.2 s in client processing.
+  First-byte wait was about 48-49 permille of first-frame network read time;
+  payload read was about 951-952 permille.
+- Sustained request/response samples from the same run remained first-byte-wait
+  dominated, with `averageFirstByteWaitSharePermille` at 1000 and
+  `recommendedNextProbe` still `inspectUpdateWaitTiming`.
+
+**Implementation rule**:
+- First-frame timing fields are emitted only after a successful first frame.
+  Timeout failures remain fixed failure labels until a later error-timing
+  carrier is designed.
+- Reports do not emit dimensions, coordinates, byte counts, pixels, payloads,
+  host identity, credentials, command text, draft text, marked text, or IME
+  state.
+
+**Interpretation**:
+- Startup and steady-state now point to different bottlenecks. Startup needs
+  another payload-pressure reduction track: lower initial pixel depth, smaller
+  startup region, remote desktop resizing, tighter/lossier encoding where
+  supported, or staged visible-area bootstrap. Steady-state smoothness needs a
+  separate update-wait/cadence track because content samples are high-hit but
+  p95-warning and first-byte-wait dominated.
