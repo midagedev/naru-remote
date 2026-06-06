@@ -152,6 +152,13 @@ probe/ScreenCaptureKit probe sweep. Current live credentials are configured via
 environment labels and the synthetic helper-video path passes, but the true
 ScreenCaptureKit helper-video live gate remains blocked by missing Screen
 Recording permission for the stable helper app bundle.
+Current helper Screen Recording setup artifact:
+`artifacts/benchmarks/2026-06-07-helper-screen-recording-setup-summary.md`.
+The launchctl runner now has a fixed `screen-recording-setup` mode that checks
+helper capability, runs the explicit permission request, opens the macOS Screen
+Recording settings pane, and rechecks capability without printing unsafe
+details. The current setup still requires the user to grant Screen Recording
+to the stable helper app bundle and rerun the readiness sweep.
 Current launchctl startup glance scale refresh:
 `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-refresh-summary.md`.
 Using the launchctl runner, `0.25` again improves

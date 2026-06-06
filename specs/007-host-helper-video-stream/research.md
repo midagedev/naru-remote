@@ -724,3 +724,40 @@ step-specific fixed failure labels without printing raw helper stderr.
   easy to skip the synthetic control path or lose the exact setup-action label.
 - Emit raw helper stderr when a step fails: rejected by the helper-video
   privacy boundary.
+
+## D24 - Add an explicit Screen Recording setup command
+
+**Decision**: Add a launchctl-backed `screen-recording-setup` mode that checks
+the selected helper's safe capability labels, runs the helper's explicit Screen
+Recording permission request, opens the macOS Screen Recording settings pane,
+and checks capability again. The mode emits one safe JSON object with fixed
+status labels and supports `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip`
+for non-interactive verification.
+
+**Rationale**:
+- The helper app bundle currently reports `permissionMissing`, and the
+  explicit permission request returns `notGranted`. The next useful action is
+  not another VNC comparison; it is getting the stable helper app bundle
+  visible in macOS Screen Recording settings and then rerunning readiness.
+- Apple documents ScreenCaptureKit as permission-gated screen capture and notes
+  that capture becomes available after the user grants Screen Recording and
+  restarts the app. The setup command should therefore open the user-visible
+  settings boundary rather than attempting to grant TCC permission itself.
+- Keeping the command inside the launchctl runner avoids printing helper paths
+  or credential values and keeps all setup evidence in fixed labels.
+
+**Sources**:
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+- Apple Capturing screen content in macOS:
+  https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos
+
+**Alternatives considered**:
+- Programmatically modify macOS TCC state: rejected because Screen Recording is
+  a user-controlled privacy boundary and should not be bypassed by benchmark
+  tooling.
+- Leave setup as separate manual commands: rejected because the repeated helper
+  path needs one safe command that records before/request/after labels without
+  exposing local paths or raw OS errors.
+- Always open System Settings during automated checks: rejected because CI and
+  non-interactive validation need a no-UI path that still verifies JSON shape.

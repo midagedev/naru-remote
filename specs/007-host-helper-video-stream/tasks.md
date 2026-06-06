@@ -211,6 +211,10 @@ without unsafe report fields.
   probes; record the current live result showing credentials configured,
   synthetic helper-video passing, and true ScreenCaptureKit capture blocked by
   helper app bundle Screen Recording permission. **Done.**
+- [x] T029V [US2] Add a launchctl-backed `screen-recording-setup` runner mode
+  that checks helper capability, runs the explicit Screen Recording permission
+  request, opens the macOS Screen Recording settings pane, rechecks capability,
+  and records only fixed setup/status labels. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
