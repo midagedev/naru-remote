@@ -604,6 +604,17 @@ local TCP proxy. Reports emit only the fixed profile label; they do not emit
 proxy ports, upstream hosts, byte counters, dimensions, coordinates, pixels, or
 payloads. Use v55 for poor-network traffic comparisons before promoting any
 request-region, encoding, pacing, or pixel-format default.
+Schema v56 adds `iphone-poor-network-traffic-v1` and the benchmark-only
+`--stream-shape-gate-preset sustained-v2-constrained-cellular-bootstrap`.
+The preset fixes `networkCondition` to `constrained-cellular`, uses
+request/response-only `pixel-format-isolation` profiles over the
+`viewport-phone-portrait` incremental request label, and emits fixed
+`first-frame-*` / `request-region-area-*` gate issue codes. Use it to separate
+"can collect steady-state samples" from "starts fast enough for poor-network
+iPhone use" before changing defaults. The first v56 live artifact is
+`2026-06-06-constrained-cellular-bootstrap-gate-summary.md`; it shows RGB565
+survives startup where full-color times out, but still fails the 20 s startup
+target, routing the next large unit to first-visible-region bootstrap work.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

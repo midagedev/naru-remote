@@ -1026,6 +1026,19 @@ iPhone) and ships as its own PR.
   before using the harness for poor-network request-region comparisons. Owns:
   benchmark kit profile/proxy, CLI/report/help, tests, README, research note,
   benchmark artifact. **Done.**
+- **T431** Constrained-cellular bootstrap traffic gate: make poor-network
+  traffic an explicit benchmark target by adding
+  `iphone-poor-network-traffic-v1`, fixed `first-frame-*` and
+  `request-region-area-*` gate issue codes, and the benchmark-only
+  `sustained-v2-constrained-cellular-bootstrap` preset. The preset applies
+  constrained-cellular conditioning, request/response-only phone viewport
+  probes, benchmark-only full-color/RGB565 profile pairs, 30 s startup timeout,
+  and schema v56 safe reporting. Record the live result showing full-color
+  candidates fail before startup while RGB565 reaches samples but still misses
+  the startup target, routing the next large unit to first-visible-region
+  bootstrap work before any production default change. Owns: benchmark summary
+  kit/tests, CLI preset/help/report schema, README, spec/research notes,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

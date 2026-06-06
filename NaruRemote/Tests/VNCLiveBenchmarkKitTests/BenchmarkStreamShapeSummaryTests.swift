@@ -1875,11 +1875,15 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
         XCTAssertEqual(
             BenchmarkStreamShapePracticalTargetSelection.usageDescription,
-            "iphone-practical-baseline-v1|iphone-sustained-usability-v2"
+            "iphone-practical-baseline-v1|iphone-sustained-usability-v2|iphone-poor-network-traffic-v1"
         )
         XCTAssertEqual(
             BenchmarkStreamShapePracticalTargetSelection.iPhoneSustainedUsability.targets.name,
             "iphone-sustained-usability-v2"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapePracticalTargetSelection.iPhonePoorNetworkTraffic.targets.name,
+            "iphone-poor-network-traffic-v1"
         )
     }
 
@@ -2064,6 +2068,77 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             decoded.recommendedNextProbe,
             DiagnosticSustainedSessionNextProbe.runSustainedV2ProfileGate.rawValue
         )
+    }
+
+    func testPoorNetworkTrafficGateFailsSlowFirstFrame() {
+        let samples = Array(repeating: streamShapeSample(duration: 100, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "local-low-latency-rgb565",
+                requestRegion: .viewportPhonePortrait,
+                requestRegionAreaPermille: 364,
+                firstFrameMilliseconds: 25_000,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.targetName, "iphone-poor-network-traffic-v1")
+        XCTAssertEqual(gate.verdict, .fail)
+        XCTAssertEqual(gate.issueCodes, [.firstFrameFailed])
+        XCTAssertEqual(gate.primaryIssueCode, .firstFrameFailed)
+        XCTAssertEqual(
+            gate.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            gate.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
+        )
+        XCTAssertEqual(gate.averageRequestRegionAreaPermille, 364)
+    }
+
+    func testPoorNetworkTrafficGateFailsLargeRequestRegionArea() {
+        let samples = Array(repeating: streamShapeSample(duration: 100, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "full-region",
+                requestRegion: .full,
+                requestRegionAreaPermille: 1_000,
+                firstFrameMilliseconds: 1_000,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.verdict, .fail)
+        XCTAssertEqual(gate.issueCodes, [.requestRegionAreaFailed])
+        XCTAssertEqual(gate.primaryIssueCode, .requestRegionAreaFailed)
+        XCTAssertEqual(
+            gate.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.viewportInteraction.rawValue
+        )
+        XCTAssertEqual(
+            gate.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
+        )
+        XCTAssertEqual(gate.averageRequestRegionAreaPermille, 1_000)
     }
 
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
