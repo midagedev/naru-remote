@@ -1164,6 +1164,18 @@ iPhone) and ships as its own PR.
   text, or IME state. Owns: app settings, app model, session viewer label,
   benchmark profile selection/preset/help, tests, README, research note, live
   benchmark artifact. **Done.**
+- **T443** App low-traffic glance scale tuning: after D112 showed the 0.60
+  visible-glance startup still spends too long in first-frame payload read,
+  reduce the shared app/benchmark startup glance scale to 0.45. Keep sustained
+  requests on the existing margin-expanded viewport-aware policy, explicitly
+  reject the timed-out two-phase non-incremental viewport hydration experiment,
+  and document the v63 live run where first-frame request area drops to
+  61 permille while both app RGB565 candidates keep 4/4 sustained content
+  samples and 0 permille renderer full-upload pressure. Keep standard as the
+  production default and avoid logging/exporting dimensions, coordinates, byte
+  counts, pixels, payloads, host identity, command text, draft text, marked
+  text, or IME state. Owns: app startup scale, benchmark request-region scale,
+  tests, README, research note, live benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

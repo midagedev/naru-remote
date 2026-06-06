@@ -5075,3 +5075,59 @@ other app low-traffic RGB565 candidate.
   sustained hand-feel under the current poor-network harness.
 - It is still not the default. The next unit should reduce first-frame payload
   read or change startup transport/cadence before revisiting default promotion.
+
+### D112 App Low-Traffic Glance Scale Tuning
+
+References:
+- RFC 6143 client-driven `FramebufferUpdateRequest` region:
+  https://www.rfc-editor.org/rfc/rfc6143
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-glance-scale-tuning-summary.md`.
+
+**Decision**: reduce the app low-traffic `visible-glance` startup scale from
+0.60 to 0.45. Keep the sustained viewport-aware request region unchanged and
+do not add a second non-incremental viewport hydration request.
+
+**Why**:
+- The 0.60 glance reduced startup area to 108 permille but still spent about
+  10.4 s in first-frame payload read.
+- The 0.45 live run reduced first-frame request area to 61 permille and
+  reduced first-frame total/network/payload to about 9.5-9.6/9.1/8.1-8.2 s.
+  Both app RGB565 candidates kept 4/4 content samples and 0 permille renderer
+  full-upload pressure.
+- A local uncommitted two-phase hydration experiment, where the second request
+  tried to fetch the larger viewport region as non-incremental, timed out under
+  constrained-cellular conditioning and failed before sustained samples with
+  `stream-incremental-not-connected`. That path is not product-safe without a
+  different timeout/cadence strategy, so it was not kept.
+
+**Implementation rule**:
+- Keep the scale as a shared constant in the app and benchmark kit so the
+  app-low-traffic live preset continues to match product behavior.
+- Only low-traffic modes with viewport-aware startup enabled use the smaller
+  first request. Standard, power-saver/low-power, mismatched dimensions,
+  invalid dimensions, and fallback cases keep their existing behavior.
+- Sustained requests continue to use the margin-expanded viewport region, not
+  the smaller startup glance.
+- No dimensions, coordinates, byte counts, pixels, payloads, host identity,
+  command text, draft text, marked text, or IME state are logged, exported, or
+  persisted.
+
+**Evidence**:
+- App-model tests cover the updated centered startup region for both app RGB565
+  low-traffic modes and unchanged sustained viewport-region requests.
+- Benchmark kit tests continue to prove `visible-glance` remains smaller than
+  `visible-focus` and uses only fixed report labels.
+- Live v63 app-low-traffic preset run at 0.45:
+  `firstFrameRequestAreaPermille` 61, `requestRegionAreaPermille` 364,
+  local-low-latency first-frame total/network/payload about 9.6/9.1/8.2 s,
+  ZRLE-compression-0 RGB565 first-frame total/network/payload about
+  9.5/9.1/8.1 s, both profiles 4/4 content samples, p95 update about
+  626/620 ms, and renderer full-upload pressure 0 permille.
+
+**Interpretation**:
+- This is a measurable startup improvement that preserves sustained stream
+  shape, so it is worth keeping for the opt-in app low-traffic path.
+- The poor-network gate still fails on first-frame payload-read pressure. The
+  next unit should investigate startup transport/cadence or a server-side
+  lower-cost initial representation rather than hydrating a larger viewport as
+  a second non-incremental request.

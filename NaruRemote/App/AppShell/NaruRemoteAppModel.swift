@@ -62,7 +62,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// but give the remote clipboard enough time to adopt the payload
     /// before the paste shortcut arrives.
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.30
-    private static let initialViewportGlanceScale = 0.60
+    private static let initialViewportGlanceScale = 0.45
 
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?

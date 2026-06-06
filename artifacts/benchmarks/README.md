@@ -705,6 +705,14 @@ renderer full-upload pressure compared with `zrle-compression-0-rgb565`. The
 poor-network gate still fails on first-frame payload read, so the practical
 next step stays startup traffic/cadence work rather than promoting the profile
 as the default.
+A follow-up scale-tuning artifact is
+`2026-06-06-app-low-traffic-glance-scale-tuning-summary.md`; it tightens the
+visible-glance startup scale from 0.60 to 0.45. The first-frame request area
+drops from 108 to 61 permille and first-frame payload read drops to about
+8.1-8.2 s while both app RGB565 candidates keep 4/4 sustained content samples
+and 0 permille renderer full-upload pressure. The poor-network gate still
+fails on first-frame payload-read share, so this is a first-useful-paint
+improvement, not the end of startup traffic work.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
