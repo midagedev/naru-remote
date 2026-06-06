@@ -8,7 +8,9 @@ attempted.
 Fields:
 
 - `enabled`: Boolean opt-in. Defaults to false.
-- `pairingFingerprint`: Non-secret fingerprint for the paired helper.
+- `pairingFingerprint`: Non-secret, one-way fingerprint for the paired helper.
+  It is not an endpoint, host identity, auth token, auth proof, or stable
+  public device identifier.
 - `availability`: Fixed catalog value:
   - `notConfigured`
   - `disabled`
@@ -20,7 +22,6 @@ Fields:
   - `unreachable`
   - `failed`
 - `lastFailureCode`: Optional fixed catalog value:
-  - `none`
   - `authFailed`
   - `permissionMissing`
   - `codecUnsupported`
@@ -28,6 +29,7 @@ Fields:
   - `decoderRejected`
   - `revoked`
   - `transportFailed`
+  - `fallbackToVNC`
 - `lastCheckedBucket`: Coarse recency bucket, not an exact timestamp.
 
 Privacy:
