@@ -3560,6 +3560,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionStreamStats.recordViewportRedrawDiagnostics(diagnostics)
     }
 
+    public func recordOutboundInputEvent(
+        queueDelayMilliseconds: Int,
+        operationMilliseconds: Int,
+        timedOut: Bool = false
+    ) {
+        sessionStreamStats.recordOutboundInputEvent(
+            queueDelayMilliseconds: queueDelayMilliseconds,
+            operationMilliseconds: operationMilliseconds,
+            timedOut: timedOut
+        )
+    }
+
     public func setViewportInteractionActive(
         _ isActive: Bool,
         frameStrategy: ViewportInteractionFrameStrategy = .liveRemoteFrames
@@ -4917,11 +4929,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         operation: @escaping @Sendable () async throws -> Void
     ) {
         let previous = outboundInputEventTail
+        let enqueuedAt = Date()
         let generation = outboundInputEventGeneration
         let inputEventTimeout = outboundInputEventTimeout
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
+            enqueuedAt,
             emitter,
             streamID,
             sessionID,
@@ -4949,12 +4963,29 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
 
+            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
+            let operationStartedAt = Date()
             do {
                 try await Self.runOutboundInputOperation(
                     timeout: inputEventTimeout,
                     operation: operation
                 )
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                await Self.recordOutboundInputEventIfCurrent(
+                    self,
+                    generation: generation,
+                    queueDelayMilliseconds: queueDelayMilliseconds,
+                    operationMilliseconds: operationMilliseconds,
+                    timedOut: false
+                )
             } catch {
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                let timedOut: Bool
+                if case OutboundInputEventError.timedOut = error {
+                    timedOut = true
+                } else {
+                    timedOut = false
+                }
                 await MainActor.run { [weak self] in
                     guard let self,
                           self.outboundInputEventGeneration == generation,
@@ -4965,6 +4996,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                     else {
                         return
                     }
+                    self.recordOutboundInputEvent(
+                        queueDelayMilliseconds: queueDelayMilliseconds,
+                        operationMilliseconds: operationMilliseconds,
+                        timedOut: timedOut
+                    )
                     self.cancelOutboundInputEventQueues()
                     self.activeKeyEventClient = nil
                     self.keystrokeEmitter = nil
@@ -4972,6 +5008,27 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
         outboundInputEventTail = task
+    }
+
+    private static func recordOutboundInputEventIfCurrent(
+        _ model: NaruRemoteAppModel?,
+        generation: UUID,
+        queueDelayMilliseconds: Int,
+        operationMilliseconds: Int,
+        timedOut: Bool
+    ) async {
+        await MainActor.run {
+            guard let model,
+                  model.outboundInputEventGeneration == generation
+            else {
+                return
+            }
+            model.recordOutboundInputEvent(
+                queueDelayMilliseconds: queueDelayMilliseconds,
+                operationMilliseconds: operationMilliseconds,
+                timedOut: timedOut
+            )
+        }
     }
 
     nonisolated private static func runOutboundInputOperation(
@@ -6127,11 +6184,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         let previous = outboundInputEventTail
+        let enqueuedAt = Date()
         let generation = outboundInputEventGeneration
         let inputEventTimeout = outboundInputEventTimeout
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
+            enqueuedAt,
             pointerClient,
             commands,
             streamID,
@@ -6159,6 +6218,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
 
+            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
+            let operationStartedAt = Date()
             do {
                 try await Self.runOutboundInputOperation(timeout: inputEventTimeout) {
                     for command in commands {
@@ -6172,7 +6233,22 @@ public final class NaruRemoteAppModel: ObservableObject {
                         )
                     }
                 }
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                await Self.recordOutboundInputEventIfCurrent(
+                    self,
+                    generation: generation,
+                    queueDelayMilliseconds: queueDelayMilliseconds,
+                    operationMilliseconds: operationMilliseconds,
+                    timedOut: false
+                )
             } catch {
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                let timedOut: Bool
+                if case OutboundInputEventError.timedOut = error {
+                    timedOut = true
+                } else {
+                    timedOut = false
+                }
                 guard let self else {
                     return
                 }
@@ -6185,6 +6261,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                     else {
                         return
                     }
+                    self.recordOutboundInputEvent(
+                        queueDelayMilliseconds: queueDelayMilliseconds,
+                        operationMilliseconds: operationMilliseconds,
+                        timedOut: timedOut
+                    )
                     self.cancelOutboundInputEventQueues()
                     self.activePointerClient = nil
                     self.lastEmittedDragCoord = nil

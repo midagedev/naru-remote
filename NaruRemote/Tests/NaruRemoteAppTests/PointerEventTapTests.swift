@@ -176,10 +176,10 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(connector.recordedPointerEvents.count, 0)
     }
 
-    func testSendTapAtDoesNotChangeDiagnosticExportSafeCatalog() async throws {
+    func testSendTapAtRecordsOnlySafeOutboundInputDiagnostics() async throws {
         // Constitution §IV: pointer coordinates must not leak into the
-        // diagnostic safe-detail catalog. The export rendered before
-        // and after a tap event must be identical.
+        // diagnostic safe-detail catalog. Tap dispatch may update safe
+        // aggregate latency buckets, but never records raw positions.
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
             width: 1024,
@@ -206,7 +206,8 @@ final class PointerEventTapTests: XCTestCase {
         // body is unaffected by tap dispatch, not that the timestamp
         // header survives a real-time delay.
         let pinnedNow = Date(timeIntervalSince1970: 1_700_000_000)
-        let exportBefore = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
+        let exportBefore = model.makeDiagnosticExport().renderCollectionJSON(buildVersion: "test", now: pinnedNow)
+        XCTAssertTrue(exportBefore.contains("\"outboundInputEventSampleCount\" : 0"))
 
         model.sendTapAt(
             viewPoint: CGPoint(x: 50, y: 50),
@@ -214,8 +215,13 @@ final class PointerEventTapTests: XCTestCase {
         )
         try await waitForPointerEvents(connector, count: 2)
 
-        let exportAfter = model.makeDiagnosticExport().renderShareText(buildVersion: "test", now: pinnedNow)
-        XCTAssertEqual(exportAfter, exportBefore)
+        let exportAfter = model.makeDiagnosticExport().renderCollectionJSON(buildVersion: "test", now: pinnedNow)
+        XCTAssertNotEqual(exportAfter, exportBefore)
+        XCTAssertTrue(exportAfter.contains("\"outboundInputEventSampleCount\" : 1"))
+        XCTAssertTrue(exportAfter.contains("\"outboundInputEventTimeoutCount\" : 0"))
+        XCTAssertFalse(exportAfter.contains("\"x\""))
+        XCTAssertFalse(exportAfter.contains("\"y\""))
+        XCTAssertFalse(exportAfter.contains("512"))
     }
 
     func testRapidTapsStaySerializedAsClickPairsWhenWritesAreSlow() async throws {
@@ -243,6 +249,13 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(events[1].x, 512)
         XCTAssertEqual(events[2].x, 614)
         XCTAssertEqual(events[3].x, 614)
+        for _ in 0..<30
+            where model.snapshot.sessionStreamStats.outboundInputEventSampleCount < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let report = try XCTUnwrap(model.snapshot.sessionStreamStats.diagnosticStreamPerformanceReport)
+        XCTAssertEqual(report.outboundInputEventSampleCount, 2)
+        XCTAssertEqual(report.outboundInputEventTimeoutCount, 0)
     }
 
     // MARK: Right click
