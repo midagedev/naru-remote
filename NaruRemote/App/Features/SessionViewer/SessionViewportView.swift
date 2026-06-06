@@ -804,11 +804,13 @@ public struct SessionViewportView: View {
     private var streamEncodingModeLabelText: String {
         switch streamEncodingMode {
         case .standard:
-            return "Standard stream profile — tap to try ZRLE compression 0"
+            return "Standard stream profile — tap to try RGB565 low latency"
+        case .localLowLatencyRGB565:
+            return "RGB565 low-latency stream profile — tap to try ZRLE compression 0"
         case .zrleCompressionZero:
-            return "ZRLE compression 0 stream profile — tap to try RGB565 low traffic"
+            return "ZRLE compression 0 stream profile — tap to try ZRLE RGB565 low traffic"
         case .zrleCompressionZeroRGB565:
-            return "RGB565 low-traffic stream profile — tap to try adaptive full"
+            return "ZRLE RGB565 low-traffic stream profile — tap to try adaptive full"
         case .adaptiveGoodFull:
             return "Adaptive full stream profile — tap to use standard"
         }

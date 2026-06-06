@@ -2819,7 +2819,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         else {
             return false
         }
-        return appSettings.streamEncodingMode == .zrleCompressionZeroRGB565
+        switch appSettings.streamEncodingMode {
+        case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
+            return true
+        case .standard, .zrleCompressionZero, .adaptiveGoodFull:
+            return false
+        }
     }
 
     private var usesViewportAwareInitialRequestRegion: Bool {
@@ -3102,6 +3107,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch appSettings.streamEncodingMode {
         case .standard:
             return nil
+        case .localLowLatencyRGB565:
+            return .localLowLatency
         case .zrleCompressionZero:
             return RFBEncodingPreference(zrle: true, compressionLevel: 0)
         case .zrleCompressionZeroRGB565:
@@ -3129,7 +3136,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch appSettings.streamEncodingMode {
         case .standard, .zrleCompressionZero, .adaptiveGoodFull:
             return nil
-        case .zrleCompressionZeroRGB565:
+        case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
             return .rgb565In32LittleEndian
         }
     }

@@ -168,28 +168,36 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             from: "pixel-format-isolation",
             allProfileLabels: [
                 "local-low-latency",
-                "local-low-latency-rgb565",
+                StreamEncodingMode.localLowLatencyRGB565.rawValue,
                 StreamEncodingMode.zrleCompressionZero.rawValue,
                 StreamEncodingMode.zrleCompressionZeroRGB565.rawValue
             ]
         )
 
+        XCTAssertTrue(labels.contains(StreamEncodingMode.localLowLatencyRGB565.rawValue))
         XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZero.rawValue))
         XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZeroRGB565.rawValue))
     }
 
-    func testAppLowTrafficSelectsOnlyAppRGB565LowTrafficLabel() throws {
+    func testAppLowTrafficSelectsAppRGB565LowTrafficLabels() throws {
         let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
             from: " app-low-traffic ",
             allProfileLabels: [
                 "local-low-latency",
+                StreamEncodingMode.localLowLatencyRGB565.rawValue,
                 StreamEncodingMode.zrleCompressionZero.rawValue,
                 StreamEncodingMode.zrleCompressionZeroRGB565.rawValue,
                 "adaptive-good-full"
             ]
         )
 
-        XCTAssertEqual(labels, [StreamEncodingMode.zrleCompressionZeroRGB565.rawValue])
+        XCTAssertEqual(
+            labels,
+            [
+                StreamEncodingMode.localLowLatencyRGB565.rawValue,
+                StreamEncodingMode.zrleCompressionZeroRGB565.rawValue
+            ]
+        )
     }
 
     func testAppLowTrafficThrowsWhenProfileIsMissing() {
@@ -204,12 +212,16 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
         ) { error in
             XCTAssertEqual(
                 error as? BenchmarkStreamShapeProfileSelectionError,
-                .missingAppLowTrafficLabels([StreamEncodingMode.zrleCompressionZeroRGB565.rawValue])
+                .missingAppLowTrafficLabels([
+                    StreamEncodingMode.localLowLatencyRGB565.rawValue,
+                    StreamEncodingMode.zrleCompressionZeroRGB565.rawValue
+                ])
             )
             XCTAssertEqual(
                 (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
                 "app-low-traffic stream-shape profile selection is unavailable because "
-                    + "required profile label(s) are missing: zrle-compression-0-rgb565."
+                    + "required profile label(s) are missing: "
+                    + "local-low-latency-rgb565, zrle-compression-0-rgb565."
             )
         }
     }

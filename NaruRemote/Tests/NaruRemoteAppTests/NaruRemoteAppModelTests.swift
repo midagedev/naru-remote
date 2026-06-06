@@ -644,6 +644,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.toggleStreamEncodingMode()
 
+        let savedLocalRGB565Settings = try await waitForPersistedStreamEncodingMode(
+            .localLowLatencyRGB565,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .localLowLatencyRGB565)
+        XCTAssertEqual(savedLocalRGB565Settings.streamEncodingMode, .localLowLatencyRGB565)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamEncodingMode()
+
         let savedZrleSettings = try await waitForPersistedStreamEncodingMode(
             .zrleCompressionZero,
             in: persistence
@@ -1358,6 +1368,48 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
+    func testModelBuildsLocalLowLatencyRGB565StreamConnectorOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let connectorFactory = RecordingStreamConnectorFactory(connector: connector)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            streamConnectorFactory: { encodingPreference, pixelFormatPreference in
+                connectorFactory.make(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.localLowLatencyRGB565)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(
+            connectorFactory.calls,
+            [
+                RecordingStreamConnectorFactory.Call(
+                    encodingPreference: .localLowLatency,
+                    pixelFormatPreference: .rgb565In32LittleEndian
+                )
+            ]
+        )
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
+    }
+
     func testModelKeepsFullIncrementalStreamRequestsInStandardProfile() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
@@ -1509,6 +1561,46 @@ final class NaruRemoteAppModelTests: XCTestCase {
             lowPowerModeProvider: { false }
         )
         model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(
+            connector.frameUpdateRegions,
+            [
+                RFBFramebufferUpdateRegion(x: 350, y: 350, width: 300, height: 300)
+            ]
+        )
+    }
+
+    func testModelRequestsVisibleViewportRegionForLocalRGB565InitialStreamFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.localLowLatencyRGB565)
         model.updateViewportTransform(
             ViewportTransform(
                 framebufferSize: CGSize(width: 1_000, height: 1_000),
