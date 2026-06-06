@@ -215,6 +215,9 @@ without unsafe report fields.
   that checks helper capability, runs the explicit Screen Recording permission
   request, opens the macOS Screen Recording settings pane, rechecks capability,
   and records only fixed setup/status labels. **Done.**
+- [x] T029W [US2] Add an opt-in helper-video app-runner benchmark that measures
+  finite H.264 access units through visual transport selection and CoreMedia
+  sample-buffer creation while normal test loops skip by default. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

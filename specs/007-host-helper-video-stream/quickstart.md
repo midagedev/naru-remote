@@ -359,6 +359,25 @@ codes and coarse helper health; it must not export helper endpoints, access-unit
 payloads, byte counts, display dimensions, exact timings, raw OS/network errors,
 host names, pairing secrets, Compose text, clipboard contents, or frame content.
 
+## Implemented App-Side Helper Video Benchmark
+
+```bash
+swift test --filter HelperVideoAppRunnerBenchmarkTests
+
+NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=1 \
+swift test --filter HelperVideoAppRunnerBenchmarkTests
+```
+
+The default command proves the benchmark target still skips during normal test
+loops. The opt-in command measures finite helper-video H.264 access units
+through app visual transport selection and CoreMedia sample-buffer creation.
+On macOS SwiftPM runs, it also attempts an optional VideoToolbox synthetic
+helper source and skips that case with a fixed label if the host encoder is not
+available. Do not store payload bytes, display dimensions, helper endpoints,
+byte counts, exact timings, raw encoder errors, host names, or credentials in
+benchmark artifacts.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.

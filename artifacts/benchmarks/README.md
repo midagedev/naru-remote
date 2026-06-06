@@ -42,6 +42,30 @@ The benchmark target measures:
 - steady-state small dirty-rectangle Metal texture upload
 - same-frame upload-gate skip overhead
 
+For the app-side helper-video path, run the companion opt-in benchmark:
+
+```bash
+xcrun simctl spawn "$DEVICE_ID" launchctl setenv NARU_RUN_SIM_BENCHMARKS 1
+xcrun simctl spawn "$DEVICE_ID" launchctl setenv NARU_SIM_BENCHMARK_ITERATIONS 10
+xcrun simctl spawn "$DEVICE_ID" launchctl setenv NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES 4
+
+xcodebuild \
+  -project NaruRemote.xcodeproj \
+  -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoAppRunnerBenchmarkTests \
+  test
+
+xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES
+xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv NARU_SIM_BENCHMARK_ITERATIONS
+xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv NARU_RUN_SIM_BENCHMARKS
+```
+
+This measures finite helper-video H.264 access units through the app session
+runner and CoreMedia sample-buffer factory. On macOS SwiftPM runs, the same
+test target also includes an optional VideoToolbox synthetic helper source when
+the host encoder accepts the request.
+
 Simulator results are useful for relative comparisons across commits.
 They do not prove physical iPhone thermal behavior, battery impact, or
 real display scheduling. Always close thermal/FPS claims with a physical
@@ -86,6 +110,11 @@ Current helper-video encoder prototype artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-encoder-prototype-summary.md`.
 The macOS helper now gates a VideoToolbox H.264 session-prepare prototype
 behind `NARU_HELPER_VIDEO_ENCODER_PROTOTYPE`.
+Current helper-video app runner benchmark artifact:
+`artifacts/benchmarks/2026-06-07-helper-video-app-runner-sim-benchmark-summary.md`.
+The app benchmark now exercises the finite helper-video access-unit path
+through visual transport selection and sample-buffer creation without requiring
+Screen Recording permission.
 Current helper-video auth transport artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-auth-transport-summary.md`.
 The helper-video request contract now signs capability/start/keyframe/stop
