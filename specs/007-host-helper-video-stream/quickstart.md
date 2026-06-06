@@ -148,6 +148,25 @@ NARU_LIVE_MAC_PORT="$(launchctl getenv NARU_LIVE_MAC_PORT)" \
 NARU_LIVE_MAC_PASSWORD="$(launchctl getenv NARU_LIVE_MAC_PASSWORD)" \
 NARU_LIVE_STIMULUS_COMMAND="$(launchctl getenv NARU_LIVE_STIMULUS_COMMAND)" \
 swift run VNCLiveBenchmark \
+  --environment-preflight \
+  --visual-transport helper-video \
+  --helper-video-probe external-helper-screen-capturekit-tcp \
+  --json
+```
+
+When Screen Recording permission is missing for a ScreenCaptureKit helper
+probe, the preflight emits schema `3`, `helperVideoScreenCapturePermissionStatus`
+as `missing`, fixed issue code `helper-video-permission-missing`, and setup
+action `request-helper-video-screen-recording-permission`.
+
+```bash
+swift build --product NaruHelper
+
+NARU_LIVE_MAC_HOST="$(launchctl getenv NARU_LIVE_MAC_HOST)" \
+NARU_LIVE_MAC_PORT="$(launchctl getenv NARU_LIVE_MAC_PORT)" \
+NARU_LIVE_MAC_PASSWORD="$(launchctl getenv NARU_LIVE_MAC_PASSWORD)" \
+NARU_LIVE_STIMULUS_COMMAND="$(launchctl getenv NARU_LIVE_STIMULUS_COMMAND)" \
+swift run VNCLiveBenchmark \
   --first-frame-profiles none \
   --full-refresh-samples 0 \
   --continuous-update-samples 0 \

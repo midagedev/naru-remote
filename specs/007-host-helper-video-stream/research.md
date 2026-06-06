@@ -446,6 +446,10 @@ Capability checks and benchmark probes continue to use preflight-only behavior.
 - A dedicated helper CLI gives live-benchmark setup a repeatable way to make
   the permission gate actionable before running
   `external-helper-screen-capturekit-tcp`.
+- `VNCLiveBenchmark --environment-preflight` should surface the same gate as
+  fixed schema labels when a ScreenCaptureKit helper-video probe is selected,
+  so setup failures route to a next action before the benchmark attempts
+  capture.
 - The response uses only fixed catalog labels and does not query
   `SCShareableContent`, so missing or denied permission remains distinguishable
   from capture-source and listener failures.

@@ -173,6 +173,9 @@ without unsafe report fields.
   separates runnable VNC credentials, passing external synthetic helper-video,
   ScreenCaptureKit permission-missing, and the current constrained-cellular VNC
   receive-path blocker. **Done.**
+- [x] T029L [US2] Add helper-video ScreenCaptureKit readiness and fixed setup
+  action labels to `VNCLiveBenchmark --environment-preflight` so permission
+  blockers are reported before capture benchmarks run. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

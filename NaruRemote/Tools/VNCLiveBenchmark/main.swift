@@ -18,7 +18,9 @@ enum VNCLiveBenchmark {
                 let report = BenchmarkLiveEnvironmentPreflightReport.make(
                     environment: ProcessInfo.processInfo.environment,
                     askPassword: options.askPassword,
-                    stimulusMode: options.streamShapeStimulusMode
+                    stimulusMode: options.streamShapeStimulusMode,
+                    visualTransports: options.visualTransports,
+                    helperVideoProbeMode: options.helperVideoProbeMode
                 )
                 if options.json {
                     try renderJSON(report)

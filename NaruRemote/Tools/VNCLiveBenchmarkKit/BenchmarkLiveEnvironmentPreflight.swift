@@ -1,7 +1,11 @@
 import Foundation
 
+#if os(macOS) && canImport(CoreGraphics)
+import CoreGraphics
+#endif
+
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -10,6 +14,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         case credentialStatus
         case stimulusMode
         case stimulusCommandStatus
+        case helperVideoScreenCapturePermissionStatus
         case canRunLiveBenchmark
         case issueCodes
         case setupActionLabels
@@ -21,6 +26,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
     public let credentialStatus: BenchmarkLiveEnvironmentPreflightCredentialStatus
     public let stimulusMode: BenchmarkStreamShapeStimulusMode
     public let stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus
+    public let helperVideoScreenCapturePermissionStatus:
+        BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus
     public let canRunLiveBenchmark: Bool
     public let issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode]
     public let setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction]
@@ -32,6 +39,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         credentialStatus: BenchmarkLiveEnvironmentPreflightCredentialStatus,
         stimulusMode: BenchmarkStreamShapeStimulusMode,
         stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
+        helperVideoScreenCapturePermissionStatus:
+            BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus = .notRequired,
         canRunLiveBenchmark: Bool,
         issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode],
         setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction] = []
@@ -42,6 +51,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         self.credentialStatus = credentialStatus
         self.stimulusMode = stimulusMode
         self.stimulusCommandStatus = stimulusCommandStatus
+        self.helperVideoScreenCapturePermissionStatus = helperVideoScreenCapturePermissionStatus
         self.canRunLiveBenchmark = canRunLiveBenchmark
         self.issueCodes = issueCodes
         self.setupActionLabels = setupActionLabels
@@ -69,6 +79,10 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             BenchmarkLiveEnvironmentPreflightStimulusCommandStatus.self,
             forKey: .stimulusCommandStatus
         )
+        let helperVideoScreenCapturePermissionStatus = try container.decodeIfPresent(
+            BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus.self,
+            forKey: .helperVideoScreenCapturePermissionStatus
+        ) ?? .notRequired
         let canRunLiveBenchmark = try container.decode(Bool.self, forKey: .canRunLiveBenchmark)
         self.init(
             schemaVersion: try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
@@ -78,6 +92,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             credentialStatus: credentialStatus,
             stimulusMode: stimulusMode,
             stimulusCommandStatus: stimulusCommandStatus,
+            helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
             canRunLiveBenchmark: canRunLiveBenchmark,
             issueCodes: try container.decodeIfPresent(
                 [BenchmarkLiveEnvironmentPreflightIssueCode].self,
@@ -91,6 +106,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
                 portStatus: portStatus,
                 credentialStatus: credentialStatus,
                 stimulusCommandStatus: stimulusCommandStatus,
+                helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
                 canRunLiveBenchmark: canRunLiveBenchmark
             )
         )
@@ -99,7 +115,11 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
     public static func make(
         environment: [String: String],
         askPassword: Bool,
-        stimulusMode: BenchmarkStreamShapeStimulusMode
+        stimulusMode: BenchmarkStreamShapeStimulusMode,
+        visualTransports: BenchmarkVisualTransportSelection = .vnc,
+        helperVideoProbeMode: BenchmarkHelperVideoProbeMode = .disabled,
+        screenCapturePermissionStatusProvider:
+            (() -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus)? = nil
     ) -> BenchmarkLiveEnvironmentPreflightReport {
         let hostStatus: BenchmarkLiveEnvironmentPreflightHostStatus
         if environment["NARU_LIVE_MAC_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
@@ -125,6 +145,11 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             for: stimulusMode,
             environment: environment
         )
+        let helperVideoScreenCapturePermissionStatus = helperVideoScreenCapturePermissionStatus(
+            visualTransports: visualTransports,
+            helperVideoProbeMode: helperVideoProbeMode,
+            provider: screenCapturePermissionStatusProvider ?? liveScreenCapturePermissionStatus
+        )
 
         var issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode] = []
         if hostStatus == .missing {
@@ -139,6 +164,12 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if stimulusCommandStatus == .requiredMissing {
             issueCodes.append(.missingStimulusCommand)
         }
+        if helperVideoScreenCapturePermissionStatus == .missing {
+            issueCodes.append(.helperVideoPermissionMissing)
+        }
+        if helperVideoScreenCapturePermissionStatus == .unsupported {
+            issueCodes.append(.helperVideoCaptureUnsupported)
+        }
         let canRunLiveBenchmark = issueCodes.isEmpty
 
         return BenchmarkLiveEnvironmentPreflightReport(
@@ -147,6 +178,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             credentialStatus: credentialStatus,
             stimulusMode: stimulusMode,
             stimulusCommandStatus: stimulusCommandStatus,
+            helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
             canRunLiveBenchmark: canRunLiveBenchmark,
             issueCodes: issueCodes,
             setupActionLabels: setupActions(
@@ -154,6 +186,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
                 portStatus: portStatus,
                 credentialStatus: credentialStatus,
                 stimulusCommandStatus: stimulusCommandStatus,
+                helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
                 canRunLiveBenchmark: canRunLiveBenchmark
             )
         )
@@ -164,6 +197,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         portStatus: BenchmarkLiveEnvironmentPreflightPortStatus,
         credentialStatus: BenchmarkLiveEnvironmentPreflightCredentialStatus,
         stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
+        helperVideoScreenCapturePermissionStatus:
+            BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus,
         canRunLiveBenchmark: Bool
     ) -> [BenchmarkLiveEnvironmentPreflightSetupAction] {
         guard !canRunLiveBenchmark else {
@@ -183,7 +218,35 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if stimulusCommandStatus == .requiredMissing {
             actions.append(.setStimulusCommand)
         }
+        if helperVideoScreenCapturePermissionStatus == .missing {
+            actions.append(.requestHelperVideoScreenRecordingPermission)
+        }
+        if helperVideoScreenCapturePermissionStatus == .unsupported {
+            actions.append(.useSyntheticHelperVideoProbe)
+        }
         return actions
+    }
+
+    private static func helperVideoScreenCapturePermissionStatus(
+        visualTransports: BenchmarkVisualTransportSelection,
+        helperVideoProbeMode: BenchmarkHelperVideoProbeMode,
+        provider: () -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus
+    ) -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus {
+        guard visualTransports.transports.contains(.helperVideo),
+              helperVideoProbeMode.requiresScreenCapturePermission else {
+            return .notRequired
+        }
+        return provider()
+    }
+
+    private static func liveScreenCapturePermissionStatus()
+        -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus
+    {
+        #if os(macOS) && canImport(CoreGraphics)
+        return CGPreflightScreenCaptureAccess() ? .granted : .missing
+        #else
+        return .unsupported
+        #endif
     }
 }
 
@@ -235,11 +298,20 @@ public enum BenchmarkLiveEnvironmentPreflightStimulusCommandStatus: String, Coda
     }
 }
 
+public enum BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus: String, Codable, Equatable {
+    case notRequired
+    case granted
+    case missing
+    case unsupported
+}
+
 public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatable {
     case missingHost = "missing-host"
     case invalidPort = "invalid-port"
     case missingCredential = "missing-credential"
     case missingStimulusCommand = "missing-stimulus-command"
+    case helperVideoPermissionMissing = "helper-video-permission-missing"
+    case helperVideoCaptureUnsupported = "helper-video-capture-unsupported"
 }
 
 public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equatable {
@@ -247,5 +319,19 @@ public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equat
     case fixPort = "fix-naru-live-mac-port"
     case provideCredentialOrAskPassword = "provide-credential-or-ask-password"
     case setStimulusCommand = "set-naru-live-stimulus-command"
+    case requestHelperVideoScreenRecordingPermission =
+        "request-helper-video-screen-recording-permission"
+    case useSyntheticHelperVideoProbe = "use-synthetic-helper-video-probe"
     case runLiveGate = "run-live-gate"
+}
+
+private extension BenchmarkHelperVideoProbeMode {
+    var requiresScreenCapturePermission: Bool {
+        switch self {
+        case .screenCaptureKitTCP, .externalHelperScreenCaptureKitTCP:
+            return true
+        case .disabled, .syntheticTCP, .syntheticEncodedTCP, .externalHelperSyntheticEncodedTCP:
+            return false
+        }
+    }
 }

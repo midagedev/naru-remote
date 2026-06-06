@@ -120,6 +120,9 @@ Current live preflight action artifact:
 `artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
 Schema v2 adds fixed setup action labels so missing benchmark inputs route to a
 next action without exposing host, credential, port, or stimulus command values.
+Schema v3 additionally reports helper-video ScreenCaptureKit permission
+readiness when a ScreenCaptureKit helper probe is selected, using only fixed
+status, issue, and setup-action labels.
 Current helper-video fake comparison artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-fake-transport-comparison-summary.md`.
 Schema v67 adds a visual transport comparison envelope so `vnc` and
@@ -466,11 +469,12 @@ do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
-v2 readiness labels before connecting or prompting for a password, including
+v3 readiness labels before connecting or prompting for a password, including
 fixed `setupActionLabels` such as `set-naru-live-mac-host`,
-`set-naru-live-stimulus-command`, and `run-live-gate`. It is meant to explain
-why a live profile gate could not be attempted without printing configured
-target values.
+`set-naru-live-stimulus-command`,
+`request-helper-video-screen-recording-permission`, and `run-live-gate`. It is
+meant to explain why a live profile gate could not be attempted without
+printing configured target values.
 Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
 `streamShapeGatePreset` in benchmark reports. Schema v39 adds
 `sustained-v2-pixel-format` and `--stream-shape-profiles
