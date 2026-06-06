@@ -1054,3 +1054,10 @@ order-neutral recommendation with 6/6 content samples, 22.47 content FPS,
 and 0 permille renderer full-upload pressure. The clipboard variant failed an
 ad hoc live check with 146 ms client-processing p95, so keep clipboard separate
 from the next Tight app candidate.
+The sustained depth artifact is
+`2026-06-07-tight-first-cursor-depth-sweep-summary.md`; it runs fixed
+`tight-first-cursor` at request pipeline depths 1, 2, and 3 for 12 samples /
+10 seconds each. Depth 1 remains the product candidate with 11/12 content
+samples, 9.01 content FPS, 78 ms average update, and 2 ms client-processing
+p95. Depth 2 still warns and has lower content cadence; depth 3 fails from
+128 ms client-processing p95. Keep product request pipeline depth at 1.

@@ -5727,3 +5727,55 @@ timing values. They must not emit host identity, credentials, ports, executable
 paths, command lines, raw stdout/stderr, raw TCP/RFB errors, request
 coordinates, dimensions, pixels, byte counts, stimulus command text, draft
 text, marked text, or IME state.
+
+### D126 Keep Tight-First Cursor Request Pipeline Depth At 1
+
+References:
+- `artifacts/benchmarks/2026-06-07-tight-first-cursor-depth-sweep-summary.md`
+
+**Decision**: add a launchctl-backed
+`bounded-vnc-tight-cursor-depth-sweep` runner for longer sustained
+`tight-first-cursor` depth 1/2/3 comparisons. Keep product request/response
+pipeline depth at 1. Do not promote depth 2 or 3 from the current evidence.
+
+**Why**:
+- D125 made `tight-first-cursor` the best trackpad-friendly candidate, but its
+  longer sustained runs still warn on p95 update tail.
+- Pipeline depth is a tempting product change because it can overlap outgoing
+  incremental update requests, but the long live sweep shows it does not reduce
+  the p95 tail enough and can introduce client-processing pressure.
+- Keeping this as a repeatable bounded runner makes future server/transport
+  changes comparable without committing the app to a weaker stream loop.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- Help text exposes `bounded-vnc-tight-cursor-depth-sweep`.
+- Managed `--stream-shape-request-pipeline-depth` and
+  `--stream-shape-profiles` overrides are rejected.
+- The launchctl-backed live runner completed depth 1, 2, and 3 with fixed
+  `tight-first-cursor`, 12 stream-shape samples, and 10 seconds per depth.
+- Depth 1: warning, receive-path p95 update warning, 11/12 content samples,
+  9.01 content FPS, 78 ms average update, 482 ms max p95 update, 2 ms max
+  client-processing p95, 0 permille renderer full-upload pressure.
+- Depth 2: warning, receive-path p95 update warning, 10/12 content samples,
+  6.82 content FPS, 96 ms average update, 474 ms max p95 update, 2 ms max
+  client-processing p95, 0 permille renderer full-upload pressure.
+- Depth 3: fail, client-processing failed, 10/12 content samples, 6.29 content
+  FPS, 106 ms average update, 489 ms max p95 update, 128 ms max
+  client-processing p95, 0 permille renderer full-upload pressure.
+
+**Interpretation**:
+- `tight-first-cursor` remains the current product opt-in candidate, but with
+  request pipeline depth 1.
+- The sustained p95 tail is dominated by server/network first-byte wait, not
+  client decode or renderer upload.
+- The next product-facing unit can add `tight-first-cursor` as an app opt-in,
+  while keeping request pipeline depth unchanged and labeling it as
+  benchmark-backed but not default-promoted.
+
+**Privacy rule**: the runner and artifact may report only fixed mode/profile
+labels, fixed verdict/issue labels, depth integers, aggregate counts, permille
+ratios, and aggregate timing values. They must not emit host identity,
+credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, request coordinates, dimensions, pixels, byte counts, stimulus
+command text, draft text, marked text, or IME state.

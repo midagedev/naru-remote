@@ -1325,6 +1325,19 @@ iPhone) and ships as its own PR.
   coordinates, dimensions, pixels, byte counts, stimulus command text, draft
   text, marked text, or IME state. Owns: benchmark profile catalog, launchctl
   runner, README, research note, benchmark artifact. **Done.**
+- **T457** Tight-first cursor request pipeline depth sweep: add a
+  launchctl-backed bounded runner that builds `VNCLiveBenchmark` once and runs
+  fixed `tight-first-cursor` at request pipeline depths 1, 2, and 3 with a
+  longer 12-sample / 10-second sustained shape. Record the live result showing
+  depth 1 remains the best product candidate, depth 2 does not improve the p95
+  tail or content cadence enough, and depth 3 fails from client-processing
+  pressure. Keep production request pipeline depth at 1. Emit only fixed
+  mode/profile labels, fixed verdict/issue labels, depth integers, aggregate
+  counts, permille ratios, and aggregate timings; do not print/export host
+  identity, credentials, ports, executable paths, command lines, raw
+  stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+  counts, stimulus command text, draft text, marked text, or IME state. Owns:
+  launchctl runner, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
