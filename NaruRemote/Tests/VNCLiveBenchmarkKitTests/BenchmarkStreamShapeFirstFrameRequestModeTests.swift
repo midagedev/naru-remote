@@ -9,9 +9,10 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
             "match-request-region"
         )
         XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.rawValue, "visible-core")
+        XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleFocus.rawValue, "visible-focus")
         XCTAssertEqual(
             BenchmarkStreamShapeFirstFrameRequestMode.usageDescription,
-            "full|match-request-region|visible-core"
+            "full|match-request-region|visible-core|visible-focus"
         )
     }
 
@@ -71,6 +72,11 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
             framebufferWidth: 1920,
             framebufferHeight: 1080
         )
+        let focusArea = BenchmarkStreamShapeFirstFrameRequestMode.visibleFocus.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080
+        )
 
         XCTAssertEqual(
             BenchmarkStreamShapeFirstFrameRequestMode.full.requestAreaPermille(
@@ -86,5 +92,29 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
         )
         XCTAssertGreaterThan(coreArea, 0)
         XCTAssertLessThan(coreArea, matchedArea)
+        XCTAssertGreaterThan(focusArea, 0)
+        XCTAssertLessThan(focusArea, coreArea)
+    }
+
+    func testVisibleFocusInitialRequestUsesSmallerCentralFocusArea() throws {
+        let coreRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+        let focusRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleFocus.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+
+        XCTAssertGreaterThan(focusRegion.x, coreRegion.x)
+        XCTAssertGreaterThan(focusRegion.y, coreRegion.y)
+        XCTAssertLessThan(focusRegion.width, coreRegion.width)
+        XCTAssertLessThan(focusRegion.height, coreRegion.height)
     }
 }

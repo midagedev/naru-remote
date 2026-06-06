@@ -4538,3 +4538,70 @@ defaults unchanged.
   supported, or staged visible-area bootstrap. Steady-state smoothness needs a
   separate update-wait/cadence track because content samples are high-hit but
   p95-warning and first-byte-wait dominated.
+
+### D103 First-Visible-Focus Startup Payload Gate
+
+References:
+- RFC 6143 FramebufferUpdateRequest interest rectangle:
+  https://www.rfc-editor.org/rfc/rfc6143#section-7.5.3
+- TigerVNC slow-link color and encoding controls:
+  https://tigervnc.org/doc/vncviewer.html
+- D102 first-frame receive timing diagnosis.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v60 and add a
+benchmark-only `streamShapeFirstFrameRequestMode` label `visible-focus`. Add
+`sustained-v2-constrained-cellular-visible-focus-startup` as the poor-network
+probe for this mode. `visible-focus` requests a smaller fixed central focus
+area for the first non-incremental frame only, while measured sustained
+incremental requests continue to use `viewport-phone-portrait` with the normal
+margin, timeout fallback, and traffic gate.
+
+**Why**:
+- D102 showed that the successful RGB565 visible-core first frame is not
+  blocked mainly by first-byte wait; roughly 95% of its first-frame network
+  read time is payload read, and the total remains just above the poor-network
+  startup gate.
+- RFC 6143 defines `FramebufferUpdateRequest` as an interest rectangle and
+  allows a non-incremental request for the complete contents of that area. A
+  smaller fixed startup rectangle is therefore a protocol-compatible way to
+  test first-useful-paint latency before changing app defaults.
+- TigerVNC exposes slow-link controls for color level, preferred encoding,
+  compression, and quality. That reinforces the product rule here: traffic,
+  fidelity, and CPU trade-offs must be measured per server/link rather than
+  promoted from intuition.
+
+**Implementation rule**:
+- `visible-focus` is benchmark-only. App startup remains full-frame until this
+  candidate, or a later staged-startup candidate, passes the poor-network
+  benchmark gate and the physical iPhone gate.
+- Reports emit only fixed labels, framebuffer-relative first-frame request-area
+  permille, existing aggregate timing summaries, and fixed gate issue codes.
+  They must not emit host identity, credentials, port values, framebuffer
+  dimensions, coordinates, pixels, cursor pixels, byte counts, raw payloads, raw
+  TCP/RFB errors, command text, command output, draft text, marked text, IME
+  state, or full diagnostic payloads.
+
+**Evidence**:
+- Focused tests cover fixed `visible-focus` labels, its smaller first-frame
+  request area relative to `visible-core`, the new gate preset label, legacy
+  summary behavior, and stable help/schema output.
+- A schema v60 constrained-cellular visible-focus live run reported
+  `firstFrameRequestAreaPermille` 192 and `requestRegionAreaPermille` 364.
+- Full-color candidates still failed with `stream-first-frame-read-timeout`.
+- RGB565 candidates reached samples with first-frame times around 16.3-16.4 s.
+  Their first-frame receive path was still payload-read dominated, about
+  939 permille payload read and 61 permille first-byte wait inside first-frame
+  network read time.
+- Sustained samples stayed first-byte-wait dominated. The two usable RGB565
+  profiles reported about 2.0-2.2 content FPS, average update latency around
+  457-491 ms, and max p95 update around 623-625 ms.
+
+**Interpretation**:
+- `visible-focus` moves successful RGB565 startup below the 20 s fail band, so
+  first-frame startup is confirmed as a traffic/payload-pressure lane.
+- It is not enough by itself to promote a production partial-first-frame
+  default because full-color candidates still time out and the steady stream
+  remains p95-warning / low-FPS / first-byte-wait dominated.
+- The next large units should split cleanly: staged first-useful-paint for
+  startup traffic, and request/update wait inspection for sustained traffic and
+  cadence.
