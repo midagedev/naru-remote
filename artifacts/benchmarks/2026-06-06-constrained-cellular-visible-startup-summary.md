@@ -29,6 +29,7 @@ the complete contents of the specified area.
 
 ```sh
 swift test --filter RFBFramePumpTests
+swift test --filter FakeRFBServerEncodingTests
 swift test --filter BenchmarkStreamShapeFirstFrameRequestModeTests
 swift test --filter BenchmarkStreamShapeGatePresetTests
 swift test
