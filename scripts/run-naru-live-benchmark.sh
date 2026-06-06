@@ -19,6 +19,7 @@ Modes:
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
   bounded-vnc-candidate-stability Repeat bounded warning-candidate VNC sweep.
   bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
+  bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -332,6 +333,20 @@ json_bounded_tight_cursor_stability_failure() {
   printf '}\n'
 }
 
+json_bounded_tight_cursor_depth_sweep_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-tight-cursor-depth-sweep","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
 benchmark_progress_subphase_label() {
   local progress_file="$1"
   local label=""
@@ -472,6 +487,56 @@ json_bounded_drilldown_profile_result() {
       "$phase_file" \
       "$profile_label" \
       "$profile_ordinal" \
+      "$progress_file"
+  fi
+  rm -f "$output_file"
+}
+
+json_bounded_tight_cursor_depth_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local depth="$3"
+  local progress_file="${4:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-tight-cursor-depth","profileLabel":"tight-first-cursor","depth":%d,"status":"failed","safeFailureCode":' "$depth"
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}'
+}
+
+json_bounded_tight_cursor_depth_result() {
+  local phase_file="$1"
+  local progress_file="$2"
+  local depth="$3"
+  local wall_timeout_seconds="$4"
+  shift 4
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-depth-output.XXXXXX")"
+  : >"$progress_file"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    printf '{"schemaVersion":1,"mode":"bounded-vnc-tight-cursor-depth","profileLabel":"tight-first-cursor","depth":%d,"status":"passed","report":' "$depth"
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_bounded_tight_cursor_depth_failure \
+      benchmarkStep.boundedVNCTightCursorDepthSweep.timedOut \
+      "$phase_file" \
+      "$depth" \
+      "$progress_file"
+  else
+    json_bounded_tight_cursor_depth_failure \
+      benchmarkStep.boundedVNCTightCursorDepthSweep.failed \
+      "$phase_file" \
+      "$depth" \
       "$progress_file"
   fi
   rm -f "$output_file"
@@ -771,6 +836,90 @@ run_bounded_vnc_tight_cursor_stability() {
     "$phase_file" \
     "$progress_file" \
     "$BOUNDED_BENCHMARK_EXECUTABLE" "${stability_args[@]}"
+  rm -f "$phase_file" "$progress_file"
+}
+
+run_bounded_vnc_tight_cursor_depth_sweep() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-depth-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-depth-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_bounded_tight_cursor_depth_sweep_failure \
+        benchmarkStep.boundedVNCTightCursorDepthSweep.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_bounded_tight_cursor_depth_sweep_failure \
+        benchmarkStep.boundedVNCTightCursorDepthSweep.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_bounded_tight_cursor_depth_sweep_failure \
+      benchmarkStep.boundedVNCTightCursorDepthSweep.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local first_depth=1
+  local depth
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-tight-cursor-depth-sweep","status":"completed","profileLabel":"tight-first-cursor","depths":[\n'
+  for depth in 1 2 3; do
+    if ((first_depth)); then
+      first_depth=0
+    else
+      printf ',\n'
+    fi
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    local depth_args=(
+      --attempts 1
+      --stream-shape-frame-interval 0.0166666667
+      --stream-shape-idle-frame-interval 0.05
+      --stream-shape-empty-backoff app
+      --stream-shape-power-mode normal
+      --stream-shape-client-pressure app
+      --stream-shape-viewport-interaction off
+      --stream-shape-stimulus external-command
+      --stream-shape-stimulus-warmup-seconds 0.25
+      --stream-shape-stimulus-frame-interval 0.0833333333
+      --stream-shape-preflight-frames 0
+      --stream-shape-practical-target iphone-sustained-usability-v2
+      --stream-shape-transport request-response
+      --stream-shape-request-pipeline-depth "$depth"
+      --stream-shape-profiles tight-first-cursor
+      --stream-shape-profile-order fixed
+      --stream-shape-profile-iterations 1
+      --first-frame-profiles none
+      --full-refresh-samples 0
+      --continuous-update-samples 0
+      --stream-shape-samples 12
+      --stream-shape-duration-seconds 10
+      --timeout 16
+      --idle-timeout 2
+      --safe-progress-label-file "$progress_file"
+      --json
+    )
+    if ((extra_arg_count)); then
+      depth_args+=("${extra_args[@]}")
+    fi
+    json_bounded_tight_cursor_depth_result \
+      "$phase_file" \
+      "$progress_file" \
+      "$depth" \
+      30 \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${depth_args[@]}"
+  done
+  printf '\n]}\n'
   rm -f "$phase_file" "$progress_file"
 }
 
@@ -1274,6 +1423,12 @@ case "$mode" in
     reject_bounded_vnc_profile_flags
     cd "$repo_root"
     run_bounded_vnc_tight_cursor_stability
+    ;;
+  bounded-vnc-tight-cursor-depth-sweep)
+    import_live_env
+    reject_bounded_vnc_profile_flags
+    cd "$repo_root"
+    run_bounded_vnc_tight_cursor_depth_sweep
     ;;
   physical-device-preflight)
     physical_preflight
