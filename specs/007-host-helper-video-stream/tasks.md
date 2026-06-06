@@ -132,11 +132,12 @@ without unsafe report fields.
   to `contracts/helper-video-stream.md`. **Done.**
 - [x] T028 [US1] Add iOS decode/display prototype using platform video APIs.
   **Done.**
-- [x] T029 [US2] Run the constrained-cellular helper-video live benchmark using
-  environment-sourced live credentials only. **Done for the current benchmark
-  shape; helper video still reports as benchmark-only disabled until a live
-  access-unit stream lands.**
+- [x] T029 [US2] Record the current constrained-cellular visual-transport
+  comparison using environment-sourced live credentials only. **Evidence
+  recorded; helper video still reports as benchmark-only disabled.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
+- [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
+  helper sender/listener is connected to the iOS decode path.
 
 ---
 
