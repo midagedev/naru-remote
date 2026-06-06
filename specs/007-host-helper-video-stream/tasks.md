@@ -188,6 +188,10 @@ without unsafe report fields.
   `NaruHelper`, installs a stable `NaruHelperDev.app`, optionally sets
   `NARU_HELPER_EXECUTABLE` through `launchctl`, and preserves fixed-label
   helper diagnostics for live ScreenCaptureKit setup. **Done.**
+- [x] T029O1 [US2] Prefer a single local Apple Development signing identity
+  for `NaruHelperDev.app` installation so Screen Recording permission targets
+  remain more stable across local rebuilds, while reporting only fixed signing
+  labels. **Done.**
 - [x] T029P [US2] Extend `VNCLiveBenchmark --environment-preflight` schema `5`
   to query the selected external helper's `--video-capability` fixed labels
   before ScreenCaptureKit benchmark runs, mapping helper permission identity to

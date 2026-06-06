@@ -538,9 +538,10 @@ unknown context. The paired `grantHint` remains a fixed action label such as
 ## D18 - Use a stable development helper app wrapper for live ScreenCaptureKit setup
 
 **Decision**: Add `scripts/install-naru-helper-dev-app.sh` to build
-`NaruHelper`, wrap it in a locally installed `NaruHelperDev.app`, ad-hoc sign
-that app, and optionally set `NARU_HELPER_EXECUTABLE` through `launchctl` for
-future live benchmark shells.
+`NaruHelper`, wrap it in a locally installed `NaruHelperDev.app`, sign that app
+with exactly one local Apple Development identity when available, fall back to
+ad-hoc signing otherwise, and optionally set `NARU_HELPER_EXECUTABLE` through
+`launchctl` for future live benchmark shells.
 
 **Rationale**:
 - Screen Recording approval should be tied to the helper process that will
@@ -549,6 +550,10 @@ future live benchmark shells.
 - A small dev app wrapper gives local benchmarking an app-bundle identity
   (`appBundle` / `grantAppBundle`) before the production helper packaging work
   is ready.
+- Apple Developer Forums reports that Screen Recording permission can appear to
+  reset across development builds when ad-hoc signing changes the app identity;
+  using an Apple Development signing identity when it is unambiguous should make
+  the development helper a more stable permission target.
 - The wrapper is explicitly development-only. It does not change the product
   helper distribution, launchd lifecycle, revocation model, or user-facing
   install UX.
@@ -559,10 +564,17 @@ future live benchmark shells.
   https://developer.apple.com/documentation/screencapturekit
 - Apple Code Signing Guide:
   https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/
+- Apple Developer Forums - ScreenCaptureKit permissions lost after every build:
+  https://developer.apple.com/forums/thread/819406
 
 **Alternatives considered**:
 - Continue granting `.build/debug/NaruHelper`: rejected because it keeps live
   benchmark permission state coupled to transient build output.
+- Always use ad-hoc signing: rejected because it can make the development
+  helper a less stable Screen Recording permission target across rebuilds.
+- Always use the first Apple Development identity: rejected because multiple
+  teams would be ambiguous and could sign with the wrong account. Use an
+  explicit identity in that case.
 - Jump directly to production helper packaging: deferred because the current
   blocker is live benchmark enablement, while the production helper still needs
   a broader install/update/revocation design.

@@ -65,6 +65,11 @@ benchmark shells at it:
 scripts/install-naru-helper-dev-app.sh --set-launchctl-env --request-permission
 ```
 
+By default, the installer uses exactly one local Apple Development signing
+identity when available and otherwise falls back to ad-hoc signing. It reports
+only a fixed signing label such as `appleDevelopment`, `adHoc`, or `explicit`;
+set `NARU_HELPER_DEV_CODESIGN_IDENTITY` or pass `--signing-identity` when a
+specific local identity is needed.
 After this, helper diagnostics should report `processKind=appBundle` and
 `grantHint=grantAppBundle`. If Screen Recording is still `missing`, grant
 Screen Recording to `NaruHelperDev` in macOS System Settings, relaunch the
