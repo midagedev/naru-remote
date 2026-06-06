@@ -11,6 +11,9 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     func flush()
 }
 
+// @unchecked Sendable justified: the wrapped renderer remains main-actor
+// isolated for every operation. The non-MainActor runner may hold and pass this
+// box across tasks, but the box exposes no nonisolated access to the renderer.
 private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
     private let renderer: any HelperVideoAccessUnitRendering
 
@@ -57,6 +60,10 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
     }
 }
 
+// @unchecked Sendable justified: the runner stores immutable configuration
+// (`startStream`, `maxServerFrames`) plus `HelperVideoMainActorRendererBox`.
+// Network start/result handling may run off MainActor, while all renderer and
+// app-model mutation still happens through explicit actor hops.
 public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
     public typealias StartStream = @Sendable (
         HelperVideoStartStreamRequestBody,

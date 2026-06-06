@@ -138,10 +138,9 @@ final class PiPLayerHostAttachmentTests: XCTestCase {
         model.startPiPWatch(at: Date(timeIntervalSince1970: 100))
         try await Task.sleep(for: .milliseconds(120))
 
-        // The controller observes both frames after the model has
-        // already enqueued them into the layer host — the model writes
-        // every streamed frame into its `pipLayerHost` first and then
-        // notifies the attached controller.
+        // The controller observes the initial frame at PiP start and
+        // subsequent streamed frames while PiP is active. Foreground-only
+        // VNC frames stay on the Metal path and do not feed this controller.
         XCTAssertEqual(pipController.enqueuedFramebuffers, [firstFramebuffer, secondFramebuffer])
         XCTAssertEqual(pipController.attachedLayerHosts.count, 1)
         XCTAssertTrue(pipController.attachedLayerHosts.first === model.pipLayerHost)
