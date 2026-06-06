@@ -5216,3 +5216,38 @@ inspection before promoting scales below 0.45.
 - The next product behavior PR should use live iPhone screenshots or direct
   device inspection to decide whether 0.25, 0.35, or the current 0.45 default
   is the right first-useful-paint scale.
+
+### D115 Opt-In Startup Glance Scale Setting
+
+References:
+- `artifacts/benchmarks/2026-06-06-startup-glance-scale-setting-summary.md`.
+
+**Decision**: keep the product startup glance default at 0.45, but add an
+inactive-session app setting that cycles low-traffic RGB565 first-frame scale
+through 0.45, 0.35, and 0.25. Persist the selection as a non-secret
+`startupGlanceScaleMode` enum and include the safe raw label in diagnostic
+schema v30.
+
+**Why**:
+- D114 requires real iPhone visual inspection before promoting 0.25, but
+  rebuilding the app for each scale slows physical-device comparison.
+- The setting only appears for low-traffic RGB565 stream candidates where the
+  first-frame visible-glance request is active, keeping standard sessions
+  uncluttered and unchanged.
+- The diagnostic label lets collected logs explain which visual-risk candidate
+  was tested without exporting pixels, dimensions, coordinates, byte counts, or
+  live text.
+
+**Evidence**:
+- App settings tests keep `{}` as the default persisted JSON and cover
+  0.45/0.35/0.25 decode, encode, and toggle behavior.
+- App-model tests verify the persisted setting loads, toggles are saved, and
+  `glance-025` changes a 1,000 by 1,000 low-traffic initial request from the
+  0.45 shape to a 125 by 125 centered synthetic test region.
+- Diagnostic tests bump collection schema to v30 and prove unsafe
+  `viewerStartupGlanceScaleMode` values are clamped to nil.
+
+**Interpretation**:
+- This is a device-test enablement step, not a default promotion. It lets the
+  next iPhone run compare hand-visible first-useful-paint quality against the
+  v65 traffic result.

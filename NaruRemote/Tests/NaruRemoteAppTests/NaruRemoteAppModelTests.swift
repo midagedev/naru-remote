@@ -588,6 +588,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.settingsPersistenceError)
     }
 
+    func testModelLoadsStoredStartupGlanceScaleMode() async throws {
+        let persistence = InMemoryAppSettingsPersistence(
+            settings: AppSettings(startupGlanceScaleMode: .glance025)
+        )
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        await model.loadStoredSettings()
+
+        XCTAssertEqual(model.appSettings.startupGlanceScaleMode, .glance025)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
     func testModelPersistsStreamPowerModeToggle() async throws {
         let persistence = InMemoryAppSettingsPersistence()
         let model = NaruRemoteAppModel(settingsPersistence: persistence)
@@ -691,6 +703,61 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.appSettings.streamEncodingMode, .standard)
         XCTAssertEqual(savedStandardSettings.streamEncodingMode, .standard)
         XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testModelPersistsStartupGlanceScaleModeToggle() async throws {
+        let persistence = InMemoryAppSettingsPersistence()
+        let model = NaruRemoteAppModel(settingsPersistence: persistence)
+
+        model.toggleStartupGlanceScaleMode()
+
+        let savedMinimalSettings = try await waitForPersistedStartupGlanceScaleMode(
+            .minimal035,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.startupGlanceScaleMode, .minimal035)
+        XCTAssertEqual(savedMinimalSettings.startupGlanceScaleMode, .minimal035)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStartupGlanceScaleMode()
+
+        let savedGlanceSettings = try await waitForPersistedStartupGlanceScaleMode(
+            .glance025,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.startupGlanceScaleMode, .glance025)
+        XCTAssertEqual(savedGlanceSettings.startupGlanceScaleMode, .glance025)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStartupGlanceScaleMode()
+
+        let savedStandardSettings = try await waitForPersistedStartupGlanceScaleMode(
+            .standard045,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.startupGlanceScaleMode, .standard045)
+        XCTAssertEqual(savedStandardSettings.startupGlanceScaleMode, .standard045)
+        XCTAssertNil(model.settingsPersistenceError)
+    }
+
+    func testStartupGlanceScaleControlAvailabilityMatchesInitialRegionPolicy() {
+        let model = NaruRemoteAppModel(lowPowerModeProvider: { false })
+
+        XCTAssertFalse(model.canUseStartupGlanceScaleMode)
+
+        model.setStreamEncodingMode(.localLowLatencyRGB565)
+        XCTAssertTrue(model.canUseStartupGlanceScaleMode)
+
+        model.setStreamPowerMode(.powerSaver)
+        XCTAssertFalse(model.canUseStartupGlanceScaleMode)
+    }
+
+    func testStartupGlanceScaleControlHidesDuringSystemLowPowerMode() {
+        let model = NaruRemoteAppModel(lowPowerModeProvider: { true })
+
+        model.setStreamEncodingMode(.localLowLatencyRGB565)
+
+        XCTAssertFalse(model.canUseStartupGlanceScaleMode)
     }
 
     func testStoredSettingsLoadDoesNotClobberUserStreamPowerToggle() async throws {
@@ -1617,6 +1684,47 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connector.frameUpdateRegions,
             [
                 RFBFramebufferUpdateRegion(x: 387, y: 387, width: 225, height: 225)
+            ]
+        )
+    }
+
+    func testStartupGlanceScaleModeChangesLowTrafficInitialStreamRegion() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.localLowLatencyRGB565)
+        model.setStartupGlanceScaleMode(.glance025)
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(
+            connector.frameUpdateRegions,
+            [
+                RFBFramebufferUpdateRegion(x: 437, y: 437, width: 125, height: 125)
             ]
         )
     }
@@ -3725,6 +3833,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             lowPowerModeProvider: { false }
         )
         model.setStartupPreflightMode(.oneHiddenFrame)
+        model.setStartupGlanceScaleMode(.glance025)
 
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(100))
@@ -3741,6 +3850,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.oneHiddenFrame.rawValue)
+        XCTAssertEqual(report.viewerStartupGlanceScaleMode, StreamStartupGlanceScaleMode.glance025.rawValue)
         XCTAssertEqual(report.streamPerformance?.startupPreflightRequestedHiddenFrameCount, 1)
         XCTAssertEqual(report.streamPerformance?.startupPreflightConsumedHiddenFrameCount, 1)
         XCTAssertEqual(report.streamPerformance?.startupPreflightOutcome, DiagnosticStartupPreflightOutcome.consumed.rawValue)
@@ -3999,7 +4109,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 29)
+        XCTAssertEqual(report.schemaVersion, 30)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.standard.rawValue)
@@ -4074,7 +4184,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let performance = try XCTUnwrap(report.streamPerformance)
         let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
-        XCTAssertEqual(report.schemaVersion, 29)
+        XCTAssertEqual(report.schemaVersion, 30)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.zrleCompressionZero.rawValue)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
@@ -4345,6 +4455,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let settings = try await persistence.load()
         XCTAssertEqual(settings.streamEncodingMode, expected, file: file, line: line)
+        return settings
+    }
+
+    private func waitForPersistedStartupGlanceScaleMode(
+        _ expected: StreamStartupGlanceScaleMode,
+        in persistence: InMemoryAppSettingsPersistence,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> AppSettings {
+        for _ in 0..<20 {
+            let settings = try await persistence.load()
+            if settings.startupGlanceScaleMode == expected {
+                return settings
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let settings = try await persistence.load()
+        XCTAssertEqual(settings.startupGlanceScaleMode, expected, file: file, line: line)
         return settings
     }
 

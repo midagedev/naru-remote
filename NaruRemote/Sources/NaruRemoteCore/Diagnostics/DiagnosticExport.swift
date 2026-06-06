@@ -12,6 +12,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let viewerStreamPowerMode: StreamPowerMode?
     public let viewerStreamEncodingMode: StreamEncodingMode?
     public let viewerStartupPreflightMode: StreamStartupPreflightMode?
+    public let viewerStartupGlanceScaleMode: StreamStartupGlanceScaleMode?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
     /// Stage rows captured from the underlying
@@ -30,6 +31,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         viewerStreamPowerMode: StreamPowerMode? = nil,
         viewerStreamEncodingMode: StreamEncodingMode? = nil,
         viewerStartupPreflightMode: StreamStartupPreflightMode? = nil,
+        viewerStartupGlanceScaleMode: StreamStartupGlanceScaleMode? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
@@ -43,6 +45,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.viewerStreamPowerMode = viewerStreamPowerMode
         self.viewerStreamEncodingMode = viewerStreamEncodingMode
         self.viewerStartupPreflightMode = viewerStartupPreflightMode
+        self.viewerStartupGlanceScaleMode = viewerStartupGlanceScaleMode
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
 
@@ -143,6 +146,7 @@ public struct DiagnosticExport: Equatable, Sendable {
             viewerStreamPowerMode: viewerStreamPowerMode?.rawValue,
             viewerStreamEncodingMode: viewerStreamEncodingMode?.rawValue,
             viewerStartupPreflightMode: viewerStartupPreflightMode?.rawValue,
+            viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode?.rawValue,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
         )
@@ -1913,7 +1917,7 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 29
+    public static let currentSchemaVersion = 30
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -1936,6 +1940,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case viewerStreamPowerMode
         case viewerStreamEncodingMode
         case viewerStartupPreflightMode
+        case viewerStartupGlanceScaleMode
         case input
         case sustainedSessionAssessment
     }
@@ -1960,6 +1965,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let viewerStreamPowerMode: String?
     public let viewerStreamEncodingMode: String?
     public let viewerStartupPreflightMode: String?
+    public let viewerStartupGlanceScaleMode: String?
     public let input: DiagnosticInputReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
 
@@ -1984,6 +1990,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         viewerStreamPowerMode: String? = nil,
         viewerStreamEncodingMode: String? = nil,
         viewerStartupPreflightMode: String? = nil,
+        viewerStartupGlanceScaleMode: String? = nil,
         input: DiagnosticInputReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
@@ -2007,6 +2014,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.viewerStreamPowerMode = Self.safeViewerStreamPowerMode(viewerStreamPowerMode)
         self.viewerStreamEncodingMode = Self.safeViewerStreamEncodingMode(viewerStreamEncodingMode)
         self.viewerStartupPreflightMode = Self.safeViewerStartupPreflightMode(viewerStartupPreflightMode)
+        self.viewerStartupGlanceScaleMode = Self.safeViewerStartupGlanceScaleMode(viewerStartupGlanceScaleMode)
         self.input = input
         self.sustainedSessionAssessment = sustainedSessionAssessment
     }
@@ -2043,6 +2051,10 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .viewerStartupPreflightMode
             ),
+            viewerStartupGlanceScaleMode: try container.decodeIfPresent(
+                String.self,
+                forKey: .viewerStartupGlanceScaleMode
+            ),
             input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input),
             sustainedSessionAssessment: try container.decodeIfPresent(
                 DiagnosticSustainedSessionAssessment.self,
@@ -2072,6 +2084,14 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
             return nil
         }
         let allowedValues = Set(StreamStartupPreflightMode.allCases.map(\.rawValue))
+        return allowedValues.contains(value) ? value : nil
+    }
+
+    private static func safeViewerStartupGlanceScaleMode(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let allowedValues = Set(StreamStartupGlanceScaleMode.allCases.map(\.rawValue))
         return allowedValues.contains(value) ? value : nil
     }
 }

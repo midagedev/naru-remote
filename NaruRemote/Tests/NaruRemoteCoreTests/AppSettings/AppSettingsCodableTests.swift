@@ -87,6 +87,28 @@ final class AppSettingsCodableTests: XCTestCase {
         }
     }
 
+    func testStartupGlanceScaleModeDecodesPersistedLabels() throws {
+        let cases: [(rawValue: String, mode: StreamStartupGlanceScaleMode, scale: Double)] = [
+            (StreamStartupGlanceScaleMode.standard045.rawValue, .standard045, 0.45),
+            (StreamStartupGlanceScaleMode.minimal035.rawValue, .minimal035, 0.35),
+            (StreamStartupGlanceScaleMode.glance025.rawValue, .glance025, 0.25)
+        ]
+
+        for testCase in cases {
+            let json = """
+            {
+              "startupGlanceScaleMode": "\(testCase.rawValue)"
+            }
+            """
+            let data = try XCTUnwrap(json.data(using: .utf8))
+
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+            XCTAssertEqual(decoded.startupGlanceScaleMode, testCase.mode)
+            XCTAssertEqual(decoded.startupGlanceScaleMode.scale, testCase.scale, accuracy: 0.0001)
+        }
+    }
+
     func testEncodingProducesEmptyJSONObject() throws {
         let data = try JSONEncoder().encode(AppSettings())
         let json = String(decoding: data, as: UTF8.self)
@@ -135,6 +157,23 @@ final class AppSettingsCodableTests: XCTestCase {
         }
     }
 
+    func testEncodingNonDefaultStartupGlanceScaleModes() throws {
+        let modes: [StreamStartupGlanceScaleMode] = [
+            .minimal035,
+            .glance025
+        ]
+
+        for mode in modes {
+            let data = try JSONEncoder().encode(AppSettings(startupGlanceScaleMode: mode))
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+            let json = String(decoding: data, as: UTF8.self)
+
+            XCTAssertEqual(decoded.startupGlanceScaleMode, mode)
+            XCTAssertTrue(json.contains("\"startupGlanceScaleMode\""))
+            XCTAssertTrue(json.contains("\"\(mode.rawValue)\""))
+        }
+    }
+
     func testStartupPreflightModeTogglesBetweenExperimentAndDisabled() {
         XCTAssertEqual(StreamStartupPreflightMode.disabled.toggled, .oneHiddenFrame)
         XCTAssertEqual(StreamStartupPreflightMode.oneHiddenFrame.toggled, .disabled)
@@ -147,5 +186,11 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .zrleCompressionZeroRGB565)
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZeroRGB565.toggled, .adaptiveGoodFull)
         XCTAssertEqual(StreamEncodingMode.adaptiveGoodFull.toggled, .standard)
+    }
+
+    func testStartupGlanceScaleModeTogglesThroughBenchmarkCandidates() {
+        XCTAssertEqual(StreamStartupGlanceScaleMode.standard045.toggled, .minimal035)
+        XCTAssertEqual(StreamStartupGlanceScaleMode.minimal035.toggled, .glance025)
+        XCTAssertEqual(StreamStartupGlanceScaleMode.glance025.toggled, .standard045)
     }
 }

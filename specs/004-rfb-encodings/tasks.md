@@ -1201,6 +1201,17 @@ iPhone) and ships as its own PR.
   coordinates, byte counts, payloads, host identity, command text, draft text,
   marked text, or IME state. Owns: benchmark report schema/help/text output,
   benchmark-kit tests, README, research note, live benchmark artifact. **Done.**
+- **T446** Opt-in app startup glance scale setting: after D115 kept 0.25 as a
+  visual-risk candidate, add a persisted non-secret setting that cycles
+  low-traffic RGB565 startup glance scale through 0.45, 0.35, and 0.25 before
+  connection. Apply it only to the first non-incremental viewport-aware
+  low-traffic request, keep product default at 0.45, expose the toggle only
+  while inactive and relevant, and include only the fixed enum label in
+  diagnostic schema v30. Avoid logging/exporting live pixels, dimensions,
+  coordinates, byte counts, payloads, host identity, command text, draft text,
+  marked text, or IME state. Owns: app settings, app model stream region
+  policy, session control, diagnostic schema/tests, README, research note.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

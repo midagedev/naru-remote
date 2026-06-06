@@ -90,6 +90,9 @@ public struct SessionViewportView: View {
     private let onToggleStreamEncodingMode: (() -> Void)?
     private let startupPreflightMode: StreamStartupPreflightMode
     private let onToggleStartupPreflightMode: (() -> Void)?
+    private let startupGlanceScaleMode: StreamStartupGlanceScaleMode
+    private let onToggleStartupGlanceScaleMode: (() -> Void)?
+    private let canUseStartupGlanceScaleMode: Bool
     /// Latency-derived connection quality, shown as a compact chip while
     /// the session is streaming (spec 003 US4).  Constitution §IV: this
     /// is a coarse bucket only — no raw latency value is displayed or
@@ -204,6 +207,9 @@ public struct SessionViewportView: View {
         onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         onToggleStartupPreflightMode: (() -> Void)? = nil,
+        startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
+        onToggleStartupGlanceScaleMode: (() -> Void)? = nil,
+        canUseStartupGlanceScaleMode: Bool = false,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -243,6 +249,9 @@ public struct SessionViewportView: View {
         self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
+        self.startupGlanceScaleMode = startupGlanceScaleMode
+        self.onToggleStartupGlanceScaleMode = onToggleStartupGlanceScaleMode
+        self.canUseStartupGlanceScaleMode = canUseStartupGlanceScaleMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -286,6 +295,9 @@ public struct SessionViewportView: View {
         onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         onToggleStartupPreflightMode: (() -> Void)? = nil,
+        startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
+        onToggleStartupGlanceScaleMode: (() -> Void)? = nil,
+        canUseStartupGlanceScaleMode: Bool = false,
         connectionQuality: ConnectionQuality = .unknown,
         fillsAvailableHeight: Bool = false
     ) {
@@ -324,6 +336,9 @@ public struct SessionViewportView: View {
         self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.onToggleStartupPreflightMode = onToggleStartupPreflightMode
+        self.startupGlanceScaleMode = startupGlanceScaleMode
+        self.onToggleStartupGlanceScaleMode = onToggleStartupGlanceScaleMode
+        self.canUseStartupGlanceScaleMode = canUseStartupGlanceScaleMode
         self.connectionQuality = connectionQuality
         self.fillsAvailableHeight = fillsAvailableHeight
     }
@@ -530,6 +545,9 @@ public struct SessionViewportView: View {
             if showsStartupPreflightModeButton {
                 startupPreflightModeButton
             }
+            if showsStartupGlanceScaleModeButton {
+                startupGlanceScaleModeButton
+            }
             pointerModeButton
             pipWatchButton(iconOnly: true)
         }
@@ -594,6 +612,9 @@ public struct SessionViewportView: View {
                 if showsStartupPreflightModeButton {
                     startupPreflightModeButton
                 }
+                if showsStartupGlanceScaleModeButton {
+                    startupGlanceScaleModeButton
+                }
                 pointerModeButton
                 pipWatchButton(iconOnly: false)
                 qualityChip
@@ -627,6 +648,9 @@ public struct SessionViewportView: View {
                 }
                 if showsStartupPreflightModeButton {
                     startupPreflightModeButton
+                }
+                if showsStartupGlanceScaleModeButton {
+                    startupGlanceScaleModeButton
                 }
                 pointerModeButton
                 pipWatchButton(iconOnly: true)
@@ -845,6 +869,40 @@ public struct SessionViewportView: View {
         startupPreflightMode == .oneHiddenFrame
             ? "Startup warm-up enabled — tap to disable"
             : "Startup warm-up disabled — tap to enable"
+    }
+
+    private var showsStartupGlanceScaleModeButton: Bool {
+        session?.state != .active && canUseStartupGlanceScaleMode
+    }
+
+    @ViewBuilder
+    private var startupGlanceScaleModeButton: some View {
+        Button {
+            onToggleStartupGlanceScaleMode?()
+        } label: {
+            Label(
+                startupGlanceScaleModeLabelText,
+                systemImage: "viewfinder"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.bordered)
+        .tint(startupGlanceScaleMode == .standard045 ? .accentColor : .orange)
+        .disabled(onToggleStartupGlanceScaleMode == nil)
+        .help(startupGlanceScaleModeLabelText)
+        .accessibilityLabel(startupGlanceScaleModeLabelText)
+        .accessibilityIdentifier("naru.session.startupGlanceScaleMode")
+    }
+
+    private var startupGlanceScaleModeLabelText: String {
+        switch startupGlanceScaleMode {
+        case .standard045:
+            return "Startup glance 0.45 — tap to try 0.35"
+        case .minimal035:
+            return "Startup glance 0.35 — tap to try 0.25"
+        case .glance025:
+            return "Startup glance 0.25 — tap to use 0.45"
+        }
     }
 
     /// Compact latency-derived connection-quality indicator (spec 003
