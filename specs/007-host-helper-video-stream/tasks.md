@@ -135,6 +135,9 @@ without unsafe report fields.
 - [x] T029 [US2] Record the current constrained-cellular visual-transport
   comparison using environment-sourced live credentials only. **Evidence
   recorded; helper video still reports as benchmark-only disabled.**
+- [x] T029A [US1] Add authenticated helper-video access-unit frame pipeline
+  that emits `startStream`, `videoAccessUnit`, and safe `streamStalled`
+  frames, with an iOS decode-path integration test. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
