@@ -97,6 +97,7 @@ scripts/run-naru-live-benchmark.sh physical-device-preflight
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh glance-scale-sweep
+scripts/run-naru-live-benchmark.sh glance-025-duration-probe
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
 ```
@@ -137,6 +138,11 @@ and explicit-environment branches without invoking `security` or `xcodebuild`.
 `glance-scale-sweep` is a fixed short VNC/helper synthetic candidate sweep for
 the benchmark-only first-frame visible-glance scales `0.45`, `0.35`, and
 `0.25`. It rejects extra arguments to keep the candidate comparison repeatable.
+`glance-025-duration-probe` is a fixed VNC-only poor-network probe for
+`visible-glance` scale `0.25` plus `local-low-latency-rgb565`. It uses
+environment/`launchctl` live credentials, rejects extra arguments, and runs a
+12 second duration-only sustained phase against the
+`iphone-poor-network-traffic-v1` target.
 
 ## Implemented Helper Video Encoder Prototype
 

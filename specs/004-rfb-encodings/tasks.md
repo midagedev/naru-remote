@@ -1394,6 +1394,25 @@ iPhone) and ships as its own PR.
   stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
   counts, stimulus command text, draft text, marked text, or IME state. Owns:
   launchctl runner, README, research note, benchmark artifact. **Done.**
+- **T463** Glance 0.25 duration probe runner: add a fixed
+  `scripts/run-naru-live-benchmark.sh glance-025-duration-probe` mode that
+  imports live credentials from environment/launchctl without printing values,
+  builds `VNCLiveBenchmark` once, rejects extra arguments, and runs the current
+  poor-network candidate as a VNC-only duration-only probe:
+  `visible-glance` scale `0.25`, `local-low-latency-rgb565`,
+  `request-response`, `viewport-phone-portrait`, `constrained-cellular`,
+  `iphone-poor-network-traffic-v1`, and 12 seconds sustained duration. Record
+  live evidence that the probe exits cleanly with a `warning` decision,
+  `19` permille first-frame request area, `1000/960/960`
+  received/content/content-response sample permille, and `receivePath` as the
+  remaining primary constraint. Emit only fixed mode/profile labels, fixed
+  target/transport/request labels, scale permille values, fixed verdict/issue
+  labels, aggregate counts, permille ratios, and aggregate timings; do not
+  print/export host identity, credentials, ports, executable paths, command
+  lines, raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, or IME
+  state. Owns: launchctl runner, README, quickstart, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

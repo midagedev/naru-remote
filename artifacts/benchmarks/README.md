@@ -209,6 +209,16 @@ candidate because it improves `local-low-latency-rgb565` from failure to
 warning with a `19` permille first-frame request area, but the overall
 app-low-traffic gate remains failed and needs physical iPhone validation before
 any default promotion.
+Current launchctl 0.25 duration probe:
+`artifacts/benchmarks/2026-06-07-glance-025-duration-probe-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh glance-025-duration-probe` to rerun the
+fixed VNC-only poor-network candidate: `visible-glance` scale `0.25`,
+`local-low-latency-rgb565`, `request-response`, `viewport-phone-portrait`,
+`constrained-cellular`, and a 12 second duration-only sustained phase. The
+current live run exits cleanly and reaches `warning`, with a `19` permille
+first-frame request area, `1000/960/960` received/content/content-response
+sample permille, `1.99` content FPS, `480` ms average update, `628` ms p95
+update, and `receivePath` as the remaining primary constraint.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps

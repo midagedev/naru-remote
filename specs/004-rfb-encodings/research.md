@@ -6047,3 +6047,59 @@ reports. It must not print or export host identity, credentials, ports, helper
 paths, command lines, raw stdout/stderr, raw TCP/RFB errors, coordinates,
 dimensions, pixels, byte counts, stimulus command text, draft text, marked
 text, or IME state.
+
+### D132 Add A Glance 0.25 Duration Probe Runner
+
+References:
+- `artifacts/benchmarks/2026-06-07-glance-025-duration-probe-summary.md`
+- D131 launchctl glance scale sweep runner.
+
+**Decision**: add a fixed launchctl-backed `glance-025-duration-probe` runner
+mode for the current poor-network VNC candidate. The runner imports live VNC
+credentials from environment/`launchctl`, builds `VNCLiveBenchmark` once,
+rejects extra arguments, and runs a duration-only 12 second sustained probe
+with `visible-glance` scale `0.25`, `local-low-latency-rgb565`,
+`request-response`, `viewport-phone-portrait`, `constrained-cellular`, and
+`iphone-poor-network-traffic-v1`.
+
+**Why**:
+- D131 identified `0.25` as the best first-frame traffic candidate, but the
+  short app-low-traffic sweep still mixed two profiles and did not prove the
+  best candidate could hold a longer sustained phase by itself.
+- The new mode avoids preset/profile override drift by spelling out the same
+  constrained-cellular visible-glance shape explicitly and narrowing the run to
+  the single app-side candidate that previously reached warning.
+- A fixed duration-only runner gives the physical-device gate a stable command
+  to rerun before any default promotion.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `glance-025-duration-probe`.
+- `scripts/run-naru-live-benchmark.sh glance-025-duration-probe -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- A clean live `glance-025-duration-probe` run exited `rc=0`.
+- Live result: wrapper status `passed`, stream-shape decision `warning`,
+  primary issue `first-frame-payload-read-warning`, primary constraint
+  `receivePath`, first-frame request area `19` permille, sustained request area
+  `364` permille, received/content/content-response sample permille
+  `1000/960/960`, content FPS `1.99`, average update `480` ms, p95 update
+  `628` ms, first-frame network read `5847` ms, first-frame payload read
+  `4959` ms, first-frame payload read share `848` permille, first-byte wait p95
+  `627` ms, and renderer full upload permille `0`.
+
+**Interpretation**:
+- Keep `0.25` plus `local-low-latency-rgb565` as the leading poor-network
+  physical-device candidate.
+- Do not promote it to the product default yet. The remaining user-visible
+  issues are still low content FPS, p95 update warning, and receive-path wait.
+  Next transport work should compare encoding/profile gates and inspect update
+  wait timing under the same fixed 0.25 shape.
+
+**Privacy rule**: the runner emits only fixed mode/profile labels, fixed
+target/transport/request labels, scale permille values, fixed verdict/issue
+labels, aggregate counts, permille ratios, aggregate timings, and existing
+privacy-safe benchmark reports. It must not print or export host identity,
+credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
+text, draft text, marked text, or IME state.

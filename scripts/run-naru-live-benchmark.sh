@@ -15,6 +15,7 @@ Modes:
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
+  glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
@@ -384,7 +385,7 @@ benchmark_progress_subphase_label() {
 bounded_vnc_profile_label_is_safe() {
   local label="$1"
   case "$label" in
-    tight-first|tight-first-rgb565|tight-first-cursor|tight-first-cursor-clipboard|zrle-compression-0|adaptive-good-full)
+    local-low-latency|local-low-latency-rgb565|tight-first|tight-first-rgb565|tight-first-cursor|tight-first-cursor-clipboard|zrle-compression-0|zrle-compression-0-rgb565|adaptive-good-full)
       return 0
       ;;
     *)
@@ -589,6 +590,112 @@ json_glance_scale_sweep_result() {
       "$scale_permille"
   fi
   rm -f "$output_file"
+}
+
+json_glance_025_duration_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"glance-025-duration-probe","profileLabel":"local-low-latency-rgb565","scalePermille":250,"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
+run_glance_025_duration_probe() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-duration-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-duration-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_glance_025_duration_failure \
+        benchmarkStep.glance025DurationProbe.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_glance_025_duration_failure \
+        benchmarkStep.glance025DurationProbe.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_glance_025_duration_failure \
+      benchmarkStep.glance025DurationProbe.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local duration_args=(
+    --attempts 1
+    --network-condition constrained-cellular
+    --visual-transport vnc
+    --stream-shape-frame-interval 0
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-poor-network-traffic-v1
+    --stream-shape-transport request-response
+    --stream-shape-request-pipeline-depth 1
+    --stream-shape-request-region viewport-phone-portrait
+    --stream-shape-first-frame-request visible-glance
+    --stream-shape-first-frame-visible-glance-scale 0.25
+    --stream-shape-profiles local-low-latency-rgb565
+    --stream-shape-profile-order fixed
+    --stream-shape-profile-iterations 1
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 0
+    --stream-shape-duration-seconds 12
+    --timeout 30
+    --idle-timeout 5
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+
+  write_bounded_sweep_phase "$phase_file" benchmark-running
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-duration-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout 90 "$BOUNDED_BENCHMARK_EXECUTABLE" "${duration_args[@]}" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    printf '{"schemaVersion":1,"mode":"glance-025-duration-probe","profileLabel":"local-low-latency-rgb565","scalePermille":250,"status":"passed","report":'
+    cat "$output_file"
+    printf '}\n'
+    rm -f "$phase_file" "$progress_file" "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_glance_025_duration_failure \
+      benchmarkStep.glance025DurationProbe.timedOut \
+      "$phase_file" \
+      "$progress_file"
+  else
+    json_glance_025_duration_failure \
+      benchmarkStep.glance025DurationProbe.failed \
+      "$phase_file" \
+      "$progress_file"
+  fi
+  rm -f "$phase_file" "$progress_file" "$output_file"
 }
 
 bounded_benchmark_executable() {
@@ -1592,6 +1699,12 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_glance_scale_sweep
+    ;;
+  glance-025-duration-probe)
+    reject_extra_args
+    import_live_env
+    cd "$repo_root"
+    run_glance_025_duration_probe
     ;;
   request-pipeline-sweep)
     import_live_env
