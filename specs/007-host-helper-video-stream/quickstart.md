@@ -78,6 +78,19 @@ display names. This slice handles authenticated `capabilityRequest` and
 `startStream` frames plus shared authorization for `requestKeyframe` and
 `stopStream`; it does not send live access units yet.
 
+## Implemented Helper Video Access-Unit Pipeline
+
+```bash
+swift test --filter NaruHelperVideoStreamFramePipeline
+swift test --filter HelperVideoH264SampleBufferRendererTests/testHelperPipelineAccessUnitsFeedIOSSampleBufferFactory
+```
+
+The helper-side pipeline accepts an authenticated `startStream` frame, emits a
+safe `startStream` response, then emits length-prefixed `videoAccessUnit`
+frames with binary payload outside JSON. If an accepted stream has no access
+units, it emits a safe `streamStalled` frame for VNC fallback. It is still a
+testable frame pipeline, not a live ScreenCaptureKit/VideoToolbox sender.
+
 ## Implemented iOS H.264 Decode / Display Prototype
 
 ```bash
