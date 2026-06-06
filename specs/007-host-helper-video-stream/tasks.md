@@ -130,7 +130,8 @@ without unsafe report fields.
   feature flag. **Done.**
 - [x] T027 [US1] Add authenticated helper-video transport messages according
   to `contracts/helper-video-stream.md`. **Done.**
-- [ ] T028 [US1] Add iOS decode/display prototype using platform video APIs.
+- [x] T028 [US1] Add iOS decode/display prototype using platform video APIs.
+  **Done.**
 - [ ] T029 [US2] Run the constrained-cellular helper-video live benchmark using
   environment-sourced live credentials only.
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.

@@ -78,6 +78,19 @@ display names. This slice handles authenticated `capabilityRequest` and
 `startStream` frames plus shared authorization for `requestKeyframe` and
 `stopStream`; it does not send live access units yet.
 
+## Implemented iOS H.264 Decode / Display Prototype
+
+```bash
+swift test --filter HelperVideoH264
+```
+
+The iOS prototype accepts helper-video `videoAccessUnit` frames with binary
+Annex-B H.264 payloads, caches SPS/PPS parameter sets through CoreMedia,
+converts displayable access units to AVCC `CMSampleBuffer` values, and exposes
+an `AVSampleBufferDisplayLayer` renderer. It must not log or export payload
+bytes, frame content, dimensions, byte counts, host names, endpoints, pairing
+secrets, or exact per-frame timings.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.

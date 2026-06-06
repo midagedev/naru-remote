@@ -214,3 +214,35 @@ responses omit `authProof`.
 - Add encryption in this transport PR: deferred; the current task is request
   authentication and typed framing, while encrypted transport policy needs a
   separate compatibility/security review.
+
+## D9 - Build iOS display prototype around CoreMedia sample buffers
+
+**Decision**: The first iOS helper-video decode/display prototype converts
+Annex-B H.264 access-unit payloads into AVCC `CMSampleBuffer` values and feeds
+them to `AVSampleBufferDisplayLayer`.
+
+**Rationale**:
+- Apple documents `AVSampleBufferDisplayLayer` as the platform layer for
+  displaying compressed or uncompressed sample buffers.
+- CoreMedia exposes `CMVideoFormatDescriptionCreateFromH264ParameterSets`,
+  which lets the app cache SPS/PPS parameter sets from helper access units
+  without logging payload bytes.
+- CoreMedia's `CMSampleBufferCreateReady` creates ready sample buffers from a
+  `CMBlockBuffer`, format description, timing, and sample-size entry. This
+  gives the app a thin platform handoff while keeping decoded frames out of
+  diagnostics and benchmark artifacts.
+
+**Sources**:
+- Apple `AVSampleBufferDisplayLayer`: https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer
+- Apple `CMVideoFormatDescriptionCreateFromH264ParameterSets`: https://developer.apple.com/documentation/coremedia/cmvideoformatdescriptioncreatefromh264parametersets%28allocator%3Aparametersetcount%3Aparametersetpointers%3Aparametersetsizes%3Analunitheaderlength%3Aformatdescriptionout%3A%29
+- Apple `CMSampleBufferCreateReady`: https://developer.apple.com/documentation/coremedia/cmsamplebuffercreateready%28allocator%3Adatabuffer%3Aformatdescription%3Asamplecount%3Asampletimingentrycount%3Asampletimingarray%3Asamplesizeentrycount%3Asamplesizearray%3Asamplebufferout%3A%29
+
+**Alternatives considered**:
+- Decode helper video into raw pixel buffers before display: deferred because
+  the first path should measure platform display/decode behavior before adding
+  app-side pixel copies.
+- Persist access-unit payloads for visual QA: rejected because encoded screen
+  content is not diagnostic-safe.
+- Require live helper transport before adding app decode code: rejected because
+  a fake access-unit test harness can lock payload framing and failure behavior
+  before any live stream sends screen content.
