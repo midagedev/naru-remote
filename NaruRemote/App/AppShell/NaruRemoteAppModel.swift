@@ -254,6 +254,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var isViewportInteractionActive: Bool {
         viewportInteractionFrameStrategy != nil
     }
+    private var latestViewportTransform: ViewportTransform?
+    private let viewportRequestRegionPolicy = ViewportRequestRegionPolicy(
+        fullHeartbeatInterval: 10,
+        fullFallbackTimeoutStreak: 0
+    )
     private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
     private var lastViewportInteractionFramePublishedAt: Date?
     private var viewportInteractionStartedAt: Date?
@@ -726,6 +731,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeStreamCredential = nil
             reconnectAttempts = 0
             resetConnectionQuality()
+            latestViewportTransform = nil
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
@@ -2043,6 +2049,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         activeStreamProfile = nil
         activeStreamCredential = nil
+        latestViewportTransform = nil
         resetConnectionQuality()
         resetPointerControl()
         cancelPointerEventQueue()
@@ -2320,10 +2327,17 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // to the estimator and then discarded — never
                     // logged (constitution §IV).
                     let requestStart = Date()
+                    let isIncrementalRequest = pump.deliveredFrameCount > 0
+                    let requestRegion = isIncrementalRequest
+                        ? currentViewportRequestRegion(
+                            incrementalRequestIndex: pump.deliveredFrameCount
+                        )
+                        : nil
                     let maybeFrame = try await Task.detached {
                         try pump.nextFrame(
                             requestTimeout: requestTimeout,
-                            updateMode: configuration.updateMode
+                            updateMode: configuration.updateMode,
+                            requestRegion: requestRegion
                         )
                     }.value
                     let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
@@ -2705,6 +2719,34 @@ public final class NaruRemoteAppModel: ObservableObject {
         viewportInteractionStartedAt = nil
         lastViewportInteractionFramePublishedAt = nil
         flushDeferredViewportInteractionFrame()
+    }
+
+    public func updateViewportTransform(_ transform: ViewportTransform) {
+        latestViewportTransform = transform
+    }
+
+    private func currentViewportRequestRegion(
+        incrementalRequestIndex: Int
+    ) -> RFBFramebufferUpdateRegion? {
+        guard usesViewportAwareRequestRegions else {
+            return nil
+        }
+        guard let latestViewportTransform else {
+            return nil
+        }
+        return viewportRequestRegionPolicy.requestRegion(
+            for: latestViewportTransform,
+            incrementalRequestIndex: incrementalRequestIndex
+        )
+    }
+
+    private var usesViewportAwareRequestRegions: Bool {
+        guard appSettings.streamPowerMode != .powerSaver,
+              !lowPowerModeProvider()
+        else {
+            return false
+        }
+        return appSettings.streamEncodingMode == .zrleCompressionZeroRGB565
     }
 
     private func applyStreamFrame(
@@ -3365,6 +3407,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamProfile = nil
         activeStreamCredential = nil
         reconnectAttempts = 0
+        latestViewportTransform = nil
         latestFramebuffer = nil
         latestFrameDirtyRectangles = nil
         latestFrameChangedPixelCount = nil

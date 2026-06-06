@@ -1092,6 +1092,17 @@ iPhone) and ships as its own PR.
   dimensions, coordinates, pixels, raw payloads, host identity, command text,
   draft text, marked text, or IME state. Owns: benchmark summary kit/tests,
   CLI report/help, README, research note, benchmark artifact. **Done.**
+- **T437** App-side opt-in viewport request regions: wire
+  `SessionViewportView`'s memory-only `ViewportTransform` into
+  `NaruRemoteAppModel` and pass `ViewportRequestRegionPolicy` output to
+  incremental `RFBFramePump.nextFrame` calls only when the user has selected
+  the fixed `zrle-compression-0-rgb565` low-traffic stream profile. Keep the
+  first frame and standard profile full-frame, retain heartbeat/fallback
+  behavior through the shared policy, disable region narrowing when power saver
+  overrides the stream profile, and avoid logging/exporting dimensions,
+  coordinates, byte counts, pixels, or per-sample timings. Owns: app shell,
+  session viewport callback, app-model tests, spec/research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

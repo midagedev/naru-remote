@@ -57,6 +57,9 @@ public struct SessionViewportView: View {
     /// immediate cursor that keeps the Metal hot path visually in sync
     /// while zoomed (spec 003 FR-011).
     private let onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)?
+    /// Publishes the local viewport transform to the app model so the
+    /// stream request loop can make memory-only region decisions.
+    private let onViewportTransformChange: ((ViewportTransform) -> Void)?
     /// Reports local viewport manipulation lifecycle to the app model
     /// so it can coalesce incoming streaming frames while the Metal
     /// view redraws the current texture locally.
@@ -181,6 +184,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
+        onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -221,6 +225,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportTransformChange = onViewportTransformChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -259,6 +264,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
+        onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -298,6 +304,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportTransformChange = onViewportTransformChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -927,6 +934,7 @@ public struct SessionViewportView: View {
         zoomScale = transform.zoomScale
         panOffset = transform.panOffset
         syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+        onViewportTransformChange?(transform)
     }
 
     /// Maps the trackpad cursor's framebuffer position into the
