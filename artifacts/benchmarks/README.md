@@ -97,6 +97,11 @@ Current helper-video fake comparison artifact:
 Schema v67 adds a visual transport comparison envelope so `vnc` and
 `helper-video` candidates can be reported with fixed labels before a live
 helper stream exists.
+Current helper-video profile guard artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-profile-guard-summary.md`.
+The app now models saved helper-video opt-in state, disables/revokes helper
+video with fixed labels, and blocks public-host helper-video attempts before a
+helper capture prototype exists.
 Latest completed live sustained-v2-core baseline:
 `artifacts/benchmarks/2026-06-06-live-sustained-v2-core-baseline.md`.
 This run is not benchmark-green: ContinuousUpdates is still

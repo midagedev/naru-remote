@@ -106,14 +106,16 @@ without unsafe report fields.
 
 ## Phase 5: User Story 3 - Optional, Revocable, Private-Network Only (Priority: P3)
 
-- [ ] T021 [US3] Add tests proving no-helper VNC connect/view/control,
+- [x] T021 [US3] Add tests proving no-helper VNC connect/view/control,
   Compose, Direct mode, PiP, and diagnostics paths do not require helper-video
-  state.
-- [ ] T022 [US3] Add fixed helper-video enable/disable/revoked states to app
-  settings or profile state.
-- [ ] T023 [US3] Prevent helper-video attempts for public-host profiles.
-- [ ] T024 [US3] Add safe UI/session status copy for helper-video unavailable,
-  revoked, permission-missing, and fallback-to-VNC states.
+  state. **Done.**
+- [x] T022 [US3] Add fixed helper-video enable/disable/revoked states to app
+  settings or profile state, including profile-store persistence across reload.
+  **Done.**
+- [x] T023 [US3] Prevent helper-video attempts for public-host profiles.
+  **Done.**
+- [x] T024 [US3] Add safe UI/session status copy for helper-video unavailable,
+  revoked, permission-missing, and fallback-to-VNC states. **Done.**
 
 **Checkpoint**: No-helper baseline remains intact.
 

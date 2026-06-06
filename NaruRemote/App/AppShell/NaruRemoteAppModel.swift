@@ -483,6 +483,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         profiles = storedProfiles
         for profile in storedProfiles {
             publishInitialHelperTextBridgeState(for: profile)
+            publishInitialHelperVideoState(for: profile)
         }
         if selectedProfileID == nil {
             selectedProfileID = storedProfiles.first?.id
@@ -710,7 +711,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let profileID else {
             return HelperVideoProfileState()
         }
-        return helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+        if let state = helperVideoProfileState[profileID] {
+            return state
+        }
+        guard let profile = profiles.first(where: { $0.id == profileID }) else {
+            return HelperVideoProfileState()
+        }
+        return Self.initialHelperVideoState(for: profile) ?? HelperVideoProfileState()
     }
 
     public func setHelperVideoProfileState(
@@ -768,7 +775,17 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard activeSession.state == .active else {
             return .sessionInactive
         }
-        guard helperVideoState(for: activeSession.profileID).canAttemptHelperVideoStream else {
+        guard let activeProfile = profiles.first(where: { $0.id == activeSession.profileID }) else {
+            return .helperVideoUnavailable
+        }
+        guard activeProfile.hostKind != .advancedManualPublicEndpoint else {
+            return .privateNetworkRequired
+        }
+        let profileState = helperVideoState(for: activeSession.profileID)
+        guard profileState.canAttemptHelperVideoStream else {
+            if profileState.availability == .revoked || profileState.lastFailureCode == .revoked {
+                return .helperVideoRevoked
+            }
             return .helperVideoUnavailable
         }
         guard !health.shouldUseVNCVisualFallback else {
@@ -824,6 +841,106 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperVideoStreamDescriptor = nil
         helperVideoStreamHealth = HelperVideoStreamHealth()
         helperVideoVisualSelectionFailureReason = nil
+    }
+
+    public func disableHelperVideo(for profileID: ConnectionProfile.ID? = nil) async {
+        guard let profileID = profileID ?? selectedProfileID else {
+            return
+        }
+
+        var state = helperVideoState(for: profileID)
+        state.isEnabled = false
+        state.availability = .disabled
+        state.lastFailureCode = .disabled
+        state.lastCheckedBucket = .recent
+        helperVideoProfileState[profileID] = state
+        fallbackHelperVideoVisualOnlyIfActive(
+            profileID: profileID,
+            reason: .helperVideoUnavailable
+        )
+        await persistHelperVideoProfilePreference(
+            for: profileID,
+            isEnabled: false,
+            isRevoked: false
+        )
+    }
+
+    public func revokeHelperVideo(for profileID: ConnectionProfile.ID? = nil) async {
+        guard let profileID = profileID ?? selectedProfileID else {
+            return
+        }
+
+        var state = helperVideoState(for: profileID)
+        state.isEnabled = false
+        state.pairingFingerprint = nil
+        state.availability = .revoked
+        state.lastFailureCode = .revoked
+        state.lastCheckedBucket = .recent
+        helperVideoProfileState[profileID] = state
+        fallbackHelperVideoVisualOnlyIfActive(
+            profileID: profileID,
+            reason: .helperVideoRevoked
+        )
+        await persistHelperVideoProfilePreference(
+            for: profileID,
+            isEnabled: false,
+            isRevoked: true
+        )
+    }
+
+    private func persistHelperVideoProfilePreference(
+        for profileID: ConnectionProfile.ID,
+        isEnabled: Bool,
+        isRevoked: Bool
+    ) async {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
+            return
+        }
+
+        let existingConfiguration = profiles[index].helperVideo
+        var profileToSave = profiles[index]
+        profileToSave.helperVideo = HelperVideoConnectionConfiguration(
+            isEnabled: isEnabled,
+            isRevoked: isRevoked,
+            pairingSecretRef: existingConfiguration?.pairingSecretRef,
+            pairingFingerprint: existingConfiguration?.pairingFingerprint
+                ?? helperVideoProfileState[profileID]?.pairingFingerprint
+        )
+        profiles[index] = profileToSave
+
+        do {
+            try await profileStore?.save(profileToSave)
+        } catch {
+            profilePersistenceError = "Profile could not be saved on this device."
+            return
+        }
+
+        if isRevoked,
+           let pairingSecretRef = existingConfiguration?.pairingSecretRef {
+            do {
+                try await credentialStore?.deletePassword(for: pairingSecretRef)
+            } catch {
+                profilePersistenceError = "Helper video token could not be removed on this device."
+            }
+        }
+    }
+
+    private func fallbackHelperVideoVisualOnlyIfActive(
+        profileID: ConnectionProfile.ID,
+        reason: HelperVideoVisualSelectionFailureReason
+    ) {
+        guard profileID == session?.profileID,
+              visualTransportMode == .helperVideo
+        else {
+            return
+        }
+        visualTransportMode = .vncFramebuffer
+        helperVideoStreamDescriptor = nil
+        helperVideoStreamHealth = HelperVideoStreamHealth(
+            state: .fallbackToVNC,
+            fallbackCountBucket: .one
+        )
+        helperVideoVisualSelectionFailureReason = reason
     }
 
     private func isCurrentHelperVideoCallback(
@@ -965,6 +1082,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             profiles.append(profileToSave)
         }
         publishInitialHelperTextBridgeState(for: profileToSave)
+        publishInitialHelperVideoState(for: profileToSave)
 
         do {
             try await profileStore?.save(profileToSave)
@@ -1083,6 +1201,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             profiles[index] = profileToSave
         }
         publishInitialHelperTextBridgeState(for: profileToSave)
+        publishInitialHelperVideoState(for: profileToSave)
 
         do {
             try await profileStore?.save(profileToSave)
@@ -1098,6 +1217,65 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         helperTextBridgeState[profile.id] = state
+    }
+
+    private func publishInitialHelperVideoState(for profile: ConnectionProfile) {
+        guard let state = Self.initialHelperVideoState(for: profile) else {
+            helperVideoProfileState.removeValue(forKey: profile.id)
+            return
+        }
+        helperVideoProfileState[profile.id] = state
+    }
+
+    nonisolated private static func initialHelperVideoState(
+        for profile: ConnectionProfile
+    ) -> HelperVideoProfileState? {
+        guard let configuration = profile.helperVideo else {
+            return nil
+        }
+        guard !configuration.isRevoked else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: nil,
+                availability: .revoked,
+                lastFailureCode: .revoked,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard profile.hostKind != .advancedManualPublicEndpoint else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .privateNetworkRequired,
+                lastFailureCode: .privateNetworkRequired,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard configuration.isEnabled else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .disabled,
+                lastFailureCode: .disabled,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard configuration.pairingSecretRef != nil else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .notConfigured,
+                lastFailureCode: .notConfigured,
+                lastCheckedBucket: .never
+            )
+        }
+        return HelperVideoProfileState(
+            isEnabled: true,
+            pairingFingerprint: configuration.pairingFingerprint,
+            availability: .checking,
+            lastFailureCode: nil,
+            lastCheckedBucket: .never
+        )
     }
 
     nonisolated private static func initialHelperTextBridgeState(
@@ -1229,6 +1407,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profilePersistenceError = "Helper token could not be removed on this device."
             }
         }
+        if let helperVideoSecretRef = removedProfile.helperVideo?.pairingSecretRef {
+            do {
+                try await credentialStore?.deletePassword(for: helperVideoSecretRef)
+            } catch {
+                profilePersistenceError = "Helper video token could not be removed on this device."
+            }
+        }
         helperTextBridgeState.removeValue(forKey: id)
         helperVideoProfileState.removeValue(forKey: id)
 
@@ -1290,6 +1475,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let viewerStartupPreflightMode = appSettings.startupPreflightMode
         let viewerStartupGlanceScaleMode = appSettings.startupGlanceScaleMode
         let composeRoute = composeRouteDiagnosticSnapshot()
+        let helperVideo = helperVideoDiagnosticReport()
         let input = DiagnosticInputReport(
             composeDraft: composeDraft,
             latestInjectionAttempt: latestInjectionAttempt,
@@ -1317,6 +1503,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 viewerStartupPreflightMode: viewerStartupPreflightMode,
                 viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
                 input: input,
+                helperVideo: helperVideo,
                 sustainedSessionAssessment: sustainedSessionAssessment
             )
         }
@@ -1328,7 +1515,20 @@ public final class NaruRemoteAppModel: ObservableObject {
             viewerStartupPreflightMode: viewerStartupPreflightMode,
             viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
             input: input,
+            helperVideo: helperVideo,
             sustainedSessionAssessment: sustainedSessionAssessment
+        )
+    }
+
+    private func helperVideoDiagnosticReport() -> DiagnosticHelperVideoReport? {
+        let profileID = session?.profileID ?? selectedProfileID
+        guard profileID != nil else {
+            return nil
+        }
+        return DiagnosticHelperVideoReport(
+            profileState: helperVideoState(for: profileID),
+            streamDescriptor: helperVideoStreamDescriptor,
+            streamHealth: helperVideoStreamHealth
         )
     }
 

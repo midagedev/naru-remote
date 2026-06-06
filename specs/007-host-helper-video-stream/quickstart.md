@@ -19,6 +19,7 @@ swift test --filter HelperVideoFakeTransportTests
 swift test --filter DiagnosticExportTests
 swift test --filter BenchmarkHelperVideoReportTests
 swift test --filter BenchmarkVisualTransport
+swift test --filter ConnectionProfileTests
 ```
 
 ## Implemented App Model Tests
@@ -26,6 +27,13 @@ swift test --filter BenchmarkVisualTransport
 ```bash
 swift test --filter NaruRemoteAppModelTests/testModelSelectsHelperVideoVisualTransportForPairedReachableProfile
 swift test --filter NaruRemoteAppModelTests/testHelperVideoStallFallsBackToVNCWithoutClearingComposeDraft
+swift test --filter NaruRemoteAppModelTests/testNoHelperVideoProfileKeepsVNCBaselineAndReportsSafeDiagnosticState
+swift test --filter NaruRemoteAppModelTests/testPublicHostProfileBlocksHelperVideoWithPrivateNetworkReason
+swift test --filter NaruRemoteAppModelTests/testStoredHelperVideoProfileInitializesPrivateNetworkStateWhenLoadingProfiles
+swift test --filter NaruRemoteAppModelTests/testStoredPublicHostHelperVideoInitializesPrivateNetworkRequiredState
+swift test --filter NaruRemoteAppModelTests/testDisableAndRevokeHelperVideoFallsBackWithoutDroppingSession
+swift test --filter NaruRemoteAppModelTests/testDisableAndRevokeHelperVideoPersistThroughProfileReload
+swift test --filter NaruRemoteAppModelTests/testRevokeHelperVideoKeepsCredentialWhenProfilePersistenceFails
 ```
 
 ## Planned Helper Build
