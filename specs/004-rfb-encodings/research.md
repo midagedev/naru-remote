@@ -5996,3 +5996,54 @@ are not mistaken for stale external writes.
 export command text, draft text, marked text, IME state, host identity,
 credentials, keysyms, pointer coordinates, dimensions, pixels, byte counts, or
 raw errors.
+
+### D131 Add A Launchctl Glance Scale Sweep Runner
+
+References:
+- `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-sweep-runner-summary.md`
+- D115 opt-in startup glance scale setting.
+
+**Decision**: add a fixed launchctl-backed `glance-scale-sweep` runner mode for
+the benchmark-only first-frame visible-glance scale candidates `0.45`, `0.35`,
+and `0.25`. The runner imports live credentials and helper paths from
+environment/`launchctl`, builds `VNCLiveBenchmark` once, rejects extra
+arguments, and runs the same short constrained-cellular app-low-traffic shape
+for all three scales.
+
+**Why**:
+- D115 made the scales selectable for physical-device comparison, but repeated
+  CLI invocations are easy to drift. A fixed runner keeps live traffic evidence
+  reproducible while ScreenCaptureKit helper video remains permission-gated.
+- The benchmark result continues to show 0.25 as the best traffic candidate for
+  first useful paint: the live sweep reports 19 permille first-frame request
+  area and a warning-only `local-low-latency-rgb565` gate.
+- The overall app-low-traffic VNC gate still fails because
+  `zrle-compression-0-rgb565` remains failed and the primary constraint is the
+  receive path. This keeps 0.25 as a benchmark/physical-gate candidate rather
+  than a production default.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists `glance-scale-sweep`.
+- `scripts/run-naru-live-benchmark.sh glance-scale-sweep -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- Live `glance-scale-sweep` completed for all three candidates using
+  environment-sourced credentials without printing values.
+- Live result: 0.45 and 0.35 both failed both app-low-traffic RGB565 profile
+  gates; 0.25 improved `local-low-latency-rgb565` to warning and kept
+  helper-video synthetic comparison passing, but the overall VNC decision
+  remained fail.
+
+**Interpretation**:
+- Use this runner before physical-device glance comparisons so 0.45, 0.35, and
+  0.25 are evaluated under the same short live benchmark shape.
+- Do not promote 0.25 as the product default until physical iPhone readability,
+  zoom/pan hand-feel, Compose input, thermal behavior, and fallback behavior are
+  verified.
+
+**Privacy rule**: the runner emits only fixed labels, scale permille values,
+aggregate ratios, aggregate timings, and existing privacy-safe benchmark
+reports. It must not print or export host identity, credentials, ports, helper
+paths, command lines, raw stdout/stderr, raw TCP/RFB errors, coordinates,
+dimensions, pixels, byte counts, stimulus command text, draft text, marked
+text, or IME state.

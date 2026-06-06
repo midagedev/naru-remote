@@ -200,12 +200,15 @@ helper capability, runs the explicit permission request, opens the macOS Screen
 Recording settings pane, and rechecks capability without printing unsafe
 details. The current setup still requires the user to grant Screen Recording
 to the stable helper app bundle and rerun the readiness sweep.
-Current launchctl startup glance scale refresh:
-`artifacts/benchmarks/2026-06-07-launchctl-glance-scale-refresh-summary.md`.
-Using the launchctl runner, `0.25` again improves
-`local-low-latency-rgb565` from failure to warning with a `19` permille
-first-frame request area, but the overall app-low-traffic gate remains failed
-and needs physical iPhone validation before any default promotion.
+Current launchctl startup glance scale sweep:
+`artifacts/benchmarks/2026-06-07-launchctl-glance-scale-sweep-runner-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh glance-scale-sweep` to compare
+0.45/0.35/0.25 under one fixed short constrained-cellular app-low-traffic
+shape. The current run keeps `0.25` as the best benchmark/physical-gate
+candidate because it improves `local-low-latency-rgb565` from failure to
+warning with a `19` permille first-frame request area, but the overall
+app-low-traffic gate remains failed and needs physical iPhone validation before
+any default promotion.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps
