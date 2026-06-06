@@ -28,10 +28,10 @@ description: "Tasks: Host Helper Video Stream"
 
 ## Phase 2: Foundation / Test Harness
 
-- [ ] T006 [US1] Add `HelperVideoProfileState`,
+- [x] T006 [US1] Add `HelperVideoProfileState`,
   `HelperVideoStreamDescriptor`, and `HelperVideoStreamHealth` value types in
   `NaruRemote/Sources/NaruRemoteCore/HelperVideo/`; verify with
-  `swift test --filter HelperVideo`.
+  `swift test --filter HelperVideo`. **Done.**
 - [ ] T007 [US1] Add fake helper video stream client/server test harness in
   `NaruRemote/Tests/NaruRemoteCoreTests/`; verify start, access-unit, stall,
   and stop messages without a real helper.
