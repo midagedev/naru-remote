@@ -195,6 +195,9 @@ without unsafe report fields.
 - [x] T029Q [US2] Bound external helper capability and probe cleanup waits so
   helper hangs become fixed `timedOut` diagnostics instead of blocking
   preflight or smoke-run cleanup. **Done.**
+- [x] T029R [US2] Add `VNCLiveBenchmark --helper-video-probe-only` so external
+  synthetic and ScreenCaptureKit helper-video probes can run without live VNC
+  target credentials while preserving privacy-safe report labels. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

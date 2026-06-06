@@ -53,6 +53,28 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         XCTAssertEqual(report.helperVideoReports.first?.issueCodes, [])
     }
 
+    func testProbeOnlyReportWrapsComparisonWithoutLiveTargetFields() throws {
+        let report = BenchmarkHelperVideoProbeOnlyReport.make(
+            selection: try .parse("helper-video"),
+            probeMode: .syntheticTCP
+        )
+
+        let data = try JSONEncoder().encode(report)
+        let json = String(decoding: data, as: UTF8.self)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.helperVideoProbeMode, .syntheticTCP)
+        XCTAssertEqual(report.visualTransportComparison.selectedVisualTransports, [.helperVideo])
+        XCTAssertEqual(report.visualTransportComparison.helperVideoReports.first?.verdict, .pass)
+        XCTAssertTrue(object.keys.contains("helperVideoProbeMode"))
+        XCTAssertTrue(object.keys.contains("visualTransportComparison"))
+        XCTAssertFalse(json.contains("NARU_LIVE_MAC_HOST"))
+        XCTAssertFalse(json.contains("NARU_LIVE_MAC_PASSWORD"))
+        XCTAssertFalse(json.contains("NARU_HELPER_EXECUTABLE"))
+        XCTAssertFalse(json.contains("benchmark-helper-video-external-secret"))
+    }
+
     func testHelperVideoProbeModeParsesStableCLILabels() {
         XCTAssertEqual(BenchmarkHelperVideoProbeMode.parse("disabled"), .disabled)
         XCTAssertEqual(BenchmarkHelperVideoProbeMode.parse("synthetic-tcp"), .syntheticTCP)

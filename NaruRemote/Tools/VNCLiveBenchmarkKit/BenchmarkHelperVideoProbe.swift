@@ -6,7 +6,7 @@ import NaruRemoteCore
 import CoreGraphics
 #endif
 
-public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
+public enum BenchmarkHelperVideoProbeMode: String, Codable, Equatable, Sendable {
     case disabled
     case syntheticTCP = "synthetic-tcp"
     case syntheticEncodedTCP = "synthetic-encoded-tcp"
