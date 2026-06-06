@@ -4405,3 +4405,51 @@ signals, emitting only fixed issue codes such as `first-frame-failed` and
   itself for the user's poor-network target. The next large unit should test a
   first-visible-region startup path, or an equivalent server-side resolution /
   initial-region strategy, before promoting viewport-aware traffic defaults.
+
+## D100 — First-visible-region startup should be measured before production defaults
+
+References:
+- D96 traffic-pressure promotion metric.
+- D99 poor-network startup gate.
+- RFC 6143 §7.5.3 FramebufferUpdateRequest:
+  https://www.rfc-editor.org/rfc/rfc6143#section-7.5.3
+
+**Decision**: bump `VNCLiveBenchmark` to schema v57 and add a benchmark-only
+`streamShapeFirstFrameRequestMode` with fixed labels `full` and
+`match-request-region`. Keep the app default as full-frame startup, but let the
+benchmark request the same fixed visible viewport region for the first
+non-incremental frame through
+`sustained-v2-constrained-cellular-visible-startup`.
+
+**Why**:
+- RFC 6143 defines `FramebufferUpdateRequest` as an interest rectangle plus an
+  incremental flag. With incremental set to false, the server is asked to send
+  the complete contents of the specified area. That makes first-visible-region
+  startup a standard RFB request shape rather than a protocol extension.
+- The schema v56 constrained-cellular run showed that first-frame bootstrap, not
+  just steady-state incremental updates, blocks poor-network usability. A
+  phone-sized visible region is the next lowest-risk traffic lever because it
+  reduces initial transfer pressure before changing production defaults.
+- A partial first frame leaves the rest of the local backing framebuffer blank
+  until later updates. That is acceptable for a benchmark startup probe, but not
+  yet a production default without explicit fallback, refresh, and viewport
+  invalidation behavior.
+
+**Implementation rule**:
+- `RFBFramePumpConfiguration.initialRequestRegion` defaults to `nil`; all
+  existing production callers keep full-frame first requests.
+- The benchmark mode `match-request-region` derives the first request from the
+  same fixed `BenchmarkStreamShapeRequestRegion` label used by steady-state
+  stream-shape probes. Reports emit only the fixed mode label and existing
+  aggregate metrics; they do not emit dimensions, coordinates, bytes, pixels,
+  payloads, host identity, credentials, command text, draft text, marked text,
+  or IME state.
+- `sustained-v2-constrained-cellular-visible-startup` must be compared against
+  the existing `sustained-v2-constrained-cellular-bootstrap` baseline before any
+  production default change.
+
+**Interpretation**:
+- This is a benchmark wedge for the user's traffic goal. Promotion still
+  requires showing lower startup pressure without worse usable-run count,
+  hit-rate, p95 tail, or fixed failure-label profile under the poor-network
+  target and then passing the physical iPhone gate.

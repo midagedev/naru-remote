@@ -296,6 +296,66 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.requestedRegions, [nil, region])
     }
 
+    func testPumpCanPassInitialRequestRegionWhenConfigured() throws {
+        let initialRegion = RFBFramebufferUpdateRegion(x: 10, y: 20, width: 30, height: 40)
+        let incrementalRegion = RFBFramebufferUpdateRegion(x: 1, y: 2, width: 3, height: 4)
+        let source = FakeRegionFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255)),
+                .fullFrame(framebuffer: Self.framebuffer(red: 128))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+        var frames: [RFBFramePumpFrame] = []
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                requestRegion: incrementalRegion,
+                initialRequestRegion: initialRegion
+            )
+        ) { frame in
+            frames.append(frame)
+            return .continue
+        }
+
+        XCTAssertEqual(source.requestedIncrementalFlags, [false, true])
+        XCTAssertEqual(source.requestedRegions, [initialRegion, incrementalRegion])
+        XCTAssertEqual(frames.map(\.sequence), [1, 2])
+        XCTAssertEqual(frames.map(\.isIncremental), [false, true])
+    }
+
+    func testManualNextFrameCanPassInitialRequestRegion() throws {
+        let initialRegion = RFBFramebufferUpdateRegion(x: 10, y: 20, width: 30, height: 40)
+        let source = FakeRegionFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let frame = try pump.nextFrame(initialRequestRegion: initialRegion)
+
+        XCTAssertEqual(frame?.isIncremental, false)
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+        XCTAssertEqual(source.requestedRegions, [initialRegion])
+    }
+
+    func testInitialRequestRegionFallsBackToFullWhenSourceCannotRequestRegions() throws {
+        let initialRegion = RFBFramebufferUpdateRegion(x: 10, y: 20, width: 30, height: 40)
+        let source = FakeDamageTrackingFramebufferUpdateSource(
+            results: [
+                .fullFrame(framebuffer: Self.framebuffer(red: 255))
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        let frame = try pump.nextFrame(initialRequestRegion: initialRegion)
+
+        XCTAssertEqual(frame?.isIncremental, false)
+        XCTAssertEqual(source.requestedIncrementalFlags, [false])
+    }
+
     func testPumpFallsBackToRequestResponseUntilContinuousUpdatesAreAdvertised() throws {
         let source = FakeContinuousFramebufferUpdateSource(
             requestedResults: [

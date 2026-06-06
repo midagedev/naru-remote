@@ -34,6 +34,10 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
             BenchmarkStreamShapeGatePreset.sustainedV2ConstrainedCellularBootstrap.rawValue,
             "sustained-v2-constrained-cellular-bootstrap"
         )
+        XCTAssertEqual(
+            BenchmarkStreamShapeGatePreset.sustainedV2ConstrainedCellularVisibleStartup.rawValue,
+            "sustained-v2-constrained-cellular-visible-startup"
+        )
     }
 
     func testUsageDescriptionListsSupportedPresets() {
@@ -43,7 +47,8 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
                 + "sustained-v2-zrle-isolation|sustained-v2-zrle-zero-delay|"
                 + "sustained-v2-zrle-pacing-sweep|sustained-v2-zrle-region-sweep|"
                 + "sustained-v2-zrle-viewport-region|sustained-v2-pixel-format|"
-                + "sustained-v2-constrained-cellular-bootstrap"
+                + "sustained-v2-constrained-cellular-bootstrap|"
+                + "sustained-v2-constrained-cellular-visible-startup"
         )
     }
 }

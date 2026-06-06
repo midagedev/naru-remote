@@ -615,6 +615,18 @@ iPhone use" before changing defaults. The first v56 live artifact is
 `2026-06-06-constrained-cellular-bootstrap-gate-summary.md`; it shows RGB565
 survives startup where full-color times out, but still fails the 20 s startup
 target, routing the next large unit to first-visible-region bootstrap work.
+Schema v57 adds `streamShapeFirstFrameRequestMode` and
+`--stream-shape-first-frame-request full|match-request-region`. It also adds
+`--stream-shape-gate-preset
+sustained-v2-constrained-cellular-visible-startup`, which keeps the v56
+constrained-cellular shape but requests the fixed visible phone viewport region
+for the first non-incremental frame. Reports emit only the fixed first-frame
+request mode label plus existing aggregate metrics; they do not emit
+coordinates, dimensions, byte counts, pixels, or payloads. Use v57 to compare
+poor-network startup traffic pressure against the v56 full-frame baseline
+before any production request-region default. The first v57 live artifact is
+`2026-06-06-constrained-cellular-visible-startup-summary.md`; it improves
+RGB565 startup by roughly 8.6 seconds but remains below the poor-network gate.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
