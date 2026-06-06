@@ -70,6 +70,15 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         )
         stats.recordViewportInteractionRequestPause(pollCount: 3, milliseconds: 40)
         stats.recordViewportInteractionRequestPause(pollCount: 12, milliseconds: 260)
+        stats.recordOutboundInputEvent(
+            queueDelayMilliseconds: 12,
+            operationMilliseconds: 30
+        )
+        stats.recordOutboundInputEvent(
+            queueDelayMilliseconds: 120,
+            operationMilliseconds: 260,
+            timedOut: true
+        )
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -134,6 +143,24 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(
             report.viewportRequestPauseHint,
             DiagnosticViewportRequestPauseHint.activeMixedViewportPressure.rawValue
+        )
+        XCTAssertEqual(report.outboundInputEventSampleCount, 2)
+        XCTAssertEqual(report.outboundInputEventTimeoutCount, 1)
+        XCTAssertEqual(
+            report.averageOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.interactive.rawValue
+        )
+        XCTAssertEqual(
+            report.maxOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertEqual(
+            report.averageOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertEqual(
+            report.maxOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.stalled.rawValue
         )
         XCTAssertEqual(
             report.actualEncodingMix,

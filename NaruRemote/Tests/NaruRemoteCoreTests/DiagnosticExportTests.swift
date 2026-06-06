@@ -371,6 +371,12 @@ final class DiagnosticExportTests: XCTestCase {
             viewportInteractionRequestPausePollCount: 31,
             averageViewportInteractionRequestPauseBucket: DiagnosticTimingBucket.lagging.rawValue,
             maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket.stalled.rawValue,
+            outboundInputEventSampleCount: 6,
+            outboundInputEventTimeoutCount: 1,
+            averageOutboundInputQueueDelayBucket: DiagnosticTimingBucket.interactive.rawValue,
+            maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket.lagging.rawValue,
+            averageOutboundInputOperationTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
+            maxOutboundInputOperationTimingBucket: DiagnosticTimingBucket.stalled.rawValue,
             startupPreflightRequestedHiddenFrameCount: 1,
             startupPreflightConsumedHiddenFrameCount: 1,
             startupPreflightOutcome: DiagnosticStartupPreflightOutcome.consumed.rawValue,
@@ -1239,6 +1245,12 @@ final class DiagnosticExportTests: XCTestCase {
             averageViewportInteractionRequestPauseBucket: "timing=SECRET",
             maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket.stalled.rawValue,
             viewportRequestPauseHint: "hint=SECRET",
+            outboundInputEventSampleCount: -24,
+            outboundInputEventTimeoutCount: 500,
+            averageOutboundInputQueueDelayBucket: "timing=SECRET",
+            maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket.lagging.rawValue,
+            averageOutboundInputOperationTimingBucket: "timing=SECRET",
+            maxOutboundInputOperationTimingBucket: DiagnosticTimingBucket.stalled.rawValue,
             startupPreflightRequestedHiddenFrameCount: 9,
             startupPreflightConsumedHiddenFrameCount: 8,
             startupPreflightOutcome: "outcome=SECRET",
@@ -1481,6 +1493,12 @@ final class DiagnosticExportTests: XCTestCase {
             powerSaverPacingSampleCount: 1,
             emptyBackoffPacingSampleCount: 7,
             viewportInteractionPacingSampleCount: 8,
+            outboundInputEventSampleCount: 4,
+            outboundInputEventTimeoutCount: 9,
+            averageOutboundInputQueueDelayBucket: "timing=SECRET",
+            maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket.lagging.rawValue,
+            averageOutboundInputOperationTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
+            maxOutboundInputOperationTimingBucket: "timing=SECRET",
             thermalState: "nominal"
         )
 
@@ -1497,6 +1515,24 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(performance.streamPacingDelaySampleCount, 6)
         XCTAssertEqual(performance.averageStreamPacingDelayBucket, DiagnosticTimingBucket.notMeasured.rawValue)
         XCTAssertEqual(performance.maxStreamPacingDelayBucket, DiagnosticTimingBucket.interactive.rawValue)
+        XCTAssertEqual(performance.outboundInputEventSampleCount, 4)
+        XCTAssertEqual(performance.outboundInputEventTimeoutCount, 4)
+        XCTAssertEqual(
+            performance.averageOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertEqual(
+            performance.averageOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.interactive.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
         XCTAssertEqual(performance.thermalPacingSampleCount, 2)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(performance.emptyBackoffPacingSampleCount, 6)
@@ -1578,6 +1614,24 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             performance.viewportRequestPauseHint,
             DiagnosticViewportRequestPauseHint.notMeasured.rawValue
+        )
+        XCTAssertEqual(performance.outboundInputEventSampleCount, 0)
+        XCTAssertEqual(performance.outboundInputEventTimeoutCount, 0)
+        XCTAssertEqual(
+            performance.averageOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.averageOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
         )
         XCTAssertEqual(performance.startupPreflightRequestedHiddenFrameCount, 0)
         XCTAssertEqual(performance.startupPreflightConsumedHiddenFrameCount, 0)

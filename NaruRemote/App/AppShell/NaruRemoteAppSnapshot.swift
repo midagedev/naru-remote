@@ -73,6 +73,12 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var viewportInteractionRequestPausePollCount: Int
     public var viewportInteractionRequestPauseMillisecondsTotal: Int
     public var viewportInteractionRequestPauseMillisecondsMax: Int
+    public var outboundInputEventSampleCount: Int
+    public var outboundInputEventTimeoutCount: Int
+    public var outboundInputQueueDelayMillisecondsTotal: Int
+    public var outboundInputQueueDelayMillisecondsMax: Int
+    public var outboundInputOperationMillisecondsTotal: Int
+    public var outboundInputOperationMillisecondsMax: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var startupPreflightRequestedHiddenFrameCount: Int
     public var startupPreflightConsumedHiddenFrameCount: Int
@@ -135,6 +141,12 @@ public struct SessionStreamStats: Equatable, Sendable {
         viewportInteractionRequestPausePollCount: Int = 0,
         viewportInteractionRequestPauseMillisecondsTotal: Int = 0,
         viewportInteractionRequestPauseMillisecondsMax: Int = 0,
+        outboundInputEventSampleCount: Int = 0,
+        outboundInputEventTimeoutCount: Int = 0,
+        outboundInputQueueDelayMillisecondsTotal: Int = 0,
+        outboundInputQueueDelayMillisecondsMax: Int = 0,
+        outboundInputOperationMillisecondsTotal: Int = 0,
+        outboundInputOperationMillisecondsMax: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         startupPreflightRequestedHiddenFrameCount: Int = 0,
         startupPreflightConsumedHiddenFrameCount: Int = 0,
@@ -213,6 +225,15 @@ public struct SessionStreamStats: Equatable, Sendable {
             viewportInteractionRequestPauseMillisecondsMax,
             0
         )
+        self.outboundInputEventSampleCount = max(outboundInputEventSampleCount, 0)
+        self.outboundInputEventTimeoutCount = min(
+            max(outboundInputEventTimeoutCount, 0),
+            self.outboundInputEventSampleCount
+        )
+        self.outboundInputQueueDelayMillisecondsTotal = max(outboundInputQueueDelayMillisecondsTotal, 0)
+        self.outboundInputQueueDelayMillisecondsMax = max(outboundInputQueueDelayMillisecondsMax, 0)
+        self.outboundInputOperationMillisecondsTotal = max(outboundInputOperationMillisecondsTotal, 0)
+        self.outboundInputOperationMillisecondsMax = max(outboundInputOperationMillisecondsMax, 0)
         self.adaptiveClientPressurePacingSampleCount = min(
             max(adaptiveClientPressurePacingSampleCount, 0),
             self.deliveredFrameCount
@@ -372,6 +393,22 @@ public struct SessionStreamStats: Equatable, Sendable {
         viewportInteractionRequestPauseMax(viewportInteractionRequestPauseMillisecondsMax)
     }
 
+    public var averageOutboundInputQueueDelayMilliseconds: Int? {
+        averageOutboundInputEventTiming(outboundInputQueueDelayMillisecondsTotal)
+    }
+
+    public var maxOutboundInputQueueDelayMilliseconds: Int? {
+        outboundInputEventTimingMax(outboundInputQueueDelayMillisecondsMax)
+    }
+
+    public var averageOutboundInputOperationMilliseconds: Int? {
+        averageOutboundInputEventTiming(outboundInputOperationMillisecondsTotal)
+    }
+
+    public var maxOutboundInputOperationMilliseconds: Int? {
+        outboundInputEventTimingMax(outboundInputOperationMillisecondsMax)
+    }
+
     public var viewportGestureLongFramePermille: Int? {
         permille(viewportGestureLongFrameCount, of: viewportGestureSampleCount)
     }
@@ -469,6 +506,16 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageViewportInteractionRequestPauseMilliseconds).rawValue,
             maxViewportInteractionRequestPauseBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxViewportInteractionRequestPauseMilliseconds).rawValue,
+            outboundInputEventSampleCount: outboundInputEventSampleCount,
+            outboundInputEventTimeoutCount: outboundInputEventTimeoutCount,
+            averageOutboundInputQueueDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageOutboundInputQueueDelayMilliseconds).rawValue,
+            maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxOutboundInputQueueDelayMilliseconds).rawValue,
+            averageOutboundInputOperationTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageOutboundInputOperationMilliseconds).rawValue,
+            maxOutboundInputOperationTimingBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxOutboundInputOperationMilliseconds).rawValue,
             startupPreflightRequestedHiddenFrameCount: startupPreflightRequestedHiddenFrameCount,
             startupPreflightConsumedHiddenFrameCount: startupPreflightConsumedHiddenFrameCount,
             startupPreflightOutcome: startupPreflightOutcome.rawValue,
@@ -576,6 +623,29 @@ public struct SessionStreamStats: Equatable, Sendable {
             viewportInteractionRequestPauseMillisecondsMax,
             milliseconds
         )
+    }
+
+    public mutating func recordOutboundInputEvent(
+        queueDelayMilliseconds: Int,
+        operationMilliseconds: Int,
+        timedOut: Bool = false
+    ) {
+        let queueDelayMilliseconds = max(queueDelayMilliseconds, 0)
+        let operationMilliseconds = max(operationMilliseconds, 0)
+        outboundInputEventSampleCount += 1
+        outboundInputQueueDelayMillisecondsTotal += queueDelayMilliseconds
+        outboundInputQueueDelayMillisecondsMax = max(
+            outboundInputQueueDelayMillisecondsMax,
+            queueDelayMilliseconds
+        )
+        outboundInputOperationMillisecondsTotal += operationMilliseconds
+        outboundInputOperationMillisecondsMax = max(
+            outboundInputOperationMillisecondsMax,
+            operationMilliseconds
+        )
+        if timedOut {
+            outboundInputEventTimeoutCount += 1
+        }
     }
 
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
@@ -700,6 +770,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / viewportInteractionRequestPauseCount
     }
 
+    private func averageOutboundInputEventTiming(_ total: Int) -> Int? {
+        guard outboundInputEventSampleCount > 0 else {
+            return nil
+        }
+        return total / outboundInputEventSampleCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
             return nil
@@ -730,6 +807,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     private func viewportInteractionRequestPauseMax(_ value: Int) -> Int? {
         guard viewportInteractionRequestPauseCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func outboundInputEventTimingMax(_ value: Int) -> Int? {
+        guard outboundInputEventSampleCount > 0 else {
             return nil
         }
         return value

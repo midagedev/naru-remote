@@ -433,6 +433,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case averageViewportInteractionRequestPauseBucket
         case maxViewportInteractionRequestPauseBucket
         case viewportRequestPauseHint
+        case outboundInputEventSampleCount
+        case outboundInputEventTimeoutCount
+        case averageOutboundInputQueueDelayBucket
+        case maxOutboundInputQueueDelayBucket
+        case averageOutboundInputOperationTimingBucket
+        case maxOutboundInputOperationTimingBucket
         case startupPreflightRequestedHiddenFrameCount
         case startupPreflightConsumedHiddenFrameCount
         case startupPreflightOutcome
@@ -502,6 +508,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let averageViewportInteractionRequestPauseBucket: String
     public let maxViewportInteractionRequestPauseBucket: String
     public let viewportRequestPauseHint: String
+    public let outboundInputEventSampleCount: Int
+    public let outboundInputEventTimeoutCount: Int
+    public let averageOutboundInputQueueDelayBucket: String
+    public let maxOutboundInputQueueDelayBucket: String
+    public let averageOutboundInputOperationTimingBucket: String
+    public let maxOutboundInputOperationTimingBucket: String
     public let startupPreflightRequestedHiddenFrameCount: Int
     public let startupPreflightConsumedHiddenFrameCount: Int
     public let startupPreflightOutcome: String
@@ -571,6 +583,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         averageViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         viewportRequestPauseHint: String? = nil,
+        outboundInputEventSampleCount: Int = 0,
+        outboundInputEventTimeoutCount: Int = 0,
+        averageOutboundInputQueueDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxOutboundInputQueueDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        averageOutboundInputOperationTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxOutboundInputOperationTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         startupPreflightRequestedHiddenFrameCount: Int = 0,
         startupPreflightConsumedHiddenFrameCount: Int = 0,
         startupPreflightOutcome: String? = nil,
@@ -732,6 +750,31 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 gestureLongFramePermille: self.viewportGestureLongFramePermille,
                 incomingFrameDeferredPermille: self.viewportIncomingFrameDeferredPermille
             ).rawValue
+        let outboundInputEventSampleCount = max(outboundInputEventSampleCount, 0)
+        self.outboundInputEventSampleCount = outboundInputEventSampleCount
+        self.outboundInputEventTimeoutCount = min(
+            max(outboundInputEventTimeoutCount, 0),
+            outboundInputEventSampleCount
+        )
+        if outboundInputEventSampleCount == 0 {
+            self.averageOutboundInputQueueDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxOutboundInputQueueDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.averageOutboundInputOperationTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxOutboundInputOperationTimingBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageOutboundInputQueueDelayBucket = Self.safeTimingBucket(
+                averageOutboundInputQueueDelayBucket
+            )
+            self.maxOutboundInputQueueDelayBucket = Self.safeTimingBucket(
+                maxOutboundInputQueueDelayBucket
+            )
+            self.averageOutboundInputOperationTimingBucket = Self.safeTimingBucket(
+                averageOutboundInputOperationTimingBucket
+            )
+            self.maxOutboundInputOperationTimingBucket = Self.safeTimingBucket(
+                maxOutboundInputOperationTimingBucket
+            )
+        }
         let requestedHiddenFrameCount = min(
             max(startupPreflightRequestedHiddenFrameCount, 0),
             Self.maximumStartupPreflightHiddenFrameCount
@@ -971,6 +1014,30 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .viewportRequestPauseHint
             ),
+            outboundInputEventSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .outboundInputEventSampleCount
+            ) ?? 0,
+            outboundInputEventTimeoutCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .outboundInputEventTimeoutCount
+            ) ?? 0,
+            averageOutboundInputQueueDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageOutboundInputQueueDelayBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxOutboundInputQueueDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxOutboundInputQueueDelayBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            averageOutboundInputOperationTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageOutboundInputOperationTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxOutboundInputOperationTimingBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxOutboundInputOperationTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             startupPreflightRequestedHiddenFrameCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .startupPreflightRequestedHiddenFrameCount

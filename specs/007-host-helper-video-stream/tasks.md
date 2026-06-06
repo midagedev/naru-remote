@@ -266,6 +266,10 @@ without unsafe report fields.
   presentation refreshes for first frame, dimension changes, and clear only.
   Verify frame events continue while both app-model and frame-store
   `objectWillChange` stay quiet after session activation. **Done.**
+- [x] T029AG [US1] Add privacy-safe outbound input responsiveness diagnostics
+  for the shared key/pointer queue so live iPhone freezes can be triaged as
+  queue delay, wire-operation delay, or timeout without exporting coordinates,
+  keysyms, text, endpoints, byte counts, or exact timings. **Done.**
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**

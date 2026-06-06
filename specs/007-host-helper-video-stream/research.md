@@ -1061,3 +1061,43 @@ fallback views have a concrete framebuffer.
 - Publish only a sampled FPS through SwiftUI: rejected because the Metal
   renderer still needs every admitted frame event, even when the UI shell does
   not.
+
+## D33 - Measure outbound input queue and write latency separately from frame cadence
+
+**Decision**: Add privacy-safe outbound input responsiveness counters to the
+session stream performance report. Key and pointer commands now record one
+aggregate sample per accepted outbound queue operation: queue delay bucket,
+operation timing bucket, and timeout count. The report does not include
+coordinates, keysyms, text, endpoint data, byte counts, or exact timings.
+
+**Rationale**:
+- The post-frame-isolation physical iPhone symptom still needs sharper
+  evidence: if gestures or keys feel frozen after connection, we must know
+  whether touch/UI sampling is blocked, outbound input is queued behind an
+  older write, or the RFB socket write itself is hanging.
+- Existing `appFrameApplyTimingBucket` covers frame-to-MainActor pressure, but
+  it does not distinguish input queue backpressure from local rendering work.
+- RFB key and pointer events intentionally share one serial socket queue to
+  preserve user order. Measuring queue delay and operation duration with
+  coarse buckets keeps that ordering contract while making live diagnostics
+  useful enough to debug field reports.
+
+**Verification**:
+- `NaruRemoteAppSnapshotTests/testSessionStreamStatsBuildSafeDiagnosticPerformanceReport`
+  proves outbound input queue/write timings are exported only as safe timing
+  buckets and counts.
+- `DiagnosticExportTests/testStreamPerformanceReportSanitizesReceiveTimingBuckets`
+  and `testStreamPerformanceReportDecodesMissingNewerFieldsAsSafeDefaults`
+  prove unsafe bucket values are clamped and older reports default to
+  `notMeasured`.
+- `PointerEventTapTests/testSendTapAtRecordsOnlySafeOutboundInputDiagnostics`
+  proves pointer coordinates stay out of diagnostic JSON while safe outbound
+  input counters increment.
+
+**Alternatives considered**:
+- Log raw pointer/key events for repro: rejected because coordinates and
+  keysyms can reveal user activity and screen content.
+- Add exact per-event timing arrays: rejected by the existing diagnostic
+  privacy posture; coarse buckets are enough to route freeze triage.
+- Measure only at the RFB client write boundary: rejected because it would miss
+  queue-delay freezes caused by a previous input event holding the serial tail.
