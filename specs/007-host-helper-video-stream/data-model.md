@@ -101,6 +101,44 @@ Privacy:
 - No display identifiers, display names, window names, dimensions, frame
   content, endpoints, host names, byte counts, exact timings, or OS error text.
 
+## NaruHelperVideoEncoderPrototypeResponse
+
+Safe macOS helper response for the gated VideoToolbox H.264 encoder prototype.
+
+Fields:
+
+- `schemaVersion`: Integer contract version.
+- `availability`: Fixed `HelperVideoAvailability` label.
+- `featureFlagState`: Fixed label:
+  - `enabled`
+  - `disabled`
+- `encoderAPI`: Optional fixed label, initially `videoToolbox`.
+- `codec`: Fixed label, initially `h264`.
+- `codecProfile`: Fixed label, initially `high` for the low-latency prototype.
+- `latencyMode`: Fixed label, initially `lowLatency`.
+- `qualityBucket`: Fixed label, initially `readability`.
+- `sessionState`: Fixed label:
+  - `notStarted`
+  - `prepared`
+  - `unavailable`
+  - `unsupported`
+- `safeFailureCode`: Optional fixed helper-video failure code.
+
+Rules:
+
+- The prototype is inactive unless `NARU_HELPER_VIDEO_ENCODER_PROTOTYPE` is set
+  to an explicit enabled value.
+- When disabled, the helper reports `disabled` and does not create a
+  VideoToolbox compression session.
+- When enabled, the helper creates and prepares a synthetic H.264 compression
+  session only; it does not capture, emit, log, or persist encoded frames.
+
+Privacy:
+
+- No display identifiers, display names, window names, dimensions, frame
+  content, endpoints, host names, byte counts, exact timings, payloads, or OS
+  error text.
+
 ## HelperVideoStreamDescriptor
 
 Safe stream metadata exchanged after authentication.

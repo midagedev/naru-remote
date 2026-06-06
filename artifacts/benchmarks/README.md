@@ -82,6 +82,10 @@ Current helper-video capture probe artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-capture-probe-summary.md`.
 The macOS helper now exposes a ScreenCaptureKit permission/capture-source
 catalog probe before encoder or stream transport work begins.
+Current helper-video encoder prototype artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-encoder-prototype-summary.md`.
+The macOS helper now gates a VideoToolbox H.264 session-prepare prototype
+behind `NARU_HELPER_VIDEO_ENCODER_PROTOTYPE`.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to

@@ -126,8 +126,8 @@ without unsafe report fields.
 - [x] T025 [P] [US1] Add ScreenCaptureKit capture capability probe to
   `NaruHelper/Sources/NaruHelper/`; verify permission catalog states with
   `swift test --filter NaruHelperVideo`. **Done.**
-- [ ] T026 [US1] Add VideoToolbox H.264 encoder prototype behind a helper
-  feature flag.
+- [x] T026 [US1] Add VideoToolbox H.264 encoder prototype behind a helper
+  feature flag. **Done.**
 - [ ] T027 [US1] Add authenticated helper-video transport messages according
   to `contracts/helper-video-stream.md`.
 - [ ] T028 [US1] Add iOS decode/display prototype using platform video APIs.

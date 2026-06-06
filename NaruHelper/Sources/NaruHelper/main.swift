@@ -20,6 +20,11 @@ private enum NaruHelperCLI {
             return
         }
 
+        if CommandLine.arguments.contains("--video-encoder-prototype") {
+            try writeVideoEncoderPrototypeResponse()
+            return
+        }
+
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let request = try JSONDecoder().decode(NaruHelperInsertTextRequest.self, from: data)
         let response = insert(request: request)
@@ -32,6 +37,11 @@ private enum NaruHelperCLI {
 
     private static func writeVideoCapabilityResponse() async throws {
         let response = await NaruHelperVideoCaptureCapabilityProbe.live().capability()
+        try writeJSON(response)
+    }
+
+    private static func writeVideoEncoderPrototypeResponse() throws {
+        let response = NaruHelperVideoEncoderPrototypeProbe.live().capability()
         try writeJSON(response)
     }
 
