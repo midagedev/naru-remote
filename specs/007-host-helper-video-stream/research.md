@@ -146,3 +146,37 @@ shareable content.
 - Request permission automatically from the CLI smoke: rejected for this PR;
   the helper should expose fixed state first, then a later UI/pairing flow can
   decide when to request permission.
+
+## D7 - Gate the first VideoToolbox H.264 prototype
+
+**Decision**: The first helper encoder prototype creates and prepares a
+VideoToolbox H.264 compression session only when
+`NARU_HELPER_VIDEO_ENCODER_PROTOTYPE` is explicitly enabled.
+
+**Rationale**:
+- Apple documents `VTCompressionSessionCreate` as the API for creating a video
+  compression session; the session outputs compressed frames through callback
+  or output-handler paths.
+- Apple's realtime compression property recommends timely compression for
+  realtime clients, which matches remote-control visual latency goals.
+- Apple's low-latency rate-control encoder specification selects a low-latency
+  H.264 path that avoids frame reordering/lookahead behavior, fitting the
+  interactive remote desktop target.
+- Keeping this behind a helper flag lets the repo verify codec availability
+  without changing VNC visual defaults, exposing binary payloads, or requiring
+  a paired helper transport.
+
+**Sources**:
+- Apple `VTCompressionSessionCreate`: https://developer.apple.com/documentation/videotoolbox/vtcompressionsessioncreate%28allocator%3Awidth%3Aheight%3Acodectype%3Aencoderspecification%3Aimagebufferattributes%3Acompresseddataallocator%3Aoutputcallback%3Arefcon%3Acompressionsessionout%3A%29
+- Apple `kVTCompressionPropertyKey_RealTime`: https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_realtime
+- Apple `kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder`: https://developer.apple.com/documentation/videotoolbox/kvtvideoencoderspecification_enablehardwareacceleratedvideoencoder
+- Apple `kVTVideoEncoderSpecification_EnableLowLatencyRateControl`: https://developer.apple.com/documentation/videotoolbox/kvtvideoencoderspecification_enablelowlatencyratecontrol
+- Apple Encoding video for low-latency conferencing: https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing
+
+**Alternatives considered**:
+- Enable VideoToolbox probing by default: rejected because this is still a
+  prototype and should not change helper startup behavior.
+- Encode a real captured frame in the first encoder PR: rejected because the
+  transport, payload handling, and privacy review need to land separately.
+- Report dimensions, output size, or exact timing from the probe: rejected by
+  the helper-video diagnostic privacy boundary.

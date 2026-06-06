@@ -49,6 +49,21 @@ swift test --filter NaruHelperVideo
 It must not emit display identifiers, dimensions, window names, endpoints,
 host names, byte counts, frame content, or exact timings.
 
+## Implemented Helper Video Encoder Prototype
+
+```bash
+swift build --product NaruHelper
+swift test --filter NaruHelperVideoEncoder
+.build/debug/NaruHelper --video-encoder-prototype
+NARU_HELPER_VIDEO_ENCODER_PROTOTYPE=1 .build/debug/NaruHelper --video-encoder-prototype
+```
+
+`--video-encoder-prototype` emits only fixed catalog labels. With the feature
+flag disabled, it must not create a VideoToolbox compression session. With the
+feature flag enabled, it prepares a synthetic low-latency H.264 session and
+must not emit dimensions, encoded payloads, byte counts, host names, endpoints,
+display names, frame content, or exact timings.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.
