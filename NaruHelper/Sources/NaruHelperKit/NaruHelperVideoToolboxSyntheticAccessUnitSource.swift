@@ -21,6 +21,7 @@ public enum NaruHelperVideoToolboxSyntheticAccessUnitSourceError: Error, Equatab
     case h264ParameterSetExtractionFailed(OSStatus)
     case h264ParameterSetMissing
     case malformedAVCCPayload
+    case noSourceFrames
     case noEncodedAccessUnits
 }
 
@@ -43,13 +44,20 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
         for request: HelperVideoStartStreamRequestBody
     ) throws -> [NaruHelperVideoAccessUnit] {
         #if os(macOS) && canImport(VideoToolbox)
-        let encoder = LiveNaruHelperVideoToolboxSyntheticAccessUnitEncoder(
-            frameCount: frameCount,
+        let pixelBuffers = try (0..<frameCount).map { frameIndex in
+            try Self.makePixelBuffer(
+                width: width,
+                height: height,
+                frameIndex: frameIndex
+            )
+        }
+        let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
             width: width,
             height: height,
-            frameRateBucket: request.maxFrameRateBucket
+            frameRateBucket: request.maxFrameRateBucket,
+            keyFrameInterval: frameCount
         )
-        return try encoder.encode()
+        return try encoder.encode(pixelBuffers: pixelBuffers)
         #else
         throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.unsupportedPlatform
         #endif
@@ -57,27 +65,30 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
 }
 
 #if os(macOS) && canImport(CoreMedia) && canImport(CoreVideo) && canImport(VideoToolbox)
-private final class LiveNaruHelperVideoToolboxSyntheticAccessUnitEncoder {
-    private let frameCount: Int
+public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     private let width: Int32
     private let height: Int32
     private let frameRateBucket: HelperVideoFrameRateBucket
+    private let keyFrameInterval: Int
 
-    init(
-        frameCount: Int,
+    public init(
         width: Int32,
         height: Int32,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        keyFrameInterval: Int
     ) {
-        self.frameCount = max(frameCount, 1)
         self.width = width
         self.height = height
         self.frameRateBucket = frameRateBucket
+        self.keyFrameInterval = max(keyFrameInterval, 1)
     }
 
-    func encode() throws -> [NaruHelperVideoAccessUnit] {
+    public func encode(pixelBuffers: [CVPixelBuffer]) throws -> [NaruHelperVideoAccessUnit] {
         guard width > 0, height > 0 else {
             throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.invalidFrameSize
+        }
+        guard !pixelBuffers.isEmpty else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.noSourceFrames
         }
 
         let collector = LiveNaruHelperVideoToolboxOutputCollector()
@@ -120,12 +131,12 @@ private final class LiveNaruHelperVideoToolboxSyntheticAccessUnitEncoder {
         }
 
         let timescale = frameRateBucket.nominalTimescale
-        for index in 0..<frameCount {
-            let pixelBuffer = try Self.makePixelBuffer(
-                width: width,
-                height: height,
-                frameIndex: index
-            )
+        for (index, pixelBuffer) in pixelBuffers.enumerated() {
+            guard CVPixelBufferGetWidth(pixelBuffer) == Int(width),
+                  CVPixelBufferGetHeight(pixelBuffer) == Int(height)
+            else {
+                throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.invalidFrameSize
+            }
             let presentationTime = CMTime(value: CMTimeValue(index), timescale: timescale)
             let status = VTCompressionSessionEncodeFrame(
                 session,
@@ -181,7 +192,7 @@ private final class LiveNaruHelperVideoToolboxSyntheticAccessUnitEncoder {
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
-            (kVTCompressionPropertyKey_MaxKeyFrameInterval, frameCount as CFNumber),
+            (kVTCompressionPropertyKey_MaxKeyFrameInterval, keyFrameInterval as CFNumber),
             (kVTCompressionPropertyKey_ExpectedFrameRate, frameRateBucket.nominalTimescale as CFNumber)
         ]
 
@@ -193,8 +204,10 @@ private final class LiveNaruHelperVideoToolboxSyntheticAccessUnitEncoder {
             }
         }
     }
+}
 
-    private static func makePixelBuffer(
+private extension NaruHelperVideoToolboxSyntheticAccessUnitSource {
+    static func makePixelBuffer(
         width: Int32,
         height: Int32,
         frameIndex: Int

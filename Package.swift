@@ -94,7 +94,7 @@ let package = Package(
         ),
         .testTarget(
             name: "VNCLiveBenchmarkKitTests",
-            dependencies: ["VNCLiveBenchmarkKit", "NaruRemoteCore"],
+            dependencies: ["VNCLiveBenchmarkKit", "NaruRemoteCore", "NaruHelperKit"],
             path: "NaruRemote/Tests/VNCLiveBenchmarkKitTests"
         ),
         .testTarget(

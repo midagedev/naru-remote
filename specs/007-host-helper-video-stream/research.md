@@ -282,3 +282,39 @@ sample-buffer factory.
 - Wire ScreenCaptureKit directly into the next PR: deferred because capture
   permissions, display selection, frame cadence, and privacy review should be
   isolated from the encoder payload-format gate.
+
+## D11 - Feed finite ScreenCaptureKit frames through the same VideoToolbox encoder
+
+**Decision**: Add a finite ScreenCaptureKit access-unit source that captures a
+small batch of display frames, extracts only in-memory `CVPixelBuffer` images,
+feeds them through the shared VideoToolbox H.264 encoder, and exposes a
+`screen-capturekit-tcp` benchmark probe mode through the existing authenticated
+local TCP harness.
+
+**Rationale**:
+- Apple documents ScreenCaptureKit as the high-performance API for screen
+  capture and describes `SCStreamOutput` as the delegate path that receives
+  `CMSampleBuffer` frames from an `SCStream`.
+- The first live-capture slice should stay finite and explicit: it checks
+  Screen Recording permission before starting capture, selects an available
+  display, keeps `queueDepth` at three, throttles capture with
+  `minimumFrameInterval`, includes the visible cursor, and stops after the
+  requested batch.
+- The benchmark report still emits only fixed helper-video state labels and
+  aggregate health bands. It must not export frame content, dimensions, bytes,
+  endpoints, host names, OS error text, payloads, or exact timings.
+
+**Sources**:
+- Apple ScreenCaptureKit: https://developer.apple.com/documentation/screencapturekit
+- Apple `SCStreamOutput`: https://developer.apple.com/documentation/screencapturekit/scstreamoutput
+- Apple `SCStream.addStreamOutput`: https://developer.apple.com/documentation/screencapturekit/scstream/addstreamoutput%28_%3Atype%3Asamplehandlerqueue%3A%29
+- Apple `SCStreamConfiguration.queueDepth`: https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/queuedepth
+- Apple `SCStreamConfiguration.minimumFrameInterval`: https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/minimumframeinterval
+- Apple `SCFrameStatus`: https://developer.apple.com/documentation/screencapturekit/scframestatus
+
+**Alternatives considered**:
+- Start the long-lived helper sender in the same PR: rejected because permission
+  prompts, lifecycle restart behavior, display reselection, and iOS sustained
+  decode backpressure need their own focused review.
+- Export a captured frame or encoded byte sample for QA: rejected because that
+  violates the helper-video diagnostic privacy boundary.

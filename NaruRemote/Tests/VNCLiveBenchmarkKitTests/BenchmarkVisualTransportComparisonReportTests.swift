@@ -1,3 +1,5 @@
+import NaruHelperKit
+import NaruRemoteCore
 import XCTest
 @testable import VNCLiveBenchmarkKit
 
@@ -57,10 +59,14 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
             BenchmarkHelperVideoProbeMode.parse("synthetic-encoded-tcp"),
             .syntheticEncodedTCP
         )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeMode.parse("screen-capturekit-tcp"),
+            .screenCaptureKitTCP
+        )
         XCTAssertNil(BenchmarkHelperVideoProbeMode.parse("local"))
         XCTAssertEqual(
             BenchmarkHelperVideoProbeMode.usageDescription,
-            "disabled|synthetic-tcp|synthetic-encoded-tcp"
+            "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp"
         )
     }
 
@@ -101,6 +107,38 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         XCTAssertEqual(helperReport.issueCodes, [])
     }
     #endif
+
+    func testScreenCaptureKitTCPProbeCanUseInjectedSourceAndReportsPass() throws {
+        let report = BenchmarkHelperVideoProbe.makeComparison(
+            selection: try .parse("helper-video"),
+            probeMode: .screenCaptureKitTCP,
+            screenCaptureKitAccessUnitSource: NaruHelperVideoStaticAccessUnitSource(
+                accessUnits: [
+                    NaruHelperVideoAccessUnit(
+                        sequence: 0,
+                        kind: .parameterSet,
+                        binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x67])
+                    ),
+                    NaruHelperVideoAccessUnit(
+                        sequence: 1,
+                        kind: .keyframe,
+                        binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+                    )
+                ]
+            )
+        )
+        let helperReport = try XCTUnwrap(report.helperVideoReports.first)
+
+        XCTAssertEqual(report.selectedVisualTransports, [.helperVideo])
+        XCTAssertEqual(helperReport.visualTransport, .helperVideo)
+        XCTAssertEqual(helperReport.streamState, .healthy)
+        XCTAssertEqual(helperReport.startupBand, .fast)
+        XCTAssertEqual(helperReport.sustainedUpdateBand, .smooth)
+        XCTAssertEqual(helperReport.decodePressure, .low)
+        XCTAssertEqual(helperReport.fallbackCountBucket, .none)
+        XCTAssertEqual(helperReport.verdict, .pass)
+        XCTAssertEqual(helperReport.issueCodes, [])
+    }
 
     func testComparisonReportOmitsUnsafeHelperVideoFieldsAndPayloadSentinels() throws {
         let report = BenchmarkVisualTransportComparisonReport.fakeHelperComparison(

@@ -2,13 +2,18 @@ import Foundation
 import NaruHelperKit
 import NaruRemoteCore
 
+#if os(macOS) && canImport(CoreGraphics)
+import CoreGraphics
+#endif
+
 public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
     case disabled
     case syntheticTCP = "synthetic-tcp"
     case syntheticEncodedTCP = "synthetic-encoded-tcp"
+    case screenCaptureKitTCP = "screen-capturekit-tcp"
 
     public static var usageDescription: String {
-        "disabled|synthetic-tcp|synthetic-encoded-tcp"
+        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp"
     }
 
     public static func parse(_ rawValue: String) -> BenchmarkHelperVideoProbeMode? {
@@ -19,7 +24,8 @@ public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
 public enum BenchmarkHelperVideoProbe {
     public static func makeComparison(
         selection: BenchmarkVisualTransportSelection,
-        probeMode: BenchmarkHelperVideoProbeMode
+        probeMode: BenchmarkHelperVideoProbeMode,
+        screenCaptureKitAccessUnitSource: (any NaruHelperVideoAccessUnitSource)? = nil
     ) -> BenchmarkVisualTransportComparisonReport {
         guard selection.transports.contains(.helperVideo) else {
             return .fakeHelperComparison(selection: selection)
@@ -38,6 +44,22 @@ public enum BenchmarkHelperVideoProbe {
                 selection: selection,
                 helperVideoReport: syntheticTCPHelperVideoReport(
                     accessUnitSource: NaruHelperVideoToolboxSyntheticAccessUnitSource()
+                )
+            )
+        case .screenCaptureKitTCP:
+            if screenCaptureKitAccessUnitSource == nil,
+               let preflightReport = screenCaptureKitPreflightFailureReport()
+            {
+                return .helperComparison(
+                    selection: selection,
+                    helperVideoReport: preflightReport
+                )
+            }
+            return .helperComparison(
+                selection: selection,
+                helperVideoReport: syntheticTCPHelperVideoReport(
+                    accessUnitSource: screenCaptureKitAccessUnitSource
+                        ?? NaruHelperVideoScreenCaptureKitAccessUnitSource()
                 )
             )
         }
@@ -76,13 +98,50 @@ public enum BenchmarkHelperVideoProbe {
             }
             return BenchmarkHelperVideoReport(descriptor: descriptor, health: health)
         } catch {
-            return BenchmarkHelperVideoReport(
-                streamState: .failed,
-                startupBand: .failed,
-                sustainedUpdateBand: .stalled,
-                decodePressure: .notMeasured,
-                fallbackCountBucket: .one
-            )
+            return failedReport(issueCodes: issueCodes(for: error))
+        }
+    }
+
+    private static func screenCaptureKitPreflightFailureReport() -> BenchmarkHelperVideoReport? {
+        #if os(macOS) && canImport(CoreGraphics)
+        guard CGPreflightScreenCaptureAccess() else {
+            return failedReport(issueCodes: [.permissionMissing])
+        }
+        return nil
+        #else
+        return failedReport()
+        #endif
+    }
+
+    private static func failedReport(
+        issueCodes: [BenchmarkHelperVideoIssueCode] = []
+    ) -> BenchmarkHelperVideoReport {
+        BenchmarkHelperVideoReport(
+            streamState: .failed,
+            startupBand: .failed,
+            sustainedUpdateBand: .stalled,
+            decodePressure: .notMeasured,
+            fallbackCountBucket: .one,
+            issueCodes: issueCodes
+        )
+    }
+
+    private static func issueCodes(for error: Error) -> [BenchmarkHelperVideoIssueCode] {
+        guard let screenCaptureError = error as? NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+        else {
+            return []
+        }
+
+        switch screenCaptureError {
+        case .screenRecordingPermissionMissing:
+            return [.permissionMissing]
+        case .unsupportedPlatform,
+             .captureSourceUnavailable,
+             .captureTimedOut,
+             .captureFailed,
+             .capturedFrameMissingImageBuffer,
+             .noCapturedFrames:
+            return []
         }
     }
 
