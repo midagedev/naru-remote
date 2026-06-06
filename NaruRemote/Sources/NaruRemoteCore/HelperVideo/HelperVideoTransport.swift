@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public let naruHelperVideoStreamSchemaVersion = 1
 
@@ -40,6 +41,38 @@ public enum HelperVideoStopStreamReason: String, Codable, Equatable, CaseIterabl
     case userDisabled
     case fallbackToVNC
     case sessionEnded
+}
+
+public enum HelperVideoScreenRecordingPermission: String, Codable, Equatable, CaseIterable, Sendable {
+    case granted
+    case missing
+    case unsupported
+}
+
+public struct HelperVideoCapabilityRequestBody: Codable, Equatable, Sendable {
+    public init() {}
+}
+
+public struct HelperVideoCapabilityResponseBody: Codable, Equatable, Sendable {
+    public var availability: HelperVideoAvailability
+    public var screenRecordingPermission: HelperVideoScreenRecordingPermission
+    public var codecSupport: HelperVideoCodec
+    public var latencyModes: [HelperVideoLatencyMode]
+    public var safeFailureCode: HelperVideoFailureCode?
+
+    public init(
+        availability: HelperVideoAvailability = .notConfigured,
+        screenRecordingPermission: HelperVideoScreenRecordingPermission = .unsupported,
+        codecSupport: HelperVideoCodec = .unknown,
+        latencyModes: [HelperVideoLatencyMode] = [],
+        safeFailureCode: HelperVideoFailureCode? = nil
+    ) {
+        self.availability = availability
+        self.screenRecordingPermission = screenRecordingPermission
+        self.codecSupport = codecSupport
+        self.latencyModes = latencyModes
+        self.safeFailureCode = safeFailureCode
+    }
 }
 
 public struct HelperVideoWireEnvelope<Body: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
@@ -89,13 +122,84 @@ public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
 public struct HelperVideoStartStreamResponseBody: Codable, Equatable, Sendable {
     public var result: HelperVideoStartStreamResult
     public var streamDescriptor: HelperVideoStreamDescriptor
+    public var safeFailureCode: HelperVideoFailureCode?
 
     public init(
         result: HelperVideoStartStreamResult = .accepted,
-        streamDescriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor()
+        streamDescriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
+        safeFailureCode: HelperVideoFailureCode? = nil
     ) {
         self.result = result
         self.streamDescriptor = streamDescriptor
+        self.safeFailureCode = safeFailureCode
+    }
+}
+
+public enum HelperVideoAuthProof {
+    public static let scheme = "hmac-sha256"
+
+    public static func make(
+        requestID: UUID,
+        messageType: HelperVideoMessageType,
+        profileFingerprint: String?,
+        pairingSecret: String
+    ) -> String {
+        let key = SymmetricKey(data: Data(pairingSecret.utf8))
+        let signature = HMAC<SHA256>.authenticationCode(
+            for: canonicalMessage(
+                requestID: requestID,
+                messageType: messageType,
+                profileFingerprint: profileFingerprint
+            ),
+            using: key
+        )
+        return "\(scheme):\(Data(signature).hexEncodedString())"
+    }
+
+    public static func verify(
+        _ proof: String?,
+        requestID: UUID,
+        messageType: HelperVideoMessageType,
+        profileFingerprint: String?,
+        pairingSecret: String
+    ) -> Bool {
+        guard let proof, !pairingSecret.isEmpty else {
+            return false
+        }
+        let expected = make(
+            requestID: requestID,
+            messageType: messageType,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret
+        )
+        return constantTimeEqual(proof, expected)
+    }
+
+    private static func canonicalMessage(
+        requestID: UUID,
+        messageType: HelperVideoMessageType,
+        profileFingerprint: String?
+    ) -> Data {
+        let fields = [
+            String(naruHelperVideoStreamSchemaVersion),
+            requestID.uuidString.lowercased(),
+            messageType.rawValue,
+            profileFingerprint ?? ""
+        ]
+        return Data(fields.joined(separator: "\n").utf8)
+    }
+
+    private static func constantTimeEqual(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Array(lhs.utf8)
+        let right = Array(rhs.utf8)
+        guard left.count == right.count else {
+            return false
+        }
+        var difference: UInt8 = 0
+        for index in left.indices {
+            difference |= left[index] ^ right[index]
+        }
+        return difference == 0
     }
 }
 
@@ -286,5 +390,9 @@ public enum HelperVideoWireCodec {
 private extension Data {
     func prefixData(_ count: Int) -> Data {
         Data(prefix(count))
+    }
+
+    func hexEncodedString() -> String {
+        map { String(format: "%02x", $0) }.joined()
     }
 }

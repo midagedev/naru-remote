@@ -9,6 +9,10 @@ remote desktop protocol. VNC remains the control and fallback channel.
 - One authenticated helper-video session per active Naru Remote profile.
 - Private-network endpoint only.
 - Reuse the helper pairing secret model from `006-host-helper-text-bridge`.
+- App-to-helper request envelopes carry `authProof`, an HMAC-SHA256 proof over
+  schema version, request ID, message type, and profile fingerprint using the
+  pairing secret as local key material.
+- Helper-to-app response envelopes omit `authProof`.
 - Length-prefixed messages:
   - 4-byte big-endian JSON length
   - UTF-8 JSON envelope
@@ -32,6 +36,9 @@ remote desktop protocol. VNC remains the control and fallback channel.
 Diagnostics may include `schemaVersion`, `messageType`, and fixed result
 labels. Diagnostics must not include `authProof`, endpoint, host name, display
 name, dimensions, raw payload, or exact timestamps.
+
+`authProof` authenticates the request envelope. It does not encrypt the JSON
+body or any future access-unit payload.
 
 ## Message Types
 
@@ -82,7 +89,8 @@ Response body:
     "colorMode": "standardDynamicRange",
     "supportsKeyframeRequest": true,
     "supportsFallbackSignal": true
-  }
+  },
+  "safeFailureCode": null
 }
 ```
 

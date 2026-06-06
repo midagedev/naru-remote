@@ -128,8 +128,8 @@ without unsafe report fields.
   `swift test --filter NaruHelperVideo`. **Done.**
 - [x] T026 [US1] Add VideoToolbox H.264 encoder prototype behind a helper
   feature flag. **Done.**
-- [ ] T027 [US1] Add authenticated helper-video transport messages according
-  to `contracts/helper-video-stream.md`.
+- [x] T027 [US1] Add authenticated helper-video transport messages according
+  to `contracts/helper-video-stream.md`. **Done.**
 - [ ] T028 [US1] Add iOS decode/display prototype using platform video APIs.
 - [ ] T029 [US2] Run the constrained-cellular helper-video live benchmark using
   environment-sourced live credentials only.

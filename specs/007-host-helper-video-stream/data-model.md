@@ -69,6 +69,31 @@ Privacy:
 - No helper endpoint, host name, auth token, display dimensions, frame content,
   byte counts, coordinates, or exact timing.
 
+## HelperVideoAuthProof
+
+Per-message authentication proof for helper-video client requests.
+
+Fields:
+
+- `scheme`: Fixed `hmac-sha256` prefix in the serialized proof.
+- `requestID`: Included in the signed canonical message.
+- `messageType`: Included in the signed canonical message.
+- `profileFingerprint`: Included in the signed canonical message.
+
+Rules:
+
+- The pairing secret is used only as local HMAC key material and is never
+  serialized into helper-video envelopes.
+- `authProof` is present only on app-to-helper request envelopes.
+- Helper responses must omit `authProof`.
+- `authProof` authenticates the request but does not encrypt the JSON body or
+  any future binary access-unit payload.
+
+Privacy:
+
+- `authProof`, pairing secrets, endpoints, host names, frame payloads, and
+  exact timing samples are not diagnostic-safe.
+
 ## NaruHelperVideoCaptureCapabilityResponse
 
 Safe macOS helper response for the ScreenCaptureKit capture probe.

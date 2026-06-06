@@ -64,6 +64,20 @@ feature flag enabled, it prepares a synthetic low-latency H.264 session and
 must not emit dimensions, encoded payloads, byte counts, host names, endpoints,
 display names, frame content, or exact timings.
 
+## Implemented Helper Video Auth Transport Slice
+
+```bash
+swift test --filter NaruHelperVideoTransport
+```
+
+The helper-video transport slice signs app-to-helper request envelopes with an
+HMAC-SHA256 `authProof` scoped to request ID, message type, and profile
+fingerprint. Helper responses omit `authProof` and must not echo pairing
+secrets, encoded payloads, dimensions, byte counts, host names, endpoints, or
+display names. This slice handles authenticated `capabilityRequest` and
+`startStream` frames plus shared authorization for `requestKeyframe` and
+`stopStream`; it does not send live access units yet.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.
