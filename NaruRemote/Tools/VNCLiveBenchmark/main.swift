@@ -134,6 +134,10 @@ enum VNCLiveBenchmark {
             idleTimeout: options.idleTimeout,
             maxSamples: options.continuousUpdateSamples
         )
+        let visualTransportComparison = BenchmarkHelperVideoProbe.makeComparison(
+            selection: options.visualTransports,
+            probeMode: options.helperVideoProbeMode
+        )
 
         return BenchmarkReport(
             attemptsPerProfile: options.attempts,
@@ -168,6 +172,7 @@ enum VNCLiveBenchmark {
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
             visualTransports: options.visualTransports,
+            visualTransportComparison: visualTransportComparison,
             profiles: profiles,
             idleProbe: idleProbe,
             streamShapeProbe: streamShapeProbe,
@@ -1337,6 +1342,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
     var visualTransports: BenchmarkVisualTransportSelection = .vnc
+    var helperVideoProbeMode: BenchmarkHelperVideoProbeMode = .disabled
     var streamShapeProfileIterations = 1
     var streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode = .fixed
     var streamShapePacingWindowCandidates: [BenchmarkStreamShapePacingWindowCandidate] = []
@@ -1546,6 +1552,15 @@ private struct BenchmarkOptions: Equatable {
                 } catch let error as BenchmarkVisualTransportSelectionError {
                     throw UsageError(error.message)
                 }
+                index = arguments.index(index, offsetBy: 2)
+            case "--helper-video-probe":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let mode = BenchmarkHelperVideoProbeMode.parse(value) else {
+                    throw UsageError(
+                        "helper-video-probe must be \(BenchmarkHelperVideoProbeMode.usageDescription)."
+                    )
+                }
+                options.helperVideoProbeMode = mode
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-profile-iterations":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -2282,6 +2297,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
         visualTransports: BenchmarkVisualTransportSelection,
+        visualTransportComparison: BenchmarkVisualTransportComparisonReport,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
         streamShapeProbe: StreamShapeProbeReport,
@@ -2361,9 +2377,7 @@ private struct BenchmarkReport: Codable, Equatable {
         self.firstFrameProfiles = firstFrameProfiles
         self.streamShapeProfiles = streamShapeProfiles.rawValue
         self.streamShapeTransportModes = streamShapeTransportModes
-        self.visualTransportComparison = BenchmarkVisualTransportComparisonReport.fakeHelperComparison(
-            selection: visualTransports
-        )
+        self.visualTransportComparison = visualTransportComparison
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         let streamShapeProfileAggregates = BenchmarkStreamShapeProfileAggregateReport
@@ -3553,6 +3567,8 @@ private func printUsage() {
                                 Transport mode for stream-shape probes. Defaults to request-response; use both to compare request/response with the ContinuousUpdates overlay.
       --visual-transport \(BenchmarkVisualTransportSelection.usageDescription)
                                 Visual transport candidates to record in the benchmark report. Defaults to vnc; helper-video currently emits a benchmark-only fake helper report with fixed labels and no frames, dimensions, endpoints, byte counts, tokens, or exact helper timings.
+      --helper-video-probe \(BenchmarkHelperVideoProbeMode.usageDescription)
+                                Helper-video probe used when helper-video is selected. Defaults to disabled; synthetic-tcp runs a local finite TCP harness and emits only fixed labels.
       --stream-shape-profile-iterations N
                                 Repeat stream-shape profile probes this many times. Defaults to 1; maximum 20.
       --stream-shape-profile-order \(BenchmarkStreamShapeProfileOrderMode.usageDescription)

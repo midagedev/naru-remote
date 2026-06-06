@@ -112,8 +112,15 @@ public struct BenchmarkVisualTransportComparisonReport: Codable, Equatable, Send
     public static func fakeHelperComparison(
         selection: BenchmarkVisualTransportSelection
     ) -> BenchmarkVisualTransportComparisonReport {
+        helperComparison(selection: selection, helperVideoReport: nil)
+    }
+
+    public static func helperComparison(
+        selection: BenchmarkVisualTransportSelection,
+        helperVideoReport: BenchmarkHelperVideoReport?
+    ) -> BenchmarkVisualTransportComparisonReport {
         let helperReports = selection.transports.contains(.helperVideo)
-            ? [BenchmarkHelperVideoReport()]
+            ? [helperVideoReport ?? BenchmarkHelperVideoReport()]
             : []
         return BenchmarkVisualTransportComparisonReport(
             selectedVisualTransports: selection.transports,

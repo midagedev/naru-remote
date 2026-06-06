@@ -55,7 +55,7 @@ let package = Package(
         ),
         .target(
             name: "VNCLiveBenchmarkKit",
-            dependencies: ["NaruRemoteCore"],
+            dependencies: ["NaruRemoteCore", "NaruHelperKit"],
             path: "NaruRemote/Tools/VNCLiveBenchmarkKit"
         ),
         .executableTarget(
