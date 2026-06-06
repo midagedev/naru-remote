@@ -115,6 +115,29 @@ Body:
 }
 ```
 
+### `streamStalled`
+
+Helper reports that the helper-video visual path is no longer producing usable
+updates. The app must keep VNC connected and return the visual path to VNC.
+
+Body:
+
+```json
+{
+  "reason": "noAccessUnit",
+  "health": {
+    "state": "stalled",
+    "startupBand": "usable",
+    "sustainedUpdateBand": "stalled",
+    "decodePressure": "medium",
+    "fallbackCountBucket": "one"
+  }
+}
+```
+
+All values are fixed catalog labels or coarse buckets; no frame, byte count,
+endpoint, coordinate, dimension, or exact timing data is allowed.
+
 ### `stopStream`
 
 App stops helper video and returns to VNC visual path.

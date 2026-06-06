@@ -32,17 +32,17 @@ description: "Tasks: Host Helper Video Stream"
   `HelperVideoStreamDescriptor`, and `HelperVideoStreamHealth` value types in
   `NaruRemote/Sources/NaruRemoteCore/HelperVideo/`; verify with
   `swift test --filter HelperVideo`. **Done.**
-- [ ] T007 [US1] Add fake helper video stream client/server test harness in
+- [x] T007 [US1] Add fake helper video stream client/server test harness in
   `NaruRemote/Tests/NaruRemoteCoreTests/`; verify start, access-unit, stall,
-  and stop messages without a real helper.
+  and stop messages without a real helper. **Done.**
 - [ ] T008 [US3] Extend diagnostic export model with helper-video state in
   `NaruRemote/Sources/NaruRemoteCore/Diagnostics/`; add privacy tests proving
   no frames, dimensions, endpoints, byte counts, exact timings, tokens, host
   names, Compose text, or clipboard contents are exported.
 - [ ] T009 [US2] Add benchmark report fixtures for helper-video schema fields
   in `NaruRemote/Tests/VNCLiveBenchmarkKitTests/`.
-- [ ] T010 Update `quickstart.md` with exact test names after implementation
-  test classes exist.
+- [x] T010 Update `quickstart.md` with exact test names after implementation
+  test classes exist. **Done.**
 
 **Checkpoint**: Verification tools exist and fail for missing implementation
 where applicable.

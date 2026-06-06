@@ -1,7 +1,7 @@
 # Quickstart: Host Helper Video Stream
 
-This feature is not implemented yet. These are the target verification commands
-for the first implementation slices.
+This feature is implemented in small foundation slices. Use the implemented
+checks first, then the planned checks as each later task lands.
 
 ## Readiness
 
@@ -11,10 +11,16 @@ rg -n "NEEDS CLARIFICATION" specs/007-host-helper-video-stream
 
 Expected: no matches.
 
-## Planned Unit And App Tests
+## Implemented Foundation Tests
 
 ```bash
 swift test --filter HelperVideo
+swift test --filter HelperVideoFakeTransportTests
+```
+
+## Planned Unit And App Tests
+
+```bash
 swift test --filter HelperVideoDiagnostics
 swift test --filter HelperVideoBenchmark
 ```
