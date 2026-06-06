@@ -1,11 +1,12 @@
 import Foundation
+import NaruHelperKit
 
 #if os(macOS) && canImport(CoreGraphics)
 import CoreGraphics
 #endif
 
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 4
+    public static let schemaVersion = 5
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -15,6 +16,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         case stimulusMode
         case stimulusCommandStatus
         case helperVideoScreenCapturePermissionStatus
+        case helperVideoExternalCapability
         case canRunLiveBenchmark
         case issueCodes
         case setupActionLabels
@@ -28,6 +30,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
     public let stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus
     public let helperVideoScreenCapturePermissionStatus:
         BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus
+    public let helperVideoExternalCapability:
+        BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability
     public let canRunLiveBenchmark: Bool
     public let issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode]
     public let setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction]
@@ -41,6 +45,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
         helperVideoScreenCapturePermissionStatus:
             BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus = .notRequired,
+        helperVideoExternalCapability:
+            BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability = .notRequired,
         canRunLiveBenchmark: Bool,
         issueCodes: [BenchmarkLiveEnvironmentPreflightIssueCode],
         setupActionLabels: [BenchmarkLiveEnvironmentPreflightSetupAction] = []
@@ -52,6 +58,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         self.stimulusMode = stimulusMode
         self.stimulusCommandStatus = stimulusCommandStatus
         self.helperVideoScreenCapturePermissionStatus = helperVideoScreenCapturePermissionStatus
+        self.helperVideoExternalCapability = helperVideoExternalCapability
         self.canRunLiveBenchmark = canRunLiveBenchmark
         self.issueCodes = issueCodes
         self.setupActionLabels = setupActionLabels
@@ -83,6 +90,10 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus.self,
             forKey: .helperVideoScreenCapturePermissionStatus
         ) ?? .notRequired
+        let helperVideoExternalCapability = try container.decodeIfPresent(
+            BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability.self,
+            forKey: .helperVideoExternalCapability
+        ) ?? .notRequired
         let canRunLiveBenchmark = try container.decode(Bool.self, forKey: .canRunLiveBenchmark)
         self.init(
             schemaVersion: try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
@@ -93,6 +104,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             stimulusMode: stimulusMode,
             stimulusCommandStatus: stimulusCommandStatus,
             helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
+            helperVideoExternalCapability: helperVideoExternalCapability,
             canRunLiveBenchmark: canRunLiveBenchmark,
             issueCodes: try container.decodeIfPresent(
                 [BenchmarkLiveEnvironmentPreflightIssueCode].self,
@@ -107,6 +119,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
                 credentialStatus: credentialStatus,
                 stimulusCommandStatus: stimulusCommandStatus,
                 helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
+                helperVideoExternalCapability: helperVideoExternalCapability,
                 canRunLiveBenchmark: canRunLiveBenchmark
             )
         )
@@ -119,7 +132,9 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         visualTransports: BenchmarkVisualTransportSelection = .vnc,
         helperVideoProbeMode: BenchmarkHelperVideoProbeMode = .disabled,
         screenCapturePermissionStatusProvider:
-            (() -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus)? = nil
+            (() -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus)? = nil,
+        externalHelperCapabilityProvider:
+            (() -> BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability)? = nil
     ) -> BenchmarkLiveEnvironmentPreflightReport {
         let hostStatus: BenchmarkLiveEnvironmentPreflightHostStatus
         if environment["NARU_LIVE_MAC_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
@@ -145,9 +160,17 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             for: stimulusMode,
             environment: environment
         )
+        let helperVideoExternalCapability = helperVideoExternalCapability(
+            visualTransports: visualTransports,
+            helperVideoProbeMode: helperVideoProbeMode,
+            provider: externalHelperCapabilityProvider ?? {
+                liveExternalHelperCapability(environment: environment)
+            }
+        )
         let helperVideoScreenCapturePermissionStatus = helperVideoScreenCapturePermissionStatus(
             visualTransports: visualTransports,
             helperVideoProbeMode: helperVideoProbeMode,
+            externalHelperCapability: helperVideoExternalCapability,
             provider: screenCapturePermissionStatusProvider ?? liveScreenCapturePermissionStatus
         )
 
@@ -170,6 +193,12 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if helperVideoScreenCapturePermissionStatus == .unsupported {
             issueCodes.append(.helperVideoCaptureUnsupported)
         }
+        if helperVideoExternalCapability.status == .unavailable {
+            issueCodes.append(.helperVideoExternalHelperUnavailable)
+        }
+        if helperVideoExternalCapability.status == .failed {
+            issueCodes.append(.helperVideoExternalHelperFailed)
+        }
         let canRunLiveBenchmark = issueCodes.isEmpty
 
         return BenchmarkLiveEnvironmentPreflightReport(
@@ -179,6 +208,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             stimulusMode: stimulusMode,
             stimulusCommandStatus: stimulusCommandStatus,
             helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
+            helperVideoExternalCapability: helperVideoExternalCapability,
             canRunLiveBenchmark: canRunLiveBenchmark,
             issueCodes: issueCodes,
             setupActionLabels: setupActions(
@@ -187,6 +217,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
                 credentialStatus: credentialStatus,
                 stimulusCommandStatus: stimulusCommandStatus,
                 helperVideoScreenCapturePermissionStatus: helperVideoScreenCapturePermissionStatus,
+                helperVideoExternalCapability: helperVideoExternalCapability,
                 canRunLiveBenchmark: canRunLiveBenchmark
             )
         )
@@ -199,6 +230,8 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         stimulusCommandStatus: BenchmarkLiveEnvironmentPreflightStimulusCommandStatus,
         helperVideoScreenCapturePermissionStatus:
             BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus,
+        helperVideoExternalCapability:
+            BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability,
         canRunLiveBenchmark: Bool
     ) -> [BenchmarkLiveEnvironmentPreflightSetupAction] {
         guard !canRunLiveBenchmark else {
@@ -219,25 +252,76 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             actions.append(.setStimulusCommand)
         }
         if helperVideoScreenCapturePermissionStatus == .missing {
-            actions.append(.requestHelperVideoScreenRecordingPermission)
+            actions.append(
+                setupActionForMissingHelperVideoPermission(
+                    externalHelperCapability: helperVideoExternalCapability
+                )
+            )
         }
         if helperVideoScreenCapturePermissionStatus == .unsupported {
             actions.append(.useSyntheticHelperVideoProbe)
         }
+        if helperVideoExternalCapability.status == .unavailable {
+            actions.append(.configureHelperVideoExecutable)
+        }
+        if helperVideoExternalCapability.status == .failed {
+            actions.append(.inspectHelperVideoCapability)
+        }
         return actions
+    }
+
+    private static func setupActionForMissingHelperVideoPermission(
+        externalHelperCapability:
+            BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability
+    ) -> BenchmarkLiveEnvironmentPreflightSetupAction {
+        switch externalHelperCapability.permissionIdentity?.grantHint {
+        case .grantAppBundle:
+            return .grantHelperVideoAppScreenRecordingPermission
+        case .useStableHelperExecutable:
+            return .installStableHelperVideoExecutable
+        case .grantCurrentHelperExecutable, .unsupported, .unknown, nil:
+            return .requestHelperVideoScreenRecordingPermission
+        }
     }
 
     private static func helperVideoScreenCapturePermissionStatus(
         visualTransports: BenchmarkVisualTransportSelection,
         helperVideoProbeMode: BenchmarkHelperVideoProbeMode,
+        externalHelperCapability:
+            BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability,
         provider: () -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus
     ) -> BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionStatus {
         guard visualTransports.transports.contains(.helperVideo),
               helperVideoProbeMode.requiresScreenCapturePermission else {
             return .notRequired
         }
+        if helperVideoProbeMode.usesExternalHelperScreenCapture {
+            switch externalHelperCapability.status {
+            case .available:
+                return .granted
+            case .permissionMissing:
+                return .missing
+            case .unsupported:
+                return .unsupported
+            case .notRequired, .notChecked, .unavailable, .failed:
+                return .delegatedToHelper
+            }
+        }
         if helperVideoProbeMode.delegatesScreenCapturePermissionToExternalHelper {
             return .delegatedToHelper
+        }
+        return provider()
+    }
+
+    private static func helperVideoExternalCapability(
+        visualTransports: BenchmarkVisualTransportSelection,
+        helperVideoProbeMode: BenchmarkHelperVideoProbeMode,
+        provider: () -> BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability
+    ) -> BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability {
+        guard visualTransports.transports.contains(.helperVideo),
+              helperVideoProbeMode.usesExternalHelperScreenCapture
+        else {
+            return .notRequired
         }
         return provider()
     }
@@ -250,6 +334,71 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         #else
         return .unsupported
         #endif
+    }
+
+    private static func liveExternalHelperCapability(
+        environment: [String: String]
+    ) -> BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability {
+        let process = Process()
+        process.executableURL = helperExecutableURL(environment: environment)
+        process.arguments = ["--video-capability"]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                status: .unavailable
+            )
+        }
+
+        guard process.terminationStatus == 0 else {
+            return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                status: .failed
+            )
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let response = try? JSONDecoder().decode(
+            NaruHelperVideoCaptureCapabilityResponse.self,
+            from: data
+        ) else {
+            return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                status: .failed
+            )
+        }
+        return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(response: response)
+    }
+
+    private static func helperExecutableURL(environment: [String: String]) -> URL {
+        if let executablePath = environment["NARU_HELPER_EXECUTABLE"],
+           !executablePath.isEmpty
+        {
+            return fileURL(forExecutablePath: executablePath)
+        }
+        for productsDirectoryKey in ["BUILT_PRODUCTS_DIR", "CONFIGURATION_BUILD_DIR"] {
+            guard let productsDirectory = environment[productsDirectoryKey],
+                  !productsDirectory.isEmpty
+            else {
+                continue
+            }
+            return fileURL(forExecutablePath: productsDirectory)
+                .appendingPathComponent("NaruHelper")
+        }
+        return fileURL(forExecutablePath: ".build/debug/NaruHelper")
+    }
+
+    private static func fileURL(forExecutablePath executablePath: String) -> URL {
+        guard executablePath.hasPrefix("/") else {
+            return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(executablePath)
+        }
+        return URL(fileURLWithPath: executablePath)
     }
 }
 
@@ -309,6 +458,135 @@ public enum BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionS
     case delegatedToHelper
 }
 
+public struct BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability:
+    Codable,
+    Equatable,
+    Sendable
+{
+    public var status: BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapabilityStatus
+    public var permissionIdentity:
+        BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity?
+
+    public init(
+        status: BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapabilityStatus,
+        permissionIdentity:
+            BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity? = nil
+    ) {
+        self.status = status
+        self.permissionIdentity = permissionIdentity
+    }
+
+    public init(response: NaruHelperVideoCaptureCapabilityResponse) {
+        self.status = BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapabilityStatus(
+            response: response
+        )
+        self.permissionIdentity = BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity(
+            response.permissionIdentity
+        )
+    }
+
+    public static let notRequired = BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+        status: .notRequired
+    )
+}
+
+public enum BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapabilityStatus:
+    String,
+    Codable,
+    Equatable,
+    Sendable
+{
+    case notRequired
+    case notChecked
+    case available
+    case permissionMissing
+    case unsupported
+    case unavailable
+    case failed
+
+    init(response: NaruHelperVideoCaptureCapabilityResponse) {
+        switch response.availability {
+        case .available:
+            self = .available
+        case .permissionMissing:
+            self = .permissionMissing
+        case .failed:
+            self = response.screenRecordingPermission == .unsupported ? .unsupported : .failed
+        case .notConfigured, .disabled, .checking, .revoked, .unreachable,
+             .privateNetworkRequired:
+            self = .unavailable
+        case .codecUnsupported:
+            self = .failed
+        }
+    }
+}
+
+public struct BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity:
+    Codable,
+    Equatable,
+    Sendable
+{
+    public var processKind:
+        BenchmarkLiveEnvironmentPreflightHelperVideoPermissionProcessKind
+    public var grantHint:
+        BenchmarkLiveEnvironmentPreflightHelperVideoPermissionGrantHint
+
+    public init(
+        processKind: BenchmarkLiveEnvironmentPreflightHelperVideoPermissionProcessKind,
+        grantHint: BenchmarkLiveEnvironmentPreflightHelperVideoPermissionGrantHint
+    ) {
+        self.processKind = processKind
+        self.grantHint = grantHint
+    }
+
+    init(_ context: NaruHelperVideoPermissionIdentityContext) {
+        self.processKind = BenchmarkLiveEnvironmentPreflightHelperVideoPermissionProcessKind(
+            context.processKind
+        )
+        self.grantHint = BenchmarkLiveEnvironmentPreflightHelperVideoPermissionGrantHint(
+            context.grantHint
+        )
+    }
+}
+
+public enum BenchmarkLiveEnvironmentPreflightHelperVideoPermissionProcessKind:
+    String,
+    Codable,
+    Equatable,
+    Sendable
+{
+    case appBundle
+    case commandLineTool
+    case swiftPMBuildArtifact
+    case unsupported
+    case unknown
+
+    init(_ processKind: NaruHelperVideoPermissionProcessKind) {
+        self = BenchmarkLiveEnvironmentPreflightHelperVideoPermissionProcessKind(
+            rawValue: processKind.rawValue
+        ) ?? .unknown
+    }
+}
+
+public enum BenchmarkLiveEnvironmentPreflightHelperVideoPermissionGrantHint:
+    String,
+    Codable,
+    Equatable,
+    Sendable
+{
+    case grantAppBundle
+    case grantCurrentHelperExecutable
+    case useStableHelperExecutable
+    case unsupported
+    case unknown
+
+    init(_ grantHint: NaruHelperVideoPermissionGrantHint) {
+        self = BenchmarkLiveEnvironmentPreflightHelperVideoPermissionGrantHint(
+            rawValue: grantHint.rawValue
+        ) ?? .unknown
+    }
+}
+
 public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatable {
     case missingHost = "missing-host"
     case invalidPort = "invalid-port"
@@ -316,6 +594,8 @@ public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatab
     case missingStimulusCommand = "missing-stimulus-command"
     case helperVideoPermissionMissing = "helper-video-permission-missing"
     case helperVideoCaptureUnsupported = "helper-video-capture-unsupported"
+    case helperVideoExternalHelperUnavailable = "helper-video-external-helper-unavailable"
+    case helperVideoExternalHelperFailed = "helper-video-external-helper-failed"
 }
 
 public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equatable {
@@ -325,6 +605,11 @@ public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equat
     case setStimulusCommand = "set-naru-live-stimulus-command"
     case requestHelperVideoScreenRecordingPermission =
         "request-helper-video-screen-recording-permission"
+    case grantHelperVideoAppScreenRecordingPermission =
+        "grant-helper-video-app-screen-recording-permission"
+    case installStableHelperVideoExecutable = "install-stable-helper-video-executable"
+    case configureHelperVideoExecutable = "configure-helper-video-executable"
+    case inspectHelperVideoCapability = "inspect-helper-video-capability"
     case useSyntheticHelperVideoProbe = "use-synthetic-helper-video-probe"
     case runLiveGate = "run-live-gate"
 }
@@ -340,6 +625,10 @@ private extension BenchmarkHelperVideoProbeMode {
     }
 
     var delegatesScreenCapturePermissionToExternalHelper: Bool {
+        self == .externalHelperScreenCaptureKitTCP
+    }
+
+    var usesExternalHelperScreenCapture: Bool {
         self == .externalHelperScreenCaptureKitTCP
     }
 }

@@ -3480,6 +3480,12 @@ private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
     print("credential: \(report.credentialStatus.rawValue)")
     print("stream-shape stimulus: \(report.stimulusMode.rawValue)")
     print("stimulus command: \(report.stimulusCommandStatus.rawValue)")
+    print("helper video screen capture: \(report.helperVideoScreenCapturePermissionStatus.rawValue)")
+    print("helper video external capability: \(report.helperVideoExternalCapability.status.rawValue)")
+    if let permissionIdentity = report.helperVideoExternalCapability.permissionIdentity {
+        print("helper video permission process: \(permissionIdentity.processKind.rawValue)")
+        print("helper video permission grant hint: \(permissionIdentity.grantHint.rawValue)")
+    }
     print("live benchmark runnable: \(report.canRunLiveBenchmark ? "yes" : "no")")
     let issues = report.issueCodes.map(\.rawValue).joined(separator: ",")
     print("issues: \(issues.isEmpty ? "none" : issues)")

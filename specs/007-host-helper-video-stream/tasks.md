@@ -188,6 +188,10 @@ without unsafe report fields.
   `NaruHelper`, installs a stable `NaruHelperDev.app`, optionally sets
   `NARU_HELPER_EXECUTABLE` through `launchctl`, and preserves fixed-label
   helper diagnostics for live ScreenCaptureKit setup. **Done.**
+- [x] T029P [US2] Extend `VNCLiveBenchmark --environment-preflight` schema `5`
+  to query the selected external helper's `--video-capability` fixed labels
+  before ScreenCaptureKit benchmark runs, mapping helper permission identity to
+  precise setup actions without exposing helper paths. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
