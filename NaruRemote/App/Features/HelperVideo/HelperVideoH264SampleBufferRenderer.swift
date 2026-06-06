@@ -343,4 +343,13 @@ public final class HelperVideoH264SampleBufferRenderer {
         displayLayer.flush()
     }
 }
+
+extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRendering {
+    @discardableResult
+    public func enqueueDisplayableAccessUnit(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) throws -> Bool {
+        try enqueue(decoded) != nil
+    }
+}
 #endif

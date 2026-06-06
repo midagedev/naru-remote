@@ -148,6 +148,10 @@ without unsafe report fields.
   **Done.**
 - [x] T029E [US1] Add a finite ScreenCaptureKit pixel-buffer access-unit source
   and expose it through an explicit benchmark TCP probe mode. **Done.**
+- [x] T029F [US1] Add an app-side helper-video stream session runner that
+  applies finite network start results to the iOS access-unit renderer, helper
+  visual transport state, and VNC fallback health without exporting endpoints,
+  payloads, byte counts, or raw errors. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
