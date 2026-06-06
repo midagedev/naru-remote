@@ -1,4 +1,5 @@
 import XCTest
+import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
@@ -160,6 +161,21 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
                 "zrle-compression-0-rgb565"
             ]
         )
+    }
+
+    func testPixelFormatIsolationIncludesAppLowTrafficStreamEncodingLabel() throws {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: "pixel-format-isolation",
+            allProfileLabels: [
+                "local-low-latency",
+                "local-low-latency-rgb565",
+                StreamEncodingMode.zrleCompressionZero.rawValue,
+                StreamEncodingMode.zrleCompressionZeroRGB565.rawValue
+            ]
+        )
+
+        XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZero.rawValue))
+        XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZeroRGB565.rawValue))
     }
 
     func testPixelFormatIsolationThrowsWhenAPairProfileIsMissing() {

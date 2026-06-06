@@ -68,14 +68,14 @@ final class AppSettingsCodableTests: XCTestCase {
     func testStreamEncodingModeDecodesWhenPresent() throws {
         let json = """
         {
-          "streamEncodingMode": "zrle-compression-0"
+          "streamEncodingMode": "zrle-compression-0-rgb565"
         }
         """
         let data = try XCTUnwrap(json.data(using: .utf8))
 
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
 
-        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZero)
+        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZeroRGB565)
     }
 
     func testEncodingProducesEmptyJSONObject() throws {
@@ -108,13 +108,13 @@ final class AppSettingsCodableTests: XCTestCase {
     }
 
     func testEncodingNonDefaultStreamEncodingMode() throws {
-        let data = try JSONEncoder().encode(AppSettings(streamEncodingMode: .adaptiveGoodFull))
+        let data = try JSONEncoder().encode(AppSettings(streamEncodingMode: .zrleCompressionZeroRGB565))
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
         let json = String(decoding: data, as: UTF8.self)
 
-        XCTAssertEqual(decoded.streamEncodingMode, .adaptiveGoodFull)
+        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZeroRGB565)
         XCTAssertTrue(json.contains("\"streamEncodingMode\""))
-        XCTAssertTrue(json.contains("\"adaptive-good-full\""))
+        XCTAssertTrue(json.contains("\"zrle-compression-0-rgb565\""))
     }
 
     func testStartupPreflightModeTogglesBetweenExperimentAndDisabled() {
@@ -125,7 +125,8 @@ final class AppSettingsCodableTests: XCTestCase {
 
     func testStreamEncodingModeTogglesThroughBenchmarkCandidates() {
         XCTAssertEqual(StreamEncodingMode.standard.toggled, .zrleCompressionZero)
-        XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .adaptiveGoodFull)
+        XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .zrleCompressionZeroRGB565)
+        XCTAssertEqual(StreamEncodingMode.zrleCompressionZeroRGB565.toggled, .adaptiveGoodFull)
         XCTAssertEqual(StreamEncodingMode.adaptiveGoodFull.toggled, .standard)
     }
 }

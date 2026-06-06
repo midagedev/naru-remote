@@ -779,7 +779,9 @@ public struct SessionViewportView: View {
         case .standard:
             return "Standard stream profile — tap to try ZRLE compression 0"
         case .zrleCompressionZero:
-            return "ZRLE compression 0 stream profile — tap to try adaptive full"
+            return "ZRLE compression 0 stream profile — tap to try RGB565 low traffic"
+        case .zrleCompressionZeroRGB565:
+            return "RGB565 low-traffic stream profile — tap to try adaptive full"
         case .adaptiveGoodFull:
             return "Adaptive full stream profile — tap to use standard"
         }

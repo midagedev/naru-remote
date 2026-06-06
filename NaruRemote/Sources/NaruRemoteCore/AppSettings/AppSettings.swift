@@ -50,6 +50,7 @@ public enum StreamStartupPreflightMode: String, Codable, Equatable, Sendable, Ca
 public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterable {
     case standard
     case zrleCompressionZero = "zrle-compression-0"
+    case zrleCompressionZeroRGB565 = "zrle-compression-0-rgb565"
     case adaptiveGoodFull = "adaptive-good-full"
 
     public var toggled: StreamEncodingMode {
@@ -57,6 +58,8 @@ public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterab
         case .standard:
             return .zrleCompressionZero
         case .zrleCompressionZero:
+            return .zrleCompressionZeroRGB565
+        case .zrleCompressionZeroRGB565:
             return .adaptiveGoodFull
         case .adaptiveGoodFull:
             return .standard

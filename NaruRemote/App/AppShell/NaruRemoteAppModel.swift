@@ -164,6 +164,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var adaptiveEncodingRenegotiationTask: Task<Void, Never>?
 
     private let connectorFactory: @Sendable () -> RFBFirstFrameConnecting
+    private let streamConnectorFactory: @Sendable (
+        RFBEncodingPreference,
+        RFBPixelFormat?
+    ) -> RFBFirstFrameConnecting
+    private let streamConnectorFactoryAppliesPreferences: Bool
     private let reachabilityProbeTimeout: TimeInterval
     private let reachabilityProbeMaximumConcurrency: Int
     private let frameStreamConfiguration: RFBFramePumpConfiguration
@@ -319,7 +324,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         settingsPersistence: AppSettingsPersisting? = nil,
         frameStreamConfiguration: RFBFramePumpConfiguration = NaruRemoteAppModel.defaultFrameStreamConfiguration,
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
-        connectorFactory: @escaping @Sendable () -> RFBFirstFrameConnecting = { RFBNetworkClient() },
+        connectorFactory: (@Sendable () -> RFBFirstFrameConnecting)? = nil,
+        streamConnectorFactory: (@Sendable (
+            RFBEncodingPreference,
+            RFBPixelFormat?
+        ) -> RFBFirstFrameConnecting)? = nil,
         reachabilityProbeTimeout: TimeInterval = 2,
         reachabilityProbeMaximumConcurrency: Int = 2,
         pipWatchController: (any PiPWatchControlling)? = nil,
@@ -377,7 +386,27 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.settingsPersistence = settingsPersistence
         self.frameStreamConfiguration = frameStreamConfiguration
         self.reconnectPolicy = reconnectPolicy
-        self.connectorFactory = connectorFactory
+        let firstFrameConnectorFactory = connectorFactory ?? {
+            RFBNetworkClient()
+        }
+        self.connectorFactory = firstFrameConnectorFactory
+        if let streamConnectorFactory {
+            self.streamConnectorFactory = streamConnectorFactory
+            self.streamConnectorFactoryAppliesPreferences = true
+        } else if let connectorFactory {
+            self.streamConnectorFactory = { _, _ in
+                connectorFactory()
+            }
+            self.streamConnectorFactoryAppliesPreferences = false
+        } else {
+            self.streamConnectorFactory = { encodingPreference, pixelFormatPreference in
+                RFBNetworkClient(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            }
+            self.streamConnectorFactoryAppliesPreferences = true
+        }
         self.reachabilityProbeTimeout = reachabilityProbeTimeout
         self.reachabilityProbeMaximumConcurrency = max(1, reachabilityProbeMaximumConcurrency)
         self.pipWatchController = pipWatchController
@@ -2060,7 +2089,12 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let connector = connectorFactory()
+        let initialEncodingPreference = initialStreamEncodingPreference()
+        let initialPixelFormatPreference = initialStreamPixelFormatPreference()
+        let connector = streamConnectorFactory(
+            initialEncodingPreference,
+            initialPixelFormatPreference
+        )
         stopFrameStream()
         stopIncomingClipboardReceive()
         pendingIncomingClipboard = nil
@@ -2069,7 +2103,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 streamingClient,
                 profile: profile,
                 session: nextSession,
-                credential: credential
+                credential: credential,
+                shouldRenegotiateConfiguredSustainedEncodings: !streamConnectorFactoryAppliesPreferences
             )
             return
         }
@@ -2201,7 +2236,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         _ streamingClient: any RFBStreamingClient,
         profile: ConnectionProfile,
         session pendingSession: RemoteSession,
-        credential: RFBConnectionCredential
+        credential: RFBConnectionCredential,
+        shouldRenegotiateConfiguredSustainedEncodings: Bool
     ) {
         let streamID = UUID()
         let pump = RFBFramePump(source: streamingClient)
@@ -2252,10 +2288,12 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activeKeyEventClient = streamingClient
                 keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
                 lastEmittedDragCoord = nil
-                await renegotiateConfiguredSustainedEncodingsIfNeeded(
-                    transportControl: streamingClient as? any RFBTransportControlClient,
-                    requestTimeout: configuration.requestTimeout
-                )
+                if shouldRenegotiateConfiguredSustainedEncodings {
+                    await renegotiateConfiguredSustainedEncodingsIfNeeded(
+                        transportControl: streamingClient as? any RFBTransportControlClient,
+                        requestTimeout: configuration.requestTimeout
+                    )
+                }
                 // Constitution §I: outgoing compose-and-send is the
                 // primary text path; incoming server clipboard is
                 // secondary.  Disabled until the RFB reader is
@@ -2947,12 +2985,33 @@ public final class NaruRemoteAppModel: ObservableObject {
             return nil
         case .zrleCompressionZero:
             return RFBEncodingPreference(zrle: true, compressionLevel: 0)
+        case .zrleCompressionZeroRGB565:
+            return RFBEncodingPreference(zrle: true, compressionLevel: 0)
         case .adaptiveGoodFull:
             return RFBEncodingPreference.adaptive(
                 supported: .full,
                 requestedPseudoEncodings: .withServerCursorAndPacingExtensions,
                 connectionQuality: .good
             )
+        }
+    }
+
+    private func initialStreamEncodingPreference() -> RFBEncodingPreference {
+        configuredSustainedEncodingPreference() ?? .localLowLatency
+    }
+
+    private func initialStreamPixelFormatPreference() -> RFBPixelFormat? {
+        guard appSettings.streamPowerMode != .powerSaver,
+              !lowPowerModeProvider()
+        else {
+            return nil
+        }
+
+        switch appSettings.streamEncodingMode {
+        case .standard, .zrleCompressionZero, .adaptiveGoodFull:
+            return nil
+        case .zrleCompressionZeroRGB565:
+            return .rgb565In32LittleEndian
         }
     }
 
@@ -3190,7 +3249,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID
     ) {
         pendingReconnectTask?.cancel()
-        let connectorFactory = self.connectorFactory
+        let streamConnectorFactory = self.streamConnectorFactory
+        let streamConnectorFactoryAppliesPreferences = self.streamConnectorFactoryAppliesPreferences
         pendingReconnectTask = Task { [weak self] in
             do {
                 try await Task.sleep(for: backoff)
@@ -3207,7 +3267,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profile: profile,
                 credential: credential,
                 sessionID: sessionID,
-                connectorFactory: connectorFactory
+                streamConnectorFactory: streamConnectorFactory,
+                streamConnectorFactoryAppliesPreferences: streamConnectorFactoryAppliesPreferences
             )
         }
     }
@@ -3222,7 +3283,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         profile: ConnectionProfile,
         credential: RFBConnectionCredential,
         sessionID: RemoteSession.ID,
-        connectorFactory: @Sendable () -> RFBFirstFrameConnecting
+        streamConnectorFactory: @Sendable (
+            RFBEncodingPreference,
+            RFBPixelFormat?
+        ) -> RFBFirstFrameConnecting,
+        streamConnectorFactoryAppliesPreferences: Bool
     ) async {
         // Gate checks: any of these flipping means a profile change,
         // an explicit disconnect, or a fresh user connect raced past
@@ -3231,7 +3296,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard selectedProfileID == profile.id else { return }
         guard session?.id == sessionID else { return }
 
-        let connector = connectorFactory()
+        let initialEncodingPreference = initialStreamEncodingPreference()
+        let initialPixelFormatPreference = initialStreamPixelFormatPreference()
+        let connector = streamConnectorFactory(
+            initialEncodingPreference,
+            initialPixelFormatPreference
+        )
         guard let streamingClient = connector as? any RFBStreamingClient else {
             // Auto-reconnect requires a streaming-capable
             // connector — degrade to "Connection lost" rather than
@@ -3256,7 +3326,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             streamingClient,
             profile: profile,
             session: pendingSession,
-            credential: credential
+            credential: credential,
+            shouldRenegotiateConfiguredSustainedEncodings: !streamConnectorFactoryAppliesPreferences
         )
     }
 
