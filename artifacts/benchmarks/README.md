@@ -1035,3 +1035,12 @@ For longer stream-shape-only runs, pass `--first-frame-profiles
 stream-shape-profiles` to benchmark first-frame latency only for the
 same profiles being stream-shaped, or `--first-frame-profiles none` to
 skip the first-frame/full-refresh sweep entirely.
+The bounded candidate-stability artifact is
+`2026-06-07-tight-first-rgb565-candidate-summary.md`; it adds benchmark-only
+`tight-first-rgb565` to the repeated `tight-first` /
+`adaptive-good-full` comparison. The live run keeps `tight-first` as the
+order-neutral recommendation and improves it to warning-only, while
+`tight-first-rgb565` fails one of three runs with a worse update tail
+(107 ms average, 473 ms max p95) despite 0 permille renderer full-upload
+pressure. Do not promote the RGB565 Tight variant; the next VNC optimization
+axis is request/response cadence and server first-byte wait.

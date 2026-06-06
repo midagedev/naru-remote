@@ -2139,6 +2139,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
     case localLowLatency
     case localLowLatencyRGB565
     case tightFirst
+    case tightFirstRGB565
     case zrleFirst
     case zrleCompressionZero
     case zrleCompressionZeroRGB565
@@ -2158,6 +2159,8 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
             "local-low-latency-rgb565"
         case .tightFirst:
             "tight-first"
+        case .tightFirstRGB565:
+            "tight-first-rgb565"
         case .zrleFirst:
             "zrle-first"
         case .zrleCompressionZero:
@@ -2192,7 +2195,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
         switch self {
         case .localLowLatency, .localLowLatencyRGB565:
             return .localLowLatency
-        case .tightFirst:
+        case .tightFirst, .tightFirstRGB565:
             return RFBEncodingPreference(
                 tight: true,
                 tightQualityLevel: 8,
@@ -2242,7 +2245,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
 
     var pixelFormatPreference: RFBPixelFormat? {
         switch self {
-        case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
+        case .localLowLatencyRGB565, .tightFirstRGB565, .zrleCompressionZeroRGB565:
             return .rgb565In32LittleEndian
         default:
             return nil

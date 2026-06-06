@@ -1297,6 +1297,19 @@ iPhone) and ships as its own PR.
   pixels, byte counts, stimulus command text, draft text, marked text, or IME
   state. Owns: launchctl runner, README, research note, benchmark artifact.
   **Done.**
+- **T455** Tight-first RGB565 negative-candidate check: add benchmark-only
+  `tight-first-rgb565`, include it in the pixel-format isolation catalog and
+  bounded candidate-stability runner, then record the live result showing it is
+  not better than full-color `tight-first` under the current sustained iPhone
+  target. Keep production app stream modes unchanged and use the result to move
+  the next optimization unit toward request/response cadence and server
+  first-byte wait. Emit only fixed profile labels, fixed verdict/issue labels,
+  aggregate counts, permille ratios, and aggregate timings; do not print/export
+  host identity, credentials, ports, executable paths, command lines, raw
+  stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+  counts, stimulus command text, draft text, marked text, or IME state. Owns:
+  benchmark profile catalog, launchctl runner, profile-selection tests,
+  README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
