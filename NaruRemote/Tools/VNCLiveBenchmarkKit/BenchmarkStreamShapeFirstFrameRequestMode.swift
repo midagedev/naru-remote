@@ -15,7 +15,8 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
     public func initialRegion(
         matching requestRegion: BenchmarkStreamShapeRequestRegion,
         framebufferWidth: Int,
-        framebufferHeight: Int
+        framebufferHeight: Int,
+        visibleGlanceScale: Double = BenchmarkStreamShapeRequestRegion.defaultFirstFrameVisibleGlanceScale
     ) -> RFBFramebufferUpdateRegion? {
         switch self {
         case .full:
@@ -52,7 +53,8 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
             // expand back to the normal viewport margin/heartbeat policy.
             return requestRegion.firstFrameVisibleGlanceRegion(
                 width: framebufferWidth,
-                height: framebufferHeight
+                height: framebufferHeight,
+                scale: visibleGlanceScale
             )
         }
     }
@@ -60,7 +62,8 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
     public func requestAreaPermille(
         matching requestRegion: BenchmarkStreamShapeRequestRegion,
         framebufferWidth: Int,
-        framebufferHeight: Int
+        framebufferHeight: Int,
+        visibleGlanceScale: Double = BenchmarkStreamShapeRequestRegion.defaultFirstFrameVisibleGlanceScale
     ) -> Int {
         switch self {
         case .full:
@@ -80,7 +83,8 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
         case .visibleGlance:
             return requestRegion.firstFrameVisibleGlanceAreaPermille(
                 width: framebufferWidth,
-                height: framebufferHeight
+                height: framebufferHeight,
+                scale: visibleGlanceScale
             )
         }
     }

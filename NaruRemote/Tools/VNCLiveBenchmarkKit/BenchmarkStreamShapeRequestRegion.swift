@@ -3,7 +3,9 @@ import Foundation
 import NaruRemoteCore
 
 public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Sendable, CaseIterable {
-    private static let firstFrameVisibleGlanceScale = 0.45
+    public static let defaultFirstFrameVisibleGlanceScale = 0.45
+    public static let minimumFirstFrameVisibleGlanceScale = 0.10
+    public static let maximumFirstFrameVisibleGlanceScale = 1.00
 
     case full
     case centerHalf = "center-half"
@@ -111,17 +113,34 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         )
     }
 
-    public func firstFrameVisibleGlanceRegion(width: Int, height: Int) -> RFBFramebufferUpdateRegion? {
+    public static func normalizedFirstFrameVisibleGlanceScale(_ scale: Double) -> Double {
+        min(max(scale, minimumFirstFrameVisibleGlanceScale), maximumFirstFrameVisibleGlanceScale)
+    }
+
+    public static func firstFrameVisibleGlanceScalePermille(_ scale: Double) -> Int {
+        let normalized = normalizedFirstFrameVisibleGlanceScale(scale)
+        return min(max(Int((normalized * 1_000).rounded()), 0), 1_000)
+    }
+
+    public func firstFrameVisibleGlanceRegion(
+        width: Int,
+        height: Int,
+        scale: Double = Self.defaultFirstFrameVisibleGlanceScale
+    ) -> RFBFramebufferUpdateRegion? {
         guard let core = firstFrameVisibleCoreRegion(width: width, height: height) else {
             return nil
         }
 
-        return core.centeredScaled(by: Self.firstFrameVisibleGlanceScale)
+        return core.centeredScaled(by: Self.normalizedFirstFrameVisibleGlanceScale(scale))
     }
 
-    public func firstFrameVisibleGlanceAreaPermille(width: Int, height: Int) -> Int {
+    public func firstFrameVisibleGlanceAreaPermille(
+        width: Int,
+        height: Int,
+        scale: Double = Self.defaultFirstFrameVisibleGlanceScale
+    ) -> Int {
         requestAreaPermille(
-            for: firstFrameVisibleGlanceRegion(width: width, height: height),
+            for: firstFrameVisibleGlanceRegion(width: width, height: height, scale: scale),
             framebufferWidth: width,
             framebufferHeight: height
         )

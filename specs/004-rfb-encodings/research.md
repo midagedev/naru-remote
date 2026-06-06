@@ -5131,3 +5131,47 @@ do not add a second non-incremental viewport hydration request.
   next unit should investigate startup transport/cadence or a server-side
   lower-cost initial representation rather than hydrating a larger viewport as
   a second non-incremental request.
+
+### D113 Benchmark-Only Visible-Glance Scale Sweep
+
+References:
+- RFC 6143 client-driven `FramebufferUpdateRequest` region:
+  https://www.rfc-editor.org/rfc/rfc6143
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-glance-scale-sweep-summary.md`.
+
+**Decision**: add a benchmark-only
+`--stream-shape-first-frame-visible-glance-scale` option and schema v64
+`streamShapeFirstFrameVisibleGlanceScalePermille` field. Keep the product app
+startup scale at 0.45 until device visual inspection proves that a smaller
+first-useful-paint patch is recognizable.
+
+**Why**:
+- The 0.45 app default candidate improved first-frame payload read but still
+  failed the poor-network gate on first-frame payload pressure.
+- Editing product code for every scale trial slows the benchmark loop and
+  makes it harder to compare candidates under the same live harness.
+- The v64 benchmark-only override keeps the first-frame request region and its
+  area permille coupled while exposing only a clamped scale permille. It does
+  not emit coordinates, dimensions, bytes, pixels, payloads, host identity,
+  command text, draft text, marked text, or IME state.
+
+**Evidence**:
+- Focused benchmark-kit tests cover default 0.45 parity, custom 0.35 region
+  and area reduction, and safe scale-permille clamping.
+- Live v64 app-low-traffic preset runs:
+  - Scale 0.35: first-frame request area 37 permille, first-frame payload read
+    about 6.7 s for both app RGB565 candidates, 4/4 sustained content samples,
+    and 0 permille renderer full-upload pressure.
+  - Scale 0.25: first-frame request area 19 permille, first-frame payload read
+    about 5.1 s for both app RGB565 candidates, 4/4 sustained content samples,
+    and 0 permille renderer full-upload pressure.
+- Both candidates still failed the profile gate on
+  `first-frame-payload-read-failed`, so the remaining startup target is not yet
+  solved.
+
+**Interpretation**:
+- Smaller startup patches materially reduce first-frame payload-read time
+  without breaking sustained stream shape in the constrained-cellular harness.
+- 0.25 is the strongest traffic candidate so far, but it may be too small to
+  be useful visually. The next product-default PR should pair a 0.25/0.35 live
+  comparison with device screenshot inspection before changing app behavior.
