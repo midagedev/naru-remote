@@ -14,6 +14,7 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let viewerStartupPreflightMode: StreamStartupPreflightMode?
     public let viewerStartupGlanceScaleMode: StreamStartupGlanceScaleMode?
     public let input: DiagnosticInputReport?
+    public let helperVideo: DiagnosticHelperVideoReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
@@ -33,6 +34,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         viewerStartupPreflightMode: StreamStartupPreflightMode? = nil,
         viewerStartupGlanceScaleMode: StreamStartupGlanceScaleMode? = nil,
         input: DiagnosticInputReport? = nil,
+        helperVideo: DiagnosticHelperVideoReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
         self.runID = run.id
@@ -47,6 +49,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.viewerStartupPreflightMode = viewerStartupPreflightMode
         self.viewerStartupGlanceScaleMode = viewerStartupGlanceScaleMode
         self.input = input
+        self.helperVideo = helperVideo
         self.sustainedSessionAssessment = sustainedSessionAssessment
 
         let lines = run.stages.map { stage in
@@ -148,6 +151,7 @@ public struct DiagnosticExport: Equatable, Sendable {
             viewerStartupPreflightMode: viewerStartupPreflightMode?.rawValue,
             viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode?.rawValue,
             input: input,
+            helperVideo: helperVideo,
             sustainedSessionAssessment: sustainedSessionAssessment
         )
     }
@@ -1916,8 +1920,245 @@ public struct DiagnosticSustainedSessionAssessment: Codable, Equatable, Sendable
     }
 }
 
+public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case hasPairingFingerprint
+        case availability
+        case lastFailureCode
+        case lastCheckedBucket
+        case canAttemptHelperVideoStream
+        case profileUsesVNCVisualFallback
+        case streamProtocolVersion
+        case streamCodec
+        case streamCodecProfile
+        case streamLatencyMode
+        case streamQualityBucket
+        case streamFrameRateBucket
+        case streamColorMode
+        case streamSupportsKeyframeRequest
+        case streamSupportsFallbackSignal
+        case streamState
+        case startupBand
+        case sustainedUpdateBand
+        case decodePressure
+        case fallbackCountBucket
+        case streamUsesVNCVisualFallback
+    }
+
+    public let isEnabled: Bool?
+    public let hasPairingFingerprint: Bool?
+    public let availability: String?
+    public let lastFailureCode: String?
+    public let lastCheckedBucket: String?
+    public let canAttemptHelperVideoStream: Bool?
+    public let profileUsesVNCVisualFallback: Bool?
+    public let streamProtocolVersion: Int?
+    public let streamCodec: String?
+    public let streamCodecProfile: String?
+    public let streamLatencyMode: String?
+    public let streamQualityBucket: String?
+    public let streamFrameRateBucket: String?
+    public let streamColorMode: String?
+    public let streamSupportsKeyframeRequest: Bool?
+    public let streamSupportsFallbackSignal: Bool?
+    public let streamState: String?
+    public let startupBand: String?
+    public let sustainedUpdateBand: String?
+    public let decodePressure: String?
+    public let fallbackCountBucket: String?
+    public let streamUsesVNCVisualFallback: Bool?
+
+    public init(
+        isEnabled: Bool? = nil,
+        hasPairingFingerprint: Bool? = nil,
+        availability: String? = nil,
+        lastFailureCode: String? = nil,
+        lastCheckedBucket: String? = nil,
+        canAttemptHelperVideoStream: Bool? = nil,
+        profileUsesVNCVisualFallback: Bool? = nil,
+        streamProtocolVersion: Int? = nil,
+        streamCodec: String? = nil,
+        streamCodecProfile: String? = nil,
+        streamLatencyMode: String? = nil,
+        streamQualityBucket: String? = nil,
+        streamFrameRateBucket: String? = nil,
+        streamColorMode: String? = nil,
+        streamSupportsKeyframeRequest: Bool? = nil,
+        streamSupportsFallbackSignal: Bool? = nil,
+        streamState: String? = nil,
+        startupBand: String? = nil,
+        sustainedUpdateBand: String? = nil,
+        decodePressure: String? = nil,
+        fallbackCountBucket: String? = nil,
+        streamUsesVNCVisualFallback: Bool? = nil
+    ) {
+        self.isEnabled = isEnabled
+        self.hasPairingFingerprint = hasPairingFingerprint
+        self.availability = Self.safeAvailability(availability)
+        self.lastFailureCode = Self.safeFailureCode(lastFailureCode)
+        self.lastCheckedBucket = Self.safeLastCheckedBucket(lastCheckedBucket)
+        self.canAttemptHelperVideoStream = canAttemptHelperVideoStream
+        self.profileUsesVNCVisualFallback = profileUsesVNCVisualFallback
+        self.streamProtocolVersion = streamProtocolVersion.map {
+            max($0, HelperVideoStreamDescriptor.minimumSupportedProtocolVersion)
+        }
+        self.streamCodec = Self.safeCodec(streamCodec)
+        self.streamCodecProfile = Self.safeCodecProfile(streamCodecProfile)
+        self.streamLatencyMode = Self.safeLatencyMode(streamLatencyMode)
+        self.streamQualityBucket = Self.safeQualityBucket(streamQualityBucket)
+        self.streamFrameRateBucket = Self.safeFrameRateBucket(streamFrameRateBucket)
+        self.streamColorMode = Self.safeColorMode(streamColorMode)
+        self.streamSupportsKeyframeRequest = streamSupportsKeyframeRequest
+        self.streamSupportsFallbackSignal = streamSupportsFallbackSignal
+        self.streamState = Self.safeStreamState(streamState)
+        self.startupBand = Self.safeStartupBand(startupBand)
+        self.sustainedUpdateBand = Self.safeSustainedUpdateBand(sustainedUpdateBand)
+        self.decodePressure = Self.safeDecodePressure(decodePressure)
+        self.fallbackCountBucket = Self.safeFallbackCountBucket(fallbackCountBucket)
+        self.streamUsesVNCVisualFallback = streamUsesVNCVisualFallback
+    }
+
+    public init(
+        profileState: HelperVideoProfileState? = nil,
+        streamDescriptor: HelperVideoStreamDescriptor? = nil,
+        streamHealth: HelperVideoStreamHealth? = nil
+    ) {
+        self.init(
+            isEnabled: profileState?.isEnabled,
+            hasPairingFingerprint: profileState.map { $0.pairingFingerprint != nil },
+            availability: profileState?.availability.rawValue,
+            lastFailureCode: profileState?.lastFailureCode?.rawValue,
+            lastCheckedBucket: profileState?.lastCheckedBucket.rawValue,
+            canAttemptHelperVideoStream: profileState?.canAttemptHelperVideoStream,
+            profileUsesVNCVisualFallback: profileState?.shouldUseVNCVisualFallback,
+            streamProtocolVersion: streamDescriptor?.protocolVersion,
+            streamCodec: streamDescriptor?.codec.rawValue,
+            streamCodecProfile: streamDescriptor?.codecProfile.rawValue,
+            streamLatencyMode: streamDescriptor?.latencyMode.rawValue,
+            streamQualityBucket: streamDescriptor?.qualityBucket.rawValue,
+            streamFrameRateBucket: streamDescriptor?.frameRateBucket.rawValue,
+            streamColorMode: streamDescriptor?.colorMode.rawValue,
+            streamSupportsKeyframeRequest: streamDescriptor?.supportsKeyframeRequest,
+            streamSupportsFallbackSignal: streamDescriptor?.supportsFallbackSignal,
+            streamState: streamHealth?.state.rawValue,
+            startupBand: streamHealth?.startupBand.rawValue,
+            sustainedUpdateBand: streamHealth?.sustainedUpdateBand.rawValue,
+            decodePressure: streamHealth?.decodePressure.rawValue,
+            fallbackCountBucket: streamHealth?.fallbackCountBucket.rawValue,
+            streamUsesVNCVisualFallback: streamHealth?.shouldUseVNCVisualFallback
+        )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled),
+            hasPairingFingerprint: try container.decodeIfPresent(Bool.self, forKey: .hasPairingFingerprint),
+            availability: try container.decodeIfPresent(String.self, forKey: .availability),
+            lastFailureCode: try container.decodeIfPresent(String.self, forKey: .lastFailureCode),
+            lastCheckedBucket: try container.decodeIfPresent(String.self, forKey: .lastCheckedBucket),
+            canAttemptHelperVideoStream: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .canAttemptHelperVideoStream
+            ),
+            profileUsesVNCVisualFallback: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .profileUsesVNCVisualFallback
+            ),
+            streamProtocolVersion: try container.decodeIfPresent(Int.self, forKey: .streamProtocolVersion),
+            streamCodec: try container.decodeIfPresent(String.self, forKey: .streamCodec),
+            streamCodecProfile: try container.decodeIfPresent(String.self, forKey: .streamCodecProfile),
+            streamLatencyMode: try container.decodeIfPresent(String.self, forKey: .streamLatencyMode),
+            streamQualityBucket: try container.decodeIfPresent(String.self, forKey: .streamQualityBucket),
+            streamFrameRateBucket: try container.decodeIfPresent(String.self, forKey: .streamFrameRateBucket),
+            streamColorMode: try container.decodeIfPresent(String.self, forKey: .streamColorMode),
+            streamSupportsKeyframeRequest: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .streamSupportsKeyframeRequest
+            ),
+            streamSupportsFallbackSignal: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .streamSupportsFallbackSignal
+            ),
+            streamState: try container.decodeIfPresent(String.self, forKey: .streamState),
+            startupBand: try container.decodeIfPresent(String.self, forKey: .startupBand),
+            sustainedUpdateBand: try container.decodeIfPresent(String.self, forKey: .sustainedUpdateBand),
+            decodePressure: try container.decodeIfPresent(String.self, forKey: .decodePressure),
+            fallbackCountBucket: try container.decodeIfPresent(String.self, forKey: .fallbackCountBucket),
+            streamUsesVNCVisualFallback: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .streamUsesVNCVisualFallback
+            )
+        )
+    }
+
+    private static func safeAvailability(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoAvailability.allCases.map(\.rawValue))
+    }
+
+    private static func safeFailureCode(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoFailureCode.allCases.map(\.rawValue))
+    }
+
+    private static func safeLastCheckedBucket(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoLastCheckedBucket.allCases.map(\.rawValue))
+    }
+
+    private static func safeCodec(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoCodec.allCases.map(\.rawValue))
+    }
+
+    private static func safeCodecProfile(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoCodecProfile.allCases.map(\.rawValue))
+    }
+
+    private static func safeLatencyMode(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoLatencyMode.allCases.map(\.rawValue))
+    }
+
+    private static func safeQualityBucket(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoQualityBucket.allCases.map(\.rawValue))
+    }
+
+    private static func safeFrameRateBucket(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoFrameRateBucket.allCases.map(\.rawValue))
+    }
+
+    private static func safeColorMode(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoColorMode.allCases.map(\.rawValue))
+    }
+
+    private static func safeStreamState(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoStreamState.allCases.map(\.rawValue))
+    }
+
+    private static func safeStartupBand(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoStartupBand.allCases.map(\.rawValue))
+    }
+
+    private static func safeSustainedUpdateBand(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoSustainedUpdateBand.allCases.map(\.rawValue))
+    }
+
+    private static func safeDecodePressure(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoDecodePressure.allCases.map(\.rawValue))
+    }
+
+    private static func safeFallbackCountBucket(_ value: String?) -> String? {
+        safeCatalog(value, HelperVideoFallbackCountBucket.allCases.map(\.rawValue))
+    }
+
+    private static func safeCatalog(_ value: String?, _ allowedValues: [String]) -> String? {
+        guard let value else {
+            return nil
+        }
+        return Set(allowedValues).contains(value) ? value : nil
+    }
+}
+
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 30
+    public static let currentSchemaVersion = 31
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -1942,6 +2183,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case viewerStartupPreflightMode
         case viewerStartupGlanceScaleMode
         case input
+        case helperVideo
         case sustainedSessionAssessment
     }
 
@@ -1967,6 +2209,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let viewerStartupPreflightMode: String?
     public let viewerStartupGlanceScaleMode: String?
     public let input: DiagnosticInputReport?
+    public let helperVideo: DiagnosticHelperVideoReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
 
     public init(
@@ -1992,6 +2235,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         viewerStartupPreflightMode: String? = nil,
         viewerStartupGlanceScaleMode: String? = nil,
         input: DiagnosticInputReport? = nil,
+        helperVideo: DiagnosticHelperVideoReport? = nil,
         sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -2016,6 +2260,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.viewerStartupPreflightMode = Self.safeViewerStartupPreflightMode(viewerStartupPreflightMode)
         self.viewerStartupGlanceScaleMode = Self.safeViewerStartupGlanceScaleMode(viewerStartupGlanceScaleMode)
         self.input = input
+        self.helperVideo = helperVideo
         self.sustainedSessionAssessment = sustainedSessionAssessment
     }
 
@@ -2056,6 +2301,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
                 forKey: .viewerStartupGlanceScaleMode
             ),
             input: try container.decodeIfPresent(DiagnosticInputReport.self, forKey: .input),
+            helperVideo: try container.decodeIfPresent(DiagnosticHelperVideoReport.self, forKey: .helperVideo),
             sustainedSessionAssessment: try container.decodeIfPresent(
                 DiagnosticSustainedSessionAssessment.self,
                 forKey: .sustainedSessionAssessment

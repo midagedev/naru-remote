@@ -35,10 +35,10 @@ description: "Tasks: Host Helper Video Stream"
 - [x] T007 [US1] Add fake helper video stream client/server test harness in
   `NaruRemote/Tests/NaruRemoteCoreTests/`; verify start, access-unit, stall,
   and stop messages without a real helper. **Done.**
-- [ ] T008 [US3] Extend diagnostic export model with helper-video state in
+- [x] T008 [US3] Extend diagnostic export model with helper-video state in
   `NaruRemote/Sources/NaruRemoteCore/Diagnostics/`; add privacy tests proving
   no frames, dimensions, endpoints, byte counts, exact timings, tokens, host
-  names, Compose text, or clipboard contents are exported.
+  names, Compose text, or clipboard contents are exported. **Done.**
 - [ ] T009 [US2] Add benchmark report fixtures for helper-video schema fields
   in `NaruRemote/Tests/VNCLiveBenchmarkKitTests/`.
 - [x] T010 Update `quickstart.md` with exact test names after implementation

@@ -4109,7 +4109,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(report.schemaVersion, 30)
+        XCTAssertEqual(report.schemaVersion, DiagnosticCollectionReport.currentSchemaVersion)
         XCTAssertEqual(report.verdict, DiagnosticVerdict.failed.rawValue)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.balanced.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.standard.rawValue)
@@ -4184,7 +4184,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let performance = try XCTUnwrap(report.streamPerformance)
         let assessment = try XCTUnwrap(report.sustainedSessionAssessment)
-        XCTAssertEqual(report.schemaVersion, 30)
+        XCTAssertEqual(report.schemaVersion, DiagnosticCollectionReport.currentSchemaVersion)
         XCTAssertEqual(report.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(report.viewerStreamEncodingMode, StreamEncodingMode.zrleCompressionZero.rawValue)
         XCTAssertEqual(report.viewerStartupPreflightMode, StreamStartupPreflightMode.disabled.rawValue)
