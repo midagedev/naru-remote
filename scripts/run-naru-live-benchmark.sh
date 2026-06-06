@@ -14,6 +14,7 @@ Modes:
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
+  glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
@@ -348,6 +349,19 @@ json_bounded_tight_cursor_depth_sweep_failure() {
   printf '}\n'
 }
 
+json_glance_scale_sweep_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local scale_permille="$3"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"glance-scale-sweep-sample","scalePermille":%d,"status":"failed","safeFailureCode":' "$scale_permille"
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  printf '}'
+}
+
 benchmark_progress_subphase_label() {
   local progress_file="$1"
   local label=""
@@ -539,6 +553,40 @@ json_bounded_tight_cursor_depth_result() {
       "$phase_file" \
       "$depth" \
       "$progress_file"
+  fi
+  rm -f "$output_file"
+}
+
+json_glance_scale_sweep_result() {
+  local phase_file="$1"
+  local scale="$2"
+  local scale_permille="$3"
+  local wall_timeout_seconds="$4"
+  shift 4
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-scale-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    printf '{"schemaVersion":1,"mode":"glance-scale-sweep-sample","scalePermille":%d,"scaleLabel":' "$scale_permille"
+    json_string "$scale"
+    printf ',"status":"passed","report":'
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_glance_scale_sweep_failure \
+      benchmarkStep.glanceScaleSweep.timedOut \
+      "$phase_file" \
+      "$scale_permille"
+  else
+    json_glance_scale_sweep_failure \
+      benchmarkStep.glanceScaleSweep.failed \
+      "$phase_file" \
+      "$scale_permille"
   fi
   rm -f "$output_file"
 }
@@ -922,6 +970,73 @@ run_bounded_vnc_tight_cursor_depth_sweep() {
   done
   printf '\n]}\n'
   rm -f "$phase_file" "$progress_file"
+}
+
+run_glance_scale_sweep() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-scale-phase.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    printf '{"schemaVersion":1,"mode":"glance-scale-sweep","status":"failed","safeFailureCode":'
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_string benchmarkStep.glanceScaleSweep.timedOut
+    else
+      json_string benchmarkStep.glanceScaleSweep.failed
+    fi
+    printf ',"lastPhaseLabel":'
+    json_string "$(bounded_sweep_phase_label "$phase_file")"
+    printf '}\n'
+    rm -f "$phase_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    printf '{"schemaVersion":1,"mode":"glance-scale-sweep","status":"failed","safeFailureCode":"benchmarkStep.glanceScaleSweep.failed","lastPhaseLabel":'
+    json_string "$(bounded_sweep_phase_label "$phase_file")"
+    printf '}\n'
+    rm -f "$phase_file"
+    return
+  fi
+
+  local first_scale=1
+  local scale
+  printf '{"schemaVersion":1,"mode":"glance-scale-sweep","status":"completed","scales":[\n'
+  for scale in 0.45 0.35 0.25; do
+    if ((first_scale)); then
+      first_scale=0
+    else
+      printf ',\n'
+    fi
+    local scale_permille
+    case "$scale" in
+      0.45) scale_permille=450 ;;
+      0.35) scale_permille=350 ;;
+      0.25) scale_permille=250 ;;
+      *) scale_permille=0 ;;
+    esac
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    local scale_args=(
+      --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic
+      --visual-transport vnc,helper-video
+      --helper-video-probe external-helper-synthetic-encoded-tcp
+      --first-frame-profiles none
+      --full-refresh-samples 0
+      --continuous-update-samples 0
+      --stream-shape-samples 2
+      --stream-shape-duration-seconds 3
+      --stream-shape-first-frame-visible-glance-scale "$scale"
+      --json
+    )
+    json_glance_scale_sweep_result \
+      "$phase_file" \
+      "$scale" \
+      "$scale_permille" \
+      90 \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${scale_args[@]}"
+  done
+  printf '\n]}\n'
+  rm -f "$phase_file"
 }
 
 reject_extra_args() {
@@ -1470,6 +1585,13 @@ case "$mode" in
       --stream-shape-samples 2 \
       --stream-shape-duration-seconds 3 \
       --json
+    ;;
+  glance-scale-sweep)
+    reject_extra_args
+    import_helper_env
+    import_live_env
+    cd "$repo_root"
+    run_glance_scale_sweep
     ;;
   request-pipeline-sweep)
     import_live_env

@@ -1379,6 +1379,21 @@ iPhone) and ships as its own PR.
   host identity, credentials, keysyms, coordinates, dimensions, pixels, or byte
   counts. Owns: RemoteInputDock sync policy/tests, research note, benchmark
   artifact. **Done.**
+- **T462** Launchctl glance scale sweep runner: add a fixed
+  `scripts/run-naru-live-benchmark.sh glance-scale-sweep` mode that imports
+  launchctl live/helper credentials without printing values, builds
+  `VNCLiveBenchmark` once, and compares first-frame visible-glance scales
+  `0.45`, `0.35`, and `0.25` under the same short constrained-cellular
+  app-low-traffic shape. Reject extra arguments so the sweep remains a stable
+  candidate gate. Record live evidence showing 0.25 keeps
+  `local-low-latency-rgb565` at warning with a 19 permille first-frame request
+  area while the overall VNC gate still fails on the receive path. Emit only
+  fixed mode/profile labels, scale permille values, fixed verdict/issue labels,
+  aggregate counts, permille ratios, and aggregate timings; do not print/export
+  host identity, credentials, ports, executable paths, command lines, raw
+  stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+  counts, stimulus command text, draft text, marked text, or IME state. Owns:
+  launchctl runner, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

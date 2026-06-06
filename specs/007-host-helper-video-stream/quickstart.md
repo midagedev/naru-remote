@@ -96,6 +96,7 @@ scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh physical-device-preflight
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
+scripts/run-naru-live-benchmark.sh glance-scale-sweep
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
 ```
@@ -133,6 +134,9 @@ Apple Development signing team is available, the runner may use it for the
 build check while reporting only `developmentTeamStatus=inferred`.
 `physical-team-inference-self-test` verifies the missing, ambiguous, inferred,
 and explicit-environment branches without invoking `security` or `xcodebuild`.
+`glance-scale-sweep` is a fixed short VNC/helper synthetic candidate sweep for
+the benchmark-only first-frame visible-glance scales `0.45`, `0.35`, and
+`0.25`. It rejects extra arguments to keep the candidate comparison repeatable.
 
 ## Implemented Helper Video Encoder Prototype
 
