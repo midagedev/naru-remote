@@ -1071,6 +1071,17 @@ iPhone) and ships as its own PR.
   result and use it to split the next work into startup payload pressure and
   sustained update-wait cadence tracks. Owns: benchmark summary kit/tests, CLI
   report/help, README, research note, benchmark artifact. **Done.**
+- **T435** First-visible-focus startup payload gate: after v59 showed
+  constrained-cellular RGB565 startup is payload-read dominated and still just
+  above the 20 s poor-network gate, add a benchmark-only `visible-focus`
+  first-frame request mode and
+  `sustained-v2-constrained-cellular-visible-focus-startup` preset. Bump
+  `VNCLiveBenchmark` to schema v60, keep sustained incremental requests on the
+  existing viewport region/fallback policy, and report only fixed labels plus
+  first-frame request-area permille and aggregate receive timing. Keep
+  production app startup full-frame until benchmark and physical iPhone gates
+  pass. Owns: benchmark first-frame request policy, CLI preset/help, tests,
+  README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

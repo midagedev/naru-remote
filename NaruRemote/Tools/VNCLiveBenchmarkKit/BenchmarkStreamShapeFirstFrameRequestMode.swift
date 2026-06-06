@@ -5,6 +5,7 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
     case full
     case matchRequestRegion = "match-request-region"
     case visibleCore = "visible-core"
+    case visibleFocus = "visible-focus"
 
     public static var usageDescription: String {
         allCases.map(\.rawValue).joined(separator: "|")
@@ -36,6 +37,14 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
                 width: framebufferWidth,
                 height: framebufferHeight
             )
+        case .visibleFocus:
+            // Start with a smaller fixed central focus area to test first-frame
+            // payload pressure. Sustained requests still use the normal
+            // viewport margin, heartbeat, and timeout fallback policy.
+            return requestRegion.firstFrameVisibleFocusRegion(
+                width: framebufferWidth,
+                height: framebufferHeight
+            )
         }
     }
 
@@ -51,6 +60,11 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
             return requestRegion.requestAreaPermille(width: framebufferWidth, height: framebufferHeight)
         case .visibleCore:
             return requestRegion.firstFrameVisibleCoreAreaPermille(
+                width: framebufferWidth,
+                height: framebufferHeight
+            )
+        case .visibleFocus:
+            return requestRegion.firstFrameVisibleFocusAreaPermille(
                 width: framebufferWidth,
                 height: framebufferHeight
             )

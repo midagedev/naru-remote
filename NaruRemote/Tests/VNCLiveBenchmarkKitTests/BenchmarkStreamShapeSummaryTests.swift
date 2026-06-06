@@ -2228,6 +2228,36 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 1_000)
     }
 
+    func testPoorNetworkTrafficGateKeepsVisibleFocusStartupAsWarningCandidate() {
+        let samples = Array(repeating: streamShapeSample(duration: 457, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "visible-focus-rgb565",
+                requestRegion: .viewportPhonePortrait,
+                requestRegionAreaPermille: 364,
+                firstFrameRequestAreaPermille: 192,
+                firstFrameMilliseconds: 16_299,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_830,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.targetName, "iphone-poor-network-traffic-v1")
+        XCTAssertEqual(gate.verdict, .warning)
+        XCTAssertTrue(gate.issueCodes.contains(.firstFrameWarning))
+        XCTAssertFalse(gate.issueCodes.contains(.firstFrameFailed))
+        XCTAssertEqual(gate.averageRequestRegionAreaPermille, 364)
+        XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 192)
+    }
+
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 1,

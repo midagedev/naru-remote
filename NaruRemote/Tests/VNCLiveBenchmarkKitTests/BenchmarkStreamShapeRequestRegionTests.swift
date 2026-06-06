@@ -124,6 +124,20 @@ final class BenchmarkStreamShapeRequestRegionTests: XCTestCase {
         XCTAssertLessThan(coreArea, expandedArea)
     }
 
+    func testFirstFrameVisibleFocusAreaIsSmallerThanCore() {
+        let coreArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleCoreAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+        let focusArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleFocusAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+
+        XCTAssertGreaterThan(focusArea, 0)
+        XCTAssertLessThan(focusArea, coreArea)
+    }
+
     func testFirstFrameVisibleCoreIgnoresHeartbeatEscalation() {
         XCTAssertNotNil(
             BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.firstFrameVisibleCoreRegion(
@@ -137,6 +151,16 @@ final class BenchmarkStreamShapeRequestRegionTests: XCTestCase {
                 height: 1080
             ),
             BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleCoreAreaPermille(
+                width: 1920,
+                height: 1080
+            )
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.firstFrameVisibleFocusAreaPermille(
+                width: 1920,
+                height: 1080
+            ),
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleFocusAreaPermille(
                 width: 1920,
                 height: 1080
             )

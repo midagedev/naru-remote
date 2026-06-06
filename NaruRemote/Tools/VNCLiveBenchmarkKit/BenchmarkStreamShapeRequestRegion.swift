@@ -83,6 +83,32 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         )
     }
 
+    public func firstFrameVisibleFocusRegion(width: Int, height: Int) -> RFBFramebufferUpdateRegion? {
+        guard let core = firstFrameVisibleCoreRegion(width: width, height: height) else {
+            return nil
+        }
+
+        // Fixed benchmark policy: 80% of the visible core on each axis.
+        let focusWidth = max(Int((Double(core.width) * 0.8).rounded()), 1)
+        let focusHeight = max(Int((Double(core.height) * 0.8).rounded()), 1)
+        let insetX = max((Int(core.width) - focusWidth) / 2, 0)
+        let insetY = max((Int(core.height) - focusHeight) / 2, 0)
+        return RFBFramebufferUpdateRegion(
+            x: UInt16(Int(core.x) + insetX),
+            y: UInt16(Int(core.y) + insetY),
+            width: UInt16(focusWidth),
+            height: UInt16(focusHeight)
+        )
+    }
+
+    public func firstFrameVisibleFocusAreaPermille(width: Int, height: Int) -> Int {
+        requestAreaPermille(
+            for: firstFrameVisibleFocusRegion(width: width, height: height),
+            framebufferWidth: width,
+            framebufferHeight: height
+        )
+    }
+
     public func region(
         width: Int,
         height: Int,

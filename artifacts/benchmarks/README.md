@@ -646,6 +646,20 @@ shows RGB565 visible-core startup still failing just above 20 s, with roughly
 from the same run remain first-byte-wait dominated, so startup payload pressure
 and steady update-wait cadence should be treated as separate optimization
 tracks.
+Schema v60 adds `--stream-shape-first-frame-request visible-focus` and
+`--stream-shape-gate-preset
+sustained-v2-constrained-cellular-visible-focus-startup`. This is still a
+benchmark-only startup traffic probe: it requests a smaller fixed central focus
+area for the first non-incremental frame, then keeps sustained incremental
+requests on the normal viewport region and fallback policy. Reports continue to
+emit only fixed labels, first-frame request-area permille, and aggregate
+receive timing; they do not emit dimensions, coordinates, byte counts, pixels,
+or payloads. Use v60 to test whether first-useful-paint can clear the poor
+network startup gate before considering a staged startup design. The first v60
+live artifact is
+`2026-06-06-constrained-cellular-visible-focus-startup-summary.md`; it shows
+RGB565 startup dropping to roughly 16.3-16.4 s while the sustained stream still
+needs update-wait work.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
