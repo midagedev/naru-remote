@@ -1413,6 +1413,28 @@ iPhone) and ships as its own PR.
   pixels, byte counts, stimulus command text, draft text, marked text, or IME
   state. Owns: launchctl runner, README, quickstart, research note, benchmark
   artifact. **Done.**
+- **T464** Glance 0.25 app profile sweep runner: add a fixed
+  `scripts/run-naru-live-benchmark.sh glance-025-profile-sweep` mode that
+  imports live credentials from environment/launchctl without printing values,
+  builds `VNCLiveBenchmark` once, rejects extra arguments, and compares the
+  current app-selectable stream profile candidates under the same fixed
+  poor-network shape as T463. Compare `tight-first-cursor`,
+  `local-low-latency-rgb565`, `zrle-compression-0`,
+  `zrle-compression-0-rgb565`, and `adaptive-good-full`, each as a VNC-only
+  12 second duration-only probe with `visible-glance` scale `0.25`,
+  `request-response`, `viewport-phone-portrait`, `constrained-cellular`, and
+  `iphone-poor-network-traffic-v1`. Record live evidence that all candidates
+  still fail the poor-network target, but `local-low-latency-rgb565` remains
+  the strongest profile with `1.99` content FPS, `501` ms average update,
+  `625` ms p95 update, `0` renderer full-upload permille, and
+  `1000/1000/1000` received/content/content-response sample permille. Emit only
+  fixed mode/profile labels, fixed target/transport/request labels, scale
+  permille values, fixed verdict/issue labels, aggregate counts, permille
+  ratios, and aggregate timings; do not print/export host identity,
+  credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+  TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus
+  command text, draft text, marked text, or IME state. Owns: launchctl runner,
+  README, quickstart, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

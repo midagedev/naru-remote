@@ -219,6 +219,18 @@ current live run exits cleanly and reaches `warning`, with a `19` permille
 first-frame request area, `1000/960/960` received/content/content-response
 sample permille, `1.99` content FPS, `480` ms average update, `628` ms p95
 update, and `receivePath` as the remaining primary constraint.
+Current launchctl 0.25 profile sweep:
+`artifacts/benchmarks/2026-06-07-glance-025-profile-sweep-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh glance-025-profile-sweep` to compare
+the current app-selectable stream profile candidates under the same fixed
+`0.25` poor-network shape. The current live run completes all five profiles
+and keeps `local-low-latency-rgb565` as the strongest poor-network candidate:
+it records `1.99` content FPS, `501` ms average update, `625` ms p95 update,
+`0` renderer full-upload permille, and `1000/1000/1000`
+received/content/content-response sample permille. Other profiles remain worse
+on first-frame receive time, renderer upload pressure, content hit rate, or
+startup connectivity, so the next work should inspect update wait timing and
+server transport cadence rather than trying another quick profile default flip.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps
