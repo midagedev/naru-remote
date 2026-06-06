@@ -186,7 +186,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 774, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 782, y: 500)
         ])
     }
 
@@ -203,12 +203,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -60,
+            -80,
             accuracy: 1e-6,
             "Zoomed trackpad movement should pan with the cursor without dragging the background too aggressively."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 655, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 665, y: 500)
         ])
     }
 
@@ -252,7 +252,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 774, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 782, y: 500)
         ])
     }
 
@@ -270,12 +270,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -43.2,
+            -57.6,
             accuracy: 1e-6,
             "Central zoomed trackpad motion should follow the cursor without making the viewport feel over-dragged."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 612, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 619, y: 500)
         ])
     }
 
@@ -297,7 +297,7 @@ final class PointerGestureResolverTests: XCTestCase {
 
             XCTAssertEqual(
                 outcome.transform.panOffset.width - beforePan,
-                -3.84,
+                -5.12,
                 accuracy: 1e-6,
                 "Central zoomed trackpad pan should advance by a predictable per-sample step."
             )

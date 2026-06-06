@@ -151,6 +151,10 @@ Using the launchctl runner, `0.25` again improves
 `local-low-latency-rgb565` from failure to warning with a `19` permille
 first-frame request area, but the overall app-low-traffic gate remains failed
 and needs physical iPhone validation before any default promotion.
+Current trackpad follow coupling tuning artifact:
+`artifacts/benchmarks/2026-06-07-trackpad-follow-coupling-tuning-summary.md`.
+Zoomed trackpad follow-pan coupling is raised while keeping visible cursor
+travel finger-paced and preserving the existing tiny-sample no-snap guards.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
