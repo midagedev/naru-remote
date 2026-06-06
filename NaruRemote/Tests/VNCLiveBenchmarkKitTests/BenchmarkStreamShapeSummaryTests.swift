@@ -2258,6 +2258,73 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 192)
     }
 
+    func testPoorNetworkTrafficTargetFailsPayloadReadPressure() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 4,
+            samples: (0..<4).map { _ in
+                phaseBudgetContentSample(
+                    duration: 690,
+                    receiveTotal: 670,
+                    networkRead: 650,
+                    firstByteWait: 40,
+                    clientProcessing: 20
+                )
+            },
+            elapsedMilliseconds: 2_760,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhonePoorNetworkTraffic
+        )
+
+        XCTAssertEqual(summary.payloadReadLatency?.p95Milliseconds, 610)
+        XCTAssertEqual(summary.phaseBudget.payloadReadSharePermille, 938)
+        XCTAssertEqual(summary.practicalAssessment.verdict, .fail)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.payloadReadFailed))
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .payloadReadFailed)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.compareEncodingProfileGate.rawValue
+        )
+    }
+
+    func testPoorNetworkTrafficTargetWarnsFirstByteWaitPressureSeparately() {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 4,
+            samples: (0..<4).map { _ in
+                phaseBudgetContentSample(
+                    duration: 640,
+                    receiveTotal: 620,
+                    networkRead: 600,
+                    firstByteWait: 500,
+                    clientProcessing: 20
+                )
+            },
+            elapsedMilliseconds: 2_560,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil,
+            practicalTargets: .iPhonePoorNetworkTraffic
+        )
+
+        XCTAssertEqual(summary.firstByteWaitLatency?.p95Milliseconds, 500)
+        XCTAssertEqual(summary.phaseBudget.firstByteWaitSharePermille, 833)
+        XCTAssertEqual(summary.practicalAssessment.verdict, .warning)
+        XCTAssertTrue(summary.practicalAssessment.issueCodes.contains(.firstByteWaitWarning))
+        XCTAssertFalse(summary.practicalAssessment.issueCodes.contains(.payloadReadWarning))
+        XCTAssertEqual(summary.practicalAssessment.primaryIssueCode, .firstByteWaitWarning)
+        XCTAssertEqual(
+            summary.practicalAssessment.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            summary.practicalAssessment.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
+        )
+    }
+
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 1,

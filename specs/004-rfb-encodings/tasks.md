@@ -1082,6 +1082,16 @@ iPhone) and ships as its own PR.
   production app startup full-frame until benchmark and physical iPhone gates
   pass. Owns: benchmark first-frame request policy, CLI preset/help, tests,
   README, research note, benchmark artifact. **Done.**
+- **T436** Sustained poor-network traffic wait gate: after v60 confirms
+  visible-focus reduces startup payload pressure but sustained samples remain
+  update-wait dominated, bump `VNCLiveBenchmark` to schema v61 and make the
+  poor-network traffic target classify sustained `first-byte-wait-*` and
+  `payload-read-*` issue codes from aggregate timing/permille summaries. Keep
+  payload-read pressure routed to encoding/traffic comparison and first-byte
+  wait routed to server/update-wait timing inspection. Do not emit byte counts,
+  dimensions, coordinates, pixels, raw payloads, host identity, command text,
+  draft text, marked text, or IME state. Owns: benchmark summary kit/tests,
+  CLI report/help, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
