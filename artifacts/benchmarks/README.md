@@ -95,6 +95,11 @@ Current helper-video iOS decode prototype artifact:
 The app can convert fake Annex-B H.264 helper-video access units into
 CoreMedia sample buffers and route them to an AVSampleBufferDisplayLayer
 without logging payload bytes.
+Current helper-video environment live comparison artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-env-live-comparison-summary.md`.
+The constrained-cellular live VNC gate uses environment-sourced credentials
+and confirms the helper-video candidate is still benchmark-only disabled until
+the live access-unit sender/listener lands.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
