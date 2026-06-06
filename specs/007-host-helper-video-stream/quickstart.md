@@ -17,12 +17,13 @@ Expected: no matches.
 swift test --filter HelperVideo
 swift test --filter HelperVideoFakeTransportTests
 swift test --filter DiagnosticExportTests
+swift test --filter BenchmarkHelperVideoReportTests
 ```
 
 ## Planned Unit And App Tests
 
 ```bash
-swift test --filter HelperVideoBenchmark
+swift test --filter NaruRemoteAppModelTests/testHelperVideo
 ```
 
 ## Planned Helper Build
