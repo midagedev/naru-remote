@@ -6,6 +6,9 @@ import NaruRemoteCore
 #if canImport(AVFoundation) && canImport(CoreMedia)
 import AVFoundation
 import CoreMedia
+#if os(macOS) && canImport(VideoToolbox)
+import VideoToolbox
+#endif
 
 final class HelperVideoH264SampleBufferRendererTests: XCTestCase {
     func testAnnexBParserAcceptsThreeAndFourByteStartCodes() throws {
@@ -219,6 +222,63 @@ final class HelperVideoH264SampleBufferRendererTests: XCTestCase {
             HelperVideoH264FrameDimensions(width: 640, height: 352)
         )
     }
+
+    #if os(macOS) && canImport(VideoToolbox)
+    func testToolboxSyntheticHelperPipelineAccessUnitsFeedIOSSampleBufferFactory() throws {
+        let profileFingerprint = "sha256:test-profile"
+        let pairingSecret = "test-pairing-secret"
+        let request = NaruHelperVideoTransportRequestHandler.signedEnvelope(
+            messageType: .startStream,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            body: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        )
+        let pipeline = NaruHelperVideoStreamFramePipeline(
+            requestHandler: NaruHelperVideoTransportRequestHandler(
+                expectedPairingSecret: pairingSecret,
+                expectedProfileFingerprint: profileFingerprint,
+                capabilityProvider: {
+                    HelperVideoCapabilityResponseBody(
+                        availability: .available,
+                        screenRecordingPermission: .granted,
+                        codecSupport: .h264,
+                        latencyModes: [.lowLatency]
+                    )
+                }
+            ),
+            accessUnitSource: NaruHelperVideoToolboxSyntheticAccessUnitSource(
+                frameCount: 2,
+                width: 64,
+                height: 64
+            )
+        )
+
+        let frames = try pipeline.frames(
+            forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+        )
+        let factory = HelperVideoH264SampleBufferFactory(timescale: 15)
+        let decodedAccessUnits = try frames.dropFirst().map { frame in
+            try HelperVideoWireCodec.decodeFrame(
+                HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
+                from: frame,
+                expectsBinaryPayload: true
+            )
+        }
+        let sampleBuffers = try decodedAccessUnits.compactMap { decoded in
+            try factory.makeSampleBuffer(from: decoded)
+        }
+
+        XCTAssertGreaterThanOrEqual(decodedAccessUnits.count, 2)
+        XCTAssertEqual(decodedAccessUnits.first?.envelope.body.kind, .parameterSet)
+        XCTAssertGreaterThanOrEqual(sampleBuffers.count, 1)
+        XCTAssertEqual(
+            factory.cachedFormatDimensions,
+            HelperVideoH264FrameDimensions(width: 64, height: 64)
+        )
+        XCTAssertTrue(sampleBuffers.allSatisfy(CMSampleBufferDataIsReady))
+        XCTAssertTrue(sampleBuffers.allSatisfy { CMSampleBufferGetImageBuffer($0) == nil })
+    }
+    #endif
 
     private static let sps = Data([
         0x67, 0x42, 0xC0, 0x1E, 0xDA, 0x02, 0x80, 0xB7,

@@ -246,3 +246,39 @@ them to `AVSampleBufferDisplayLayer`.
 - Require live helper transport before adding app decode code: rejected because
   a fake access-unit test harness can lock payload framing and failure behavior
   before any live stream sends screen content.
+
+## D10 - Add a real VideoToolbox synthetic access-unit source before live capture
+
+**Decision**: Before wiring ScreenCaptureKit frames into the helper sender, add
+a synthetic `CVPixelBuffer` source that uses VideoToolbox to emit real H.264
+compressed samples, converts those samples into Annex-B helper
+`videoAccessUnit` payloads, and drives the existing helper TCP harness and iOS
+sample-buffer factory.
+
+**Rationale**:
+- Apple documents the VideoToolbox compression workflow as creating and
+  configuring a compression session, encoding frames with
+  `VTCompressionSessionEncodeFrame`, receiving compressed output through the
+  compression callback, completing pending frames with
+  `VTCompressionSessionCompleteFrames`, and invalidating the session.
+- The helper wire contract already expects Annex-B payloads. VideoToolbox
+  compressed sample data is copied out of `CMBlockBuffer` and converted into
+  start-code-framed NAL units while SPS/PPS are emitted as a separate
+  `parameterSet` access unit.
+- This removes fake H.264 byte sentinels from the benchmark helper-video path
+  without starting a real screen capture stream or exporting frames, display
+  dimensions, endpoints, byte counts, exact timings, or payload data.
+
+**Sources**:
+- Apple `VTCompressionSession`: https://developer.apple.com/documentation/videotoolbox/vtcompressionsession-api-collection
+- Apple `VTCompressionSessionEncodeFrame`: https://developer.apple.com/documentation/videotoolbox/vtcompressionsessionencodeframe
+- Apple `VTCompressionSessionCompleteFrames`: https://developer.apple.com/documentation/videotoolbox/1428303-vtcompressionsessioncompletefram
+- Apple `CMBlockBufferCopyDataBytes`: https://developer.apple.com/documentation/coremedia/cmblockbuffercopydatabytes
+
+**Alternatives considered**:
+- Keep using fixed fake access-unit bytes in the benchmark TCP probe: rejected
+  because it does not exercise encoder output shape, parameter-set extraction,
+  or AVCC-to-Annex-B conversion.
+- Wire ScreenCaptureKit directly into the next PR: deferred because capture
+  permissions, display selection, frame cadence, and privacy review should be
+  isolated from the encoder payload-format gate.
