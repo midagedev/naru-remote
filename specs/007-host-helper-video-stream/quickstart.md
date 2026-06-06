@@ -144,6 +144,21 @@ an `AVSampleBufferDisplayLayer` renderer. It must not log or export payload
 bytes, frame content, dimensions, byte counts, host names, endpoints, pairing
 secrets, or exact per-frame timings.
 
+## Implemented App-Side Helper Video Session Runner
+
+```bash
+swift test --filter HelperVideoStreamSessionRunnerTests
+```
+
+The app-side session runner applies a finite helper-video network start result
+to the active app session: accepted streams select helper video only when the
+profile/session gate allows it, displayable access units pass through the iOS
+renderer, and start rejection, stream stalls, decoder rejection, or transport
+failure fall back to VNC visual state. It reports only fixed catalog failure
+codes and coarse helper health; it must not export helper endpoints, access-unit
+payloads, byte counts, display dimensions, exact timings, raw OS/network errors,
+host names, pairing secrets, Compose text, clipboard contents, or frame content.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.
