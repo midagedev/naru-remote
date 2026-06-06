@@ -13,6 +13,7 @@ Modes:
   helper-synthetic-probe   Helper-video probe-only run with external synthetic H.264.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
+  request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   helper-capability        Run the selected helper's safe --video-capability.
   request-screen-recording Run the selected helper's explicit permission request.
 
@@ -126,6 +127,21 @@ reject_extra_args() {
   fi
 }
 
+reject_extra_flag() {
+  if ((extra_arg_count == 0)); then
+    return
+  fi
+
+  local forbidden="$1"
+  local arg
+  for arg in "${extra_args[@]}"; do
+    if [[ "$arg" == "$forbidden" || "$arg" == "$forbidden="* ]]; then
+      printf 'Mode %s manages %s internally.\n' "$mode" "$forbidden" >&2
+      exit 2
+    fi
+  done
+}
+
 case "$mode" in
   preflight)
     import_helper_env
@@ -168,6 +184,31 @@ case "$mode" in
       --stream-shape-samples 2 \
       --stream-shape-duration-seconds 3 \
       --json
+    ;;
+  request-pipeline-sweep)
+    import_live_env
+    reject_extra_flag --stream-shape-request-pipeline-depth
+    cd "$repo_root"
+    printf '[\n'
+    first_report=1
+    for depth in 1 2 3; do
+      if ((first_report)); then
+        first_report=0
+      else
+        printf ',\n'
+      fi
+      run_benchmark_with_extra \
+        --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
+        --visual-transport vnc \
+        --first-frame-profiles none \
+        --full-refresh-samples 0 \
+        --continuous-update-samples 0 \
+        --stream-shape-samples 2 \
+        --stream-shape-duration-seconds 3 \
+        --stream-shape-request-pipeline-depth "$depth" \
+        --json
+    done
+    printf '\n]\n'
     ;;
   helper-capability)
     reject_extra_args

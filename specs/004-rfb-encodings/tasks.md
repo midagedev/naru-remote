@@ -1239,6 +1239,14 @@ iPhone) and ships as its own PR.
   marked text, or IME state. Owns: core RFB client boundary, network client,
   benchmark CLI/report, fake-server test, help text, research note, benchmark
   artifact. **Done.**
+- **T449** Launchctl request-pipeline sweep runner: add a launchctl-backed
+  `request-pipeline-sweep` mode that reruns the constrained-cellular
+  app-low-traffic VNC shape at request pipeline depths 1, 2, and 3 without
+  printing host, credential, helper path, request rectangles, bytes, pixels, or
+  raw errors. Reject caller-supplied pipeline-depth overrides so each run is a
+  real sweep, and record the v66/v67 live result showing no depth clears the
+  poor-network target. Owns: launchctl runner script, README, research note,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

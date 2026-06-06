@@ -5345,3 +5345,45 @@ Sharing responds faster when several update requests are outstanding.
 - The first v66 run falls into the second case: request pipelining should remain
   benchmark-only, and the next practical work should target startup payload
   representation, server/update-source behavior, or helper/video transport.
+
+### D118 Launchctl Runner Confirms Pipeline Depth Stays Benchmark-Only
+
+References:
+- D117 request/response outstanding-request pipeline benchmark.
+- `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
+
+**Decision**: add a launchctl-backed `request-pipeline-sweep` mode to
+`scripts/run-naru-live-benchmark.sh`. The mode imports the live host and
+credential only into child processes, then runs the short constrained-cellular
+app-low-traffic VNC shape at request pipeline depths 1, 2, and 3.
+
+**Why**:
+- D117 added the core benchmark flag, but repeated live use should not require
+  hand-building three long commands or risk printing secrets.
+- The user asked for the live benchmark password to be set once and reused
+  safely. Keeping the sweep in the launchctl runner preserves that workflow.
+- The mode rejects caller-provided `--stream-shape-request-pipeline-depth`
+  extras so the output is always a real depth sweep.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `request-pipeline-sweep -- --stream-shape-request-pipeline-depth 2` rejects
+  with the fixed internal-flag guard.
+- The first redacted runner pass reports all tested depths as
+  `below-target` under the poor-network traffic target. The run remains
+  high-content-hit but p95-tail constrained, with depth 1/2/3 all keeping max
+  p95 update near or above the poor-network failure range.
+
+**Interpretation**:
+- Outstanding request depth is not a promotion candidate from the current
+  launchctl live run. It remains useful as a benchmark dimension, but the
+  practical path should move toward helper/video transport, startup payload
+  representation, or server/update-source behavior rather than app-default
+  request pipelining.
+
+**Privacy rule**: the runner and artifact may emit only safe benchmark JSON,
+fixed mode/action labels, aggregate timing summaries, aggregate FPS, and
+permille metrics. They must not emit host identity, credentials, port values,
+helper executable paths, request coordinates, dimensions, byte counts, pixels,
+cursor pixels, raw TCP/RFB errors, raw payloads, stimulus command text, command
+output, draft text, marked text, or IME state.
