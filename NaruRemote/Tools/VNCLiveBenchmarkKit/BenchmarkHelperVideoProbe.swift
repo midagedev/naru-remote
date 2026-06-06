@@ -319,10 +319,10 @@ public enum BenchmarkHelperVideoProbe {
 
         try process.run()
         defer {
-            if process.isRunning {
-                process.terminate()
-            }
-            process.waitUntilExit()
+            BenchmarkProcessWaiter.terminateAndWait(
+                process,
+                graceTimeout: BenchmarkHelperVideoProbeTiming.externalHelperTerminationGraceTimeout
+            )
         }
         Thread.sleep(forTimeInterval: BenchmarkHelperVideoProbeTiming.externalHelperLaunchSettle)
         guard process.isRunning else {
@@ -439,6 +439,7 @@ private enum BenchmarkHelperVideoProbeTiming {
     static let externalHelperPortAttempts = 3
     static let externalHelperLaunchSettle: TimeInterval = 0.25
     static let externalHelperReadyTimeout: TimeInterval = 2
+    static let externalHelperTerminationGraceTimeout: TimeInterval = 0.5
     static let serverPortPollInterval: TimeInterval = 0.02
     static let postPortReadySettle: TimeInterval = 0.05
     static let clientTimeout: TimeInterval = 2
