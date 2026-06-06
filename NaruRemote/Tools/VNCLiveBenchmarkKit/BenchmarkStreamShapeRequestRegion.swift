@@ -3,7 +3,7 @@ import Foundation
 import NaruRemoteCore
 
 public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Sendable, CaseIterable {
-    private static let firstFrameVisibleGlanceScale = 0.60
+    private static let firstFrameVisibleGlanceScale = 0.45
 
     case full
     case centerHalf = "center-half"

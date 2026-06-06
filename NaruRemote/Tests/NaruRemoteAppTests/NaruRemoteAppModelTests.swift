@@ -1576,7 +1576,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(
             connector.frameUpdateRegions,
             [
-                RFBFramebufferUpdateRegion(x: 350, y: 350, width: 300, height: 300)
+                RFBFramebufferUpdateRegion(x: 387, y: 387, width: 225, height: 225)
             ]
         )
     }
@@ -1616,7 +1616,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(
             connector.frameUpdateRegions,
             [
-                RFBFramebufferUpdateRegion(x: 350, y: 350, width: 300, height: 300)
+                RFBFramebufferUpdateRegion(x: 387, y: 387, width: 225, height: 225)
             ]
         )
     }
