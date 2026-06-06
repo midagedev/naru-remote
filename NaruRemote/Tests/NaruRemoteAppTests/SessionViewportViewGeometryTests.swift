@@ -131,6 +131,17 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertTrue(SessionViewportView.trackpadDragOwnsViewportInteraction(transform: transform))
     }
 
+    func testViewportStatePublishPolicyOnlyGoesLiveForLiveRemoteFrames() {
+        XCTAssertEqual(
+            SessionViewportView.viewportStatePublishPolicy(for: .deferUntilSettled),
+            .gestureEnd
+        )
+        XCTAssertEqual(
+            SessionViewportView.viewportStatePublishPolicy(for: .liveRemoteFrames),
+            .liveDisplayLink
+        )
+    }
+
     func testCursorOverlayFallsBackToSyntheticCursorWithoutServerShape() {
         XCTAssertEqual(
             SessionViewportView.cursorOverlayKind(serverCursor: nil),

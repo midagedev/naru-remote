@@ -15,4 +15,8 @@ public enum ViewportInteractionFrameStrategy: String, Equatable, Sendable {
     public var allowsLiveFramebufferPublication: Bool {
         self == .liveRemoteFrames
     }
+
+    public var prefersLiveViewportStatePublication: Bool {
+        self == .liveRemoteFrames
+    }
 }

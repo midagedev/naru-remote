@@ -5832,3 +5832,52 @@ greater than 1.
 diagnostics. It must not log/export host identity, credentials, ports, request
 coordinates, dimensions, pixels, byte counts, command text, draft text, marked
 text, or IME state.
+
+### D128 Trackpad Live Viewport State Publication
+
+References:
+- `artifacts/benchmarks/2026-06-07-trackpad-live-viewport-publish-summary.md`
+- D125/D127 tight-first cursor app opt-in path.
+
+**Decision**: when zoomed trackpad cursor-follow owns viewport interaction,
+publish pending viewport state on a bounded display link while the
+`liveRemoteFrames` strategy is active. Keep direct pinch, direct zoomed pan,
+and deceleration on the existing gesture-end state publication policy.
+
+**Why**:
+- The user reported that zoom/pan feels half a beat late and that trackpad mode
+  needs the real server cursor to remain visible while zoomed.
+- The Metal layer already applies local transforms immediately, but the
+  SwiftUI/AppModel/PiP/request-region mirror was still held until gesture end.
+  That can make local panning and remote cursor/text echo feel desynchronized.
+- Trackpad cursor-follow is different from direct photo-like pinch/pan because
+  the user is watching remote cursor feedback during the gesture.
+
+**Implementation rule**:
+- `ViewportInteractionFrameStrategy.liveRemoteFrames` must allow live
+  framebuffer publication and prefer live viewport-state publication.
+- `deferUntilSettled` must keep both streamed-frame and viewport-state
+  publication conservative.
+- The Metal host should use display-link publication only for live strategies,
+  with a bounded 60 Hz viewport-state target.
+- Do not change the trackpad pointer command coalescing contract or publish raw
+  cursor positions in diagnostics.
+
+**Evidence**:
+- `ViewportGestureRedrawThrottleTests` covers the strategy-level live state
+  publication contract.
+- `SessionViewportViewGeometryTests` covers the view-layer policy branch that
+  keeps `deferUntilSettled` at gesture end and maps `liveRemoteFrames` to live
+  display-link publication.
+- `PointerGestureResolverTests` continue to cover zoomed trackpad cursor-follow
+  and pan coupling semantics.
+
+**Interpretation**:
+- This is a hand-feel increment, not a traffic profile promotion.
+- Physical iPhone follow-up should compare zoomed trackpad cursor movement,
+  text echo, thermal state, and sustained frame cadence with
+  `tight-first-cursor` enabled.
+
+**Privacy rule**: this change adds no new diagnostics fields and must not emit
+cursor positions, request coordinates, dimensions, pixels, byte counts, host
+identity, credentials, command text, draft text, marked text, or IME state.
