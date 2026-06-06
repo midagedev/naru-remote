@@ -5671,3 +5671,59 @@ timing values. They must not emit host identity, credentials, ports, executable
 paths, command lines, raw stdout/stderr, raw TCP/RFB errors, request
 coordinates, dimensions, pixels, byte counts, stimulus command text, draft
 text, marked text, or IME state.
+
+### D125 Tight-First Cursor Is The Next Trackpad-Friendly Candidate
+
+References:
+- `artifacts/benchmarks/2026-06-07-tight-first-cursor-candidate-summary.md`
+
+**Decision**: add benchmark-only `tight-first-cursor` and
+`tight-first-cursor-clipboard` profiles, plus a bounded
+`bounded-vnc-tight-cursor-stability` runner that compares `tight-first` against
+`tight-first-cursor`. Keep `tight-first-cursor` as the next app opt-in
+candidate for real-cursor trackpad work. Do not include ExtendedClipboard in
+that candidate yet.
+
+**Why**:
+- D124 kept `tight-first` as the best VNC benchmark candidate, but the app's
+  trackpad mode needs server cursor support for a smooth real-cursor path.
+- A live `tight-first-cursor` comparison kept both candidates warning-only, and
+  the order-neutral recommendation selected `tight-first-cursor`.
+- A separate live `tight-first-cursor-clipboard` check failed two of three runs
+  and pushed max client-processing p95 to 146 ms, so clipboard should remain
+  outside the Tight app candidate until isolated separately.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- Runner help exposes `bounded-vnc-tight-cursor-stability`.
+- `VNCLiveBenchmark --help` exposes `tight-first-cursor` and
+  `tight-first-cursor-clipboard`.
+- `BenchmarkStreamShapeProfileSelectionTests` pass.
+- The launchctl-backed live bounded runner completed
+  `tight-first,tight-first-cursor` with three rotated iterations and two
+  samples per profile run.
+- `tight-first`: warning overall, 0 pass / 3 warning / 0 fail runs,
+  6/6 content samples, 15.09 content FPS, 47 ms average update, 120 ms max p95
+  update, 2 ms max client-processing p95, and 0 permille renderer full-upload
+  pressure.
+- `tight-first-cursor`: warning overall, 0 pass / 3 warning / 0 fail runs,
+  6/6 content samples, 22.47 content FPS, 24 ms average update, 32 ms max p95
+  update, 1 ms max client-processing p95, and 0 permille renderer full-upload
+  pressure.
+- `tight-first-cursor-clipboard`: fail overall in an ad hoc live comparison,
+  with 146 ms max client-processing p95.
+
+**Interpretation**:
+- `tight-first-cursor` is the strongest current benchmark candidate for a
+  future trackpad-friendly app opt-in.
+- It is not a production default yet because the bounded runner remains
+  warning-only from sample size. The next unit should run a longer sustained or
+  physical iPhone check before default promotion.
+- Continue to treat ExtendedClipboard as a separate optimization axis.
+
+**Privacy rule**: the runner and artifact may report only safe profile labels,
+fixed verdict/issue labels, aggregate counts, permille ratios, and aggregate
+timing values. They must not emit host identity, credentials, ports, executable
+paths, command lines, raw stdout/stderr, raw TCP/RFB errors, request
+coordinates, dimensions, pixels, byte counts, stimulus command text, draft
+text, marked text, or IME state.

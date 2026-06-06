@@ -1044,3 +1044,13 @@ order-neutral recommendation and improves it to warning-only, while
 (107 ms average, 473 ms max p95) despite 0 permille renderer full-upload
 pressure. Do not promote the RGB565 Tight variant; the next VNC optimization
 axis is request/response cadence and server first-byte wait.
+The cursor follow-up artifact is
+`2026-06-07-tight-first-cursor-candidate-summary.md`; it adds benchmark-only
+`tight-first-cursor` and `tight-first-cursor-clipboard`, then runs a bounded
+`tight-first` vs `tight-first-cursor` comparison for the trackpad real-cursor
+path. In the launchctl-backed live run, `tight-first-cursor` becomes the
+order-neutral recommendation with 6/6 content samples, 22.47 content FPS,
+24 ms average update, 32 ms max p95 update, 1 ms max client-processing p95,
+and 0 permille renderer full-upload pressure. The clipboard variant failed an
+ad hoc live check with 146 ms client-processing p95, so keep clipboard separate
+from the next Tight app candidate.

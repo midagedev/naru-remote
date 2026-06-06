@@ -2140,6 +2140,8 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
     case localLowLatencyRGB565
     case tightFirst
     case tightFirstRGB565
+    case tightFirstCursor
+    case tightFirstCursorClipboard
     case zrleFirst
     case zrleCompressionZero
     case zrleCompressionZeroRGB565
@@ -2161,6 +2163,10 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
             "tight-first"
         case .tightFirstRGB565:
             "tight-first-rgb565"
+        case .tightFirstCursor:
+            "tight-first-cursor"
+        case .tightFirstCursorClipboard:
+            "tight-first-cursor-clipboard"
         case .zrleFirst:
             "zrle-first"
         case .zrleCompressionZero:
@@ -2198,6 +2204,21 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
         case .tightFirst, .tightFirstRGB565:
             return RFBEncodingPreference(
                 tight: true,
+                tightQualityLevel: 8,
+                compressionLevel: 1
+            )
+        case .tightFirstCursor:
+            return RFBEncodingPreference(
+                tight: true,
+                cursor: true,
+                tightQualityLevel: 8,
+                compressionLevel: 1
+            )
+        case .tightFirstCursorClipboard:
+            return RFBEncodingPreference(
+                tight: true,
+                cursor: true,
+                extendedClipboard: true,
                 tightQualityLevel: 8,
                 compressionLevel: 1
             )
