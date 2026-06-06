@@ -2,6 +2,7 @@ import NaruRemoteCore
 import SwiftUI
 
 #if os(iOS) && canImport(UIKit) && canImport(Metal) && canImport(MetalKit)
+import Combine
 import UIKit
 import Metal
 import MetalKit
@@ -103,6 +104,7 @@ public typealias MetalFramebufferViewportRedrawDiagnosticsHandler = @MainActor @
 
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
+    private let frameStore: SessionFrameStore?
     private let dirtyRectangles: [RFBFrameDamageRect]?
     private let changedPixelCount: Int?
     private let sessionID: RemoteSession.ID?
@@ -140,6 +142,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public init(
         framebuffer: RFBRawFramebuffer,
+        frameStore: SessionFrameStore? = nil,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
         changedPixelCount: Int? = nil,
         sessionID: RemoteSession.ID? = nil,
@@ -167,6 +170,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onUploadTiming: MetalFramebufferUploadTimingHandler? = nil
     ) {
         self.framebuffer = framebuffer
+        self.frameStore = frameStore
         self.dirtyRectangles = dirtyRectangles
         self.changedPixelCount = changedPixelCount.map { max($0, 0) }
         self.sessionID = sessionID
@@ -230,6 +234,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         )
         host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         context.coordinator.prepareForSession(sessionID)
+        context.coordinator.bindFrameStore(frameStore, host: host)
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
         // and there is nothing prior on the GPU to combine with the
@@ -242,6 +247,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
         context.coordinator.prepareForSession(sessionID)
+        context.coordinator.bindFrameStore(frameStore, host: uiView)
         context.coordinator.updateUploadTimingHandler(onUploadTiming)
         let didEnqueueFramebuffer = context.coordinator.enqueue(
             framebuffer,
@@ -283,6 +289,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         private var lastFramebufferDimensions: (width: Int, height: Int)?
         private var sessionID: RemoteSession.ID?
         private var uploadGate = FramebufferUploadGate()
+        private var boundFrameStoreID: ObjectIdentifier?
+        private var frameCancellable: AnyCancellable?
 
         init(device: MTLDevice?) {
             if let device, let renderer = MetalFramebufferRenderer(device: device) {
@@ -307,6 +315,33 @@ public struct MetalFramebufferView: UIViewRepresentable {
             renderer?.uploadTimingHandler = handler
         }
 
+        func bindFrameStore(_ frameStore: SessionFrameStore?, host: MetalFramebufferHostingView) {
+            let nextStoreID = frameStore.map(ObjectIdentifier.init)
+            guard nextStoreID != boundFrameStoreID else {
+                return
+            }
+
+            frameCancellable = nil
+            boundFrameStoreID = nextStoreID
+
+            guard let frameStore else {
+                return
+            }
+
+            frameCancellable = frameStore.framePublisher.sink { [weak self, weak host] frameState in
+                // `SessionFrameStore` is MainActor-isolated and sends this
+                // publisher synchronously from publish/clear. Keep the order
+                // intact so a clear event cannot be overtaken by an older
+                // frame through an extra Task hop.
+                MainActor.assumeIsolated {
+                    guard let self, let host else {
+                        return
+                    }
+                    self.receiveFrameEvent(frameState, host: host)
+                }
+            }
+        }
+
         @discardableResult
         func enqueue(
             _ framebuffer: RFBRawFramebuffer,
@@ -327,6 +362,37 @@ public struct MetalFramebufferView: UIViewRepresentable {
             )
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
             return true
+        }
+
+        private func receiveFrameEvent(
+            _ frameState: SessionFrameState,
+            host: MetalFramebufferHostingView?
+        ) {
+            guard let host else {
+                return
+            }
+
+            guard let framebuffer = frameState.framebuffer else {
+                clearFrameState(host: host)
+                return
+            }
+
+            host.syncFrameState(frameState)
+            let didEnqueueFramebuffer = enqueue(
+                framebuffer,
+                dirtyRectangles: frameState.dirtyRectangles,
+                changedPixelCount: frameState.changedPixelCount
+            )
+            if didEnqueueFramebuffer {
+                host.requestRedrawForIncomingFrame()
+            }
+        }
+
+        private func clearFrameState(host: MetalFramebufferHostingView) {
+            uploadGate.reset()
+            lastFramebufferDimensions = nil
+            renderer?.clearFramebuffers()
+            host.clearFrameState()
         }
     }
 }
@@ -718,6 +784,39 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             height: max(framebufferSize.height, 0)
         )
         updateHotCursorOverlay()
+    }
+
+    public func syncFrameState(_ frameState: SessionFrameState) {
+        guard let framebuffer = frameState.framebuffer else {
+            clearFrameState()
+            return
+        }
+        syncServerCursor(
+            frameState.serverCursor,
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height)
+        )
+    }
+
+    private func syncServerCursor(
+        _ serverCursor: RFBServerCursor?,
+        framebufferSize: CGSize
+    ) {
+        if currentServerCursor != serverCursor {
+            currentServerCursor = serverCursor
+            currentServerCursorImage = serverCursor.flatMap(Self.cursorImage(_:))
+        }
+        self.currentFramebufferSize = CGSize(
+            width: max(framebufferSize.width, 0),
+            height: max(framebufferSize.height, 0)
+        )
+        updateHotCursorOverlay()
+    }
+
+    public func clearFrameState() {
+        currentFramebufferSize = .zero
+        currentServerCursor = nil
+        currentServerCursorImage = nil
+        hotCursorView.isHidden = true
     }
 
     public override func layoutSubviews() {

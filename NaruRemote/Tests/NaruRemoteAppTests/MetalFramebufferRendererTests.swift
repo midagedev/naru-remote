@@ -101,6 +101,29 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertNil(renderer.currentTextureSize)
     }
 
+    func testRendererClearFramebuffersDropsTextureAndPendingUpload() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(renderer.currentTextureSize?.width, 4)
+
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 8, height: 4, fill: RFBColor(red: 20, green: 0, blue: 0))
+        )
+        renderer.clearFramebuffers()
+
+        XCTAssertNil(renderer.currentTextureSize)
+        XCTAssertNil(renderer.lastUploadMilliseconds)
+        XCTAssertFalse(
+            renderer.uploadPendingFramebufferForTesting(),
+            "A clear event should discard stale pending pixels instead of uploading them after disconnect."
+        )
+    }
+
     func testSuspendedRendererAllowsOneThrottledUploadBypass() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))

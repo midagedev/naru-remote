@@ -114,6 +114,19 @@ public final class MetalFramebufferRenderer: NSObject {
         pendingChangedPixelCount = changedPixelCount.map { max($0, 0) }
     }
 
+    /// Clears any visible or pending framebuffer state. Used when the
+    /// session frame store emits a disconnect/profile-change clear event so
+    /// the imperative Metal host cannot display stale pixels while SwiftUI
+    /// is rebuilding back to the placeholder.
+    public func clearFramebuffers() {
+        texture = nil
+        pendingFramebuffer = nil
+        pendingDirtyRectangles = nil
+        pendingChangedPixelCount = nil
+        lastUploadRegionCount = 0
+        lastUploadMilliseconds = nil
+    }
+
     /// Updates the local viewport transform used for drawing the
     /// current texture. The main iPhone host keeps this at the stable
     /// aspect-fit baseline and applies touch navigation with a layer
