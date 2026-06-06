@@ -2208,12 +2208,7 @@ private enum BenchmarkProfile: CaseIterable, Equatable {
                 compressionLevel: 1
             )
         case .tightFirstCursor:
-            return RFBEncodingPreference(
-                tight: true,
-                cursor: true,
-                tightQualityLevel: 8,
-                compressionLevel: 1
-            )
+            return .tightFirstCursor
         case .tightFirstCursorClipboard:
             return RFBEncodingPreference(
                 tight: true,

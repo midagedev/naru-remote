@@ -828,7 +828,9 @@ public struct SessionViewportView: View {
     private var streamEncodingModeLabelText: String {
         switch streamEncodingMode {
         case .standard:
-            return "Standard stream profile — tap to try RGB565 low latency"
+            return "Standard stream profile — tap to try Tight cursor"
+        case .tightFirstCursor:
+            return "Tight cursor stream profile — tap to try RGB565 low latency"
         case .localLowLatencyRGB565:
             return "RGB565 low-latency stream profile — tap to try ZRLE compression 0"
         case .zrleCompressionZero:

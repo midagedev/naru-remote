@@ -1338,6 +1338,18 @@ iPhone) and ships as its own PR.
   stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
   counts, stimulus command text, draft text, marked text, or IME state. Owns:
   launchctl runner, README, research note, benchmark artifact. **Done.**
+- **T458** Tight-first cursor app opt-in: expose benchmark-backed
+  `tight-first-cursor` as a user-selectable stream mode without changing the
+  production default. Use Tight + Cursor + quality level 8 + compression level
+  1, no RGB565, no ExtendedClipboard, and request pipeline depth 1. Add the mode
+  to settings persistence/toggle order, app connector construction, session UI
+  label, and focused tests. Keep this as a physical-device experiment path for
+  trackpad real-cursor sessions, not a default promotion. Emit/export only the
+  fixed stream-profile label through existing safe settings/diagnostics; do not
+  log/export host identity, credentials, ports, request coordinates, dimensions,
+  pixels, byte counts, command text, draft text, marked text, or IME state.
+  Owns: app settings, core encoding preference, app model mapping, session UI
+  label, tests, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
