@@ -1358,6 +1358,103 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
+    func testModelKeepsFullIncrementalStreamRequestsInStandardProfile() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                requestTimeout: 1,
+                frameInterval: 0.2,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+        try await Task.sleep(for: .milliseconds(260))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(connector.frameUpdateRegions, [nil, nil])
+    }
+
+    func testModelRequestsVisibleViewportRegionForLowTrafficIncrementalStreamFrames() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                requestTimeout: 1,
+                frameInterval: 0.2,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+        try await Task.sleep(for: .milliseconds(260))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(
+            connector.frameUpdateRegions,
+            [
+                nil,
+                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
+            ]
+        )
+    }
+
     func testModelLetsPowerSaverOverrideRGB565LowTrafficStreamConnectorOnConnect() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
@@ -4413,11 +4510,12 @@ private final class RecordingStreamConnectorFactory: @unchecked Sendable {
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackingFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
+private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
         var recordedFrameUpdateRequests: [Bool] = []
+        var recordedFrameUpdateRegions: [RFBFramebufferUpdateRegion?] = []
         var recordedCredentials: [RFBConnectionCredential] = []
         var recordedClipboardPayloads: [String] = []
         var recordedPasteCommands: [PasteCommand] = []
@@ -4526,6 +4624,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         recording.withLock { $0.recordedFrameUpdateRequests }
     }
 
+    var frameUpdateRegions: [RFBFramebufferUpdateRegion?] {
+        recording.withLock { $0.recordedFrameUpdateRegions }
+    }
+
     var credentials: [RFBConnectionCredential] {
         recording.withLock { $0.recordedCredentials }
     }
@@ -4599,8 +4701,21 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBDamageTrackin
         incremental: Bool,
         timeout: TimeInterval
     ) throws -> RFBFramebufferUpdateResult {
+        try requestFramebufferUpdate(
+            incremental: incremental,
+            timeout: timeout,
+            region: nil
+        )
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws -> RFBFramebufferUpdateResult {
         let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.recordedFrameUpdateRequests.append(incremental)
+            state.recordedFrameUpdateRegions.append(region)
             return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
         }
 

@@ -4715,3 +4715,58 @@ request. Keep the production default on the current standard stream profile.
   sessions without changing defaults.
 - The next production-quality unit should focus on update-wait cadence and
   first useful paint rather than broad encoding default changes.
+
+### D106 App-Side Opt-In Viewport Request Regions
+
+References:
+- D95 viewport-aware request-region foundation.
+- D96 traffic-pressure promotion metric.
+- D105 app-side RGB565 low-traffic stream profile.
+- `artifacts/benchmarks/2026-06-06-app-view-aware-request-region-summary.md`.
+
+**Decision**: wire the app's memory-only `ViewportTransform` into the sustained
+frame stream loop, but apply viewport-aware `FramebufferUpdateRequest` regions
+only when the user has selected the fixed `zrle-compression-0-rgb565`
+low-traffic stream profile. Keep the first request full-frame and keep the
+standard profile on full incremental requests.
+
+**Why**:
+- The user's poor-network target now makes traffic pressure a first-class
+  optimization goal. When the iPhone view is zoomed or crop-filled, asking the
+  server for the visible framebuffer region can reduce sustained update area
+  without changing the local zoom/pan interaction model.
+- D95/D96 show that request-region candidates need explicit traffic reporting,
+  startup survival, heartbeat/fallback behavior, and physical iPhone evidence
+  before becoming the production default. Binding the behavior to the existing
+  opt-in low-traffic stream profile lets real sessions test the candidate while
+  preserving the default full-frame path.
+- Reusing `ViewportRequestRegionPolicy` keeps app and benchmark behavior aligned:
+  the policy expands by a safety margin, rejects near-full low-savings regions,
+  and forces periodic full requests through the heartbeat interval.
+
+**Implementation rule**:
+- `SessionViewportView` reports the current `ViewportTransform` to
+  `NaruRemoteAppModel` without persisting it.
+- `NaruRemoteAppModel` passes a request region only for incremental stream
+  requests after a first full-frame request, and only when
+  `streamEncodingMode == .zrleCompressionZeroRGB565` with no power-saver
+  override.
+- Settings and diagnostics continue to expose only the fixed stream-profile
+  label. No raw framebuffer dimensions, coordinates, byte counts, pixels,
+  payloads, or per-sample timings are logged, exported, or persisted.
+
+**Evidence**:
+- App-model tests cover both sides of the gate: the standard stream profile
+  continues to record full incremental requests even when a zoomed transform is
+  available, while the RGB565 low-traffic profile records a visible-region
+  incremental request after the initial full frame.
+- Core tests already cover region conversion, margin expansion, near-full
+  fallback, heartbeat full requests, timeout fallback, and representative
+  phone-portrait crop-fill geometry.
+
+**Interpretation**:
+- This is a traffic-focused app experiment, not a default promotion.
+- The next larger unit should run this opt-in profile on physical iPhone under
+  poor-network conditions and compare sustained request-area proxy, tail
+  latency, device heat, and compose/input correctness before widening the
+  behavior.
