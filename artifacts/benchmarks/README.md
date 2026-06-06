@@ -231,6 +231,17 @@ received/content/content-response sample permille. Other profiles remain worse
 on first-frame receive time, renderer upload pressure, content hit rate, or
 startup connectivity, so the next work should inspect update wait timing and
 server transport cadence rather than trying another quick profile default flip.
+Current 10fps remote-desktop target artifact:
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-target-summary.md`.
+`iphone-remote-desktop-10fps-v1` is the new product-grade sustained smoothness
+target: content FPS below `10` is a failure, not a warning. Use
+`scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe` to run the
+current `0.25` + `local-low-latency-rgb565` candidate against that stricter
+target. The current live run records `1.97` content FPS, `508` ms average
+update, `627` ms p95 update, `626` ms first-byte wait p95, and a `fail`
+decision with `content-fps-failed`, `average-update-failed`,
+`p95-update-failed`, `first-byte-wait-failed`, and
+`first-frame-payload-read-failed`.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps

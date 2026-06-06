@@ -6104,6 +6104,65 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D134 Add A Remote Desktop 10fps Target
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-target-summary.md`
+- D133 glance 0.25 app profile sweep runner.
+
+**Decision**: add `iphone-remote-desktop-10fps-v1` as the product-grade
+sustained smoothness target. This target treats content FPS below `10` as a
+failure, not a warning, and pairs that with 10fps-class update-latency bands.
+Also add `glance-025-10fps-duration-probe`, a fixed launchctl-backed live probe
+for the current `0.25` + `local-low-latency-rgb565` VNC candidate under this
+stricter target.
+
+**Why**:
+- The user correctly called out that `~2fps` is not competitive with a smooth
+  remote desktop experience. The old `iphone-poor-network-traffic-v1` target
+  was useful for traffic/startup triage, but its `4fps` pass band is too low for
+  product readiness.
+- Keeping a separate 10fps target preserves historical poor-network artifacts
+  while making future PRs prove the actual usability bar.
+- The current best VNC candidate should be measured against the new target
+  before more profile-default changes are considered.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `glance-025-10fps-duration-probe`.
+- `scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- Focused `BenchmarkStreamShapeSummaryTests` pass for target selection,
+  below-10fps failure, and exact-10fps pass behavior.
+- A clean live `glance-025-10fps-duration-probe` run exited `rc=0`.
+- Live result: wrapper status `passed`, target
+  `iphone-remote-desktop-10fps-v1`, stream-shape decision `fail`, content FPS
+  `1.97`, average update `508` ms, p95 update `627` ms, first-byte wait p95
+  `626` ms, first-frame receive `6044` ms, first-frame payload read `4926` ms,
+  renderer full-upload `0` permille, and `1000/1000/1000`
+  received/content/content-response sample permille.
+- Fixed issue codes now include `content-fps-failed`,
+  `average-update-failed`, `p95-update-failed`, `first-byte-wait-failed`, and
+  `first-frame-payload-read-failed`.
+
+**Interpretation**:
+- The benchmark now matches the product bar: `~2fps` is a failure.
+- The current VNC request/response path preserves traffic and renderer pressure
+  but does not meet the sustained smoothness target.
+- The next large unit should prove whether VNC update-wait/server cadence can
+  approach 10fps under the fixed 0.25 shape. If not, the product should pivot
+  the primary visual path to helper-video while retaining VNC for input/control
+  and fallback.
+
+**Privacy rule**: the runner emits only fixed target/mode/profile labels, fixed
+target/transport/request labels, scale permille values, fixed verdict/issue
+labels, aggregate counts, permille ratios, aggregate timings, and existing
+privacy-safe benchmark reports. It must not print or export host identity,
+credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
+text, draft text, marked text, or IME state.
+
 ### D133 Add A Glance 0.25 App Profile Sweep Runner
 
 References:
