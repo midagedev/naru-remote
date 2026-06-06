@@ -222,6 +222,10 @@ without unsafe report fields.
   path so an enabled private-network profile starts helper-video after the first
   VNC frame, keeps VNC input/control active, and falls back to VNC on helper
   start failure. **Done.**
+- [x] T029Y [US1] Add an opt-in network-backed app bootstrap smoke benchmark
+  that proves the app-model first-frame helper-video bootstrap can call a real
+  authenticated TCP helper-video server/client path and still keep VNC
+  framebuffer/control active. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

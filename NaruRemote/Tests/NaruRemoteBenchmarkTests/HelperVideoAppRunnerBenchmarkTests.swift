@@ -91,6 +91,29 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             }
         }
     }
+
+    #if canImport(Network)
+    func testNetworkBackedHelperVideoBootstrapThroughAppModelSmoke() async throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let pairingSecret = "benchmark-helper-video-secret"
+        let helperAccessUnits = try Self.toolboxSyntheticHelperAccessUnits(configuration: configuration)
+        let server = try Self.makeHelperVideoNetworkServer(
+            accessUnits: helperAccessUnits,
+            pairingSecret: pairingSecret
+        )
+        server.start()
+        defer { server.cancel() }
+        let port = try await Self.waitForPort(server)
+
+        for iteration in 0..<configuration.iterations {
+            try await Self.runNetworkBackedHelperVideoBootstrapOnce(
+                iteration: iteration,
+                port: port,
+                pairingSecret: pairingSecret
+            )
+        }
+    }
+    #endif
     #endif
 
     private var benchmarkMetrics: [XCTMetric] {
@@ -242,19 +265,7 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
     private static func toolboxSyntheticStartResult(
         configuration: HelperVideoAppRunnerBenchmarkConfiguration
     ) throws -> HelperVideoStreamNetworkStartResult {
-        let requestBody = HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
-        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
-            frameCount: configuration.displayableFrameCount,
-            width: configuration.toolboxWidth,
-            height: configuration.toolboxHeight
-        )
-        let helperAccessUnits: [NaruHelperVideoAccessUnit]
-        do {
-            helperAccessUnits = try source.accessUnits(for: requestBody)
-        } catch {
-            throw XCTSkip("Toolbox synthetic helper-video source unavailable on this host.")
-        }
-
+        let helperAccessUnits = try toolboxSyntheticHelperAccessUnits(configuration: configuration)
         return startResult(
             accessUnits: helperAccessUnits.map { accessUnit in
                 decodedAccessUnit(
@@ -269,6 +280,168 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             )
         )
     }
+
+    private static func toolboxSyntheticHelperAccessUnits(
+        configuration: HelperVideoAppRunnerBenchmarkConfiguration
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        let requestBody = HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
+            frameCount: configuration.displayableFrameCount,
+            width: configuration.toolboxWidth,
+            height: configuration.toolboxHeight
+        )
+        do {
+            return try source.accessUnits(for: requestBody)
+        } catch {
+            throw XCTSkip("Toolbox synthetic helper-video source unavailable on this host.")
+        }
+    }
+
+    #if canImport(Network)
+    private static func makeHelperVideoNetworkServer(
+        accessUnits: [NaruHelperVideoAccessUnit],
+        pairingSecret: String
+    ) throws -> NaruHelperVideoStreamNetworkServer {
+        let requestHandler = NaruHelperVideoTransportRequestHandler(
+            expectedPairingSecret: pairingSecret,
+            expectedProfileFingerprint: profileFingerprint,
+            capabilityProvider: {
+                HelperVideoCapabilityResponseBody(
+                    availability: .available,
+                    screenRecordingPermission: .granted,
+                    codecSupport: .h264,
+                    latencyModes: [.lowLatency]
+                )
+            }
+        )
+        let pipeline = NaruHelperVideoStreamFramePipeline(
+            requestHandler: requestHandler,
+            accessUnitSource: NaruHelperVideoStaticAccessUnitSource(accessUnits: accessUnits)
+        )
+        return try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
+    }
+
+    private static func waitForPort(
+        _ server: NaruHelperVideoStreamNetworkServer
+    ) async throws -> UInt16 {
+        for _ in 0..<100 {
+            if let port = server.port, port > 0 {
+                return port
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return try XCTUnwrap(server.port)
+    }
+
+    private static func runNetworkBackedHelperVideoBootstrapOnce(
+        iteration: Int,
+        port: UInt16,
+        pairingSecret: String
+    ) async throws {
+        let helperVideoSecretRef = "helper-video-token:network-benchmark-\(iteration)"
+        let profile = try ConnectionProfile(
+            displayName: "Network Bootstrap Bench",
+            host: "127.0.0.1",
+            hostKind: .privateAddress,
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: profileFingerprint
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 14, green: 28, blue: 42)
+        )
+        let connector = BenchmarkStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Network Bootstrap Bench",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperVideoProfileState: [
+                    profile.id: HelperVideoProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: profileFingerprint,
+                        availability: .available,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: pairingSecret]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { _, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                let client = HelperVideoStreamNetworkClient(
+                    host: "127.0.0.1",
+                    port: port,
+                    profileFingerprint: pairingFingerprint,
+                    pairingSecret: pairingSecret,
+                    timeout: 3
+                )
+                return try await client.startStream(requestBody, maxServerFrames: maxServerFrames)
+            },
+            helperVideoRendererFactory: {
+                SampleBufferFactoryAccessUnitRenderer()
+            }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoBootstrap(
+            model,
+            profileID: profile.id,
+            latestFramebuffer: framebuffer
+        )
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+    }
+
+    private static func waitForHelperVideoBootstrap(
+        _ model: NaruRemoteAppModel,
+        profileID: ConnectionProfile.ID,
+        latestFramebuffer: RFBRawFramebuffer
+    ) async throws {
+        for _ in 0..<250 {
+            let snapshot = model.snapshot
+            if snapshot.visualTransportMode == .helperVideo,
+               snapshot.helperVideoStreamHealth.state == .healthy,
+               snapshot.latestFramebuffer == latestFramebuffer,
+               snapshot.helperVideoProfileState[profileID]?.availability == .available,
+               snapshot.session?.state == .active {
+                XCTAssertEqual(snapshot.helperVideoProfileState[profileID]?.lastFailureCode, nil)
+                XCTAssertEqual(snapshot.helperVideoStreamDescriptor?.codec, .h264)
+                XCTAssertNotEqual(snapshot.helperVideoStreamDescriptor?.codecProfile, .unknown)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let snapshot = model.snapshot
+        XCTFail(
+            "Timed out waiting for helper-video bootstrap: mode=\(snapshot.visualTransportMode), health=\(snapshot.helperVideoStreamHealth.state), availability=\(String(describing: snapshot.helperVideoProfileState[profileID]?.availability)), failure=\(String(describing: snapshot.helperVideoProfileState[profileID]?.lastFailureCode))"
+        )
+    }
+
+    private static func waitForPointerEvents(
+        _ connector: BenchmarkStreamingConnector,
+        count: Int
+    ) async throws {
+        for _ in 0..<100 {
+            if connector.recordedPointerEventMasks.count >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(connector.recordedPointerEventMasks.count, count)
+    }
+    #endif
     #endif
 
     private static func decodedAccessUnit(
@@ -313,6 +486,174 @@ private struct HelperVideoAppRunnerBenchmarkConfiguration {
     let toolboxWidth: Int32
     let toolboxHeight: Int32
 }
+
+#if os(macOS) && canImport(Network)
+// @unchecked Sendable is limited to this benchmark fake: mutable test state is
+// guarded by `lock`, while protocol methods may be called from the app model's
+// detached helper-video bootstrap and MainActor pointer path.
+private final class BenchmarkStreamingConnector: @unchecked Sendable, RFBStreamingClient, RFBRegionFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
+    private struct Recording {
+        var frameUpdates: [RFBFramebufferUpdateResult]
+        var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+    }
+
+    private let lock = NSLock()
+    private var recording: Recording
+    private let width: Int
+    private let height: Int
+    private let name: String
+
+    init(width: Int, height: Int, name: String, framebuffer: RFBRawFramebuffer) {
+        self.width = width
+        self.height = height
+        self.name = name
+        self.recording = Recording(frameUpdates: [.fullFrame(framebuffer: framebuffer)])
+    }
+
+    var state: RFBClientState {
+        .receivingFrames
+    }
+
+    var lastFrame: RFBFrameMetadata? {
+        RFBFrameMetadata(width: width, height: height)
+    }
+
+    var canEnableContinuousUpdates: Bool {
+        false
+    }
+
+    var recordedPointerEventMasks: [UInt8] {
+        withLock { $0.recordedPointerEvents.map(\.mask) }
+    }
+
+    func connectNoAuthFirstFrame(
+        host: String,
+        port: UInt16,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        try connectFirstFrame(host: host, port: port, credential: .none, timeout: timeout)
+    }
+
+    func connectFirstFrame(
+        host: String,
+        port: UInt16,
+        credential: RFBConnectionCredential,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        try connectSession(host: host, port: port, credential: credential, timeout: timeout)
+    }
+
+    func connectNoAuthSession(
+        host: String,
+        port: UInt16,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        try connectSession(host: host, port: port, credential: .none, timeout: timeout)
+    }
+
+    func connectSession(
+        host: String,
+        port: UInt16,
+        credential: RFBConnectionCredential,
+        timeout: TimeInterval
+    ) throws -> RFBServerInit {
+        RFBServerInit(
+            width: width,
+            height: height,
+            pixelFormat: RFBPixelFormat(
+                bitsPerPixel: 32,
+                depth: 24,
+                isBigEndian: false,
+                isTrueColor: true,
+                redMax: 255,
+                greenMax: 255,
+                blueMax: 255,
+                redShift: 16,
+                greenShift: 8,
+                blueShift: 0
+            ),
+            name: name
+        )
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        try requestFramebufferUpdate(incremental: incremental, timeout: timeout).framebuffer
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBFramebufferUpdateResult {
+        try requestFramebufferUpdate(incremental: incremental, timeout: timeout, region: nil)
+    }
+
+    func requestFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws -> RFBFramebufferUpdateResult {
+        try popFrameUpdate()
+    }
+
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        try popFrameUpdate()
+    }
+
+    func setClipboardText(_ text: String) throws {}
+
+    func sendPasteCommand(_ command: PasteCommand) throws {}
+
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        withMutableLock { recording in
+            recording.recordedPointerEvents.append((buttonMask, x, y))
+        }
+    }
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {}
+
+    func renegotiateEncodings(_ preference: RFBEncodingPreference, timeout: TimeInterval) throws {}
+
+    func enableContinuousUpdates(
+        _ enabled: Bool,
+        region: RFBFramebufferUpdateRegion?,
+        timeout: TimeInterval
+    ) throws {}
+
+    func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws {}
+
+    private func popFrameUpdate() throws -> RFBFramebufferUpdateResult {
+        try withMutableLock { recording in
+            guard !recording.frameUpdates.isEmpty else {
+                throw BenchmarkStreamingConnectorError.noFramebufferUpdate
+            }
+            return recording.frameUpdates.removeFirst()
+        }
+    }
+
+    private func withLock<Value>(
+        _ body: (Recording) throws -> Value
+    ) rethrows -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body(recording)
+    }
+
+    private func withMutableLock<Value>(
+        _ body: (inout Recording) throws -> Value
+    ) rethrows -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body(&recording)
+    }
+}
+
+private enum BenchmarkStreamingConnectorError: Error {
+    case noFramebufferUpdate
+}
+#endif
 
 @MainActor
 private final class SampleBufferFactoryAccessUnitRenderer: HelperVideoAccessUnitRendering {
