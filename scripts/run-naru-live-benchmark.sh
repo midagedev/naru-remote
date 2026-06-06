@@ -12,6 +12,7 @@ Modes:
   preflight                Redacted live environment and helper capture readiness.
   helper-synthetic-probe   Helper-video probe-only run with external synthetic H.264.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
+  helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -142,6 +143,20 @@ reject_extra_flag() {
   done
 }
 
+json_step_or_fixed_failure() {
+  local step="$1"
+  local failure_code="$2"
+  shift 2
+
+  local output
+  if output="$("$@" 2>/dev/null)" && [[ -n "$output" ]]; then
+    printf '%s' "$output"
+  else
+    printf '{"status":"failed","step":"%s","safeFailureCode":"%s"}' \
+      "$step" "$failure_code"
+  fi
+}
+
 case "$mode" in
   preflight)
     import_helper_env
@@ -169,6 +184,51 @@ case "$mode" in
       --visual-transport helper-video \
       --helper-video-probe external-helper-screen-capturekit-tcp \
       --json
+    ;;
+  helper-readiness-sweep)
+    reject_extra_args
+    import_helper_env
+    import_optional_live_env
+    cd "$repo_root"
+    printf '{\n'
+    printf '  "schemaVersion": 1,\n'
+    printf '  "mode": "helper-readiness-sweep",\n'
+    printf '  "capability": '
+    json_step_or_fixed_failure \
+      helperCapability \
+      benchmarkStep.helperCapability.failed \
+      "$NARU_HELPER_EXECUTABLE" --video-capability
+    printf ',\n'
+    printf '  "preflight": '
+    json_step_or_fixed_failure \
+      environmentPreflight \
+      benchmarkStep.environmentPreflight.failed \
+      swift run --quiet VNCLiveBenchmark \
+      --environment-preflight \
+      --visual-transport helper-video \
+      --helper-video-probe external-helper-screen-capturekit-tcp \
+      --json
+    printf ',\n'
+    printf '  "syntheticProbe": '
+    json_step_or_fixed_failure \
+      externalSyntheticProbe \
+      benchmarkStep.externalSyntheticProbe.failed \
+      swift run --quiet VNCLiveBenchmark \
+      --helper-video-probe-only \
+      --visual-transport helper-video \
+      --helper-video-probe external-helper-synthetic-encoded-tcp \
+      --json
+    printf ',\n'
+    printf '  "screenProbe": '
+    json_step_or_fixed_failure \
+      externalScreenCaptureKitProbe \
+      benchmarkStep.externalScreenCaptureKitProbe.failed \
+      swift run --quiet VNCLiveBenchmark \
+      --helper-video-probe-only \
+      --visual-transport helper-video \
+      --helper-video-probe external-helper-screen-capturekit-tcp \
+      --json
+    printf '\n}\n'
     ;;
   short-live-comparison)
     import_helper_env

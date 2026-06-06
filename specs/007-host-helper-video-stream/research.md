@@ -681,3 +681,46 @@ short constrained-cellular comparison modes.
 - Document only the long `NARU_LIVE_*="$(launchctl getenv ...)"` command
   prefixes: rejected because the repeated command shape is easy to mistype and
   obscures the actual benchmark mode being run.
+
+## D23 - Add a fixed helper-video readiness sweep before the true capture gate
+
+**Decision**: Add a launchctl-backed `helper-readiness-sweep` mode that runs
+helper capability, environment preflight, external synthetic helper-video, and
+external ScreenCaptureKit helper-video probes as one JSON object. The sweep
+rejects caller-supplied extra arguments and converts subcommand failures into
+step-specific fixed failure labels without printing raw helper stderr.
+
+**Rationale**:
+- T031 needs a true ScreenCaptureKit access-unit live benchmark, but the
+  current helper app bundle still reports missing Screen Recording permission
+  and explicit permission request returns `notGranted`.
+- Apple documents ScreenCaptureKit as the screen-capture framework and notes
+  that macOS prompts for Screen Recording permission and requires restarting
+  the app after granting permission. A readiness sweep should therefore
+  distinguish "permission setup still blocked" from "helper transport broken".
+- The external synthetic H.264 path still proves the helper-video network and
+  iOS sample-buffer route without live screen pixels. Keeping it in the same
+  sweep reduces false diagnosis when only ScreenCaptureKit permission is
+  missing.
+- Step-specific fallback labels preserve enough trend information for repeated
+  readiness runs while still avoiding raw stderr, helper paths, endpoints, and
+  OS error details.
+
+**Sources**:
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+- Apple Capturing screen content in macOS:
+  https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos
+- Apple VideoToolbox:
+  https://developer.apple.com/documentation/videotoolbox
+- Apple low-latency H.264 VideoToolbox session:
+  https://developer.apple.com/videos/play/wwdc2021/10158/
+
+**Alternatives considered**:
+- Automatically request Screen Recording inside the sweep: rejected because
+  readiness checks should be deterministic and should not mix benchmark output
+  with OS permission UI.
+- Continue running four separate commands manually: rejected because it is too
+  easy to skip the synthetic control path or lose the exact setup-action label.
+- Emit raw helper stderr when a step fails: rejected by the helper-video
+  privacy boundary.

@@ -145,6 +145,13 @@ confirms external synthetic helper-video is still green, confirms
 `NaruHelperDev` Screen Recording permission is still missing, and records the
 current short constrained-cellular VNC fallback failure as
 `first-frame-payload-read-failed` on the receive path.
+Current helper readiness sweep artifact:
+`artifacts/benchmarks/2026-06-07-helper-readiness-sweep-summary.md`.
+The launchctl runner now has a fixed helper capability/preflight/synthetic
+probe/ScreenCaptureKit probe sweep. Current live credentials are configured via
+environment labels and the synthetic helper-video path passes, but the true
+ScreenCaptureKit helper-video live gate remains blocked by missing Screen
+Recording permission for the stable helper app bundle.
 Current launchctl startup glance scale refresh:
 `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-refresh-summary.md`.
 Using the launchctl runner, `0.25` again improves
