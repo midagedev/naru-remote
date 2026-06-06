@@ -1150,6 +1150,20 @@ iPhone) and ships as its own PR.
   IME state. Owns: core viewport helper/tests, app-model startup policy/tests,
   benchmark first-frame mode/tests/help, README, research note, live benchmark
   artifact. **Done.**
+- **T442** App local-low-latency RGB565 candidate: after D111 showed
+  `local-low-latency-rgb565` beats `zrle-compression-0-rgb565` on sustained
+  content hit rate, p95 update latency, client-processing tail, and renderer
+  full-upload pressure under the visible-glance poor-network harness, add it
+  as an app opt-in stream mode. Wire it to `.localLowLatency` plus
+  `.rgb565In32LittleEndian`, include it in the stream-profile toggle before
+  ZRLE compression 0, apply the same viewport-aware low-traffic request policy,
+  update app-low-traffic benchmark selection to compare both app RGB565
+  candidates, and document the live v63 preset result. Keep standard as the
+  production default and avoid logging/exporting dimensions, coordinates, byte
+  counts, pixels, payloads, host identity, command text, draft text, marked
+  text, or IME state. Owns: app settings, app model, session viewer label,
+  benchmark profile selection/preset/help, tests, README, research note, live
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

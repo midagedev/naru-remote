@@ -670,11 +670,13 @@ the RGB565 visible-focus startup win, but classifies the usable sustained
 samples as `first-byte-wait-warning` rather than payload-read pressure.
 The app low-traffic follow-up adds the `app-low-traffic` profile selection and
 `--stream-shape-gate-preset
-sustained-v2-constrained-cellular-app-low-traffic`. This preset keeps the v61
-constrained-cellular visible-focus shape, but narrows the matrix to the app's
-fixed `zrle-compression-0-rgb565` opt-in profile so physical iPhone and live
-CLI runs can judge the same traffic candidate without full-color startup
-failures dominating the report. It remains an opt-in candidate gate: production
+sustained-v2-constrained-cellular-app-low-traffic`. This preset originally
+narrowed the matrix to the app's fixed `zrle-compression-0-rgb565` opt-in
+profile so physical iPhone and live CLI runs could judge the same traffic
+candidate without full-color startup failures dominating the report. After the
+visible-glance startup policy landed, the same preset compares both app-side
+RGB565 low-traffic candidates: `local-low-latency-rgb565` and
+`zrle-compression-0-rgb565`. It remains an opt-in candidate gate: production
 defaults still require sustained and poor-network benchmark evidence plus the
 physical iPhone hand-feel/thermal/Compose gate before promotion.
 Schema v62 keeps that app low-traffic shape but adds startup payload-read
@@ -695,6 +697,14 @@ fixed `zrle-compression-0-rgb565` profile at 108 permille first-frame request
 area, about 10.4 s first-frame payload read, and 4/4 sustained content samples.
 The gate still fails, so this is a startup improvement and not a default
 promotion.
+The next app-candidate live artifact is
+`2026-06-06-app-low-traffic-rgb565-profile-comparison-summary.md`; with the
+same visible-glance startup area, it shows `local-low-latency-rgb565` keeping
+4/4 sustained content samples, lower average/p95 update latency, and 0 permille
+renderer full-upload pressure compared with `zrle-compression-0-rgb565`. The
+poor-network gate still fails on first-frame payload read, so the practical
+next step stays startup traffic/cadence work rather than promoting the profile
+as the default.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

@@ -65,17 +65,26 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded.startupPreflightMode.requestedHiddenFrameCount, 1)
     }
 
-    func testStreamEncodingModeDecodesWhenPresent() throws {
-        let json = """
-        {
-          "streamEncodingMode": "zrle-compression-0-rgb565"
+    func testStreamEncodingModeDecodesPersistedLabels() throws {
+        let cases: [(rawValue: String, mode: StreamEncodingMode)] = [
+            (StreamEncodingMode.localLowLatencyRGB565.rawValue, .localLowLatencyRGB565),
+            (StreamEncodingMode.zrleCompressionZero.rawValue, .zrleCompressionZero),
+            (StreamEncodingMode.zrleCompressionZeroRGB565.rawValue, .zrleCompressionZeroRGB565),
+            (StreamEncodingMode.adaptiveGoodFull.rawValue, .adaptiveGoodFull)
+        ]
+
+        for testCase in cases {
+            let json = """
+            {
+              "streamEncodingMode": "\(testCase.rawValue)"
+            }
+            """
+            let data = try XCTUnwrap(json.data(using: .utf8))
+
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+            XCTAssertEqual(decoded.streamEncodingMode, testCase.mode)
         }
-        """
-        let data = try XCTUnwrap(json.data(using: .utf8))
-
-        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
-
-        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZeroRGB565)
     }
 
     func testEncodingProducesEmptyJSONObject() throws {
@@ -107,14 +116,23 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertTrue(json.contains("\"one-hidden-frame\""))
     }
 
-    func testEncodingNonDefaultStreamEncodingMode() throws {
-        let data = try JSONEncoder().encode(AppSettings(streamEncodingMode: .zrleCompressionZeroRGB565))
-        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
-        let json = String(decoding: data, as: UTF8.self)
+    func testEncodingNonDefaultStreamEncodingModes() throws {
+        let modes: [StreamEncodingMode] = [
+            .localLowLatencyRGB565,
+            .zrleCompressionZero,
+            .zrleCompressionZeroRGB565,
+            .adaptiveGoodFull
+        ]
 
-        XCTAssertEqual(decoded.streamEncodingMode, .zrleCompressionZeroRGB565)
-        XCTAssertTrue(json.contains("\"streamEncodingMode\""))
-        XCTAssertTrue(json.contains("\"zrle-compression-0-rgb565\""))
+        for mode in modes {
+            let data = try JSONEncoder().encode(AppSettings(streamEncodingMode: mode))
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+            let json = String(decoding: data, as: UTF8.self)
+
+            XCTAssertEqual(decoded.streamEncodingMode, mode)
+            XCTAssertTrue(json.contains("\"streamEncodingMode\""))
+            XCTAssertTrue(json.contains("\"\(mode.rawValue)\""))
+        }
     }
 
     func testStartupPreflightModeTogglesBetweenExperimentAndDisabled() {
@@ -124,7 +142,8 @@ final class AppSettingsCodableTests: XCTestCase {
     }
 
     func testStreamEncodingModeTogglesThroughBenchmarkCandidates() {
-        XCTAssertEqual(StreamEncodingMode.standard.toggled, .zrleCompressionZero)
+        XCTAssertEqual(StreamEncodingMode.standard.toggled, .localLowLatencyRGB565)
+        XCTAssertEqual(StreamEncodingMode.localLowLatencyRGB565.toggled, .zrleCompressionZero)
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .zrleCompressionZeroRGB565)
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZeroRGB565.toggled, .adaptiveGoodFull)
         XCTAssertEqual(StreamEncodingMode.adaptiveGoodFull.toggled, .standard)

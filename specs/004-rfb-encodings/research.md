@@ -5007,3 +5007,71 @@ existing margin-expanded viewport-aware policy.
   benchmark-green production default.
 - The next larger unit should compare encoding/profile behavior and inspect the
   sustained wait/render tail after keeping this first-useful-paint policy.
+
+### D111 App Local-Low-Latency RGB565 Low-Traffic Mode
+
+References:
+- RFC 6143 client-driven `FramebufferUpdateRequest` region:
+  https://www.rfc-editor.org/rfc/rfc6143
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-rgb565-profile-comparison-summary.md`.
+
+**Decision**: add `local-low-latency-rgb565` as an app opt-in stream mode and
+include it in the `app-low-traffic` live benchmark preset beside
+`zrle-compression-0-rgb565`. The mode uses the existing local-low-latency
+encoding preference with RGB565-in-32-bit pixel format and the same
+visible-glance first-frame plus sustained viewport-aware request policy as the
+other app low-traffic RGB565 candidate.
+
+**Why**:
+- A same-day rotated comparison picked `local-low-latency-rgb565` as the
+  order-neutral recommendation over `zrle-compression-0-rgb565`: it received
+  8/8 content samples, avoided renderer full uploads, and held p95 update near
+  617 ms, while the existing app candidate received 6/8 content samples and
+  had a p95 update tail above 1 s.
+- The follow-up app preset run, now using `visible-glance`, reproduced the same
+  direction: `local-low-latency-rgb565` kept 4/4 content samples, 2.27 content
+  FPS, average/p95 update about 440/617 ms, max client-processing p95 4 ms,
+  sustained payload-read p95 0 ms, and 0 permille renderer full-upload
+  pressure. `zrle-compression-0-rgb565` kept 3/4 content samples, 1.18 content
+  FPS, average/p95 update about 622/1282 ms, max client-processing p95 119 ms,
+  payload-read p95 472 ms, and 333 permille renderer full-upload pressure.
+- Both profiles still fail the poor-network traffic gate because the first
+  frame spends about 10.4 s in payload read even at 108 permille first-frame
+  request area. That keeps this as an opt-in experiment and moves the next work
+  toward startup payload/cadence reduction.
+
+**Implementation rule**:
+- Preserve the production default as `standard`; only the stream-profile debug
+  toggle exposes the new app mode.
+- Toggle order is `standard -> local-low-latency-rgb565 ->
+  zrle-compression-0 -> zrle-compression-0-rgb565 -> adaptive-good-full ->
+  standard`.
+- `NaruRemoteAppModel` must request `.localLowLatency` plus
+  `.rgb565In32LittleEndian` for `local-low-latency-rgb565`, and must not
+  renegotiate it again after connect.
+- The mode participates in the same viewport-aware first/sustained request
+  policy as `zrle-compression-0-rgb565`.
+- `app-low-traffic` benchmark selection must expand to both app RGB565
+  low-traffic labels and fail loudly when either profile is unavailable.
+- No dimensions, coordinates, byte counts, pixels, payloads, host identity,
+  command text, draft text, marked text, or IME state are logged, exported, or
+  persisted.
+
+**Evidence**:
+- App settings tests cover decode/encode round trips for all persisted
+  non-default stream labels and the new toggle order.
+- App-model tests cover the new connector preference, no renegotiation, and
+  the visible-glance initial request region for the new mode.
+- Benchmark profile-selection tests cover `app-low-traffic` expansion and
+  missing-label failures for both app RGB565 candidates.
+- Live v63 app-low-traffic preset run:
+  `streamShapeProfiles` `app-low-traffic`, first-frame mode `visible-glance`,
+  first-frame request area 108 permille, sustained request area 364 permille,
+  recommendation `local-low-latency-rgb565`, and overall gate fail from
+  `first-frame-payload-read-failed`.
+
+**Interpretation**:
+- `local-low-latency-rgb565` is the better app-side RGB565 candidate for
+  sustained hand-feel under the current poor-network harness.
+- It is still not the default. The next unit should reduce first-frame payload
+  read or change startup transport/cadence before revisiting default promotion.

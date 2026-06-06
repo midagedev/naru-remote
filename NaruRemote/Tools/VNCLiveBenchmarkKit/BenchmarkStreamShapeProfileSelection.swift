@@ -28,8 +28,9 @@ public enum BenchmarkStreamShapeProfileSelection {
         "zrle-compression-0",
         "zrle-compression-0-rgb565"
     ]
-    /// Exact app-side opt-in low-traffic stream profile label.
+    /// Exact app-side opt-in low-traffic stream profile labels.
     public static let defaultAppLowTrafficLabels = [
+        "local-low-latency-rgb565",
         "zrle-compression-0-rgb565"
     ]
 
