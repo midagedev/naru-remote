@@ -21,7 +21,10 @@ Fields:
   - `revoked`
   - `unreachable`
   - `failed`
+  - `privateNetworkRequired`
 - `lastFailureCode`: Optional fixed catalog value:
+  - `notConfigured`
+  - `disabled`
   - `authFailed`
   - `permissionMissing`
   - `codecUnsupported`
@@ -30,12 +33,41 @@ Fields:
   - `revoked`
   - `transportFailed`
   - `fallbackToVNC`
+  - `privateNetworkRequired`
 - `lastCheckedBucket`: Coarse recency bucket, not an exact timestamp.
 
 Privacy:
 
 - No helper endpoint, host name, token, display dimensions, frame count, byte
   count, exact timing, or frame content.
+
+## HelperVideoConnectionConfiguration
+
+Per saved profile, non-secret opt-in configuration for whether the app may
+attempt helper video later.
+
+Fields:
+
+- `isEnabled`: Boolean opt-in. Defaults to false.
+- `isRevoked`: Boolean revocation marker. Defaults to false. When true, the
+  profile must not keep `pairingSecretRef` or `pairingFingerprint`.
+- `pairingSecretRef`: Reference to a device-local credential store entry. The
+  secret itself is never stored in the profile JSON.
+- `pairingFingerprint`: Non-secret fingerprint for the paired helper.
+
+Rules:
+
+- A profile whose `hostKind` is `advancedManualPublicEndpoint` must publish
+  `privateNetworkRequired` helper-video state and must not attempt helper
+  video.
+- A missing configuration keeps the VNC-only baseline.
+- Disabled or revoked helper-video state keeps VNC connected and available for
+  all visual, input, clipboard, diagnostic, reconnect, and fallback behavior.
+
+Privacy:
+
+- No helper endpoint, host name, auth token, display dimensions, frame content,
+  byte counts, coordinates, or exact timing.
 
 ## HelperVideoStreamDescriptor
 

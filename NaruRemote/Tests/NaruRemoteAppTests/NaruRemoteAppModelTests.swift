@@ -2647,6 +2647,282 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(snapshot.session?.state, .active)
     }
 
+    func testNoHelperVideoProfileKeepsVNCBaselineAndReportsSafeDiagnosticState() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 1, green: 1, blue: 1)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "baseline"),
+                latestFramebuffer: framebuffer
+            )
+        )
+
+        let selected = model.selectHelperVideoVisualTransport()
+        let snapshot = model.snapshot
+        let export = model.makeDiagnosticExport()
+
+        XCTAssertFalse(selected)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoVisualSelectionFailureReason, .helperVideoUnavailable)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.composeDraft?.text, "baseline")
+        XCTAssertEqual(export.helperVideo?.availability, HelperVideoAvailability.notConfigured.rawValue)
+        XCTAssertEqual(export.helperVideo?.canAttemptHelperVideoStream, false)
+        XCTAssertEqual(export.helperVideo?.profileUsesVNCVisualFallback, true)
+    }
+
+    func testPublicHostProfileBlocksHelperVideoWithPrivateNetworkReason() throws {
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "public.example.com",
+            hostKind: .advancedManualPublicEndpoint,
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: "helper-video-token:desk",
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                helperVideoProfileState: [
+                    profile.id: HelperVideoProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-video",
+                        availability: .available,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            )
+        )
+
+        let selected = model.selectHelperVideoVisualTransport(
+            descriptor: HelperVideoStreamDescriptor(),
+            health: HelperVideoStreamHealth(state: .healthy)
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertFalse(selected)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoVisualSelectionFailureReason, .privateNetworkRequired)
+        XCTAssertNil(snapshot.helperVideoStreamDescriptor)
+    }
+
+    func testStoredHelperVideoProfileInitializesPrivateNetworkStateWhenLoadingProfiles() async throws {
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: "helper-video-token:desk",
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let model = NaruRemoteAppModel(profileStore: store)
+
+        await model.loadStoredProfiles()
+
+        XCTAssertEqual(model.snapshot.selectedProfile?.id, profile.id)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profile.id]?.isEnabled, true)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profile.id]?.availability, .checking)
+        XCTAssertEqual(
+            model.snapshot.helperVideoProfileState[profile.id]?.pairingFingerprint,
+            "sha256:helper-video"
+        )
+    }
+
+    func testStoredPublicHostHelperVideoInitializesPrivateNetworkRequiredState() async throws {
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "public.example.com",
+            hostKind: .advancedManualPublicEndpoint,
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: "helper-video-token:desk",
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let model = NaruRemoteAppModel(profileStore: store)
+
+        await model.loadStoredProfiles()
+
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profile.id]?.isEnabled, false)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profile.id]?.availability, .privateNetworkRequired)
+        XCTAssertEqual(
+            model.snapshot.helperVideoProfileState[profile.id]?.lastFailureCode,
+            .privateNetworkRequired
+        )
+    }
+
+    func testDisableAndRevokeHelperVideoFallsBackWithoutDroppingSession() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "draft"),
+                helperVideoProfileState: [
+                    profile.id: HelperVideoProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-video",
+                        availability: .available,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            )
+        )
+        XCTAssertTrue(model.selectHelperVideoVisualTransport(health: HelperVideoStreamHealth(state: .healthy)))
+
+        await model.disableHelperVideo(for: profile.id)
+        var snapshot = model.snapshot
+
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.isEnabled, false)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .disabled)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .disabled)
+        XCTAssertEqual(snapshot.composeDraft?.text, "draft")
+        XCTAssertEqual(snapshot.session?.state, .active)
+
+        model.setHelperVideoProfileState(
+            HelperVideoProfileState(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video",
+                availability: .available,
+                lastCheckedBucket: .recent
+            ),
+            for: profile.id
+        )
+        XCTAssertTrue(model.selectHelperVideoVisualTransport(health: HelperVideoStreamHealth(state: .healthy)))
+
+        await model.revokeHelperVideo(for: profile.id)
+        snapshot = model.snapshot
+
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.isEnabled, false)
+        XCTAssertNil(snapshot.helperVideoProfileState[profile.id]?.pairingFingerprint)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .revoked)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .revoked)
+        XCTAssertEqual(snapshot.helperVideoVisualSelectionFailureReason, .helperVideoRevoked)
+        XCTAssertEqual(snapshot.composeDraft?.text, "draft")
+        XCTAssertEqual(snapshot.session?.state, .active)
+    }
+
+    func testDisableAndRevokeHelperVideoPersistThroughProfileReload() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(
+            passwords: [helperVideoSecretRef: "helper-video-secret"]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+
+        await model.disableHelperVideo(for: profile.id)
+
+        let disabledReloadedStore = try await ConnectionProfileStore(persistence: persistence)
+        let disabledProfileOrNil = await disabledReloadedStore.profile(id: profile.id)
+        let disabledProfile = try XCTUnwrap(disabledProfileOrNil)
+        XCTAssertEqual(disabledProfile.helperVideo?.isEnabled, false)
+        XCTAssertEqual(disabledProfile.helperVideo?.isRevoked, false)
+        XCTAssertEqual(disabledProfile.helperVideo?.pairingSecretRef, helperVideoSecretRef)
+        XCTAssertEqual(disabledProfile.helperVideo?.pairingFingerprint, "sha256:helper-video")
+
+        let revokingModel = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [disabledProfile],
+                selectedProfileID: disabledProfile.id
+            ),
+            profileStore: disabledReloadedStore,
+            credentialStore: credentialStore
+        )
+        await revokingModel.revokeHelperVideo(for: profile.id)
+
+        let revokedReloadedStore = try await ConnectionProfileStore(persistence: persistence)
+        let revokedProfileOrNil = await revokedReloadedStore.profile(id: profile.id)
+        let revokedProfile = try XCTUnwrap(revokedProfileOrNil)
+        XCTAssertEqual(revokedProfile.helperVideo?.isEnabled, false)
+        XCTAssertEqual(revokedProfile.helperVideo?.isRevoked, true)
+        XCTAssertNil(revokedProfile.helperVideo?.pairingSecretRef)
+        XCTAssertNil(revokedProfile.helperVideo?.pairingFingerprint)
+        let revokedSecret = try await credentialStore.password(for: helperVideoSecretRef)
+        XCTAssertNil(revokedSecret)
+
+        let reloadedModel = NaruRemoteAppModel(profileStore: revokedReloadedStore)
+        await reloadedModel.loadStoredProfiles()
+        XCTAssertEqual(reloadedModel.snapshot.helperVideoProfileState[profile.id]?.availability, .revoked)
+        XCTAssertEqual(reloadedModel.snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .revoked)
+    }
+
+    func testRevokeHelperVideoKeepsCredentialWhenProfilePersistenceFails() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = FailingConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(
+            passwords: [helperVideoSecretRef: "helper-video-secret"]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+
+        await model.revokeHelperVideo(for: profile.id)
+
+        let savedSecret = try await credentialStore.password(for: helperVideoSecretRef)
+        XCTAssertEqual(savedSecret, "helper-video-secret")
+        XCTAssertEqual(model.profilePersistenceError, "Profile could not be saved on this device.")
+    }
+
     func testStaleHelperVideoCallbacksDoNotOverrideCurrentVisualState() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(
@@ -5364,5 +5640,23 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
 
     func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws {
         // Fence behavior is covered at the RFB transport boundary.
+    }
+}
+
+private struct FailingConnectionProfilePersistenceError: Error {}
+
+private actor FailingConnectionProfilePersistence: ConnectionProfilePersisting {
+    private let profiles: [ConnectionProfile]
+
+    init(profiles: [ConnectionProfile]) {
+        self.profiles = profiles
+    }
+
+    func loadProfiles() throws -> [ConnectionProfile] {
+        profiles
+    }
+
+    func saveProfiles(_ profiles: [ConnectionProfile]) throws {
+        throw FailingConnectionProfilePersistenceError()
     }
 }

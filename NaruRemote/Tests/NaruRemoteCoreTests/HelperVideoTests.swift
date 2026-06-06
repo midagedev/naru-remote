@@ -12,9 +12,12 @@ final class HelperVideoTests: XCTestCase {
         XCTAssertEqual(HelperVideoAvailability.revoked.rawValue, "revoked")
         XCTAssertEqual(HelperVideoAvailability.unreachable.rawValue, "unreachable")
         XCTAssertEqual(HelperVideoAvailability.failed.rawValue, "failed")
+        XCTAssertEqual(HelperVideoAvailability.privateNetworkRequired.rawValue, "privateNetworkRequired")
     }
 
     func testHelperVideoFailureCodesAreNamespacedAndStable() {
+        XCTAssertEqual(HelperVideoFailureCode.notConfigured.rawValue, "helperVideo.notConfigured")
+        XCTAssertEqual(HelperVideoFailureCode.disabled.rawValue, "helperVideo.disabled")
         XCTAssertEqual(HelperVideoFailureCode.authFailed.rawValue, "helperVideo.authFailed")
         XCTAssertEqual(HelperVideoFailureCode.permissionMissing.rawValue, "helperVideo.permissionMissing")
         XCTAssertEqual(HelperVideoFailureCode.codecUnsupported.rawValue, "helperVideo.codecUnsupported")
@@ -23,6 +26,10 @@ final class HelperVideoTests: XCTestCase {
         XCTAssertEqual(HelperVideoFailureCode.revoked.rawValue, "helperVideo.revoked")
         XCTAssertEqual(HelperVideoFailureCode.transportFailed.rawValue, "helperVideo.transportFailed")
         XCTAssertEqual(HelperVideoFailureCode.fallbackToVNC.rawValue, "helperVideo.fallbackToVNC")
+        XCTAssertEqual(
+            HelperVideoFailureCode.privateNetworkRequired.rawValue,
+            "helperVideo.privateNetworkRequired"
+        )
     }
 
     func testProfileStateDefaultsToNoHelperVideoConfigured() throws {

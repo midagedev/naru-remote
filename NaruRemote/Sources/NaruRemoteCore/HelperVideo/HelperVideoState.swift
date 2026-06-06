@@ -10,9 +10,12 @@ public enum HelperVideoAvailability: String, Codable, Equatable, CaseIterable, S
     case revoked
     case unreachable
     case failed
+    case privateNetworkRequired
 }
 
 public enum HelperVideoFailureCode: String, Codable, Equatable, CaseIterable, Sendable {
+    case notConfigured = "helperVideo.notConfigured"
+    case disabled = "helperVideo.disabled"
     case authFailed = "helperVideo.authFailed"
     case permissionMissing = "helperVideo.permissionMissing"
     case codecUnsupported = "helperVideo.codecUnsupported"
@@ -21,6 +24,7 @@ public enum HelperVideoFailureCode: String, Codable, Equatable, CaseIterable, Se
     case revoked = "helperVideo.revoked"
     case transportFailed = "helperVideo.transportFailed"
     case fallbackToVNC = "helperVideo.fallbackToVNC"
+    case privateNetworkRequired = "helperVideo.privateNetworkRequired"
 }
 
 public enum HelperVideoLastCheckedBucket: String, Codable, Equatable, CaseIterable, Sendable {

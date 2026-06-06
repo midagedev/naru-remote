@@ -761,6 +761,8 @@ public enum HelperVideoVisualSelectionFailureReason: String, Codable, Equatable,
     case profileMismatch
     case sessionInactive
     case helperVideoUnavailable
+    case helperVideoRevoked
+    case privateNetworkRequired
     case streamHealthRequiresVNCFallback
 }
 

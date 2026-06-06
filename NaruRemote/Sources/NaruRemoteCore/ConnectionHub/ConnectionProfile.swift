@@ -30,6 +30,44 @@ public struct HelperTextBridgeConnectionConfiguration: Codable, Equatable, Senda
     }
 }
 
+public struct HelperVideoConnectionConfiguration: Codable, Equatable, Sendable {
+    public var isEnabled: Bool
+    public var isRevoked: Bool
+    public var pairingSecretRef: String?
+    public var pairingFingerprint: String?
+
+    public init(
+        isEnabled: Bool = false,
+        isRevoked: Bool = false,
+        pairingSecretRef: String? = nil,
+        pairingFingerprint: String? = nil
+    ) {
+        self.isEnabled = isRevoked ? false : isEnabled
+        self.isRevoked = isRevoked
+        self.pairingSecretRef = isRevoked ? nil : pairingSecretRef?.nilIfBlank
+        self.pairingFingerprint = isRevoked ? nil : pairingFingerprint?.nilIfBlank
+    }
+}
+
+public extension HelperVideoConnectionConfiguration {
+    enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case isRevoked
+        case pairingSecretRef
+        case pairingFingerprint
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false,
+            isRevoked: try container.decodeIfPresent(Bool.self, forKey: .isRevoked) ?? false,
+            pairingSecretRef: try container.decodeIfPresent(String.self, forKey: .pairingSecretRef),
+            pairingFingerprint: try container.decodeIfPresent(String.self, forKey: .pairingFingerprint)
+        )
+    }
+}
+
 public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
     public enum HostKind: String, Codable, Equatable, Sendable {
         case magicDNS
@@ -49,6 +87,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
     public var hostKind: HostKind
     public var allowsPiPWatch: Bool
     public var helperTextBridge: HelperTextBridgeConnectionConfiguration?
+    public var helperVideo: HelperVideoConnectionConfiguration?
 
     public init(
         id: UUID = UUID(),
@@ -62,7 +101,8 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
         lastDiagnosticSummary: String? = nil,
         hostKind: HostKind = .magicDNS,
         allowsPiPWatch: Bool = true,
-        helperTextBridge: HelperTextBridgeConnectionConfiguration? = nil
+        helperTextBridge: HelperTextBridgeConnectionConfiguration? = nil,
+        helperVideo: HelperVideoConnectionConfiguration? = nil
     ) throws {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -91,6 +131,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable, Sendable {
         self.hostKind = hostKind
         self.allowsPiPWatch = allowsPiPWatch
         self.helperTextBridge = helperTextBridge
+        self.helperVideo = helperVideo
     }
 
     public var endpoint: String {
@@ -112,6 +153,7 @@ public extension ConnectionProfile {
         case hostKind
         case allowsPiPWatch
         case helperTextBridge
+        case helperVideo
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +174,10 @@ public extension ConnectionProfile {
             helperTextBridge: container.decodeIfPresent(
                 HelperTextBridgeConnectionConfiguration.self,
                 forKey: .helperTextBridge
+            ),
+            helperVideo: container.decodeIfPresent(
+                HelperVideoConnectionConfiguration.self,
+                forKey: .helperVideo
             )
         )
     }
