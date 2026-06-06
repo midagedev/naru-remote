@@ -41,6 +41,32 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testAppliesModelEchoMatchingFocusedLocalDraft() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldApplyExternalComposeText(
+                newValue: "입력느낌",
+                lastAppliedInitialText: "",
+                currentText: "입력느낌",
+                isDirectModeActive: false,
+                isComposeFieldFocused: true,
+                hasMarkedText: false
+            )
+        )
+    }
+
+    func testDefersModelEchoMatchingFocusedMarkedText() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldApplyExternalComposeText(
+                newValue: "입력느낌",
+                lastAppliedInitialText: "",
+                currentText: "입력느낌",
+                isDirectModeActive: false,
+                isComposeFieldFocused: true,
+                hasMarkedText: true
+            )
+        )
+    }
+
     func testDefersExternalClearWhileMarkedTextIsActive() {
         XCTAssertFalse(
             RemoteInputDockView.shouldApplyExternalComposeText(

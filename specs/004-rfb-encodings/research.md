@@ -5944,3 +5944,55 @@ may mention only fixed test names, fixed safe issue labels, and aggregate test
 outcomes; they must not emit keysyms, coordinates, command text, draft text,
 marked text, IME state, host identity, credentials, ports, dimensions, pixels,
 byte counts, or raw errors.
+
+### D130 Acknowledge Focused Compose Model Echoes
+
+References:
+- `artifacts/benchmarks/2026-06-07-compose-model-echo-ack-summary.md`
+- D129 outbound input queue tail bound.
+
+**Decision**: when Compose is focused and no marked text is active, an external
+model snapshot that exactly matches the local editor text should be accepted as
+an acknowledgment. The view does not need to overwrite UIKit text in that case,
+but it must update its `lastAppliedInitialText` guard so future model clears
+are not mistaken for stale external writes.
+
+**Why**:
+- The user reported compose input can feel stuck after the first character.
+  The prior policy protected focused local editing by deferring non-empty model
+  updates whenever the editor had local text. That was correct for unrelated
+  external writes, but too strict for the model echo of the same committed local
+  draft.
+- If the echo is never acknowledged, the view can keep treating the local draft
+  as "ahead of model". A later successful send that clears the model draft can
+  then be deferred because the focused editor still appears locally ahead.
+- Korean/CJK marked text still needs stronger protection; model echoes that
+  arrive while marked text is active remain deferred unless they are the fully
+  identical already-applied value.
+
+**Implementation rule**:
+- Keep `hasMarkedText` as the first active-composition guard for non-identical
+  external snapshots.
+- After marked text is inactive, accept `newValue == currentText` even when the
+  editor is focused and the value differs from the previous applied snapshot.
+- Continue deferring different non-empty external values while the focused
+  editor has local text.
+
+**Evidence**:
+- `RemoteInputDockSyncPolicyTests/testAppliesModelEchoMatchingFocusedLocalDraft`
+  covers focused no-marked model echo acknowledgment.
+- `RemoteInputDockSyncPolicyTests/testDefersModelEchoMatchingFocusedMarkedText`
+  preserves marked-text protection.
+- The full `RemoteInputDockSyncPolicyTests` suite passed after the change.
+
+**Interpretation**:
+- This is a local Compose state-machine correction, not a VNC transport or
+  renderer optimization.
+- Physical-device follow-up should specifically type Korean into Compose, send,
+  verify the field clears, then continue composing without losing focus or
+  entering a stale-draft state.
+
+**Privacy rule**: this change adds no diagnostics fields and must not log or
+export command text, draft text, marked text, IME state, host identity,
+credentials, keysyms, pointer coordinates, dimensions, pixels, byte counts, or
+raw errors.
