@@ -15,6 +15,7 @@ Modes:
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
+  screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
   request-screen-recording Run the selected helper's explicit permission request.
 
@@ -24,6 +25,7 @@ Launchctl variables used when present:
   NARU_LIVE_MAC_PORT
   NARU_LIVE_MAC_PASSWORD
   NARU_LIVE_STIMULUS_COMMAND
+  NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
 
 The script never prints environment values. It passes through the benchmark's
 privacy-safe JSON/report output.
@@ -157,6 +159,25 @@ json_step_or_fixed_failure() {
   fi
 }
 
+open_screen_recording_settings_status() {
+  if [[ "${NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN:-}" == "skip" ]]; then
+    printf 'skipped'
+    return
+  fi
+
+  if ! command -v open >/dev/null 2>&1; then
+    printf 'unsupported'
+    return
+  fi
+
+  if open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" \
+    >/dev/null 2>&1; then
+    printf 'opened'
+  else
+    printf 'failed'
+  fi
+}
+
 case "$mode" in
   preflight)
     import_helper_env
@@ -269,6 +290,34 @@ case "$mode" in
         --json
     done
     printf '\n]\n'
+    ;;
+  screen-recording-setup)
+    reject_extra_args
+    import_helper_env
+    printf '{\n'
+    printf '  "schemaVersion": 1,\n'
+    printf '  "mode": "screen-recording-setup",\n'
+    printf '  "capabilityBefore": '
+    json_step_or_fixed_failure \
+      helperCapabilityBefore \
+      benchmarkStep.helperCapabilityBefore.failed \
+      "$NARU_HELPER_EXECUTABLE" --video-capability
+    printf ',\n'
+    printf '  "permissionRequest": '
+    json_step_or_fixed_failure \
+      helperPermissionRequest \
+      benchmarkStep.helperPermissionRequest.failed \
+      "$NARU_HELPER_EXECUTABLE" --video-request-screen-recording-permission
+    printf ',\n'
+    printf '  "settingsOpenStatus": "%s",\n' "$(open_screen_recording_settings_status)"
+    printf '  "capabilityAfter": '
+    json_step_or_fixed_failure \
+      helperCapabilityAfter \
+      benchmarkStep.helperCapabilityAfter.failed \
+      "$NARU_HELPER_EXECUTABLE" --video-capability
+    printf ',\n'
+    printf '  "nextAction": "rerun-helper-readiness-sweep"\n'
+    printf '}\n'
     ;;
   helper-capability)
     reject_extra_args

@@ -85,6 +85,7 @@ scripts/run-naru-live-benchmark.sh preflight
 scripts/run-naru-live-benchmark.sh helper-synthetic-probe
 scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
+scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
@@ -103,6 +104,12 @@ the readiness gate remains repeatable. If a sub-step exits before returning
 JSON, the sweep emits only that step's fixed label and fixed safe failure code;
 it does not print raw helper stderr, credential values, helper paths,
 endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
+`screen-recording-setup` checks helper capability, runs the explicit helper
+permission request, opens macOS Screen Recording settings, and checks helper
+capability again. It emits only fixed setup/status labels. In automation, set
+`NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip` to verify the JSON shape
+without opening System Settings. After granting Screen Recording to
+`NaruHelperDev`, relaunch the helper and rerun `helper-readiness-sweep`.
 
 ## Implemented Helper Video Encoder Prototype
 
