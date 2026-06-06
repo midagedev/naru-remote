@@ -5,18 +5,20 @@
 The next optimization units should be judged against one practical outcome:
 an iPhone session on a private-network Mac is usable for sustained work without
 stepped viewport motion, unreliable Compose input, or uncomfortable device
-heat.
+heat, even when the network is constrained enough that traffic pressure matters.
 
-`iphone-sustained-usability-v2` remains the benchmark and diagnostic target.
-This artifact turns that target into a promotion ladder for larger PRs.
+`iphone-sustained-usability-v2` remains the normal sustained benchmark and
+diagnostic target. `iphone-poor-network-traffic-v1` is the companion target for
+traffic-sensitive candidates and poor-network promotion.
 
 ## Promotion Ladder
 
 ### 1. Benchmark Green
 
 A streaming implementation can become a physical-device candidate only when a
-redacted `sustained-v2-core` or narrower follow-up gate produces one of these
-fixed outcomes:
+redacted `sustained-v2-core` or narrower sustained follow-up gate and, for
+traffic-sensitive work, the poor-network gate produce one of these fixed
+outcomes:
 
 - `streamShapeTransportCadenceDiagnosis.recommendedNextAction =
   runPhysicalDeviceSustainedGate`
@@ -26,6 +28,9 @@ fixed outcomes:
 Do not change production streaming defaults from a benchmark that still routes
 to `inspectContinuousUpdatesConnection`, `tuneTransportCadence`, or
 `compareRequestResponseEncodingProfiles`.
+For poor-network traffic work, also block promotion when the gate fails on
+`request-region-area-failed`, `payload-read-failed`, first-frame startup fail,
+or a sustained first-byte wait warning that has not been explicitly accepted.
 
 ### 2. Physical iPhone Green
 
@@ -37,6 +42,8 @@ all of these user-facing checks:
 - Compose input can commit multilingual text reliably, including marked-text
   routes where the keyboard uses composition
 - sustained diagnostics do not report `.serious` or `.critical` thermal state
+- the tested poor-network candidate does not regress startup survival,
+  request-area proxy, payload-read pressure, or sustained tail latency
 - the fixed diagnostic decision surface does not route to viewport, Compose,
   thermal, renderer, or stream-cadence remediation
 
@@ -65,6 +72,10 @@ It should pick one of these larger tracks:
   ContinuousUpdates connection/receive path, then rerun the v43 gate.
 - **Cadence track**: if request-response remains the usable transport, tune its
   request cadence and backpressure against the v43 gate.
+- **Traffic track**: benchmark the app low-traffic profile with
+  `sustained-v2-constrained-cellular-app-low-traffic`, then decide whether the
+  next unit should reduce first-useful-paint area, payload pressure, or
+  sustained update wait.
 - **Interaction track**: make zoom, pan, and zoomed trackpad cursor-follow feel
   continuous on iPhone, then close with physical iPhone diagnostics.
 - **Input track**: harden Compose marked-text/commit routing under the same

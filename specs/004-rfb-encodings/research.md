@@ -4770,3 +4770,47 @@ standard profile on full incremental requests.
   poor-network conditions and compare sustained request-area proxy, tail
   latency, device heat, and compose/input correctness before widening the
   behavior.
+
+### D107 App Low-Traffic Poor-Network Benchmark Preset
+
+References:
+- D104 sustained poor-network traffic wait gate.
+- D105 app-side RGB565 low-traffic stream profile.
+- D106 app-side opt-in viewport request regions.
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-benchmark-preset-summary.md`.
+
+**Decision**: add `app-low-traffic` as a named stream-shape profile selection
+and add `sustained-v2-constrained-cellular-app-low-traffic` as a CLI gate
+preset. The preset keeps the constrained-cellular visible-focus v61 shape, but
+runs only the app's fixed `zrle-compression-0-rgb565` opt-in profile.
+
+**Why**:
+- The user's target now explicitly includes traffic and poor-network behavior.
+  The previous visible-focus constrained-cellular preset compares full-color and
+  RGB565 candidates together; full-color startup failures are useful for
+  isolation, but they obscure whether the actual app low-traffic opt-in path is
+  improving.
+- The app now has a matching opt-in profile label and app-side viewport request
+  regions for sustained frames. A focused preset lets CLI runs, physical-device
+  runs, and PR artifacts evaluate the same candidate without changing
+  production defaults.
+- Keeping this as a fixed catalog selection avoids ad hoc comma-separated
+  commands in artifacts and keeps reports safe to share.
+
+**Implementation rule**:
+- `app-low-traffic` expands to exactly `zrle-compression-0-rgb565`.
+- The new preset applies constrained-cellular conditioning, request/response
+  transport, phone viewport request regions, visible-focus first-frame request,
+  the `iphone-poor-network-traffic-v1` practical target, one profile iteration,
+  and four sustained samples.
+- CLI help and benchmark README identify the preset as an opt-in candidate
+  gate. It is not a default-promotion shortcut.
+
+**Evidence**:
+- Unit tests cover the new profile selection, missing-label error, preset raw
+  value, and preset usage string.
+
+**Interpretation**:
+- Future traffic PRs can now run a smaller gate for the app's actual
+  low-traffic candidate before deciding between startup first-useful-paint work
+  and sustained update-wait/cadence work.
