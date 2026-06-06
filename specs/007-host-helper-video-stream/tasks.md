@@ -231,6 +231,9 @@ without unsafe report fields.
   account, and provisioning blockers without printing device IDs or raw
   xcodebuild logs. Discovery must filter to physical iPhones rather than any
   physical iOS device. **Done.**
+- [x] T030A [US1] Let physical-device preflight infer a single local Apple
+  Development team for the captured build check while reporting only a fixed
+  `developmentTeamStatus=inferred` label. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

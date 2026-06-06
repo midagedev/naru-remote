@@ -21,6 +21,7 @@ Modes:
   bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
   bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
+  physical-team-inference-self-test Safe local regression for team inference labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
   request-screen-recording Run the selected helper's explicit permission request.
@@ -1107,6 +1108,124 @@ physical_iphone_device_count() {
     tr -d ' '
 }
 
+apple_development_team_ids() {
+  if ! command -v security >/dev/null 2>&1; then
+    return 1
+  fi
+
+  security find-identity -v -p codesigning 2>/dev/null |
+    awk '
+      /Apple Development/ {
+        if (match($0, /\([A-Z0-9]{10}\)/)) {
+          print substr($0, RSTART + 1, RLENGTH - 2)
+        }
+      }
+    ' |
+    sort -u
+}
+
+resolve_physical_development_team() {
+  if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+    PHYSICAL_DEVELOPMENT_TEAM_STATUS="environment"
+    return
+  fi
+
+  local team_ids
+  local team_count
+  local first_team_id
+  team_ids="$(apple_development_team_ids || true)"
+  team_count="$(printf '%s\n' "$team_ids" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+  case "$team_count" in
+    1)
+      first_team_id="$(printf '%s\n' "$team_ids" | sed -n '/./{p;q;}')"
+      if [[ -n "$first_team_id" ]]; then
+        export NARU_XCODE_DEVELOPMENT_TEAM="$first_team_id"
+        PHYSICAL_DEVELOPMENT_TEAM_STATUS="inferred"
+        return
+      fi
+      ;;
+    0)
+      PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+      return
+      ;;
+    *)
+      PHYSICAL_DEVELOPMENT_TEAM_STATUS="ambiguous"
+      return
+      ;;
+  esac
+
+  PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+}
+
+physical_team_inference_self_test_failure() {
+  local failure_code="$1"
+  printf '{"schemaVersion":1,"mode":"physical-team-inference-self-test","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf '}\n'
+  exit 1
+}
+
+physical_team_inference_self_test_case() {
+  local case_label="$1"
+  local team_ids="$2"
+  local expected_status="$3"
+  local expected_env_presence="${4:-absent}"
+
+  unset NARU_XCODE_DEVELOPMENT_TEAM
+  NARU_TEAM_INFERENCE_SELF_TEST_IDS="$team_ids"
+  PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+  resolve_physical_development_team
+
+  if [[ "$PHYSICAL_DEVELOPMENT_TEAM_STATUS" != "$expected_status" ]]; then
+    physical_team_inference_self_test_failure "${case_label}.status"
+  fi
+
+  case "$expected_env_presence" in
+    present)
+      if [[ -z "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+        physical_team_inference_self_test_failure "${case_label}.teamMissing"
+      fi
+      ;;
+    absent)
+      if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+        physical_team_inference_self_test_failure "${case_label}.teamUnexpected"
+      fi
+      ;;
+    *)
+      physical_team_inference_self_test_failure "${case_label}.invalidExpectation"
+      ;;
+  esac
+}
+
+physical_team_inference_self_test() {
+  reject_extra_args
+
+  local ambiguous_team_ids
+  ambiguous_team_ids=$'ABCD123456\nWXYZ123456'
+
+  apple_development_team_ids() {
+    printf '%s\n' "${NARU_TEAM_INFERENCE_SELF_TEST_IDS:-}"
+  }
+
+  physical_team_inference_self_test_case "missing" "" "missing" "absent"
+  physical_team_inference_self_test_case "ambiguous" "$ambiguous_team_ids" "ambiguous" "absent"
+  physical_team_inference_self_test_case "single" "ABCD123456" "inferred" "present"
+
+  export NARU_XCODE_DEVELOPMENT_TEAM="EXPLICIT01"
+  NARU_TEAM_INFERENCE_SELF_TEST_IDS="$ambiguous_team_ids"
+  PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+  resolve_physical_development_team
+  if [[ "$PHYSICAL_DEVELOPMENT_TEAM_STATUS" != "environment" ]]; then
+    physical_team_inference_self_test_failure "environment.status"
+  fi
+  if [[ "${NARU_XCODE_DEVELOPMENT_TEAM:-}" != "EXPLICIT01" ]]; then
+    physical_team_inference_self_test_failure "environment.teamChanged"
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-team-inference-self-test","status":"passed"}\n'
+}
+
 physical_preflight_build_status() {
   local device_id="$1"
   local output_file="$2"
@@ -1182,7 +1301,13 @@ physical_preflight() {
   if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
     development_team_status="environment"
   else
-    development_team_status="missing"
+    PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+    resolve_physical_development_team
+    development_team_status="$PHYSICAL_DEVELOPMENT_TEAM_STATUS"
+    if [[ "$development_team_status" == "ambiguous" ]]; then
+      append_unique issue_codes "ios-development-team-ambiguous"
+      append_unique setup_actions "set-xcode-development-team"
+    fi
   fi
 
   if [[ -z "$device_id" || "$device_status" == "multiple" || "$device_status" == "wrongDeviceType" ]]; then
@@ -1432,6 +1557,9 @@ case "$mode" in
     ;;
   physical-device-preflight)
     physical_preflight
+    ;;
+  physical-team-inference-self-test)
+    physical_team_inference_self_test
     ;;
   screen-recording-setup)
     reject_extra_args
