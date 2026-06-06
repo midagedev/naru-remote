@@ -1816,6 +1816,17 @@ public struct SessionViewportView: View {
         transform.isPannable
     }
 
+    enum ViewportStatePublishPolicy: Equatable {
+        case gestureEnd
+        case liveDisplayLink
+    }
+
+    nonisolated static func viewportStatePublishPolicy(
+        for frameStrategy: ViewportInteractionFrameStrategy
+    ) -> ViewportStatePublishPolicy {
+        frameStrategy.prefersLiveViewportStatePublication ? .liveDisplayLink : .gestureEnd
+    }
+
     /// Maps a framebuffer-pixel cursor position into the container's
     /// view-space point using the same fit × zoom × pan transform as the
     /// framebuffer preview.  This keeps the soft/server cursor aligned

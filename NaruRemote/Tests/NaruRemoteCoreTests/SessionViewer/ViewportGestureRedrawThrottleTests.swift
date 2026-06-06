@@ -59,6 +59,13 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         )
     }
 
+    func testLiveRemoteFrameStrategyAlsoPrefersLiveViewportStatePublication() {
+        XCTAssertFalse(ViewportInteractionFrameStrategy.deferUntilSettled.allowsLiveFramebufferPublication)
+        XCTAssertFalse(ViewportInteractionFrameStrategy.deferUntilSettled.prefersLiveViewportStatePublication)
+        XCTAssertTrue(ViewportInteractionFrameStrategy.liveRemoteFrames.allowsLiveFramebufferPublication)
+        XCTAssertTrue(ViewportInteractionFrameStrategy.liveRemoteFrames.prefersLiveViewportStatePublication)
+    }
+
     func testStrictGestureModeDefersEveryFrameUntilGestureEnd() {
         var throttle = ViewportGestureRedrawThrottle(
             minimumInterval: .infinity,

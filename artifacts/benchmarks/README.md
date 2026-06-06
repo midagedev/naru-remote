@@ -1068,3 +1068,10 @@ The app opt-in artifact is
 compression 1, with no RGB565, no ExtendedClipboard, and request pipeline
 depth 1. Use it for physical iPhone trackpad/real-cursor verification before
 any default promotion.
+The trackpad live publish artifact is
+`2026-06-07-trackpad-live-viewport-publish-summary.md`; it keeps direct
+pinch/pan viewport-state publication deferred until gesture end, but lets
+zoomed trackpad cursor-follow publish pending viewport state on a bounded
+display link while `liveRemoteFrames` is active. This should reduce the
+half-step feel between local panning and remote cursor/text echo without
+promoting a new traffic profile.

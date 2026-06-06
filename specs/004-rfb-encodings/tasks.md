@@ -1350,6 +1350,16 @@ iPhone) and ships as its own PR.
   pixels, byte counts, command text, draft text, marked text, or IME state.
   Owns: app settings, core encoding preference, app model mapping, session UI
   label, tests, research note, benchmark artifact. **Done.**
+- **T459** Trackpad live viewport-state publication: while zoomed trackpad
+  cursor-follow owns viewport interaction, let the `liveRemoteFrames` strategy
+  publish pending viewport state on a bounded display link so AppModel/PiP/
+  request-region mirrors do not wait until gesture end. Keep direct pinch,
+  direct zoomed pan, and deceleration on the gesture-end state policy. Do not
+  change pointer command coalescing or emit cursor positions, request
+  coordinates, dimensions, pixels, byte counts, host identity, credentials,
+  command text, draft text, marked text, or IME state. Owns: viewport
+  interaction strategy, Metal viewport publish cadence, focused tests, research
+  note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

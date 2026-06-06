@@ -527,7 +527,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case gestureEnd
     }
 
-    private static let viewportStatePublishPreferredFramesPerSecond: Float = 30
+    private static let viewportStatePublishPreferredFramesPerSecond: Float = 60
     // Keep the visible viewport on the UIKit/Core Animation hot path during
     // touch. SwiftUI/PiP state is reconciled at the boundary so streaming
     // updates and layout work cannot compete with pinch/pan samples.
@@ -954,7 +954,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             viewSize: bounds.size,
             shouldPublishZoom: true,
             shouldPublishPan: panDidChange,
-            cadence: Self.interactiveViewportStatePublishCadence
+            cadence: viewportStatePublishCadence(for: viewportGestureFrameStrategy)
         )
     }
 
@@ -1097,7 +1097,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             viewSize: bounds.size,
             shouldPublishZoom: false,
             shouldPublishPan: true,
-            cadence: Self.interactiveViewportStatePublishCadence
+            cadence: viewportStatePublishCadence(for: viewportGestureFrameStrategy)
         )
     }
 
@@ -1263,6 +1263,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
     }
 
+    private func viewportStatePublishCadence(
+        for frameStrategy: ViewportInteractionFrameStrategy
+    ) -> ViewportStatePublishCadence {
+        switch SessionViewportView.viewportStatePublishPolicy(for: frameStrategy) {
+        case .liveDisplayLink:
+            return .nextDisplayLink
+        case .gestureEnd:
+            return Self.interactiveViewportStatePublishCadence
+        }
+    }
+
     @MainActor
     @objc
     private func handleViewportDecelerationFrame(_ displayLink: CADisplayLink) {
@@ -1297,7 +1308,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             viewSize: bounds.size,
             shouldPublishZoom: false,
             shouldPublishPan: true,
-            cadence: Self.interactiveViewportStatePublishCadence
+            cadence: viewportStatePublishCadence(for: viewportGestureFrameStrategy)
         )
 
         if !movedX {
@@ -1524,7 +1535,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 viewSize: bounds.size,
                 shouldPublishZoom: zoomDidChange,
                 shouldPublishPan: panDidChange,
-                cadence: Self.interactiveViewportStatePublishCadence
+                cadence: viewportStatePublishCadence(for: viewportGestureFrameStrategy)
             )
         } else {
             updateHotCursorOverlay()
