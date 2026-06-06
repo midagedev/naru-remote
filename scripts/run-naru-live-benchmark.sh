@@ -58,6 +58,9 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 
 launchctl_env() {
   local name="$1"
+  if ! command -v launchctl >/dev/null 2>&1; then
+    return 0
+  fi
   launchctl getenv "$name" 2>/dev/null || true
 }
 
@@ -72,7 +75,11 @@ import_env() {
 
   if [[ -z "$value" && "$required" == "required" ]]; then
     printf 'Missing required environment variable: %s\n' "$name" >&2
-    printf 'Set it in launchctl or the current shell before running this mode.\n' >&2
+    if command -v launchctl >/dev/null 2>&1; then
+      printf 'Set it in launchctl or the current shell before running this mode.\n' >&2
+    else
+      printf 'launchctl is unavailable; set it in the current shell before running this mode.\n' >&2
+    fi
     exit 2
   fi
 
