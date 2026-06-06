@@ -78,6 +78,10 @@ Current physical sustained candidate gate artifact:
 `artifacts/benchmarks/2026-06-06-physical-sustained-candidate-gate-summary.md`.
 The opt-in UI test now injects fixed candidate labels, exercises viewport /
 trackpad / Compose paths, and emits a delayed active-session diagnostic export.
+Current helper-video capture probe artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-capture-probe-summary.md`.
+The macOS helper now exposes a ScreenCaptureKit permission/capture-source
+catalog probe before encoder or stream transport work begins.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to

@@ -36,12 +36,18 @@ swift test --filter NaruRemoteAppModelTests/testDisableAndRevokeHelperVideoPersi
 swift test --filter NaruRemoteAppModelTests/testRevokeHelperVideoKeepsCredentialWhenProfilePersistenceFails
 ```
 
-## Planned Helper Build
+## Implemented Helper Video Probe
 
 ```bash
 swift build --product NaruHelper
 swift test --filter NaruHelperVideo
+.build/debug/NaruHelper --video-capability
 ```
+
+`--video-capability` emits only fixed catalog labels such as
+`permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.
+It must not emit display identifiers, dimensions, window names, endpoints,
+host names, byte counts, frame content, or exact timings.
 
 ## Planned Live Benchmark Shape
 
