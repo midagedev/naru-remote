@@ -56,6 +56,17 @@ example, `processKind=swiftPMBuildArtifact` with
 binary is not a stable permission target; copy/package the helper into a stable
 location or app bundle before requesting Screen Recording permission for longer
 live benchmark runs.
+For local development, install the stable dev app wrapper and point future
+benchmark shells at it:
+
+```bash
+scripts/install-naru-helper-dev-app.sh --set-launchctl-env --request-permission
+```
+
+After this, helper diagnostics should report `processKind=appBundle` and
+`grantHint=grantAppBundle`. If Screen Recording is still `missing`, grant
+Screen Recording to `NaruHelperDev` in macOS System Settings, relaunch the
+helper, and rerun `--video-capability`.
 `--video-request-screen-recording-permission` is the explicit permission
 request entrypoint for development and manual setup. It may show the macOS
 Screen Recording prompt, emits only fixed catalog labels such as `granted` or
@@ -198,6 +209,15 @@ external helper process. Override the helper executable with
 `NARU_HELPER_EXECUTABLE` when testing a packaged helper build; Xcode smoke
 runs may also use the `BUILT_PRODUCTS_DIR` or `CONFIGURATION_BUILD_DIR`
 fallback for the built `NaruHelper` binary.
+If the helper path was installed by
+`scripts/install-naru-helper-dev-app.sh --set-launchctl-env`, pass it into
+explicit benchmark shells with:
+
+```bash
+NARU_HELPER_EXECUTABLE="$(launchctl getenv NARU_HELPER_EXECUTABLE)" \
+swift run VNCLiveBenchmark ...
+```
+
 `external-helper-screen-capturekit-tcp` uses the same external helper process
 path with `--video-source screen-capturekit`; it should be used only when the
 helper process context has Screen Recording permission. These modes report only

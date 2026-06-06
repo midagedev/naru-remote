@@ -184,6 +184,10 @@ without unsafe report fields.
   `--video-request-screen-recording-permission` so live benchmark setup can
   distinguish a stable helper target from a SwiftPM build artifact without
   exposing executable paths or bundle identifiers. **Done.**
+- [x] T029O [US2] Add a development helper app wrapper installer that builds
+  `NaruHelper`, installs a stable `NaruHelperDev.app`, optionally sets
+  `NARU_HELPER_EXECUTABLE` through `launchctl`, and preserves fixed-label
+  helper diagnostics for live ScreenCaptureKit setup. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

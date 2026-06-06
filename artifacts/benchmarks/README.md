@@ -118,6 +118,11 @@ development helper reports `swiftPMBuildArtifact` plus
 `useStableHelperExecutable`, so the next live helper-video work should grant a
 stable helper executable or app bundle rather than the transient SwiftPM build
 artifact.
+Current stable dev helper app wrapper artifact:
+`artifacts/benchmarks/2026-06-06-stable-dev-helper-app-wrapper-summary.md`.
+The development wrapper now reports `appBundle` plus `grantAppBundle`, passes
+the external synthetic encoded helper-video smoke, and leaves ScreenCaptureKit
+blocked only on the helper app bundle's missing Screen Recording approval.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
