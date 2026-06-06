@@ -146,6 +146,8 @@ without unsafe report fields.
 - [x] T029D [US1] Add a VideoToolbox-backed synthetic H.264 access-unit source
   and verify it through helper TCP framing and the iOS sample-buffer path.
   **Done.**
+- [x] T029E [US1] Add a finite ScreenCaptureKit pixel-buffer access-unit source
+  and expose it through an explicit benchmark TCP probe mode. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

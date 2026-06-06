@@ -83,6 +83,23 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(report.issueCodes, [.startupSlow, .streamDisabled])
     }
 
+    func testPermissionMissingIssueCodeUsesFixedSafeLabel() throws {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .failed,
+            startupBand: .failed,
+            sustainedUpdateBand: .stalled,
+            issueCodes: [.permissionMissing]
+        )
+
+        let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertTrue(report.issueCodes.contains(.permissionMissing))
+        XCTAssertTrue(json.contains("helper-video-permission-missing"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("screenrecording"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("cgpreflight"))
+    }
+
     func testHelperVideoReportFixtureOmitsUnsafeFieldsAndPayloadSentinels() throws {
         let descriptor = HelperVideoStreamDescriptor(
             protocolVersion: 1,

@@ -7,6 +7,7 @@ public enum BenchmarkHelperVideoVisualTransport: String, Codable, Equatable, Cas
 
 public enum BenchmarkHelperVideoIssueCode: String, Codable, Equatable, CaseIterable, Sendable {
     case streamDisabled = "helper-video-stream-disabled"
+    case permissionMissing = "helper-video-permission-missing"
     case streamUnhealthy = "helper-video-stream-unhealthy"
     case startupSlow = "helper-video-startup-slow"
     case startupFailed = "helper-video-startup-failed"

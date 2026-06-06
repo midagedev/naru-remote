@@ -4,6 +4,7 @@ import NaruHelperKit
 import NaruRemoteCore
 
 #if os(macOS) && canImport(VideoToolbox)
+import CoreVideo
 import VideoToolbox
 #endif
 
@@ -151,9 +152,102 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertTrue(mediaAccessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
         XCTAssertFalse(accessUnits.map(\.binaryPayload).contains(Data([0x65, 0x88])))
     }
+
+    func testToolboxPixelBufferEncoderRejectsEmptyFrameBatch() throws {
+        let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
+            width: 64,
+            height: 64,
+            frameRateBucket: .upTo15,
+            keyFrameInterval: 2
+        )
+
+        XCTAssertThrowsError(try encoder.encode(pixelBuffers: [])) { error in
+            XCTAssertEqual(
+                error as? NaruHelperVideoToolboxSyntheticAccessUnitSourceError,
+                .noSourceFrames
+            )
+        }
+    }
+
+    #if canImport(ScreenCaptureKit)
+    func testScreenCaptureKitAccessUnitSourceEncodesInjectedPixelBuffers() throws {
+        let provider = StubScreenCaptureKitPixelBufferProvider(pixelBuffers: [
+            try Self.makePixelBuffer(width: 80, height: 48, frameIndex: 0),
+            try Self.makePixelBuffer(width: 80, height: 48, frameIndex: 1)
+        ])
+        let source = NaruHelperVideoScreenCaptureKitAccessUnitSource(
+            frameCount: 2,
+            pixelBufferProvider: provider
+        )
+
+        let accessUnits = try source.accessUnits(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        )
+
+        XCTAssertEqual(provider.requests, [
+            StubScreenCaptureKitPixelBufferProvider.Request(
+                frameLimit: 2,
+                frameRateBucket: .upTo15
+            )
+        ])
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 2)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
+        XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(7))
+        XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(8))
+        XCTAssertTrue(accessUnits.dropFirst().contains { $0.kind == .keyframe })
+        XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+    }
+    #endif
     #endif
 
     private static let annexBStartCode = Data([0x00, 0x00, 0x00, 0x01])
+
+    #if os(macOS) && canImport(VideoToolbox)
+    private static func makePixelBuffer(
+        width: Int,
+        height: Int,
+        frameIndex: Int
+    ) throws -> CVPixelBuffer {
+        var pixelBuffer: CVPixelBuffer?
+        let createStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferIOSurfacePropertiesKey: [:]
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        guard createStatus == kCVReturnSuccess, let pixelBuffer else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.pixelBufferCreationFailed
+        }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.pixelBufferCreationFailed
+        }
+
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = baseAddress.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = y * bytesPerRow + x * 4
+                bytes[offset] = UInt8((x + frameIndex * 11) & 0xFF)
+                bytes[offset + 1] = UInt8((y * 2 + frameIndex * 17) & 0xFF)
+                bytes[offset + 2] = UInt8((x + y + frameIndex * 23) & 0xFF)
+                bytes[offset + 3] = 0xFF
+            }
+        }
+        return pixelBuffer
+    }
+    #endif
 
     private static func nalTypes(in annexBPayload: Data) -> [UInt8] {
         let bytes = [UInt8](annexBPayload)
@@ -186,6 +280,46 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         return types
     }
 }
+
+#if os(macOS) && canImport(VideoToolbox) && canImport(ScreenCaptureKit)
+private final class StubScreenCaptureKitPixelBufferProvider:
+    NaruHelperVideoScreenCaptureKitPixelBufferProvider,
+    @unchecked Sendable
+{
+    struct Request: Equatable {
+        var frameLimit: Int
+        var frameRateBucket: HelperVideoFrameRateBucket
+    }
+
+    private let lock = NSLock()
+    private let pixelBuffersToReturn: [CVPixelBuffer]
+    private var recordedRequests: [Request] = []
+
+    init(pixelBuffers: [CVPixelBuffer]) {
+        self.pixelBuffersToReturn = pixelBuffers
+    }
+
+    var requests: [Request] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return recordedRequests
+    }
+
+    func pixelBuffers(
+        frameLimit: Int,
+        frameRateBucket: HelperVideoFrameRateBucket
+    ) throws -> [CVPixelBuffer] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        recordedRequests.append(Request(frameLimit: frameLimit, frameRateBucket: frameRateBucket))
+        return pixelBuffersToReturn
+    }
+}
+#endif
 
 private final class VideoEncoderSessionProbeRecorder: @unchecked Sendable {
     private let result: NaruHelperVideoEncoderSessionState

@@ -124,9 +124,12 @@ swift run VNCLiveBenchmark \
 `--helper-video-probe synthetic-tcp` runs a local finite helper-video TCP
 harness with static access units. `synthetic-encoded-tcp` uses local
 VideoToolbox H.264 output as the access-unit source before sending it through
-the same finite TCP harness. Both modes report only fixed helper-video labels
-and aggregate health bands. The default remains `disabled` so live VNC reports
-do not imply a real ScreenCaptureKit sender before it exists.
+the same finite TCP harness. `screen-capturekit-tcp` captures a finite batch of
+ScreenCaptureKit frames, converts their `CVPixelBuffer` images through the same
+VideoToolbox encoder, and sends those access units through the local TCP
+harness. These modes report only fixed helper-video labels and aggregate health
+bands. The default remains `disabled` so live VNC reports do not imply a
+long-lived ScreenCaptureKit sender before it exists.
 
 ## Implemented iOS H.264 Decode / Display Prototype
 
@@ -157,12 +160,19 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
-The helper-video side of the report is still benchmark-only until the live
-ScreenCaptureKit sender is connected. Use `--helper-video-probe
+The helper-video side of the report is still benchmark-only until the long-lived
+helper sender/listener is connected. Use `--helper-video-probe
 synthetic-encoded-tcp` when the benchmark should exercise real local
 VideoToolbox H.264 access units without exporting frames, dimensions,
-endpoints, byte counts, or exact timings. Reports must preserve the privacy
-boundary from `spec.md` and `research.md`.
+endpoints, byte counts, or exact timings. Use `--helper-video-probe
+screen-capturekit-tcp` only when the Mac helper process has Screen Recording
+permission and the run should exercise a finite real screen-capture batch
+through the same safe aggregate report boundary. Reports must preserve the
+privacy boundary from `spec.md` and `research.md`.
+
+When Screen Recording permission is missing, `screen-capturekit-tcp` reports the
+fixed issue code `helper-video-permission-missing` and must not start capture or
+emit raw OS error text.
 
 ## Planned Physical Gate
 
