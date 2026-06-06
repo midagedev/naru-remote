@@ -2498,6 +2498,226 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.snapshot.diagnosticRun)
     }
 
+    func testModelSelectsHelperVideoVisualTransportForPairedReachableProfile() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "입력 유지"),
+                latestFramebuffer: framebuffer,
+                helperVideoProfileState: [
+                    profile.id: HelperVideoProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-video",
+                        availability: .available,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            )
+        )
+
+        let selected = model.selectHelperVideoVisualTransport(
+            descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+            health: HelperVideoStreamHealth(
+                state: .healthy,
+                startupBand: .fast,
+                sustainedUpdateBand: .smooth,
+                decodePressure: .low
+            )
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertTrue(selected)
+        XCTAssertEqual(snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamDescriptor?.codecProfile, .baseline)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .healthy)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.composeDraft?.text, "입력 유지")
+        XCTAssertEqual(snapshot.session?.state, .active)
+    }
+
+    func testHelperVideoStallFallsBackToVNCWithoutClearingComposeDraft() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 30, green: 20, blue: 10)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "초기 입력"),
+                latestFramebuffer: framebuffer
+            )
+        )
+
+        model.setHelperVideoProfileState(
+            HelperVideoProfileState(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video",
+                availability: .available,
+                lastCheckedBucket: .recent
+            ),
+            for: profile.id
+        )
+        XCTAssertTrue(
+            model.selectHelperVideoVisualTransport(
+                descriptor: HelperVideoStreamDescriptor(),
+                health: HelperVideoStreamHealth(state: .healthy, sustainedUpdateBand: .smooth)
+            )
+        )
+
+        model.updateComposeDraftText("한글 조합 계속")
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                decodePressure: .high,
+                fallbackCountBucket: .one
+            )
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertNil(snapshot.helperVideoStreamDescriptor)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .fallbackToVNC)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.sustainedUpdateBand, .stalled)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.decodePressure, .high)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.fallbackCountBucket, .one)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .fallbackToVNC)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.composeDraft?.text, "한글 조합 계속")
+        XCTAssertEqual(snapshot.composeDraft?.sendState, .ready)
+        XCTAssertEqual(snapshot.session?.state, .active)
+    }
+
+    func testHelperVideoSelectionFailureRecordsSafeReasonWithoutChangingVNCState() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 1, green: 2, blue: 3)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: "draft"),
+                latestFramebuffer: framebuffer
+            )
+        )
+
+        let selected = model.selectHelperVideoVisualTransport()
+        let snapshot = model.snapshot
+
+        XCTAssertFalse(selected)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(
+            snapshot.helperVideoVisualSelectionFailureReason,
+            .helperVideoUnavailable
+        )
+        XCTAssertNil(snapshot.helperVideoStreamDescriptor)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.composeDraft?.text, "draft")
+        XCTAssertEqual(snapshot.session?.state, .active)
+    }
+
+    func testStaleHelperVideoCallbacksDoNotOverrideCurrentVisualState() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session
+            )
+        )
+        model.setHelperVideoProfileState(
+            HelperVideoProfileState(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video",
+                availability: .available,
+                lastCheckedBucket: .recent
+            ),
+            for: profile.id
+        )
+        XCTAssertTrue(
+            model.selectHelperVideoVisualTransport(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                health: HelperVideoStreamHealth(state: .healthy, sustainedUpdateBand: .smooth)
+            )
+        )
+
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                fallbackCountBucket: .one
+            ),
+            sessionID: UUID(),
+            profileID: profile.id
+        )
+        model.setHelperVideoProfileState(
+            HelperVideoProfileState(isEnabled: false, availability: .unreachable),
+            for: profile.id,
+            sessionID: UUID()
+        )
+        var snapshot = model.snapshot
+
+        XCTAssertEqual(snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamDescriptor?.codecProfile, .baseline)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .healthy)
+        XCTAssertNil(snapshot.helperVideoVisualSelectionFailureReason)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                fallbackCountBucket: .one
+            ),
+            sessionID: session.id,
+            profileID: profile.id
+        )
+        snapshot = model.snapshot
+
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .fallbackToVNC)
+        XCTAssertEqual(
+            snapshot.helperVideoVisualSelectionFailureReason,
+            .streamHealthRequiresVNCFallback
+        )
+    }
+
     func testModelStartsPiPWatchWhenActiveFrameExists() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(
