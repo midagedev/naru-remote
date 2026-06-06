@@ -66,3 +66,12 @@ the benchmark report safe subphase progress inside `benchmark-running` or add a
 shorter stream-only probe that can tell whether timeout is dominated by TCP/RFB
 connect, security/auth, first framebuffer update, idle probe, or stream-shape
 sample collection.
+
+## Follow-Up Correction
+
+See
+`artifacts/benchmarks/2026-06-07-bounded-vnc-subphase-progress-summary.md`.
+The all-timeout result above was collected before discovering that
+`--stream-shape-gate-preset sustained-v2-core` reapplied its own profile
+selection after CLI parsing. After removing that preset override, the bounded
+drilldown runs the intended fixed candidates and completes.

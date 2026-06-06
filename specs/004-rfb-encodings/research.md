@@ -5518,3 +5518,53 @@ successful benchmark JSON. It must not include host identity, credentials,
 ports, executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
 request coordinates, dimensions, pixels, byte counts, stimulus command text,
 draft text, marked text, or IME state.
+
+### D122 Add Safe Benchmark Subphase Progress And Fix Bounded Profile Overrides
+
+References:
+- `artifacts/benchmarks/2026-06-07-bounded-vnc-subphase-progress-summary.md`
+
+**Decision**: add `VNCLiveBenchmark --safe-progress-label-file PATH` for
+runner-owned timeout diagnostics, and remove `--stream-shape-gate-preset
+sustained-v2-core` from bounded profile sweep/drilldown commands. The runner now
+spells out the sustained-v2-compatible bounded options directly so explicit
+candidate profiles are not overwritten by the preset.
+
+**Why**:
+- D121 showed timeout inside `benchmark-running`, but the runner needed a safe
+  signal from inside the Swift process to identify the last subphase before the
+  wall-clock guard killed it.
+- The first safe progress read reported `profileLabel=local-low-latency` while
+  the runner requested `tight-first`, revealing that the gate preset reapplied
+  its own profile selection after CLI parsing.
+- Keeping the progress hook file runner-owned avoids printing file paths or
+  command output while still improving live benchmark diagnosability.
+
+**Evidence**:
+- `swift build --product VNCLiveBenchmark` passes.
+- `swift run --quiet VNCLiveBenchmark --help` exposes
+  `--safe-progress-label-file`.
+- Environment-preflight progress smoke writes only
+  `subphase=benchmark-starting`.
+- The bounded runner rejects caller-supplied `--stream-shape-gate-preset` and
+  `--safe-progress-label-file`.
+- After removing the preset override, live bounded drilldown completes the
+  intended candidates: `tight-first` warning, `zrle-compression-0` fail, and
+  `adaptive-good-full` warning.
+- The all-profile bounded sweep now reports
+  `streamShapeProfiles=tight-first,zrle-compression-0,adaptive-good-full` and
+  completes with the same warning/fail/warning shape.
+
+**Interpretation**:
+- The previous all-timeout bounded drilldown was a runner configuration bug, not
+  profile-candidate evidence.
+- Current bounded evidence points away from `zrle-compression-0` as a near-term
+  sustained-session candidate and toward inspecting the warning causes for
+  `tight-first` and `adaptive-good-full`.
+
+**Privacy rule**: the safe progress file may contain only fixed subphase labels
+and safe catalog profile labels. The runner may surface those labels only on
+bounded timeout/failure JSON. It must not emit progress file paths, executable
+paths, command lines, host identity, credentials, ports, raw stdout/stderr, raw
+TCP/RFB errors, request coordinates, dimensions, pixels, byte counts, stimulus
+command text, draft text, marked text, or IME state.

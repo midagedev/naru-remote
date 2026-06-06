@@ -170,7 +170,8 @@ run_with_wall_timeout() {
 json_benchmark_or_timeout_failure() {
   local wall_timeout_seconds="$1"
   local phase_file="$2"
-  shift 2
+  local progress_file="$3"
+  shift 3
 
   local output_file
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-benchmark-output.XXXXXX")"
@@ -182,9 +183,9 @@ json_benchmark_or_timeout_failure() {
   fi
 
   if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
-    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file"
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file" "$progress_file"
   else
-    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file" "$progress_file"
   fi
   rm -f "$output_file"
 }
@@ -232,13 +233,70 @@ bounded_sweep_phase_label() {
 json_bounded_sweep_failure() {
   local failure_code="$1"
   local phase_file="$2"
+  local progress_file="${3:-}"
   local phase_label
   phase_label="$(bounded_sweep_phase_label "$phase_file")"
   printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":'
   json_string "$failure_code"
   printf ',"lastPhaseLabel":'
   json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
   printf '}\n'
+}
+
+benchmark_progress_subphase_label() {
+  local progress_file="$1"
+  local label=""
+  if [[ -s "$progress_file" ]]; then
+    label="$(awk -F= '$1 == "subphase" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+  fi
+  case "$label" in
+    benchmark-starting|configuration-loaded|first-frame-profiles|idle-probe|stream-shape-profile|continuous-updates-probe|visual-transport-comparison|report-rendering|benchmark-complete)
+      printf '%s' "$label"
+      ;;
+    "")
+      return 1
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+benchmark_progress_profile_label() {
+  local progress_file="$1"
+  local label=""
+  if [[ -s "$progress_file" ]]; then
+    label="$(awk -F= '$1 == "profileLabel" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+  fi
+  case "$label" in
+    tight-first|zrle-compression-0|adaptive-good-full)
+      printf '%s' "$label"
+      ;;
+    "")
+      return 1
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+print_benchmark_progress_fields() {
+  local progress_file="$1"
+  [[ -n "$progress_file" ]] || return
+
+  local subphase_label
+  if subphase_label="$(benchmark_progress_subphase_label "$progress_file")"; then
+    printf ',"lastBenchmarkSubphaseLabel":'
+    json_string "$subphase_label"
+  fi
+
+  local profile_label
+  if profile_label="$(benchmark_progress_profile_label "$progress_file")"; then
+    printf ',"lastBenchmarkProfileLabel":'
+    json_string "$profile_label"
+  fi
 }
 
 bounded_drilldown_profile_label() {
@@ -271,6 +329,7 @@ json_bounded_drilldown_profile_failure() {
   local profile_label
   profile_label="$(bounded_drilldown_profile_label "$3")"
   local profile_ordinal="$4"
+  local progress_file="${5:-}"
   local phase_label
   phase_label="$(bounded_sweep_phase_label "$phase_file")"
   printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown-profile","profileLabel":'
@@ -279,19 +338,22 @@ json_bounded_drilldown_profile_failure() {
   json_string "$failure_code"
   printf ',"lastPhaseLabel":'
   json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
   printf '}'
 }
 
 json_bounded_drilldown_profile_result() {
   local phase_file="$1"
+  local progress_file="$2"
   local profile_label
-  profile_label="$(bounded_drilldown_profile_label "$2")"
-  local profile_ordinal="$3"
-  local wall_timeout_seconds="$4"
-  shift 4
+  profile_label="$(bounded_drilldown_profile_label "$3")"
+  local profile_ordinal="$4"
+  local wall_timeout_seconds="$5"
+  shift 5
 
   local output_file
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-drilldown-output.XXXXXX")"
+  : >"$progress_file"
   RUN_WITH_WALL_TIMEOUT_EXPIRED=0
   if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
     printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown-profile","profileLabel":'
@@ -308,13 +370,15 @@ json_bounded_drilldown_profile_result() {
       benchmarkStep.boundedVNCProfileDrilldown.timedOut \
       "$phase_file" \
       "$profile_label" \
-      "$profile_ordinal"
+      "$profile_ordinal" \
+      "$progress_file"
   else
     json_bounded_drilldown_profile_failure \
       benchmarkStep.boundedVNCProfileDrilldown.failed \
       "$phase_file" \
       "$profile_label" \
-      "$profile_ordinal"
+      "$profile_ordinal" \
+      "$progress_file"
   fi
   rm -f "$output_file"
 }
@@ -362,36 +426,42 @@ prepare_bounded_benchmark_executable() {
 run_bounded_vnc_profile_sweep() {
   local phase_file
   phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-sweep-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-sweep-progress.XXXXXX")"
   write_bounded_sweep_phase "$phase_file" runner-starting
 
   local bounded_args=("$@")
   if ! prepare_bounded_benchmark_executable "$phase_file"; then
     if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
-      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file"
+      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file" "$progress_file"
     else
-      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
+      json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file" "$progress_file"
     fi
-    rm -f "$phase_file"
+    rm -f "$phase_file" "$progress_file"
     return
   fi
 
   if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
-    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
-    rm -f "$phase_file"
+    json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file" "$progress_file"
+    rm -f "$phase_file" "$progress_file"
     return
   fi
 
+  bounded_args+=(--safe-progress-label-file "$progress_file")
   write_bounded_sweep_phase "$phase_file" benchmark-running
   json_benchmark_or_timeout_failure \
     45 \
     "$phase_file" \
+    "$progress_file" \
     "$BOUNDED_BENCHMARK_EXECUTABLE" "${bounded_args[@]}"
-  rm -f "$phase_file"
+  rm -f "$phase_file" "$progress_file"
 }
 
 run_bounded_vnc_profile_drilldown() {
   local phase_file
   phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-drilldown-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-drilldown-progress.XXXXXX")"
   write_bounded_sweep_phase "$phase_file" runner-starting
 
   if ! prepare_bounded_benchmark_executable "$phase_file"; then
@@ -400,13 +470,13 @@ run_bounded_vnc_profile_drilldown() {
     else
       json_bounded_drilldown_runner_failure benchmarkStep.boundedVNCProfileDrilldown.failed "$phase_file"
     fi
-    rm -f "$phase_file"
+    rm -f "$phase_file" "$progress_file"
     return
   fi
 
   if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
     json_bounded_drilldown_runner_failure benchmarkStep.boundedVNCProfileDrilldown.failed "$phase_file"
-    rm -f "$phase_file"
+    rm -f "$phase_file" "$progress_file"
     return
   fi
 
@@ -424,7 +494,18 @@ run_bounded_vnc_profile_drilldown() {
     fi
     write_bounded_sweep_phase "$phase_file" benchmark-running
     local profile_args=(
-      --stream-shape-gate-preset sustained-v2-core
+      --attempts 1
+      --stream-shape-frame-interval 0.0166666667
+      --stream-shape-idle-frame-interval 0.05
+      --stream-shape-empty-backoff app
+      --stream-shape-power-mode normal
+      --stream-shape-client-pressure app
+      --stream-shape-viewport-interaction off
+      --stream-shape-stimulus external-command
+      --stream-shape-stimulus-warmup-seconds 0.25
+      --stream-shape-stimulus-frame-interval 0.0833333333
+      --stream-shape-preflight-frames 0
+      --stream-shape-practical-target iphone-sustained-usability-v2
       --stream-shape-transport request-response
       --stream-shape-profiles "$profile_label"
       --stream-shape-profile-order fixed
@@ -436,6 +517,7 @@ run_bounded_vnc_profile_drilldown() {
       --stream-shape-duration-seconds 1
       --timeout 5
       --idle-timeout 1
+      --safe-progress-label-file "$progress_file"
       --json
     )
     if ((extra_arg_count)); then
@@ -443,13 +525,14 @@ run_bounded_vnc_profile_drilldown() {
     fi
     json_bounded_drilldown_profile_result \
       "$phase_file" \
+      "$progress_file" \
       "$profile_label" \
       "$profile_ordinal" \
       20 \
       "$BOUNDED_BENCHMARK_EXECUTABLE" "${profile_args[@]}"
   done
   printf '\n]}\n'
-  rm -f "$phase_file"
+  rm -f "$phase_file" "$progress_file"
 }
 
 reject_extra_args() {
@@ -472,6 +555,35 @@ reject_extra_flag() {
       exit 2
     fi
   done
+}
+
+reject_bounded_vnc_profile_flags() {
+  reject_extra_flag --attempts
+  reject_extra_flag --stream-shape-gate-preset
+  reject_extra_flag --stream-shape-profiles
+  reject_extra_flag --stream-shape-transport
+  reject_extra_flag --stream-shape-profile-order
+  reject_extra_flag --stream-shape-profile-iterations
+  reject_extra_flag --first-frame-profiles
+  reject_extra_flag --full-refresh-samples
+  reject_extra_flag --continuous-update-samples
+  reject_extra_flag --stream-shape-samples
+  reject_extra_flag --stream-shape-duration-seconds
+  reject_extra_flag --stream-shape-frame-interval
+  reject_extra_flag --stream-shape-idle-frame-interval
+  reject_extra_flag --stream-shape-empty-backoff
+  reject_extra_flag --stream-shape-power-mode
+  reject_extra_flag --stream-shape-client-pressure
+  reject_extra_flag --stream-shape-viewport-interaction
+  reject_extra_flag --stream-shape-stimulus
+  reject_extra_flag --stream-shape-stimulus-warmup-seconds
+  reject_extra_flag --stream-shape-stimulus-frame-interval
+  reject_extra_flag --stream-shape-preflight-frames
+  reject_extra_flag --stream-shape-practical-target
+  reject_extra_flag --timeout
+  reject_extra_flag --idle-timeout
+  reject_extra_flag --safe-progress-label-file
+  reject_extra_flag --json
 }
 
 json_step_or_fixed_failure() {
@@ -859,14 +971,21 @@ case "$mode" in
     ;;
   bounded-vnc-profile-sweep)
     import_live_env
-    reject_extra_flag --stream-shape-profiles
-    reject_extra_flag --stream-shape-transport
-    reject_extra_flag --stream-shape-profile-iterations
-    reject_extra_flag --timeout
-    reject_extra_flag --idle-timeout
+    reject_bounded_vnc_profile_flags
     cd "$repo_root"
     bounded_args=(
-      --stream-shape-gate-preset sustained-v2-core
+      --attempts 1
+      --stream-shape-frame-interval 0.0166666667
+      --stream-shape-idle-frame-interval 0.05
+      --stream-shape-empty-backoff app
+      --stream-shape-power-mode normal
+      --stream-shape-client-pressure app
+      --stream-shape-viewport-interaction off
+      --stream-shape-stimulus external-command
+      --stream-shape-stimulus-warmup-seconds 0.25
+      --stream-shape-stimulus-frame-interval 0.0833333333
+      --stream-shape-preflight-frames 0
+      --stream-shape-practical-target iphone-sustained-usability-v2
       --stream-shape-transport request-response
       --stream-shape-profiles tight-first,zrle-compression-0,adaptive-good-full
       --stream-shape-profile-order rotate
@@ -887,19 +1006,7 @@ case "$mode" in
     ;;
   bounded-vnc-profile-drilldown)
     import_live_env
-    reject_extra_flag --stream-shape-gate-preset
-    reject_extra_flag --stream-shape-profiles
-    reject_extra_flag --stream-shape-transport
-    reject_extra_flag --stream-shape-profile-order
-    reject_extra_flag --stream-shape-profile-iterations
-    reject_extra_flag --first-frame-profiles
-    reject_extra_flag --full-refresh-samples
-    reject_extra_flag --continuous-update-samples
-    reject_extra_flag --stream-shape-samples
-    reject_extra_flag --stream-shape-duration-seconds
-    reject_extra_flag --timeout
-    reject_extra_flag --idle-timeout
-    reject_extra_flag --json
+    reject_bounded_vnc_profile_flags
     cd "$repo_root"
     run_bounded_vnc_profile_drilldown
     ;;

@@ -350,6 +350,16 @@ drilldown shows all three candidates timing out in `benchmark-running`, which
 points to a broader benchmark/VNC runtime bottleneck rather than a single
 encoding profile.
 
+Correction/current bounded VNC profile artifact:
+`artifacts/benchmarks/2026-06-07-bounded-vnc-subphase-progress-summary.md`.
+The timeout result above was caused by the runner combining candidate profiles
+with `--stream-shape-gate-preset sustained-v2-core`, whose preset profile set
+overrode the intended candidates. The runner now owns a
+`--safe-progress-label-file` temp hook for timeout diagnostics and spells out
+the sustained-v2-compatible bounded options directly. Current live bounded
+results complete: `tight-first` and `adaptive-good-full` report warning
+verdicts, while `zrle-compression-0` reports fail.
+
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
 export NARU_PHYSICAL_E2E_PASSWORD

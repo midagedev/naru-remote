@@ -1273,6 +1273,18 @@ iPhone) and ships as its own PR.
   pixels, byte counts, stimulus command text, draft text, marked text, or IME
   state. Owns: launchctl runner, README, research note, benchmark artifact.
   **Done.**
+- **T453** Safe benchmark subphase progress for bounded live failures: add a
+  `VNCLiveBenchmark` progress-file option that writes only fixed subphase labels
+  and safe catalog profile labels to a runner-owned temp file, surface those
+  labels only on bounded timeout/failure JSON, and remove the bounded runner's
+  `sustained-v2-core` preset override so explicit candidate profiles are
+  actually measured. Record the corrected live bounded evidence and the
+  previous all-timeout result as superseded by the runner configuration fix.
+  Do not print/export progress paths, executable paths, command lines, host
+  identity, credentials, ports, raw stdout/stderr, TCP/RFB errors, coordinates,
+  dimensions, pixels, byte counts, stimulus command text, draft text, marked
+  text, or IME state. Owns: benchmark CLI, launchctl runner, README, research
+  note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
