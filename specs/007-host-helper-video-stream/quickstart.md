@@ -104,6 +104,28 @@ for local integration and benchmark bring-up: it sends authenticated
 stall frames, and closes the connection after the finite batch. It is not yet
 the long-lived live ScreenCaptureKit/VideoToolbox sender.
 
+## Implemented Helper Video Benchmark TCP Probe
+
+```bash
+NARU_LIVE_MAC_HOST="$(launchctl getenv NARU_LIVE_MAC_HOST)" \
+NARU_LIVE_MAC_PORT="$(launchctl getenv NARU_LIVE_MAC_PORT)" \
+NARU_LIVE_MAC_PASSWORD="$(launchctl getenv NARU_LIVE_MAC_PASSWORD)" \
+NARU_LIVE_STIMULUS_COMMAND="$(launchctl getenv NARU_LIVE_STIMULUS_COMMAND)" \
+swift run VNCLiveBenchmark \
+  --first-frame-profiles none \
+  --full-refresh-samples 0 \
+  --continuous-update-samples 0 \
+  --stream-shape-samples 0 \
+  --visual-transport helper-video \
+  --helper-video-probe synthetic-tcp \
+  --json
+```
+
+`--helper-video-probe synthetic-tcp` runs a local finite helper-video TCP
+harness and reports only fixed helper-video labels and aggregate health bands.
+The default remains `disabled` so live VNC reports do not imply a real Mac
+ScreenCaptureKit/VideoToolbox sender before it exists.
+
 ## Implemented iOS H.264 Decode / Display Prototype
 
 ```bash
