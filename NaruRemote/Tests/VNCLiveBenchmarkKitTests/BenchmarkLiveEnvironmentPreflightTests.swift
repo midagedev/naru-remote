@@ -14,12 +14,13 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 2)
+        XCTAssertEqual(report.schemaVersion, 3)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
         XCTAssertEqual(report.stimulusMode, .externalCommand)
         XCTAssertEqual(report.stimulusCommandStatus, .configured)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
@@ -36,6 +37,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.portStatus, .defaulted)
         XCTAssertEqual(report.credentialStatus, .missing)
         XCTAssertEqual(report.stimulusCommandStatus, .requiredMissing)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
         XCTAssertFalse(report.canRunLiveBenchmark)
         XCTAssertEqual(
             report.issueCodes,
@@ -60,6 +62,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.portStatus, .defaulted)
         XCTAssertEqual(report.credentialStatus, .promptRequested)
         XCTAssertEqual(report.stimulusCommandStatus, .notRequired)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
@@ -77,9 +80,110 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         )
 
         XCTAssertEqual(report.portStatus, .invalid)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
         XCTAssertFalse(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [.invalidPort])
         XCTAssertEqual(report.setupActionLabels, [.fixPort])
+    }
+
+    func testScreenCaptureKitHelperProbeRequiresPermissionWhenSelected() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            screenCapturePermissionStatusProvider: { .missing }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .missing)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
+        XCTAssertEqual(report.setupActionLabels, [.requestHelperVideoScreenRecordingPermission])
+    }
+
+    func testScreenCaptureKitHelperProbeCanRunWhenPermissionGranted() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .all,
+            helperVideoProbeMode: .screenCaptureKitTCP,
+            screenCapturePermissionStatusProvider: { .granted }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .granted)
+        XCTAssertTrue(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testScreenCaptureKitPermissionIsNotRequiredWhenHelperVideoIsNotSelected() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .vnc,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            screenCapturePermissionStatusProvider: { .missing }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertTrue(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testSyntheticHelperVideoProbeDoesNotRequireScreenCapturePermission() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperSyntheticEncodedTCP,
+            screenCapturePermissionStatusProvider: { .missing }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertTrue(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testUnsupportedScreenCaptureKitHelperProbeRoutesToSyntheticAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .screenCaptureKitTCP,
+            screenCapturePermissionStatusProvider: { .unsupported }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .unsupported)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoCaptureUnsupported])
+        XCTAssertEqual(report.setupActionLabels, [.useSyntheticHelperVideoProbe])
     }
 
     func testJSONDoesNotExposeEnvironmentValues() throws {
@@ -101,6 +205,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertFalse(json.contains("5900"))
         XCTAssertFalse(json.contains("secret"))
         XCTAssertFalse(json.contains("secret command"))
+        XCTAssertTrue(json.contains("notRequired"))
         XCTAssertTrue(json.contains("run-live-gate"))
     }
 
@@ -130,6 +235,36 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
 
         XCTAssertEqual(report.schemaVersion, 1)
         XCTAssertEqual(report.issueCodes, [.missingHost, .missingStimulusCommand])
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
         XCTAssertEqual(report.setupActionLabels, [.setHost, .setStimulusCommand])
+    }
+
+    func testDecodesV2PayloadWithoutHelperVideoPermissionStatus() throws {
+        let json = Data(
+            """
+            {
+              "schemaVersion": 2,
+              "hostStatus": "configured",
+              "portStatus": "configured",
+              "credentialStatus": "environment",
+              "stimulusMode": "off",
+              "stimulusCommandStatus": "notRequired",
+              "canRunLiveBenchmark": true,
+              "issueCodes": [],
+              "setupActionLabels": [
+                "run-live-gate"
+              ]
+            }
+            """.utf8
+        )
+
+        let report = try JSONDecoder().decode(
+            BenchmarkLiveEnvironmentPreflightReport.self,
+            from: json
+        )
+
+        XCTAssertEqual(report.schemaVersion, 2)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
     }
 }
