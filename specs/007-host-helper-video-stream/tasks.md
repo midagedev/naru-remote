@@ -255,6 +255,12 @@ without unsafe report fields.
   the AVSampleBuffer renderer in an explicit main-actor box so helper start
   networking and result state-machine work do not inherit the app chrome
   executor. **Done.**
+- [x] T029AE [US1] Split live framebuffer publication into a dedicated
+  viewport-observed frame store so content frames after session activation do
+  not invalidate the app shell, compose dock, direct keyboard, or connection
+  chrome. Keep snapshot/diagnostic frame state memory-only on the app model and
+  verify the second streaming frame publishes through `SessionFrameStore`
+  without `NaruRemoteAppModel.objectWillChange`. **Done.**
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**

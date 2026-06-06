@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import os
 import XCTest
 import NaruHelperKit
@@ -4616,6 +4617,81 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testStreamingFramesPublishThroughFrameStoreWithoutInvalidatingAppModelChrome() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let pacingGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0.5),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                try await pacingGate.sleep(delay)
+            }
+        )
+
+        var appModelPublishCount = 0
+        let appModelCancellable = model.objectWillChange.sink {
+            appModelPublishCount += 1
+        }
+        var frameStorePublishCount = 0
+        let frameStoreCancellable = model.frameStore.objectWillChange.sink {
+            frameStorePublishCount += 1
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(1)
+        for _ in 0..<80 where model.snapshot.profilePreviews[profile.id] == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+        XCTAssertEqual(model.frameStore.framebuffer, firstFramebuffer)
+
+        let appModelBaseline = appModelPublishCount
+        let frameStoreBaseline = frameStorePublishCount
+
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await Task.sleep(for: .milliseconds(20))
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
+        XCTAssertEqual(model.frameStore.framebuffer, secondFramebuffer)
+        XCTAssertEqual(
+            appModelPublishCount,
+            appModelBaseline,
+            "After the session is already active, content frames should not invalidate the app shell/input dock."
+        )
+        XCTAssertGreaterThan(
+            frameStorePublishCount,
+            frameStoreBaseline,
+            "The viewport still needs a dedicated frame-store publish for the Metal subtree."
+        )
+
+        withExtendedLifetime((appModelCancellable, frameStoreCancellable)) {}
+    }
+
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
@@ -5404,6 +5480,57 @@ private final class PacingSleepRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         recordedDelays.append(delay)
+    }
+}
+
+private actor PacingSleepGate {
+    private var recordedDelays: [TimeInterval] = []
+    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var pendingReleases = 0
+
+    var delays: [TimeInterval] {
+        recordedDelays
+    }
+
+    func sleep(_ delay: TimeInterval) async throws {
+        recordedDelays.append(delay)
+        let waitCount = recordedDelays.count
+        let countWaitersToResume = countWaiters
+            .filter { waitCount >= $0.0 }
+            .map(\.1)
+        countWaiters.removeAll { waitCount >= $0.0 }
+        countWaitersToResume.forEach { $0.resume() }
+
+        guard pendingReleases == 0 else {
+            pendingReleases -= 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            sleepWaiters.append(continuation)
+        }
+    }
+
+    func releaseNext() {
+        guard !sleepWaiters.isEmpty else {
+            pendingReleases += 1
+            return
+        }
+        sleepWaiters.removeFirst().resume()
+    }
+
+    func waitForWaitCount(_ expectedCount: Int) async throws {
+        guard recordedDelays.count < expectedCount else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if recordedDelays.count >= expectedCount {
+                continuation.resume()
+            } else {
+                countWaiters.append((expectedCount, continuation))
+            }
+        }
     }
 }
 

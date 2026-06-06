@@ -976,3 +976,45 @@ isolated through an explicit main-actor renderer box.
   `ObservableObject` publication and AVSampleBufferDisplayLayer lifecycle still
   require main-actor boundaries. The safer split is worker-side network/decode
   with short main-actor publication hops.
+
+## D31 - Isolate live frame publication from app chrome and input state
+
+**Decision**: Move live framebuffer, dirty-rectangle, changed-pixel, and server
+cursor publication into a dedicated `SessionFrameStore` observed only by the
+viewport bridge. Keep the app model's snapshot values for tests, diagnostics,
+pointer mapping, and PiP eligibility, but remove frame pixels and
+`SessionStreamStats` from the app model's `@Published` surface. After the first
+frame activates the session, subsequent content frames update the viewport
+store without invalidating the whole shell, connection grid, compose dock, or
+direct-keyboard subtree.
+
+**Rationale**:
+- The physical iPhone freeze still looked like a UI invalidation problem after
+  the frame loop moved off MainActor: real frames could cause the entire
+  `NaruRemoteAppModel` `ObservableObject` to publish, forcing SwiftUI to
+  recompute app chrome and input controls at frame cadence.
+- `RFBRawFramebuffer` is large and only the Metal viewport needs it. Keeping it
+  in the app model snapshot for non-UI logic is acceptable, but using it as a
+  top-level published property ties video cadence to text input, gestures, and
+  navigation.
+- Session lifecycle should publish on first frame and reconnect recovery, not
+  on every later frame. Per-frame stats remain memory-only and diagnostics-safe;
+  the connection-quality chip still publishes only when its coarse bucket
+  changes.
+
+**Verification**:
+- `NaruRemoteAppModelTests/testStreamingFramesPublishThroughFrameStoreWithoutInvalidatingAppModelChrome`
+  proves a second streaming content frame publishes through `SessionFrameStore`
+  while leaving `NaruRemoteAppModel.objectWillChange` unchanged.
+- `swift test --filter NaruRemoteAppModelTests` passed after the split.
+
+**Alternatives considered**:
+- Leave `latestFramebuffer` as `@Published` and rely on lower FPS: rejected
+  because even a low-FPS live stream can collide with keyboard and gesture
+  responsiveness on iPhone.
+- Move all app model state into the frame store: rejected because session
+  lifecycle, input state, diagnostics, and profile UI should not observe the
+  video cadence.
+- Remove snapshot framebuffer values entirely: rejected because existing tests,
+  pointer mapping, PiP start checks, and diagnostics use the latest frame as
+  memory-only model state.

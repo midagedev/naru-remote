@@ -155,21 +155,21 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var latestInjectionAttempt: TextInjectionAttempt?
     private var latestComposeSendPreparation: ComposeSendPreparationReport?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
-    @Published public private(set) var latestFramebuffer: RFBRawFramebuffer?
+    public private(set) var latestFramebuffer: RFBRawFramebuffer?
     /// Damage rectangles paired with `latestFramebuffer`.  Populated
     /// whenever a streaming frame arrives from a damage-tracking pump
     /// source (`RFBFramePumpFrame.dirtyRectangles`); cleared on
     /// disconnect, profile changes, and full-frame fallback paths so
     /// the renderer falls back to a full-frame upload when the pairing
     /// no longer applies.
-    @Published public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
-    @Published public private(set) var latestFrameChangedPixelCount: Int?
-    @Published public private(set) var sessionStreamStats = SessionStreamStats()
+    public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
+    public private(set) var latestFrameChangedPixelCount: Int?
+    public private(set) var sessionStreamStats = SessionStreamStats()
     /// Most recent server-provided cursor shape from the RFB Cursor
     /// pseudo-encoding. Cleared with framebuffer/session state and never
     /// persisted or exported; the view may use it to draw the trackpad
     /// cursor with server fidelity.
-    @Published public private(set) var latestServerCursor: RFBServerCursor?
+    public private(set) var latestServerCursor: RFBServerCursor?
     @Published public private(set) var profilePreviews: [ConnectionProfile.ID: ProfilePreviewThumbnail]
     @Published public private(set) var profileReachability: [ConnectionProfile.ID: ProfileReachabilityState]
     @Published public private(set) var helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState]
@@ -190,6 +190,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// `settingsPersistence`.  Contains only non-secret viewer
     /// preferences; credentials and target identity never live here.
     @Published public private(set) var appSettings: AppSettings
+    /// Frame pixels are intentionally isolated from the app-model
+    /// `ObservableObject`. A live desktop frame should invalidate only the
+    /// viewport subtree, not the whole shell and input dock on every update.
+    public let frameStore: SessionFrameStore
 
     /// Direct Keystroke Streaming Mode state (the named §I "MAY"
     /// exception per `specs/002-direct-keystroke-mode/spec.md`).
@@ -479,6 +483,14 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestFrameChangedPixelCount = snapshot.latestFrameChangedPixelCount
         self.sessionStreamStats = snapshot.sessionStreamStats
         self.latestServerCursor = snapshot.latestServerCursor
+        self.frameStore = SessionFrameStore(
+            state: SessionFrameState(
+                framebuffer: snapshot.latestFramebuffer,
+                dirtyRectangles: snapshot.latestFrameDirtyRectangles,
+                changedPixelCount: snapshot.latestFrameChangedPixelCount,
+                serverCursor: snapshot.latestServerCursor
+            )
+        )
         self.profilePreviews = snapshot.profilePreviews
         self.profileReachability = snapshot.profileReachability
         self.helperTextBridgeState = snapshot.helperTextBridgeState
@@ -1144,12 +1156,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             reconnectAttempts = 0
             resetConnectionQuality()
             latestViewportTransform = nil
-            latestFramebuffer = nil
-            latestFrameDirtyRectangles = nil
-            latestFrameChangedPixelCount = nil
+            clearSessionFrame()
             resetSessionStreamStats()
             resetVisualTransportState()
-            latestServerCursor = nil
             diagnosticRun = nil
             latestInjectionAttempt = nil
             latestComposeSendPreparation = nil
@@ -1222,12 +1231,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestInjectionAttempt = nil
             latestComposeSendPreparation = nil
             clearPiPWatchSession()
-            latestFramebuffer = nil
-            latestFrameDirtyRectangles = nil
-            latestFrameChangedPixelCount = nil
+            clearSessionFrame()
             resetSessionStreamStats()
             resetVisualTransportState()
-            latestServerCursor = nil
             activeTextClient = nil
             activePointerClient = nil
             activeKeyEventClient = nil
@@ -1860,12 +1866,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             diagnosticRun = nil
             latestInjectionAttempt = nil
             latestComposeSendPreparation = nil
-            latestFramebuffer = nil
-            latestFrameDirtyRectangles = nil
-            latestFrameChangedPixelCount = nil
+            clearSessionFrame()
             resetSessionStreamStats()
             resetVisualTransportState()
-            latestServerCursor = nil
             clearPiPWatchSession()
             selectedProfileID = nil
         }
@@ -2876,11 +2879,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             resetPointerControl()
             lastEmittedDragCoord = nil
             cancelOutboundInputEventQueues()
-            latestFramebuffer = nil
-            latestFrameDirtyRectangles = nil
-            latestFrameChangedPixelCount = nil
+            clearSessionFrame()
             resetSessionStreamStats()
-            latestServerCursor = nil
             diagnosticRun = credentialFailureDiagnosticRun(
                 profile: profile,
                 startedAt: diagnosticStartedAt
@@ -2923,8 +2923,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }.value
 
                 nextSession.markFirstFrameReceived(at: connectionResult.frameCapturedAt)
-                latestFramebuffer = connectionResult.framebuffer
                 if let framebuffer = connectionResult.framebuffer {
+                    publishSessionFrame(
+                        framebuffer: framebuffer,
+                        dirtyRectangles: nil,
+                        changedPixelCount: nil,
+                        serverCursor: nil
+                    )
                     cachePreview(
                         framebuffer: framebuffer,
                         for: profile.id,
@@ -2932,11 +2937,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         forceDiskSave: true
                     )
                 }
-                // Single-shot first-frame path has no damage history.
-                latestFrameDirtyRectangles = nil
-                latestFrameChangedPixelCount = nil
                 resetSessionStreamStats()
-                latestServerCursor = nil
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
@@ -2991,11 +2992,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 activePointerClient = nil
                 lastEmittedDragCoord = nil
                 stopIncomingClipboardReceive()
-                latestFramebuffer = nil
-                latestFrameDirtyRectangles = nil
-                latestFrameChangedPixelCount = nil
+                clearSessionFrame()
                 resetSessionStreamStats()
-                latestServerCursor = nil
                 // Derive the actual failed stage from the error so the
                 // user sees an actionable message — not a hardcoded
                 // "VNC handshake failed" / "Connection failed" pair
@@ -3253,6 +3251,39 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func currentStreamPacingSleepOverride() -> (@Sendable (TimeInterval) async throws -> Void)? {
         streamPacingSleepOverride
+    }
+
+    private func publishSessionFrame(
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?,
+        serverCursor: RFBServerCursor?
+    ) {
+        latestFramebuffer = framebuffer
+        latestFrameDirtyRectangles = dirtyRectangles
+        latestFrameChangedPixelCount = changedPixelCount.map { max($0, 0) }
+        if let serverCursor {
+            latestServerCursor = serverCursor
+        }
+        frameStore.publish(
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount,
+            serverCursor: latestServerCursor
+        )
+    }
+
+    private func publishServerCursor(_ serverCursor: RFBServerCursor) {
+        latestServerCursor = serverCursor
+        frameStore.publishServerCursor(serverCursor)
+    }
+
+    private func clearSessionFrame() {
+        latestFramebuffer = nil
+        latestFrameDirtyRectangles = nil
+        latestFrameChangedPixelCount = nil
+        latestServerCursor = nil
+        frameStore.clear()
     }
 
     private func recordSessionStreamStatsAndPacingDecision(
@@ -3680,13 +3711,23 @@ public final class NaruRemoteAppModel: ObservableObject {
             lastViewportInteractionFramePublishedAt = frame.capturedAt
         }
 
-        var updatedSession = session ?? RemoteSession(profileID: profile.id)
-        updatedSession.markFirstFrameReceived(at: frame.capturedAt)
+        let activeSession: RemoteSession
+        if var updatedSession = session {
+            if !updatedSession.hasReceivedFrame || updatedSession.state != .active {
+                updatedSession.markFirstFrameReceived(at: frame.capturedAt)
+                session = updatedSession
+            }
+            activeSession = updatedSession
+        } else {
+            var updatedSession = RemoteSession(profileID: profile.id)
+            updatedSession.markFirstFrameReceived(at: frame.capturedAt)
+            session = updatedSession
+            activeSession = updatedSession
+        }
         // A frame arriving after a reconnect window means the new
         // attempt succeeded — drop the attempt counter so a future
         // drop gets a fresh `maxAttempts` budget.
         reconnectAttempts = 0
-        latestFramebuffer = frame.framebuffer
         cachePreview(
             framebuffer: frame.framebuffer,
             for: profile.id,
@@ -3698,19 +3739,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         // must perform a full upload (its texture has just been
         // allocated for these dimensions); pass nil so the dirty-rect
         // path is bypassed for that frame.
-        latestFrameDirtyRectangles = frame.isIncremental ? frame.dirtyRectangles : nil
-        latestFrameChangedPixelCount = frame.isIncremental ? frame.changedPixelCount : nil
-        if let serverCursor = frame.serverCursor {
-            latestServerCursor = serverCursor
-        }
-        session = updatedSession
+        publishSessionFrame(
+            framebuffer: frame.framebuffer,
+            dirtyRectangles: frame.isIncremental ? frame.dirtyRectangles : nil,
+            changedPixelCount: frame.isIncremental ? frame.changedPixelCount : nil,
+            serverCursor: frame.serverCursor
+        )
         // Do not feed the PiP sample-buffer layer during ordinary foreground
         // viewing. That path converts the full framebuffer to video samples and
         // must stay out of the live gesture/input critical path unless PiP is
         // actually active.
         updatePiPWatchFrameIfNeeded(
             framebuffer: frame.framebuffer,
-            sessionID: updatedSession.id,
+            sessionID: activeSession.id,
             capturedAt: frame.capturedAt,
             changeActivity: frame.changeActivity
         )
@@ -3753,7 +3794,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ]
             )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
-            startHelperVideoStreamIfConfigured(profile: profile, sessionID: updatedSession.id)
+            startHelperVideoStreamIfConfigured(profile: profile, sessionID: activeSession.id)
         }
     }
 
@@ -3863,7 +3904,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
             return
         }
-        latestServerCursor = serverCursor
+        publishServerCursor(serverCursor)
         noteStreamLiveness(
             sessionID: sessionID,
             profile: profile,
@@ -4102,12 +4143,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             // user sees the catalog message, NOT a raw error
             // (constitution §IV).
             updatedSession.markFailed("Connection lost. Please reconnect.")
-            latestFramebuffer = nil
-            latestFrameDirtyRectangles = nil
-            latestFrameChangedPixelCount = nil
+            clearSessionFrame()
             resetSessionStreamStats()
             resetVisualTransportState()
-            latestServerCursor = nil
             session = updatedSession
             activeStreamProfile = nil
             activeStreamCredential = nil
@@ -4154,12 +4192,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             metadata: Self.diagnosticFailureMetadata(for: error)
         )
         updatedSession.markFailed(failure.safeTitle)
-        latestFramebuffer = nil
-        latestFrameDirtyRectangles = nil
-        latestFrameChangedPixelCount = nil
+        clearSessionFrame()
         resetSessionStreamStats()
         resetVisualTransportState()
-        latestServerCursor = nil
         session = updatedSession
         activeStreamProfile = nil
         activeStreamCredential = nil
@@ -4323,12 +4358,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamCredential = nil
         reconnectAttempts = 0
         latestViewportTransform = nil
-        latestFramebuffer = nil
-        latestFrameDirtyRectangles = nil
-        latestFrameChangedPixelCount = nil
+        clearSessionFrame()
         resetSessionStreamStats()
         resetVisualTransportState()
-        latestServerCursor = nil
         resetConnectionQuality()
         resetPointerControl()
         if var current = session {
