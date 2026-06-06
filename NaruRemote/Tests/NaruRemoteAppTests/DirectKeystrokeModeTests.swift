@@ -244,6 +244,59 @@ final class DirectKeystrokeModeTests: XCTestCase {
         )
     }
 
+    func testTimedOutKeyEmissionReleasesOutboundQueueForLaterPointerInput() async throws {
+        // Regression for the "one key, then everything feels frozen"
+        // class of failures: a stalled key client must not park the
+        // shared outbound input tail forever. After the model-level
+        // timeout trips, later pointer input should enqueue on a fresh
+        // tail instead of waiting behind the stuck key.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            keyEventDelay: .seconds(10)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(60)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.toggleDirectKeystrokeMode()
+        await model.tapDirectKey(.character("a"))
+
+        try await Task.sleep(for: .milliseconds(140))
+        XCTAssertTrue(
+            connector.recordedKeyEvents.isEmpty,
+            "The delayed key write should be cancelled before it records stale key events"
+        )
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 10, y: 10),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+
+        try await waitForPointerEvents(connector, count: 2, timeout: 1)
+        let pointerEvents = connector.recordedPointerEvents
+        XCTAssertEqual(pointerEvents.count, 2)
+        XCTAssertEqual(pointerEvents[0].mask, 0x01)
+        XCTAssertEqual(pointerEvents[0].x, 10)
+        XCTAssertEqual(pointerEvents[0].y, 10)
+        XCTAssertEqual(pointerEvents[1].mask, 0x00)
+        XCTAssertEqual(pointerEvents[1].x, 10)
+        XCTAssertEqual(pointerEvents[1].y, 10)
+    }
+
     // MARK: - Sticky modifier integration (Phase 4 / US-2)
 
     func testFreshModelHasAllStickyModifiersIdle() {
@@ -567,6 +620,22 @@ final class DirectKeystrokeModeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(count) input events; got \(connector.recordedInputEvents.count)")
+        throw DirectKeystrokeTestTimeout.inputEvents
+    }
+
+    private func waitForPointerEvents(
+        _ connector: KeyCapturingStreamingConnector,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connector.recordedPointerEvents.count >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(count) pointer events; got \(connector.recordedPointerEvents.count)")
         throw DirectKeystrokeTestTimeout.inputEvents
     }
 }

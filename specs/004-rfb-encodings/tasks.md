@@ -1360,6 +1360,15 @@ iPhone) and ships as its own PR.
   command text, draft text, marked text, or IME state. Owns: viewport
   interaction strategy, Metal viewport publish cadence, focused tests, research
   note, benchmark artifact. **Done.**
+- **T460** Outbound input queue timeout guard: add an app-model backstop around
+  the shared key/pointer serial queue so a stalled key or pointer client cannot
+  park later input indefinitely. Keep production `RFBNetworkClient`'s socket
+  write timeout as the primary guard, preserve key/pointer ordering for healthy
+  writes, and add a focused regression proving a timed-out direct-key emission
+  releases the queue for later pointer input. Emit no keysyms, coordinates,
+  host identity, credentials, command text, draft text, marked text, or IME
+  state. Owns: app model, direct-keystroke tests, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
