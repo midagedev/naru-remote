@@ -242,17 +242,16 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
     private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
-    /// Serial tail for outbound pointer events. RFB pointer writes must
-    /// preserve gesture order even when Network.framework back-pressures
-    /// an individual write; otherwise two quick taps can interleave as
-    /// down/down/up/up instead of two complete click pairs.
-    private var pointerEventTail: Task<Void, Never>?
-    /// Serial tail for outbound key events. Direct-mode soft-key taps,
-    /// hardware-keyboard presses, and Compose quick keys must preserve
-    /// the order the user produced them, but the UI thread must not wait
-    /// for synchronous VNC socket writes hidden behind the async protocol
-    /// boundary.
-    private var keyEventTail: Task<Void, Never>?
+    /// Single serial tail for all outbound input messages. RFB key and
+    /// pointer writes share one socket, so they must preserve the order
+    /// the user produced them while still keeping synchronous
+    /// Network.framework back-pressure off MainActor.
+    private var outboundInputEventTail: Task<Void, Never>?
+    /// Queue invalidation token. Cancelling only the latest tail is not
+    /// enough when multiple tasks are chained behind an older write, so
+    /// every queued task also checks this generation before touching the
+    /// active socket.
+    private var outboundInputEventGeneration = UUID()
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -3453,21 +3452,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func cancelOutboundInputEventQueues() {
-        cancelPointerEventQueue()
-        cancelKeyEventQueue()
-    }
-
-    private func cancelPointerEventQueue() {
+        outboundInputEventGeneration = UUID()
         pointerMoveFlushTask?.cancel()
         pointerMoveFlushTask = nil
         pendingPointerMove = nil
-        pointerEventTail?.cancel()
-        pointerEventTail = nil
-    }
-
-    private func cancelKeyEventQueue() {
-        keyEventTail?.cancel()
-        keyEventTail = nil
+        outboundInputEventTail?.cancel()
+        outboundInputEventTail = nil
     }
 
     /// Begin a long-lived receive loop that pulls `ServerCutText`
@@ -3983,7 +3973,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID?,
         operation: @escaping @Sendable () async throws -> Void
     ) {
-        let previous = keyEventTail
+        let previous = outboundInputEventTail
+        let generation = outboundInputEventGeneration
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
@@ -3991,6 +3982,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             streamID,
             sessionID,
             profileID,
+            generation,
             operation
         ] in
             await previous?.value
@@ -4002,7 +3994,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 guard let self else {
                     return false
                 }
-                return self.activeFrameStreamID == streamID
+                return self.outboundInputEventGeneration == generation
+                    && self.activeFrameStreamID == streamID
                     && self.session?.id == sessionID
                     && self.selectedProfileID == profileID
                     && self.keystrokeEmitter === emitter
@@ -4016,6 +4009,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self,
+                          self.outboundInputEventGeneration == generation,
                           self.activeFrameStreamID == streamID,
                           self.session?.id == sessionID,
                           self.selectedProfileID == profileID,
@@ -4023,13 +4017,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                     else {
                         return
                     }
-                    self.cancelKeyEventQueue()
+                    self.cancelOutboundInputEventQueues()
                     self.activeKeyEventClient = nil
                     self.keystrokeEmitter = nil
                 }
             }
         }
-        keyEventTail = task
+        outboundInputEventTail = task
     }
 
     nonisolated private static func connectAndReadFirstFrame(
@@ -5152,7 +5146,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let previous = pointerEventTail
+        let previous = outboundInputEventTail
+        let generation = outboundInputEventGeneration
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
@@ -5160,7 +5155,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             commands,
             streamID,
             sessionID,
-            profileID
+            profileID,
+            generation
         ] in
             await previous?.value
             guard !Task.isCancelled else {
@@ -5171,9 +5167,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                 guard let self else {
                     return false
                 }
-                return self.activeFrameStreamID == streamID
+                return self.outboundInputEventGeneration == generation
+                    && self.activeFrameStreamID == streamID
                     && self.session?.id == sessionID
                     && self.selectedProfileID == profileID
+                    && self.activePointerClient === pointerClient
             }
             guard isStillCurrent else {
                 return
@@ -5195,19 +5193,21 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
                 await MainActor.run {
-                    guard self.activeFrameStreamID == streamID,
+                    guard self.outboundInputEventGeneration == generation,
+                          self.activeFrameStreamID == streamID,
                           self.session?.id == sessionID,
-                          self.selectedProfileID == profileID
+                          self.selectedProfileID == profileID,
+                          self.activePointerClient === pointerClient
                     else {
                         return
                     }
-                    self.cancelPointerEventQueue()
+                    self.cancelOutboundInputEventQueues()
                     self.activePointerClient = nil
                     self.lastEmittedDragCoord = nil
                 }
             }
         }
-        pointerEventTail = task
+        outboundInputEventTail = task
     }
 
     private static func singleButtonlessPointerMove(_ commands: [RFBPointerCommand]) -> RFBPointerCommand? {

@@ -194,6 +194,56 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertFalse(events[3].isDown)
     }
 
+    func testKeyAndPointerEventsShareOneOutboundQueue() async throws {
+        // RFB key and pointer messages share one active socket. A
+        // delayed key emission must not allow a later pointer tap to
+        // overtake it on a separate detached queue.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            keyEventDelay: .milliseconds(80)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.toggleDirectKeystrokeMode()
+        await model.tapDirectKey(.character("a"))
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 10, y: 10),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertTrue(
+            connector.recordedPointerEvents.isEmpty,
+            "Pointer writes must not overtake a pending key operation"
+        )
+
+        try await waitForInputEvents(connector, count: 4)
+        XCTAssertEqual(
+            connector.recordedInputEvents,
+            [
+                .key(keysym: 0x0061, isDown: true),
+                .key(keysym: 0x0061, isDown: false),
+                .pointer(mask: 0x01, x: 10, y: 10),
+                .pointer(mask: 0x00, x: 10, y: 10)
+            ]
+        )
+    }
+
     // MARK: - Sticky modifier integration (Phase 4 / US-2)
 
     func testFreshModelHasAllStickyModifiersIdle() {
@@ -503,17 +553,41 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTFail("Timed out waiting for \(count) key events; got \(connector.recordedKeyEvents.count)")
         throw DirectKeystrokeTestTimeout.keyEvents
     }
+
+    private func waitForInputEvents(
+        _ connector: KeyCapturingStreamingConnector,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connector.recordedInputEvents.count >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(count) input events; got \(connector.recordedInputEvents.count)")
+        throw DirectKeystrokeTestTimeout.inputEvents
+    }
 }
 
 private enum DirectKeystrokeTestTimeout: Error {
     case connectedSession
     case keyEvents
+    case inputEvents
+}
+
+private enum RecordedInputEvent: Equatable {
+    case key(keysym: UInt32, isDown: Bool)
+    case pointer(mask: UInt8, x: UInt16, y: UInt16)
 }
 
 private final class KeyCapturingStreamingConnector: RFBStreamingClient {
     private struct Recording {
         var framebuffers: [RFBRawFramebuffer]
         var recordedKeyEventsList: [(keysym: UInt32, isDown: Bool)] = []
+        var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var recordedInputEventsList: [RecordedInputEvent] = []
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -545,6 +619,14 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
 
     var recordedKeyEvents: [(keysym: UInt32, isDown: Bool)] {
         recording.withLock { $0.recordedKeyEventsList }
+    }
+
+    var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
+        recording.withLock { $0.recordedPointerEventsList }
+    }
+
+    var recordedInputEvents: [RecordedInputEvent] {
+        recording.withLock { $0.recordedInputEventsList }
     }
 
     func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
@@ -591,7 +673,13 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
 
     func setClipboardText(_ text: String) throws {}
     func sendPasteCommand(_ command: PasteCommand) throws {}
-    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {}
+
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        recording.withLock { state in
+            state.recordedPointerEventsList.append((buttonMask, x, y))
+            state.recordedInputEventsList.append(.pointer(mask: buttonMask, x: x, y: y))
+        }
+    }
 
     func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
         if let keyEventDelay {
@@ -599,6 +687,7 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
         }
         recording.withLock { state in
             state.recordedKeyEventsList.append((keysym, isDown))
+            state.recordedInputEventsList.append(.key(keysym: keysym, isDown: isDown))
         }
     }
 }
