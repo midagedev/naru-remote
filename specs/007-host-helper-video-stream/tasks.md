@@ -270,6 +270,11 @@ without unsafe report fields.
   for the shared key/pointer queue so live iPhone freezes can be triaged as
   queue delay, wire-operation delay, or timeout without exporting coordinates,
   keysyms, text, endpoints, byte counts, or exact timings. **Done.**
+- [x] T029AH [US1] Move shared key/pointer outbound input serialization,
+  timeout racing, and queue/write timing measurement into a dedicated
+  dispatcher outside MainActor so live VNC frame pressure has less opportunity
+  to stall gestures, direct keys, and trackpad pointer commands. Preserve one
+  ordered RFB input queue across key and pointer messages. **Done.**
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**
