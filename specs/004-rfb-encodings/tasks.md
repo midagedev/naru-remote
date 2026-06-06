@@ -1285,6 +1285,18 @@ iPhone) and ships as its own PR.
   dimensions, pixels, byte counts, stimulus command text, draft text, marked
   text, or IME state. Owns: benchmark CLI, launchctl runner, README, research
   note, benchmark artifact. **Done.**
+- **T454** Bounded VNC warning-candidate stability runner: add a
+  launchctl-backed mode that repeats the corrected warning candidates
+  `tight-first` and `adaptive-good-full` with order rotation before any
+  production-default promotion. Reject caller overrides for managed benchmark
+  dimensions, record the current live stability result, and keep `tight-first`
+  as only a working candidate until client-decode/content-cadence pressure is
+  reduced. Emit only privacy-safe benchmark JSON or fixed runner failure labels;
+  do not print/export host identity, credentials, ports, executable paths,
+  command lines, raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, or IME
+  state. Owns: launchctl runner, README, research note, benchmark artifact.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

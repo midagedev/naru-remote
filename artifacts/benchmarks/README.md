@@ -360,6 +360,15 @@ the sustained-v2-compatible bounded options directly. Current live bounded
 results complete: `tight-first` and `adaptive-good-full` report warning
 verdicts, while `zrle-compression-0` reports fail.
 
+Current bounded VNC candidate stability artifact:
+`artifacts/benchmarks/2026-06-07-bounded-vnc-candidate-stability-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh bounded-vnc-candidate-stability` after a
+corrected bounded sweep leaves warning candidates. The current live stability
+run repeats `tight-first` and `adaptive-good-full` three times each. Both gates
+still fail overall; `tight-first` is the better working candidate, but it is not
+ready for production-default promotion because it has zero pass runs and a
+client-decode primary constraint.
+
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
 export NARU_PHYSICAL_E2E_PASSWORD

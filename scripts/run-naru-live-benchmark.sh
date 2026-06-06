@@ -17,6 +17,7 @@ Modes:
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
+  bounded-vnc-candidate-stability Repeat bounded warning-candidate VNC sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -190,6 +191,35 @@ json_benchmark_or_timeout_failure() {
   rm -f "$output_file"
 }
 
+json_benchmark_or_candidate_stability_failure() {
+  local wall_timeout_seconds="$1"
+  local phase_file="$2"
+  local progress_file="$3"
+  shift 3
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-candidate-stability-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_bounded_candidate_stability_failure \
+      benchmarkStep.boundedVNCCandidateStability.timedOut \
+      "$phase_file" \
+      "$progress_file"
+  else
+    json_bounded_candidate_stability_failure \
+      benchmarkStep.boundedVNCCandidateStability.failed \
+      "$phase_file" \
+      "$progress_file"
+  fi
+  rm -f "$output_file"
+}
+
 json_string() {
   local value="$1"
   local escaped
@@ -237,6 +267,20 @@ json_bounded_sweep_failure() {
   local phase_label
   phase_label="$(bounded_sweep_phase_label "$phase_file")"
   printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
+json_bounded_candidate_stability_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-candidate-stability","status":"failed","safeFailureCode":'
   json_string "$failure_code"
   printf ',"lastPhaseLabel":'
   json_string "$phase_label"
@@ -535,6 +579,78 @@ run_bounded_vnc_profile_drilldown() {
   rm -f "$phase_file" "$progress_file"
 }
 
+run_bounded_vnc_candidate_stability() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-candidate-stability-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-candidate-stability-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_bounded_candidate_stability_failure \
+        benchmarkStep.boundedVNCCandidateStability.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_bounded_candidate_stability_failure \
+        benchmarkStep.boundedVNCCandidateStability.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_bounded_candidate_stability_failure \
+      benchmarkStep.boundedVNCCandidateStability.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local stability_args=(
+    --attempts 1
+    --stream-shape-frame-interval 0.0166666667
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-sustained-usability-v2
+    --stream-shape-transport request-response
+    --stream-shape-profiles tight-first,adaptive-good-full
+    --stream-shape-profile-order rotate
+    --stream-shape-profile-iterations 3
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 2
+    --stream-shape-duration-seconds 2
+    --timeout 8
+    --idle-timeout 2
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+  if ((extra_arg_count)); then
+    stability_args+=("${extra_args[@]}")
+  fi
+
+  write_bounded_sweep_phase "$phase_file" benchmark-running
+  json_benchmark_or_candidate_stability_failure \
+    90 \
+    "$phase_file" \
+    "$progress_file" \
+    "$BOUNDED_BENCHMARK_EXECUTABLE" "${stability_args[@]}"
+  rm -f "$phase_file" "$progress_file"
+}
+
 reject_extra_args() {
   if ((extra_arg_count)); then
     printf 'Mode %s does not accept extra arguments after --.\n' "$mode" >&2
@@ -558,12 +674,22 @@ reject_extra_flag() {
 }
 
 reject_bounded_vnc_profile_flags() {
+  reject_extra_flag --network-condition
+  reject_extra_flag --environment-preflight
+  reject_extra_flag --helper-video-probe-only
+  reject_extra_flag --visual-transport
+  reject_extra_flag --helper-video-probe
   reject_extra_flag --attempts
   reject_extra_flag --stream-shape-gate-preset
   reject_extra_flag --stream-shape-profiles
   reject_extra_flag --stream-shape-transport
   reject_extra_flag --stream-shape-profile-order
   reject_extra_flag --stream-shape-profile-iterations
+  reject_extra_flag --stream-shape-pacing-window
+  reject_extra_flag --stream-shape-request-region
+  reject_extra_flag --stream-shape-first-frame-request
+  reject_extra_flag --stream-shape-first-frame-visible-glance-scale
+  reject_extra_flag --stream-shape-request-pipeline-depth
   reject_extra_flag --first-frame-profiles
   reject_extra_flag --full-refresh-samples
   reject_extra_flag --continuous-update-samples
@@ -575,6 +701,7 @@ reject_bounded_vnc_profile_flags() {
   reject_extra_flag --stream-shape-power-mode
   reject_extra_flag --stream-shape-client-pressure
   reject_extra_flag --stream-shape-viewport-interaction
+  reject_extra_flag --stream-shape-viewport-interaction-pause-seconds
   reject_extra_flag --stream-shape-stimulus
   reject_extra_flag --stream-shape-stimulus-warmup-seconds
   reject_extra_flag --stream-shape-stimulus-frame-interval
@@ -583,6 +710,9 @@ reject_bounded_vnc_profile_flags() {
   reject_extra_flag --timeout
   reject_extra_flag --idle-timeout
   reject_extra_flag --safe-progress-label-file
+  reject_extra_flag --ask-password
+  reject_extra_flag --help
+  reject_extra_flag -h
   reject_extra_flag --json
 }
 
@@ -1009,6 +1139,12 @@ case "$mode" in
     reject_bounded_vnc_profile_flags
     cd "$repo_root"
     run_bounded_vnc_profile_drilldown
+    ;;
+  bounded-vnc-candidate-stability)
+    import_live_env
+    reject_bounded_vnc_profile_flags
+    cd "$repo_root"
+    run_bounded_vnc_candidate_stability
     ;;
   physical-device-preflight)
     physical_preflight
