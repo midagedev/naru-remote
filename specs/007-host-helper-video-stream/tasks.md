@@ -226,6 +226,11 @@ without unsafe report fields.
   that proves the app-model first-frame helper-video bootstrap can call a real
   authenticated TCP helper-video server/client path and still keep VNC
   framebuffer/control active. **Done.**
+- [x] T029Z [US1] Add a safe physical-device preflight mode to the launchctl
+  runner so T030/T031 can distinguish connected iPhone, signing team, Xcode
+  account, and provisioning blockers without printing device IDs or raw
+  xcodebuild logs. Discovery must filter to physical iPhones rather than any
+  physical iOS device. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

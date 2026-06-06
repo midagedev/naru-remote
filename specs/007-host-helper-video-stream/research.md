@@ -856,3 +856,33 @@ is set.
 - Record measured TCP startup timings in the committed artifact: rejected by
   the helper-video privacy posture; local XCTest output is enough for
   investigation and committed docs should stay catalog-level.
+
+## D28 - Preflight physical iPhone signing before live helper-video gates
+
+**Decision**: Extend the launchctl-backed benchmark runner with a
+`physical-device-preflight` mode that discovers whether a physical iPhone is
+selectable and classifies Xcode build/signing blockers with fixed labels. The
+mode filters discovery to iPhone devices instead of accepting any physical iOS
+device, and it may run a physical-device `xcodebuild` build check while
+capturing and classifying the output instead of printing raw logs.
+
+**Rationale**:
+- The connected iPhone is now visible to Xcode, but the physical helper-video
+  gates still cannot run if signing/provisioning fails before the app launches.
+  A safe preflight separates "no device", "ambiguous device", "development team
+  missing", "Xcode account missing", and "development provisioning profile
+  missing" before a long T030/T031 attempt.
+- Physical-device readiness is a privacy-sensitive diagnostic surface: device
+  names, device IDs, provisioning profile names, bundle identifiers, raw
+  xcodebuild logs, live VNC credentials, helper paths, and exact timings are not
+  needed to decide the next setup action.
+- Keeping this in the local runner matches the existing live helper-video setup
+  flow and avoids committing a personal development team ID to `project.yml`.
+
+**Alternatives considered**:
+- Commit `DEVELOPMENT_TEAM` to the XcodeGen project: rejected because this repo
+  should not encode a developer's personal signing team.
+- Paste raw `xcodebuild` failures into artifacts: rejected because they can
+  expose device identity, account/profile names, local paths, and bundle IDs.
+- Wait until a physical test fails and inspect the console manually: rejected
+  because T030/T031 should fail fast with actionable fixed setup labels.
