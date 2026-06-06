@@ -7,10 +7,17 @@ import ScreenCaptureKit
 #endif
 
 public let naruHelperVideoCapabilitySchemaVersion = 1
+public let naruHelperVideoPermissionRequestSchemaVersion = 1
 
 public enum NaruHelperVideoScreenRecordingPermission: String, Codable, Equatable, CaseIterable, Sendable {
     case granted
     case missing
+    case unsupported
+}
+
+public enum NaruHelperVideoScreenRecordingPermissionRequestResult: String, Codable, Equatable, CaseIterable, Sendable {
+    case granted
+    case notGranted
     case unsupported
 }
 
@@ -47,6 +54,82 @@ public struct NaruHelperVideoCaptureCapabilityResponse: Codable, Equatable, Send
         self.captureSourceState = captureSourceState
         self.captureAPI = captureAPI
         self.safeFailureCode = safeFailureCode
+    }
+}
+
+public struct NaruHelperVideoScreenRecordingPermissionRequestResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: Int
+    public var availability: HelperVideoAvailability
+    public var screenRecordingPermission: NaruHelperVideoScreenRecordingPermission
+    public var requestResult: NaruHelperVideoScreenRecordingPermissionRequestResult
+    public var captureAPI: NaruHelperVideoCaptureAPI?
+    public var safeFailureCode: HelperVideoFailureCode?
+
+    public init(
+        schemaVersion: Int = naruHelperVideoPermissionRequestSchemaVersion,
+        availability: HelperVideoAvailability,
+        screenRecordingPermission: NaruHelperVideoScreenRecordingPermission,
+        requestResult: NaruHelperVideoScreenRecordingPermissionRequestResult,
+        captureAPI: NaruHelperVideoCaptureAPI? = nil,
+        safeFailureCode: HelperVideoFailureCode? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.availability = availability
+        self.screenRecordingPermission = screenRecordingPermission
+        self.requestResult = requestResult
+        self.captureAPI = captureAPI
+        self.safeFailureCode = safeFailureCode
+    }
+}
+
+public struct NaruHelperVideoScreenRecordingPermissionRequester: Sendable {
+    public typealias PermissionRequest = @Sendable () -> Bool
+
+    private let captureAPI: NaruHelperVideoCaptureAPI?
+    private let permissionRequest: PermissionRequest
+
+    public init(
+        captureAPI: NaruHelperVideoCaptureAPI? = .screenCaptureKit,
+        permissionRequest: @escaping PermissionRequest
+    ) {
+        self.captureAPI = captureAPI
+        self.permissionRequest = permissionRequest
+    }
+
+    public func request() -> NaruHelperVideoScreenRecordingPermissionRequestResponse {
+        guard let captureAPI else {
+            return NaruHelperVideoScreenRecordingPermissionRequestResponse(
+                availability: .failed,
+                screenRecordingPermission: .unsupported,
+                requestResult: .unsupported
+            )
+        }
+
+        let isGranted = permissionRequest()
+        return NaruHelperVideoScreenRecordingPermissionRequestResponse(
+            availability: isGranted ? .available : .permissionMissing,
+            screenRecordingPermission: isGranted ? .granted : .missing,
+            requestResult: isGranted ? .granted : .notGranted,
+            captureAPI: captureAPI,
+            safeFailureCode: isGranted ? nil : .permissionMissing
+        )
+    }
+
+    public static func live() -> NaruHelperVideoScreenRecordingPermissionRequester {
+        #if os(macOS) && canImport(CoreGraphics) && canImport(ScreenCaptureKit)
+        return NaruHelperVideoScreenRecordingPermissionRequester(
+            permissionRequest: {
+                CGRequestScreenCaptureAccess()
+            }
+        )
+        #else
+        return NaruHelperVideoScreenRecordingPermissionRequester(
+            captureAPI: nil,
+            permissionRequest: {
+                false
+            }
+        )
+        #endif
     }
 }
 
