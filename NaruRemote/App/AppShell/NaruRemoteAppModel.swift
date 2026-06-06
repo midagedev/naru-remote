@@ -55,6 +55,73 @@ private struct ComposeRouteDiagnosticSnapshot {
     var helperProfileID: ConnectionProfile.ID?
 }
 
+private enum OutboundInputEventError: Error {
+    case timedOut
+}
+
+private final class OutboundInputEventOperationRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, any Error>?
+    private var tasks: [Task<Void, Never>] = []
+    private var isFinished = false
+
+    func setContinuation(_ continuation: CheckedContinuation<Void, any Error>) {
+        var shouldResume = false
+        lock.lock()
+        if isFinished {
+            shouldResume = true
+        } else {
+            self.continuation = continuation
+        }
+        lock.unlock()
+
+        if shouldResume {
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func setTasks(_ tasks: [Task<Void, Never>]) {
+        var tasksToCancel: [Task<Void, Never>] = []
+        lock.lock()
+        if isFinished {
+            tasksToCancel = tasks
+        } else {
+            self.tasks = tasks
+        }
+        lock.unlock()
+
+        for task in tasksToCancel {
+            task.cancel()
+        }
+    }
+
+    func finish(_ result: Result<Void, any Error>) {
+        let continuationToResume: CheckedContinuation<Void, any Error>?
+        let tasksToCancel: [Task<Void, Never>]
+
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+        isFinished = true
+        continuationToResume = continuation
+        continuation = nil
+        tasksToCancel = tasks
+        tasks = []
+        lock.unlock()
+
+        for task in tasksToCancel {
+            task.cancel()
+        }
+        continuationToResume?.resume(with: result)
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     public typealias HelperVideoStartStream = @Sendable (
@@ -263,6 +330,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// the user produced them while still keeping synchronous
     /// Network.framework back-pressure off MainActor.
     private var outboundInputEventTail: Task<Void, Never>?
+    /// Backstop for the shared key/pointer queue. Production
+    /// `RFBNetworkClient` writes already time out at the socket layer;
+    /// this prevents a non-cooperative test/helper client from parking
+    /// the serial tail forever and making later input feel frozen.
+    private let outboundInputEventTimeout: Duration
     /// Queue invalidation token. Cancelling only the latest tail is not
     /// enough when multiple tasks are chained behind an older write, so
     /// every queued task also checks this generation before touching the
@@ -374,6 +446,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             ProcessInfo.processInfo.isLowPowerModeEnabled
         },
         streamPacingSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
+        outboundInputEventTimeout: Duration = .milliseconds(2_500),
         allowsAdaptiveEncodingRenegotiation: Bool = false
     ) {
         // Profiles are no longer loaded synchronously from
@@ -455,6 +528,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
         self.streamPacingSleepOverride = streamPacingSleep
+        self.outboundInputEventTimeout = outboundInputEventTimeout
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
@@ -4775,6 +4849,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     ) {
         let previous = outboundInputEventTail
         let generation = outboundInputEventGeneration
+        let inputEventTimeout = outboundInputEventTimeout
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
@@ -4783,6 +4858,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID,
             profileID,
             generation,
+            inputEventTimeout,
             operation
         ] in
             await previous?.value
@@ -4805,7 +4881,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
 
             do {
-                try await operation()
+                try await Self.runOutboundInputOperation(
+                    timeout: inputEventTimeout,
+                    operation: operation
+                )
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self,
@@ -4824,6 +4903,38 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
         outboundInputEventTail = task
+    }
+
+    nonisolated private static func runOutboundInputOperation(
+        timeout: Duration,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let race = OutboundInputEventOperationRace()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                race.setContinuation(continuation)
+                let operationTask = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await operation()
+                        race.finish(.success(()))
+                    } catch {
+                        race.finish(.failure(error))
+                    }
+                }
+                let timeoutTask = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    operationTask.cancel()
+                    race.finish(.failure(OutboundInputEventError.timedOut))
+                }
+                race.setTasks([operationTask, timeoutTask])
+            }
+        } onCancel: {
+            race.cancel()
+        }
     }
 
     nonisolated private static func connectAndReadFirstFrame(
@@ -5948,6 +6059,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         let previous = outboundInputEventTail
         let generation = outboundInputEventGeneration
+        let inputEventTimeout = outboundInputEventTimeout
         let task = Task.detached(priority: .userInitiated) { [
             weak self,
             previous,
@@ -5956,7 +6068,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             streamID,
             sessionID,
             profileID,
-            generation
+            generation,
+            inputEventTimeout
         ] in
             await previous?.value
             guard !Task.isCancelled else {
@@ -5978,15 +6091,17 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
 
             do {
-                for command in commands {
-                    guard !Task.isCancelled else {
-                        return
+                try await Self.runOutboundInputOperation(timeout: inputEventTimeout) {
+                    for command in commands {
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        try await pointerClient.sendPointerEvent(
+                            buttonMask: command.buttonMask,
+                            x: command.x,
+                            y: command.y
+                        )
                     }
-                    try await pointerClient.sendPointerEvent(
-                        buttonMask: command.buttonMask,
-                        x: command.x,
-                        y: command.y
-                    )
                 }
             } catch {
                 guard let self else {

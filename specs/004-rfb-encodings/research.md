@@ -5881,3 +5881,66 @@ and deceleration on the existing gesture-end state publication policy.
 **Privacy rule**: this change adds no new diagnostics fields and must not emit
 cursor positions, request coordinates, dimensions, pixels, byte counts, host
 identity, credentials, command text, draft text, marked text, or IME state.
+
+### D129 Bound The Outbound Input Queue Tail
+
+References:
+- `artifacts/benchmarks/2026-06-07-outbound-input-queue-timeout-summary.md`
+- D128 trackpad live viewport state publication.
+
+**Decision**: keep key and pointer messages serialized through one outbound
+input queue, but add an app-model backstop so a stalled operation cannot hold
+the tail indefinitely. The default timeout is 2.5 seconds. Production
+`RFBNetworkClient` still keeps its tighter 2-second socket write timeout, so the
+app-model guard is primarily a non-cooperative client/test-helper safety net.
+
+**Why**:
+- The user reported that keyboard input can feel like it accepts one character
+  and then freezes. The existing UI tap path already returns before slow wire
+  writes, but the shared serial tail waited on the prior operation without an
+  upper bound.
+- Key and pointer ordering must remain intact on a healthy socket because RFB
+  messages share one connection. Splitting queues would risk a later pointer
+  click overtaking an earlier key release.
+- A bounded tail preserves ordering when writes complete and converts an
+  unhealthy input operation into a recoverable input-client failure rather than
+  a permanent local input backlog.
+
+**Implementation rule**:
+- Wrap each queued key operation and pointer command batch in a first-completer
+  race against the app-model timeout.
+- On timeout or throw, invalidate the queue generation and clear only the
+  affected active input capability, matching the existing key-vs-pointer failure
+  handling.
+- Do not log keysyms, pointer coordinates, command text, draft text, marked
+  text, IME state, host identity, credentials, ports, byte counts, or raw
+  socket errors.
+
+**Evidence**:
+- `DirectKeystrokeModeTests/testTimedOutKeyEmissionReleasesOutboundQueueForLaterPointerInput`
+  simulates a stalled key client and proves later pointer input can enqueue on
+  a fresh tail after the timeout.
+- `DirectKeystrokeModeTests/testTapDirectKeyReturnsBeforeSlowWireWritesAndKeepsOrder`
+  continues to prove healthy slow writes do not block MainActor taps and still
+  preserve key order.
+- `DirectKeystrokeModeTests/testKeyAndPointerEventsShareOneOutboundQueue` and
+  `PointerEventTapTests` continue to prove healthy key/pointer ordering and
+  pointer semantics.
+- Live preflight on 2026-06-07 confirmed the live host, port, and credential
+  are configured through the environment path without printing values; full
+  helper-video live benchmark remains gated by the fixed safe label
+  `helper-video-permission-missing`.
+
+**Interpretation**:
+- This is not a content-frame FPS optimization. It removes one class of local
+  input-pipeline stalls that can masquerade as network or IME lag during real
+  iPhone use.
+- Follow-up physical-device testing should repeat direct keys, compose quick
+  keys, Korean compose-and-send, trackpad drag, and zoomed trackpad cursor
+  movement while the stream is under constrained network pacing.
+
+**Privacy rule**: this change adds no diagnostics fields. Tests and artifacts
+may mention only fixed test names, fixed safe issue labels, and aggregate test
+outcomes; they must not emit keysyms, coordinates, command text, draft text,
+marked text, IME state, host identity, credentials, ports, dimensions, pixels,
+byte counts, or raw errors.
