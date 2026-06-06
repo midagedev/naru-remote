@@ -66,7 +66,7 @@ Use Spec Kit for feature work:
 - `$speckit-implement`: implement only after spec, plan, and tasks are ready.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/006-host-helper-text-bridge` (spec / plan / tasks ready; implementation not yet started; the prior MVP feature `specs/001-naru-remote-mvp/` and RFB performance feature `specs/004-rfb-encodings/` remain reference baselines).
+Current active feature: `specs/007-host-helper-video-stream` (spec / plan / tasks ready; implementation not yet started; the prior MVP feature `specs/001-naru-remote-mvp/`, RFB performance feature `specs/004-rfb-encodings/`, and helper text feature `specs/006-host-helper-text-bridge/` remain reference baselines).
 <!-- SPECKIT END -->
 
 ## Development Rules
