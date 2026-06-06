@@ -11,9 +11,10 @@ public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
     case syntheticTCP = "synthetic-tcp"
     case syntheticEncodedTCP = "synthetic-encoded-tcp"
     case screenCaptureKitTCP = "screen-capturekit-tcp"
+    case externalHelperSyntheticEncodedTCP = "external-helper-synthetic-encoded-tcp"
 
     public static var usageDescription: String {
-        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp"
+        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp"
     }
 
     public static func parse(_ rawValue: String) -> BenchmarkHelperVideoProbeMode? {
@@ -61,6 +62,11 @@ public enum BenchmarkHelperVideoProbe {
                     accessUnitSource: screenCaptureKitAccessUnitSource
                         ?? NaruHelperVideoScreenCaptureKitAccessUnitSource()
                 )
+            )
+        case .externalHelperSyntheticEncodedTCP:
+            return .helperComparison(
+                selection: selection,
+                helperVideoReport: externalHelperSyntheticEncodedTCPHelperVideoReport()
             )
         }
     }
@@ -183,6 +189,148 @@ public enum BenchmarkHelperVideoProbe {
         }
     }
 
+    public static func externalHelperSyntheticEncodedTCPHelperVideoReport(
+        helperExecutablePath: String? = nil
+    ) -> BenchmarkHelperVideoReport {
+        do {
+            let result = try runExternalHelperSyntheticEncodedTCPProbe(
+                helperExecutablePath: helperExecutablePath
+            )
+            let descriptor = result.startResponse.body.streamDescriptor
+            let health = HelperVideoStreamHealth(
+                state: .healthy,
+                startupBand: .fast,
+                sustainedUpdateBand: result.accessUnits.isEmpty ? .stalled : .smooth,
+                decodePressure: .low,
+                fallbackCountBucket: .none
+            )
+            return BenchmarkHelperVideoReport(descriptor: descriptor, health: health)
+        } catch {
+            return failedReport()
+        }
+    }
+
+    private static func runExternalHelperSyntheticEncodedTCPProbe(
+        helperExecutablePath: String?
+    ) throws -> HelperVideoStreamNetworkStartResult {
+        var lastError: Error?
+        for _ in 0..<BenchmarkHelperVideoProbeTiming.externalHelperPortAttempts {
+            do {
+                return try runExternalHelperSyntheticEncodedTCPProbe(
+                    helperExecutablePath: helperExecutablePath,
+                    port: externalHelperPortCandidate()
+                )
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? BenchmarkHelperVideoProbeError.helperUnavailable
+    }
+
+    private static func runExternalHelperSyntheticEncodedTCPProbe(
+        helperExecutablePath: String?,
+        port: UInt16
+    ) throws -> HelperVideoStreamNetworkStartResult {
+        let pairingSecret = "benchmark-helper-video-external-secret"
+        let profileFingerprint = "sha256:benchmark-helper-video-external"
+        let process = Process()
+        process.executableURL = helperExecutableURL(helperExecutablePath)
+        process.arguments = [
+            "--video-listen",
+            "--token-env",
+            "NARU_HELPER_VIDEO_BENCHMARK_TOKEN",
+            "--profile-fingerprint-env",
+            "NARU_HELPER_VIDEO_BENCHMARK_PROFILE_FINGERPRINT",
+            "--port",
+            "\(port)",
+            "--video-source",
+            "synthetic-encoded",
+            "--video-frame-count",
+            "2"
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["NARU_HELPER_VIDEO_BENCHMARK_TOKEN"] = pairingSecret
+        environment["NARU_HELPER_VIDEO_BENCHMARK_PROFILE_FINGERPRINT"] = profileFingerprint
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+        Thread.sleep(forTimeInterval: BenchmarkHelperVideoProbeTiming.externalHelperLaunchSettle)
+        guard process.isRunning else {
+            throw BenchmarkHelperVideoProbeError.helperUnavailable
+        }
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: BenchmarkHelperVideoProbeTiming.clientTimeout
+        )
+        return try retryExternalHelperStart {
+            try await client.startStream(maxServerFrames: BenchmarkHelperVideoProbeTiming.maxServerFrames)
+        }
+    }
+
+    private static func retryExternalHelperStart(
+        operation: @escaping @Sendable () async throws -> HelperVideoStreamNetworkStartResult
+    ) throws -> HelperVideoStreamNetworkStartResult {
+        let deadline = Date().addingTimeInterval(
+            BenchmarkHelperVideoProbeTiming.externalHelperReadyTimeout
+        )
+        var lastError: Error?
+        repeat {
+            do {
+                return try awaitSynchronously(
+                    timeout: BenchmarkHelperVideoProbeTiming.startStreamTimeout,
+                    operation: operation
+                )
+            } catch {
+                lastError = error
+                Thread.sleep(forTimeInterval: BenchmarkHelperVideoProbeTiming.serverPortPollInterval)
+            }
+        } while Date() < deadline
+        throw lastError ?? BenchmarkHelperVideoProbeError.helperUnavailable
+    }
+
+    private static func helperExecutableURL(_ path: String?) -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let executablePath = path ?? environment["NARU_HELPER_EXECUTABLE"],
+           !executablePath.isEmpty
+        {
+            return fileURL(forExecutablePath: executablePath)
+        }
+        for productsDirectoryKey in ["BUILT_PRODUCTS_DIR", "CONFIGURATION_BUILD_DIR"] {
+            guard let productsDirectory = environment[productsDirectoryKey],
+                  !productsDirectory.isEmpty
+            else {
+                continue
+            }
+            return fileURL(forExecutablePath: productsDirectory)
+                .appendingPathComponent("NaruHelper")
+        }
+        return fileURL(forExecutablePath: ".build/debug/NaruHelper")
+    }
+
+    private static func fileURL(forExecutablePath executablePath: String) -> URL {
+        guard executablePath.hasPrefix("/") else {
+            return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(executablePath)
+        }
+        return URL(fileURLWithPath: executablePath)
+    }
+
+    private static func externalHelperPortCandidate() -> UInt16 {
+        UInt16.random(in: UInt16(49_152)...UInt16.max)
+    }
+
     private static func waitForSyntheticHelperVideoServerPort(
         _ server: NaruHelperVideoStreamNetworkServer
     ) throws -> UInt16 {
@@ -226,6 +374,9 @@ private enum BenchmarkHelperVideoProbeError: Error {
 private enum BenchmarkHelperVideoProbeTiming {
     static let maxServerFrames = 6
     static let serverPortTimeout: TimeInterval = 2
+    static let externalHelperPortAttempts = 3
+    static let externalHelperLaunchSettle: TimeInterval = 0.25
+    static let externalHelperReadyTimeout: TimeInterval = 2
     static let serverPortPollInterval: TimeInterval = 0.02
     static let postPortReadySettle: TimeInterval = 0.05
     static let clientTimeout: TimeInterval = 2
