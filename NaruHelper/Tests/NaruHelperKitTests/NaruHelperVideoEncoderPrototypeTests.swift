@@ -3,6 +3,10 @@ import XCTest
 import NaruHelperKit
 import NaruRemoteCore
 
+#if os(macOS) && canImport(VideoToolbox)
+import VideoToolbox
+#endif
+
 final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
     func testFeatureFlagParsesOnlyExplicitEnabledValues() {
         XCTAssertTrue(
@@ -121,6 +125,65 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("host"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("byte"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("payload"))
+    }
+
+    #if os(macOS) && canImport(VideoToolbox)
+    func testToolboxSyntheticAccessUnitSourceEmitsRealAnnexBParameterSetsAndFrame() throws {
+        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
+            frameCount: 2,
+            width: 64,
+            height: 64
+        )
+
+        let accessUnits = try source.accessUnits(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        )
+
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 2)
+        XCTAssertEqual(accessUnits[0].sequence, 0)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
+        XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(7))
+        XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(8))
+        XCTAssertTrue(accessUnits[0].binaryPayload.starts(with: Self.annexBStartCode))
+
+        let mediaAccessUnits = accessUnits.dropFirst()
+        XCTAssertTrue(mediaAccessUnits.contains { $0.kind == .keyframe })
+        XCTAssertTrue(mediaAccessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+        XCTAssertFalse(accessUnits.map(\.binaryPayload).contains(Data([0x65, 0x88])))
+    }
+    #endif
+
+    private static let annexBStartCode = Data([0x00, 0x00, 0x00, 0x01])
+
+    private static func nalTypes(in annexBPayload: Data) -> [UInt8] {
+        let bytes = [UInt8](annexBPayload)
+        var index = 0
+        var types: [UInt8] = []
+        while index + 2 < bytes.count {
+            guard bytes[index] == 0, bytes[index + 1] == 0 else {
+                index += 1
+                continue
+            }
+
+            if bytes[index + 2] == 1 {
+                if index + 3 < bytes.count {
+                    types.append(bytes[index + 3] & 0x1F)
+                }
+                index += 3
+                continue
+            }
+
+            if index + 3 < bytes.count, bytes[index + 2] == 0, bytes[index + 3] == 1 {
+                if index + 4 < bytes.count {
+                    types.append(bytes[index + 4] & 0x1F)
+                }
+                index += 4
+                continue
+            }
+
+            index += 1
+        }
+        return types
     }
 }
 

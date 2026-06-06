@@ -143,6 +143,9 @@ without unsafe report fields.
 - [x] T029C [US2] Add a benchmark CLI helper-video probe mode that exercises
   the synthetic TCP harness and reports safe aggregate helper-video state.
   **Done.**
+- [x] T029D [US1] Add a VideoToolbox-backed synthetic H.264 access-unit source
+  and verify it through helper TCP framing and the iOS sample-buffer path.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

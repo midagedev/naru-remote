@@ -117,14 +117,16 @@ swift run VNCLiveBenchmark \
   --continuous-update-samples 0 \
   --stream-shape-samples 0 \
   --visual-transport helper-video \
-  --helper-video-probe synthetic-tcp \
+  --helper-video-probe synthetic-encoded-tcp \
   --json
 ```
 
 `--helper-video-probe synthetic-tcp` runs a local finite helper-video TCP
-harness and reports only fixed helper-video labels and aggregate health bands.
-The default remains `disabled` so live VNC reports do not imply a real Mac
-ScreenCaptureKit/VideoToolbox sender before it exists.
+harness with static access units. `synthetic-encoded-tcp` uses local
+VideoToolbox H.264 output as the access-unit source before sending it through
+the same finite TCP harness. Both modes report only fixed helper-video labels
+and aggregate health bands. The default remains `disabled` so live VNC reports
+do not imply a real ScreenCaptureKit sender before it exists.
 
 ## Implemented iOS H.264 Decode / Display Prototype
 
@@ -155,9 +157,12 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
-The helper-video side of the report is still a benchmark-only fake transport
-shape until the helper stream implementation lands. Reports must preserve the
-privacy boundary from `spec.md` and `research.md`.
+The helper-video side of the report is still benchmark-only until the live
+ScreenCaptureKit sender is connected. Use `--helper-video-probe
+synthetic-encoded-tcp` when the benchmark should exercise real local
+VideoToolbox H.264 access units without exporting frames, dimensions,
+endpoints, byte counts, or exact timings. Reports must preserve the privacy
+boundary from `spec.md` and `research.md`.
 
 ## Planned Physical Gate
 

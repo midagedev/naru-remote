@@ -5,9 +5,10 @@ import NaruRemoteCore
 public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
     case disabled
     case syntheticTCP = "synthetic-tcp"
+    case syntheticEncodedTCP = "synthetic-encoded-tcp"
 
     public static var usageDescription: String {
-        "disabled|synthetic-tcp"
+        "disabled|synthetic-tcp|synthetic-encoded-tcp"
     }
 
     public static func parse(_ rawValue: String) -> BenchmarkHelperVideoProbeMode? {
@@ -32,12 +33,34 @@ public enum BenchmarkHelperVideoProbe {
                 selection: selection,
                 helperVideoReport: syntheticTCPHelperVideoReport()
             )
+        case .syntheticEncodedTCP:
+            return .helperComparison(
+                selection: selection,
+                helperVideoReport: syntheticTCPHelperVideoReport(
+                    accessUnitSource: NaruHelperVideoToolboxSyntheticAccessUnitSource()
+                )
+            )
         }
     }
 
-    public static func syntheticTCPHelperVideoReport() -> BenchmarkHelperVideoReport {
+    public static func syntheticTCPHelperVideoReport(
+        accessUnitSource: any NaruHelperVideoAccessUnitSource = NaruHelperVideoStaticAccessUnitSource(
+            accessUnits: [
+                NaruHelperVideoAccessUnit(
+                    sequence: 0,
+                    kind: .parameterSet,
+                    binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x67])
+                ),
+                NaruHelperVideoAccessUnit(
+                    sequence: 1,
+                    kind: .keyframe,
+                    binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
+                )
+            ]
+        )
+    ) -> BenchmarkHelperVideoReport {
         do {
-            let result = try runSyntheticTCPHelperVideoProbe()
+            let result = try runSyntheticTCPHelperVideoProbe(accessUnitSource: accessUnitSource)
             let descriptor = result.startResponse.body.streamDescriptor
             let health: HelperVideoStreamHealth
             if let stall = result.stall {
@@ -63,7 +86,9 @@ public enum BenchmarkHelperVideoProbe {
         }
     }
 
-    private static func runSyntheticTCPHelperVideoProbe() throws -> HelperVideoStreamNetworkStartResult {
+    private static func runSyntheticTCPHelperVideoProbe(
+        accessUnitSource: any NaruHelperVideoAccessUnitSource
+    ) throws -> HelperVideoStreamNetworkStartResult {
         let pairingSecret = "benchmark-helper-video-synthetic-secret"
         let profileFingerprint = "sha256:benchmark-helper-video-synthetic"
         let requestHandler = NaruHelperVideoTransportRequestHandler(
@@ -80,18 +105,7 @@ public enum BenchmarkHelperVideoProbe {
         )
         let pipeline = NaruHelperVideoStreamFramePipeline(
             requestHandler: requestHandler,
-            accessUnitSource: NaruHelperVideoStaticAccessUnitSource(accessUnits: [
-                NaruHelperVideoAccessUnit(
-                    sequence: 0,
-                    kind: .parameterSet,
-                    binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x67])
-                ),
-                NaruHelperVideoAccessUnit(
-                    sequence: 1,
-                    kind: .keyframe,
-                    binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
-                )
-            ])
+            accessUnitSource: accessUnitSource
         )
         let server = try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
         server.start()
@@ -106,7 +120,7 @@ public enum BenchmarkHelperVideoProbe {
             timeout: BenchmarkHelperVideoProbeTiming.clientTimeout
         )
         return try awaitSynchronously(timeout: BenchmarkHelperVideoProbeTiming.startStreamTimeout) {
-            try await client.startStream(maxServerFrames: 3)
+            try await client.startStream(maxServerFrames: BenchmarkHelperVideoProbeTiming.maxServerFrames)
         }
     }
 
@@ -151,6 +165,7 @@ private enum BenchmarkHelperVideoProbeError: Error {
 }
 
 private enum BenchmarkHelperVideoProbeTiming {
+    static let maxServerFrames = 6
     static let serverPortTimeout: TimeInterval = 2
     static let serverPortPollInterval: TimeInterval = 0.02
     static let postPortReadySettle: TimeInterval = 0.05
