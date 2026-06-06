@@ -120,6 +120,9 @@ public struct NaruRemoteAppShell: View {
             onViewportTransformChange: { transform in
                 model.updateViewportTransform(transform)
             },
+            onViewportSizeChange: { size in
+                model.updateViewportSize(size)
+            },
             onViewportInteractionChange: { isActive, frameStrategy in
                 model.setViewportInteractionActive(isActive, frameStrategy: frameStrategy)
             },

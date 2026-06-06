@@ -16,6 +16,7 @@ public typealias SessionFramebufferPointerDownHandler = @MainActor @Sendable (CG
 public typealias SessionFramebufferPointerMoveHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 public typealias SessionFramebufferPointerUpHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 public typealias SessionRendererUploadTimingHandler = @MainActor @Sendable (_ milliseconds: Int) -> Void
+public typealias SessionViewportSizeChangeHandler = @MainActor @Sendable (_ size: CGSize) -> Void
 public typealias SessionViewportRedrawDiagnosticsHandler = @MainActor @Sendable (
     ViewportRedrawDiagnostics
 ) -> Void
@@ -60,6 +61,10 @@ public struct SessionViewportView: View {
     /// Publishes the local viewport transform to the app model so the
     /// stream request loop can make memory-only region decisions.
     private let onViewportTransformChange: ((ViewportTransform) -> Void)?
+    /// Publishes only the local viewport container size. The model can combine
+    /// this with `ServerInit` after handshake to make an opt-in first-frame
+    /// visible-focus request before framebuffer pixels exist.
+    private let onViewportSizeChange: SessionViewportSizeChangeHandler?
     /// Reports local viewport manipulation lifecycle to the app model
     /// so it can coalesce incoming streaming frames while the Metal
     /// view redraws the current texture locally.
@@ -185,6 +190,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
+        onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -226,6 +232,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportTransformChange = onViewportTransformChange
+        self.onViewportSizeChange = onViewportSizeChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -265,6 +272,7 @@ public struct SessionViewportView: View {
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
         onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
+        onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -305,6 +313,7 @@ public struct SessionViewportView: View {
         self.onFramebufferPointerUp = onFramebufferPointerUp
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportTransformChange = onViewportTransformChange
+        self.onViewportSizeChange = onViewportSizeChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -437,6 +446,17 @@ public struct SessionViewportView: View {
                 }
             }
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        onViewportSizeChange?(proxy.size)
+                    }
+                    .onChange(of: proxy.size) { _, newSize in
+                        onViewportSizeChange?(newSize)
+                    }
+            }
+        )
         .overlay(alignment: .topTrailing) {
             // UX punch-list #103: the "PiP after first frame"
             // affordance is only meaningful once a session has been
