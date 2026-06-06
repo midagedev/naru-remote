@@ -15,6 +15,10 @@ final class HelperVideoTests: XCTestCase {
         XCTAssertEqual(HelperVideoAvailability.privateNetworkRequired.rawValue, "privateNetworkRequired")
     }
 
+    func testHelperVideoStreamDefaultPortIsStable() {
+        XCTAssertEqual(naruHelperVideoStreamDefaultPort, 5975)
+    }
+
     func testHelperVideoFailureCodesAreNamespacedAndStable() {
         XCTAssertEqual(HelperVideoFailureCode.notConfigured.rawValue, "helperVideo.notConfigured")
         XCTAssertEqual(HelperVideoFailureCode.disabled.rawValue, "helperVideo.disabled")

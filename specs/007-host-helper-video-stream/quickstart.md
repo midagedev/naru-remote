@@ -95,6 +95,7 @@ testable frame pipeline, not a live ScreenCaptureKit/VideoToolbox sender.
 
 ```bash
 swift test --filter NaruHelperVideoStreamNetworkService
+swift test --filter NaruHelperVideoListenRuntimeTests
 ```
 
 The prototype TCP harness connects the helper-side frame pipeline to an
@@ -103,6 +104,32 @@ for local integration and benchmark bring-up: it sends authenticated
 `startStream` requests, receives safe start responses, drains access-unit or
 stall frames, and closes the connection after the finite batch. It is not yet
 the long-lived live ScreenCaptureKit/VideoToolbox sender.
+
+## Implemented Helper Video Listen Entrypoint
+
+```bash
+swift build --product NaruHelper
+export NARU_HELPER_VIDEO_TOKEN="<pairing-secret-from-keychain-or-local-test>"
+export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="sha256:<saved-profile-fingerprint>"
+.build/debug/NaruHelper \
+  --video-listen \
+  --token-env NARU_HELPER_VIDEO_TOKEN \
+  --profile-fingerprint-env NARU_HELPER_VIDEO_PROFILE_FINGERPRINT \
+  --port 5975 \
+  --video-source synthetic-encoded \
+  --video-frame-count 2
+```
+
+`--video-listen` starts the same authenticated helper-video TCP server used by
+the tests and benchmark probes. `--video-source synthetic-encoded` uses local
+VideoToolbox H.264 output for safe loopback smoke tests. `--video-source
+screen-capturekit` uses a finite ScreenCaptureKit batch and requires Screen
+Recording permission in the helper process context. This entrypoint is still a
+finite batch sender per `startStream` request, not the final long-lived adaptive
+desktop stream. Prefer `--token-env` and `--profile-fingerprint-env` so
+sensitive values are not exposed through helper process arguments. It must not
+print pairing secrets, endpoints, frame payloads, display dimensions, byte
+counts, host names, raw OS errors, or exact timings.
 
 ## Implemented Helper Video Benchmark TCP Probe
 

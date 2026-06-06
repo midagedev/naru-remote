@@ -19,6 +19,15 @@ remote desktop protocol. VNC remains the control and fallback channel.
   - for `videoAccessUnit` only: 4-byte big-endian binary payload length
     followed by exactly that many encoded bytes
 - No newline-delimited framing.
+- The first helper executable entrypoint is an explicit `NaruHelper
+  --video-listen` mode requiring a local pairing token, profile fingerprint,
+  private-network port, and source selection. Prefer `--token-env` and
+  `--profile-fingerprint-env` over direct value arguments so sensitive inputs
+  do not appear in helper process arguments. It is finite per authenticated
+  `startStream` request and is not yet the long-lived adaptive desktop stream.
+- `--video-listen` must fail with fixed safe CLI errors only; it must not print
+  pairing secrets, endpoints, payloads, display metadata, host names, raw OS
+  errors, byte counts, or exact timings.
 
 ## Message Envelope
 

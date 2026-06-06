@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 
 public let naruHelperVideoStreamSchemaVersion = 1
+public let naruHelperVideoStreamDefaultPort = 5975
 
 public enum HelperVideoMessageType: String, Codable, Equatable, CaseIterable, Sendable {
     case capabilityRequest

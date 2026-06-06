@@ -318,3 +318,41 @@ local TCP harness.
   decode backpressure need their own focused review.
 - Export a captured frame or encoded byte sample for QA: rejected because that
   violates the helper-video diagnostic privacy boundary.
+
+## D12 - Expose helper-video listen as an explicit finite helper entrypoint
+
+**Decision**: Add `NaruHelper --video-listen` as an explicit, opt-in CLI
+entrypoint that starts the authenticated helper-video TCP server with required
+pairing token and profile fingerprint inputs, a default private-network
+helper-video port, and an explicit finite source choice:
+`screen-capturekit` or `synthetic-encoded`.
+
+**Rationale**:
+- The app-side session runner and benchmark probes need a real helper process
+  entrypoint before a true live helper-video access-unit benchmark can replace
+  in-process synthetic TCP setup.
+- Keeping source choice explicit prevents a synthetic benchmark source from
+  being mistaken for a live desktop capture and makes ScreenCaptureKit
+  permission failures easier to isolate.
+- Supporting `--token-env` and `--profile-fingerprint-env` gives local and
+  future packaged launch flows an argv-safe path while preserving direct
+  arguments for deterministic tests and short local smoke runs.
+- The first CLI entrypoint remains finite per `startStream` request so startup,
+  authentication, payload framing, permission state, and safe failure behavior
+  can be reviewed before adding long-lived adaptive cadence, backpressure, and
+  keyframe recovery.
+- Pairing secrets and profile fingerprints are command inputs only. Reports
+  and diagnostics continue to emit fixed labels and coarse helper-video state,
+  not endpoints, payloads, byte counts, dimensions, exact timings, host names,
+  or raw OS errors.
+
+**Alternatives considered**:
+- Start helper video from the existing `--listen` text-helper mode: rejected
+  because video crosses a separate Screen Recording permission boundary and
+  should be independently observable and revocable.
+- Make `screen-capturekit` implicit default for every smoke run: rejected
+  because many development contexts lack Screen Recording permission and need a
+  deterministic VideoToolbox-only loopback source.
+- Jump straight to a long-lived adaptive sender: deferred until the finite
+  process entrypoint, app runner, and benchmark report path are all connected
+  and reviewed.
