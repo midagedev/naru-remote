@@ -146,9 +146,11 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             allProfileLabels: [
                 "local-low-latency",
                 "local-low-latency-rgb565",
+                "tight-first",
+                "tight-first-rgb565",
                 "zrle-compression-0",
                 "zrle-compression-0-rgb565",
-                "tight-first"
+                "adaptive-good-full"
             ]
         )
 
@@ -157,6 +159,8 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             [
                 "local-low-latency",
                 "local-low-latency-rgb565",
+                "tight-first",
+                "tight-first-rgb565",
                 "zrle-compression-0",
                 "zrle-compression-0-rgb565"
             ]
@@ -169,6 +173,8 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
             allProfileLabels: [
                 "local-low-latency",
                 StreamEncodingMode.localLowLatencyRGB565.rawValue,
+                "tight-first",
+                "tight-first-rgb565",
                 StreamEncodingMode.zrleCompressionZero.rawValue,
                 StreamEncodingMode.zrleCompressionZeroRGB565.rawValue
             ]
@@ -233,18 +239,23 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
                 allProfileLabels: [
                     "local-low-latency",
                     "local-low-latency-rgb565",
+                    "tight-first",
                     "zrle-compression-0"
                 ]
             )
         ) { error in
             XCTAssertEqual(
                 error as? BenchmarkStreamShapeProfileSelectionError,
-                .missingPixelFormatIsolationLabels(["zrle-compression-0-rgb565"])
+                .missingPixelFormatIsolationLabels([
+                    "tight-first-rgb565",
+                    "zrle-compression-0-rgb565"
+                ])
             )
             XCTAssertEqual(
                 (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
                 "pixel-format-isolation stream-shape profile selection is unavailable because "
-                    + "required profile label(s) are missing: zrle-compression-0-rgb565."
+                    + "required profile label(s) are missing: tight-first-rgb565, "
+                    + "zrle-compression-0-rgb565."
             )
         }
     }

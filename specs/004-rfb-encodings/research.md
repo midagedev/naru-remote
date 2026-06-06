@@ -5617,3 +5617,57 @@ must not emit host identity, credentials, ports, executable paths, command
 lines, raw stdout/stderr, raw TCP/RFB errors, request coordinates, dimensions,
 pixels, byte counts, stimulus command text, draft text, marked text, or IME
 state.
+
+### D124 Tight-First RGB565 Is Not The Next Promotion Candidate
+
+References:
+- `artifacts/benchmarks/2026-06-07-tight-first-rgb565-candidate-summary.md`
+
+**Decision**: add `tight-first-rgb565` as a benchmark-only profile so the
+bounded candidate-stability runner can compare Tight full-color,
+Tight+RGB565-in-32, and `adaptive-good-full` under the same order-rotated live
+shape. Do not expose this as an app stream mode or promote it as a default from
+the current evidence.
+
+**Why**:
+- D123 pointed at `clientDecode` / content-cadence pressure, so a Tight profile
+  with lower pixel-format bandwidth was the smallest measurable hypothesis.
+- The live stability run did not confirm that hypothesis. `tight-first` improved
+  to a warning-only gate and kept the order-neutral recommendation, while
+  `tight-first-rgb565` failed one of three runs with a worse average/p95 update
+  tail.
+- Both failing candidates now point at receive-path / update-tail pressure, and
+  the transport cadence diagnosis recommends tuning request/response cadence
+  rather than continuing to add pixel-format variants.
+
+**Evidence**:
+- `BenchmarkStreamShapeProfileSelectionTests` pass with the new RGB565 pair in
+  the pixel-format isolation selection.
+- `BenchmarkStreamShapeSummaryTests` pass.
+- The bounded runner help still exposes `bounded-vnc-candidate-stability`.
+- The launchctl-backed live run completed
+  `tight-first,tight-first-rgb565,adaptive-good-full` with three rotated
+  iterations and two samples per profile run.
+- `tight-first`: warning overall, 0 pass / 3 warning / 0 fail runs,
+  14.27 content FPS, 40 ms average update, 76 ms max p95 update, 1 ms max
+  client-processing p95, and 0 permille renderer full-upload pressure.
+- `tight-first-rgb565`: fail overall, 0 pass / 2 warning / 1 fail runs,
+  13.19 content FPS, 107 ms average update, 473 ms max p95 update, 12 ms max
+  client-processing p95, and 0 permille renderer full-upload pressure.
+- `adaptive-good-full`: fail overall, 0 pass / 2 warning / 1 fail runs,
+  4.88 content FPS, 145 ms average update, and 500 ms max p95 update.
+
+**Interpretation**:
+- Keep `tight-first` as the current working VNC benchmark candidate.
+- Treat `tight-first-rgb565` as negative evidence for an immediate RGB565 Tight
+  app-mode promotion.
+- The next optimization unit should tune request/response cadence or transport
+  behavior around server first-byte wait and update-tail pressure before adding
+  more encoding variants.
+
+**Privacy rule**: the profile and runner may report only safe profile labels,
+fixed verdict/issue labels, aggregate counts, permille ratios, and aggregate
+timing values. They must not emit host identity, credentials, ports, executable
+paths, command lines, raw stdout/stderr, raw TCP/RFB errors, request
+coordinates, dimensions, pixels, byte counts, stimulus command text, draft
+text, marked text, or IME state.

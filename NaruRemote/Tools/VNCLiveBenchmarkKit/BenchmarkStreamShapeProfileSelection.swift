@@ -25,6 +25,8 @@ public enum BenchmarkStreamShapeProfileSelection {
     public static let defaultPixelFormatIsolationLabels = [
         "local-low-latency",
         "local-low-latency-rgb565",
+        "tight-first",
+        "tight-first-rgb565",
         "zrle-compression-0",
         "zrle-compression-0-rgb565"
     ]

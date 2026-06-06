@@ -314,7 +314,7 @@ benchmark_progress_profile_label() {
     label="$(awk -F= '$1 == "profileLabel" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
   fi
   case "$label" in
-    tight-first|zrle-compression-0|adaptive-good-full)
+    tight-first|tight-first-rgb565|zrle-compression-0|adaptive-good-full)
       printf '%s' "$label"
       ;;
     "")
@@ -346,7 +346,7 @@ print_benchmark_progress_fields() {
 bounded_drilldown_profile_label() {
   local profile_label="$1"
   case "$profile_label" in
-    tight-first|zrle-compression-0|adaptive-good-full)
+    tight-first|tight-first-rgb565|zrle-compression-0|adaptive-good-full)
       printf '%s' "$profile_label"
       ;;
     *)
@@ -625,7 +625,7 @@ run_bounded_vnc_candidate_stability() {
     --stream-shape-preflight-frames 0
     --stream-shape-practical-target iphone-sustained-usability-v2
     --stream-shape-transport request-response
-    --stream-shape-profiles tight-first,adaptive-good-full
+    --stream-shape-profiles tight-first,tight-first-rgb565,adaptive-good-full
     --stream-shape-profile-order rotate
     --stream-shape-profile-iterations 3
     --first-frame-profiles none
@@ -643,8 +643,9 @@ run_bounded_vnc_candidate_stability() {
   fi
 
   write_bounded_sweep_phase "$phase_file" benchmark-running
+  # Three profiles across three iterations need a little more wall-clock room.
   json_benchmark_or_candidate_stability_failure \
-    90 \
+    120 \
     "$phase_file" \
     "$progress_file" \
     "$BOUNDED_BENCHMARK_EXECUTABLE" "${stability_args[@]}"
