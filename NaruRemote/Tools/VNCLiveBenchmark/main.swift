@@ -14,6 +14,8 @@ enum VNCLiveBenchmark {
                 printUsage()
                 return
             }
+            let progressReporter = BenchmarkSafeProgressReporter(path: options.safeProgressLabelFile)
+            progressReporter.record(.benchmarkStarting)
             if options.environmentPreflight {
                 let report = BenchmarkLiveEnvironmentPreflightReport.make(
                     environment: ProcessInfo.processInfo.environment,
@@ -50,6 +52,7 @@ enum VNCLiveBenchmark {
                 print("\nerror: set NARU_LIVE_MAC_HOST and either NARU_LIVE_MAC_PASSWORD or --ask-password before running.")
                 exit(2)
             }
+            progressReporter.record(.configurationLoaded)
 
             let proxy = try configuration.networkConditioningProxy(
                 profile: options.networkConditionProfile
@@ -57,8 +60,10 @@ enum VNCLiveBenchmark {
             defer { proxy?.stop() }
             let report = try run(
                 configuration: configuration.conditioned(by: proxy),
-                options: options
+                options: options,
+                progressReporter: progressReporter
             )
+            progressReporter.record(.reportRendering)
             if options.json {
                 try renderJSON(report)
             } else {
@@ -76,11 +81,13 @@ enum VNCLiveBenchmark {
 
     private static func run(
         configuration: LiveTargetConfiguration,
-        options: BenchmarkOptions
+        options: BenchmarkOptions,
+        progressReporter: BenchmarkSafeProgressReporter
     ) throws -> BenchmarkReport {
         let firstFrameProfiles = options.firstFrameProfiles.profiles(
             streamShapeProfiles: options.streamShapeProfiles
         )
+        progressReporter.record(.firstFrameProfiles)
         let profiles = firstFrameProfiles.map { profile in
             measureProfile(
                 profile,
@@ -91,6 +98,7 @@ enum VNCLiveBenchmark {
             )
         }
 
+        progressReporter.record(.idleProbe)
         let idleProbe = measureIdleProbe(
             configuration: configuration,
             timeout: options.timeout,
@@ -114,6 +122,7 @@ enum VNCLiveBenchmark {
                 clientPressureMode: options.streamShapeClientPressureMode,
                 viewportInteractionMode: options.streamShapeViewportInteractionMode
             )
+            progressReporter.record(.streamShapeProfile, profileLabel: scheduledProbe.profile.label)
             return measureStreamShapeProfileProbe(
                 profile: scheduledProbe.profile,
                 transportMode: scheduledProbe.transportMode,
@@ -142,16 +151,19 @@ enum VNCLiveBenchmark {
             fallbackTransportMode: options.streamShapeTransportModes.modes.first ?? .requestResponse,
             practicalTargets: options.streamShapePracticalTarget.targets
         )
+        progressReporter.record(.continuousUpdatesProbe)
         let continuousUpdatesProbe = measureContinuousUpdatesProbe(
             configuration: configuration,
             timeout: options.timeout,
             idleTimeout: options.idleTimeout,
             maxSamples: options.continuousUpdateSamples
         )
+        progressReporter.record(.visualTransportComparison)
         let visualTransportComparison = BenchmarkHelperVideoProbe.makeComparison(
             selection: options.visualTransports,
             probeMode: options.helperVideoProbeMode
         )
+        progressReporter.record(.benchmarkComplete)
 
         return BenchmarkReport(
             attemptsPerProfile: options.attempts,
@@ -1330,6 +1342,53 @@ enum VNCLiveBenchmark {
     }
 }
 
+private enum BenchmarkSafeProgressSubphase: String {
+    case benchmarkStarting = "benchmark-starting"
+    case configurationLoaded = "configuration-loaded"
+    case firstFrameProfiles = "first-frame-profiles"
+    case idleProbe = "idle-probe"
+    case streamShapeProfile = "stream-shape-profile"
+    case continuousUpdatesProbe = "continuous-updates-probe"
+    case visualTransportComparison = "visual-transport-comparison"
+    case reportRendering = "report-rendering"
+    case benchmarkComplete = "benchmark-complete"
+}
+
+private struct BenchmarkSafeProgressReporter {
+    private static let safeLabelCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-"
+    )
+
+    private let fileURL: URL?
+
+    init(path: String?) {
+        guard let path, !path.isEmpty else {
+            fileURL = nil
+            return
+        }
+        fileURL = URL(fileURLWithPath: path)
+    }
+
+    func record(_ subphase: BenchmarkSafeProgressSubphase, profileLabel: String? = nil) {
+        guard let fileURL else { return }
+
+        var lines = ["subphase=\(subphase.rawValue)"]
+        if let profileLabel {
+            lines.append("profileLabel=\(Self.safeCatalogLabel(profileLabel))")
+        }
+        let payload = lines.joined(separator: "\n") + "\n"
+        try? payload.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    private static func safeCatalogLabel(_ label: String) -> String {
+        guard !label.isEmpty else { return "unknown" }
+        guard label.unicodeScalars.allSatisfy({ safeLabelCharacters.contains($0) }) else {
+            return "unknown"
+        }
+        return label
+    }
+}
+
 private struct BenchmarkOptions: Equatable {
     var attempts = 3
     var fullRefreshSamples = 1
@@ -1372,6 +1431,7 @@ private struct BenchmarkOptions: Equatable {
     var helperVideoProbeOnly = false
     var json = false
     var showHelp = false
+    var safeProgressLabelFile: String?
 
     static func parse(_ arguments: ArraySlice<String>) throws -> BenchmarkOptions {
         var options = BenchmarkOptions()
@@ -1386,6 +1446,9 @@ private struct BenchmarkOptions: Equatable {
             case "--json":
                 options.json = true
                 index = arguments.index(after: index)
+            case "--safe-progress-label-file":
+                options.safeProgressLabelFile = try nextValue(after: index, in: arguments, option: argument)
+                index = arguments.index(index, offsetBy: 2)
             case "--ask-password":
                 options.askPassword = true
                 index = arguments.index(after: index)
@@ -3579,7 +3642,7 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
 
     Options:
       --environment-preflight
@@ -3643,6 +3706,8 @@ private func printUsage() {
       --continuous-update-samples N
                                 Maximum pushed updates to sample after enabling continuous updates. Defaults to 1; use 0 to skip the standalone ContinuousUpdates probe.
       --ask-password            Prompt for the VNC password without echoing it instead of reading NARU_LIVE_MAC_PASSWORD.
+      --safe-progress-label-file PATH
+                                Benchmark-runner progress hook. Writes only fixed subphase labels and safe catalog profile labels to PATH for parent-process timeout diagnostics; the path is never emitted in benchmark output.
 
     Required environment:
       NARU_LIVE_MAC_HOST       redacted from output
