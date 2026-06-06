@@ -179,6 +179,11 @@ without unsafe report fields.
 - [x] T029M [US2] Delegate external-helper ScreenCaptureKit permission checks
   to the helper process so helper-video capture benchmarks are not false-blocked
   by the benchmark process's macOS Screen Recording permission state. **Done.**
+- [x] T029N [US2] Add fixed helper permission identity labels to
+  `NaruHelper --video-capability` and
+  `--video-request-screen-recording-permission` so live benchmark setup can
+  distinguish a stable helper target from a SwiftPM build artifact without
+  exposing executable paths or bundle identifiers. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

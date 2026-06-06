@@ -49,12 +49,19 @@ swift test --filter NaruHelperVideo
 `--video-capability` emits only fixed catalog labels such as
 `permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.
 It must not emit display identifiers, dimensions, window names, endpoints,
-host names, byte counts, frame content, or exact timings.
+host names, byte counts, frame content, executable paths, or exact timings.
+The schema `2` response also includes fixed `permissionIdentity` labels. For
+example, `processKind=swiftPMBuildArtifact` with
+`grantHint=useStableHelperExecutable` means the current development helper
+binary is not a stable permission target; copy/package the helper into a stable
+location or app bundle before requesting Screen Recording permission for longer
+live benchmark runs.
 `--video-request-screen-recording-permission` is the explicit permission
 request entrypoint for development and manual setup. It may show the macOS
 Screen Recording prompt, emits only fixed catalog labels such as `granted` or
 `notGranted`, and should be followed by `--video-capability` after any required
-helper/app relaunch.
+helper/app relaunch. Its schema `2` response carries the same
+`permissionIdentity` labels as `--video-capability`.
 
 ## Implemented Helper Video Encoder Prototype
 

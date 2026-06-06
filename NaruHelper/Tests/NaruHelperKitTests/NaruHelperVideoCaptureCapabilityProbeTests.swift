@@ -3,10 +3,46 @@ import NaruHelperKit
 import NaruRemoteCore
 
 final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
+    func testPermissionIdentityClassifiesAppBundleAsGrantableBundle() {
+        let context = NaruHelperVideoPermissionIdentityContext.classify(
+            bundleURL: URL(fileURLWithPath: "/Applications/NaruHelper.app"),
+            executableURL: URL(fileURLWithPath: "/Applications/NaruHelper.app/Contents/MacOS/NaruHelper")
+        )
+
+        XCTAssertEqual(context.processKind, .appBundle)
+        XCTAssertEqual(context.grantHint, .grantAppBundle)
+    }
+
+    func testPermissionIdentityClassifiesSwiftPMBuildArtifactAsUnstableTarget() {
+        let context = NaruHelperVideoPermissionIdentityContext.classify(
+            bundleURL: URL(fileURLWithPath: "/private/tmp/NaruHelper"),
+            executableURL: URL(fileURLWithPath: "/worktree/.build/debug/NaruHelper")
+        )
+
+        XCTAssertEqual(context.processKind, .swiftPMBuildArtifact)
+        XCTAssertEqual(context.grantHint, .useStableHelperExecutable)
+    }
+
+    func testPermissionIdentityClassifiesRegularCLIAsCurrentExecutableTarget() {
+        let context = NaruHelperVideoPermissionIdentityContext.classify(
+            bundleURL: URL(fileURLWithPath: "/usr/local/bin"),
+            executableURL: URL(fileURLWithPath: "/usr/local/bin/NaruHelper")
+        )
+
+        XCTAssertEqual(context.processKind, .commandLineTool)
+        XCTAssertEqual(context.grantHint, .grantCurrentHelperExecutable)
+    }
+
     func testGrantedScreenRecordingAndAvailableContentReportsAvailable() async throws {
         let probe = NaruHelperVideoCaptureCapabilityProbe(
             permissionProvider: { .granted },
-            captureSourceProvider: { .available }
+            captureSourceProvider: { .available },
+            permissionIdentityProvider: {
+                NaruHelperVideoPermissionIdentityContext(
+                    processKind: .appBundle,
+                    grantHint: .grantAppBundle
+                )
+            }
         )
 
         let response = await probe.capability()
@@ -16,6 +52,8 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertEqual(response.screenRecordingPermission, .granted)
         XCTAssertEqual(response.captureSourceState, .available)
         XCTAssertEqual(response.captureAPI, .screenCaptureKit)
+        XCTAssertEqual(response.permissionIdentity.processKind, .appBundle)
+        XCTAssertEqual(response.permissionIdentity.grantHint, .grantAppBundle)
         XCTAssertNil(response.safeFailureCode)
     }
 
@@ -76,6 +114,10 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
             screenRecordingPermission: .missing,
             captureSourceState: .notChecked,
             captureAPI: .screenCaptureKit,
+            permissionIdentity: NaruHelperVideoPermissionIdentityContext(
+                processKind: .swiftPMBuildArtifact,
+                grantHint: .useStableHelperExecutable
+            ),
             safeFailureCode: .permissionMissing
         )
 
@@ -85,16 +127,49 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertTrue(json.contains("\"screenRecordingPermission\":\"missing\""))
         XCTAssertTrue(json.contains("\"captureSourceState\":\"notChecked\""))
         XCTAssertTrue(json.contains("\"captureAPI\":\"screenCaptureKit\""))
+        XCTAssertTrue(json.contains("\"processKind\":\"swiftPMBuildArtifact\""))
+        XCTAssertTrue(json.contains("\"grantHint\":\"useStableHelperExecutable\""))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("displayID"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("dimension"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("endpoint"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("token"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("host"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("byte"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("/Users"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains(".build"))
+    }
+
+    func testDecodingV1CapabilityWithoutPermissionIdentityUsesUnknownContext() throws {
+        let json = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "availability": "permissionMissing",
+              "screenRecordingPermission": "missing",
+              "captureSourceState": "notChecked",
+              "captureAPI": "screenCaptureKit",
+              "safeFailureCode": "helperVideo.permissionMissing"
+            }
+            """.utf8
+        )
+
+        let response = try JSONDecoder().decode(
+            NaruHelperVideoCaptureCapabilityResponse.self,
+            from: json
+        )
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.permissionIdentity, .unknown)
     }
 
     func testScreenRecordingPermissionRequestGrantedReportsAvailable() throws {
         let requester = NaruHelperVideoScreenRecordingPermissionRequester(
+            permissionIdentityProvider: {
+                NaruHelperVideoPermissionIdentityContext(
+                    processKind: .commandLineTool,
+                    grantHint: .grantCurrentHelperExecutable
+                )
+            },
             permissionRequest: { true }
         )
 
@@ -105,6 +180,8 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertEqual(response.screenRecordingPermission, .granted)
         XCTAssertEqual(response.requestResult, .granted)
         XCTAssertEqual(response.captureAPI, .screenCaptureKit)
+        XCTAssertEqual(response.permissionIdentity.processKind, .commandLineTool)
+        XCTAssertEqual(response.permissionIdentity.grantHint, .grantCurrentHelperExecutable)
         XCTAssertNil(response.safeFailureCode)
     }
 
@@ -143,6 +220,10 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
             screenRecordingPermission: .missing,
             requestResult: .notGranted,
             captureAPI: .screenCaptureKit,
+            permissionIdentity: NaruHelperVideoPermissionIdentityContext(
+                processKind: .swiftPMBuildArtifact,
+                grantHint: .useStableHelperExecutable
+            ),
             safeFailureCode: .permissionMissing
         )
 
@@ -152,6 +233,8 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertTrue(json.contains("\"screenRecordingPermission\":\"missing\""))
         XCTAssertTrue(json.contains("\"requestResult\":\"notGranted\""))
         XCTAssertTrue(json.contains("\"captureAPI\":\"screenCaptureKit\""))
+        XCTAssertTrue(json.contains("\"processKind\":\"swiftPMBuildArtifact\""))
+        XCTAssertTrue(json.contains("\"grantHint\":\"useStableHelperExecutable\""))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("displayID"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("dimension"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("endpoint"))
@@ -161,6 +244,31 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("raw"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("timing"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("/Users"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains(".build"))
+    }
+
+    func testDecodingV1PermissionRequestWithoutPermissionIdentityUsesUnknownContext() throws {
+        let json = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "availability": "permissionMissing",
+              "screenRecordingPermission": "missing",
+              "requestResult": "notGranted",
+              "captureAPI": "screenCaptureKit",
+              "safeFailureCode": "helperVideo.permissionMissing"
+            }
+            """.utf8
+        )
+
+        let response = try JSONDecoder().decode(
+            NaruHelperVideoScreenRecordingPermissionRequestResponse.self,
+            from: json
+        )
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.permissionIdentity, .unknown)
     }
 }
 

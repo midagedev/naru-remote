@@ -498,3 +498,39 @@ and the external helper process reports `permissionMissing` from its own
 - Request Screen Recording permission from `VNCLiveBenchmark`: rejected because
   benchmark runs should not show permission UI and should not request capture
   permission for the wrong process identity.
+
+## D17 - Report helper Screen Recording permission identity as fixed labels
+
+**Decision**: `NaruHelper --video-capability` and
+`--video-request-screen-recording-permission` report schema `2`
+`permissionIdentity` labels that classify the current helper process as an app
+bundle, command-line tool, SwiftPM build artifact, unsupported platform, or
+unknown context. The paired `grantHint` remains a fixed action label such as
+`grantAppBundle`, `grantCurrentHelperExecutable`, or
+`useStableHelperExecutable`.
+
+**Rationale**:
+- macOS Screen Recording permission is process-identity sensitive. Live
+  benchmark setup needs to know whether it is granting a stable helper target
+  or a development build artifact without leaking executable paths.
+- `swift run` / `.build/debug/NaruHelper` is useful for fast iteration but is a
+  poor long-lived permission target. The fixed `swiftPMBuildArtifact` plus
+  `useStableHelperExecutable` labels make that actionable before repeated live
+  benchmark runs.
+- The response must stay safe for diagnostic artifacts, so it reports no bundle
+  identifiers, usernames, parent process names, executable paths, or raw TCC
+  details.
+
+**Sources**:
+- Apple `Bundle`: https://developer.apple.com/documentation/foundation/bundle
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+- Apple `CGRequestScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgrequestscreencaptureaccess%28%29
+
+**Alternatives considered**:
+- Emit the helper executable path or bundle identifier: rejected because live
+  benchmark artifacts must not include local paths or user/device identifiers.
+- Keep only `permissionMissing`: rejected because it does not explain whether
+  the user should grant a stable helper app/binary or stop using a transient
+  development artifact for live capture.

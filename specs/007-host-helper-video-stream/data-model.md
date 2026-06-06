@@ -112,6 +112,12 @@ Fields:
   - `unavailable`
   - `unsupported`
 - `captureAPI`: Optional fixed label, initially `screenCaptureKit`.
+- `permissionIdentity`: Fixed-label context for the process whose macOS Screen
+  Recording permission is being checked:
+  - `processKind`: `appBundle`, `commandLineTool`, `swiftPMBuildArtifact`,
+    `unsupported`, or `unknown`
+  - `grantHint`: `grantAppBundle`, `grantCurrentHelperExecutable`,
+    `useStableHelperExecutable`, `unsupported`, or `unknown`
 - `safeFailureCode`: Optional fixed helper-video failure code.
 
 Rules:
@@ -120,11 +126,15 @@ Rules:
   query shareable screen content.
 - Granted permission may query ScreenCaptureKit shareable content, but reports
   only a fixed availability state.
+- `permissionIdentity` helps live setup distinguish a stable helper app/binary
+  from a SwiftPM development build artifact without exposing bundle IDs,
+  executable paths, usernames, or parent process details.
 
 Privacy:
 
 - No display identifiers, display names, window names, dimensions, frame
-  content, endpoints, host names, byte counts, exact timings, or OS error text.
+  content, endpoints, host names, byte counts, exact timings, executable paths,
+  usernames, bundle identifiers, parent process names, or OS error text.
 
 ## NaruHelperVideoEncoderPrototypeResponse
 
