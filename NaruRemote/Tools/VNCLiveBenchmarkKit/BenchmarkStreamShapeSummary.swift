@@ -1689,6 +1689,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let pacingWindow: BenchmarkStreamShapePacingWindow
     public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let requestRegionAreaPermille: Int?
+    public let firstFrameRequestAreaPermille: Int?
     public let iterationOrdinal: Int?
     public let orderOrdinal: Int?
     public let firstFrameMilliseconds: Int?
@@ -1700,6 +1701,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         case pacingWindow
         case requestRegion
         case requestRegionAreaPermille
+        case firstFrameRequestAreaPermille
         case iterationOrdinal
         case orderOrdinal
         case firstFrameMilliseconds
@@ -1712,6 +1714,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         requestRegionAreaPermille: Int? = nil,
+        firstFrameRequestAreaPermille: Int? = nil,
         iterationOrdinal: Int? = nil,
         orderOrdinal: Int? = nil,
         firstFrameMilliseconds: Int?,
@@ -1722,6 +1725,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         self.pacingWindow = pacingWindow
         self.requestRegion = requestRegion
         self.requestRegionAreaPermille = Self.clampOptionalPermille(requestRegionAreaPermille)
+        self.firstFrameRequestAreaPermille = Self.clampOptionalPermille(firstFrameRequestAreaPermille)
         self.iterationOrdinal = iterationOrdinal.map { max($0, 1) }
         self.orderOrdinal = orderOrdinal.map { max($0, 1) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
@@ -1748,6 +1752,10 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .requestRegionAreaPermille
             ),
+            firstFrameRequestAreaPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .firstFrameRequestAreaPermille
+            ),
             iterationOrdinal: try container.decodeIfPresent(Int.self, forKey: .iterationOrdinal),
             orderOrdinal: try container.decodeIfPresent(Int.self, forKey: .orderOrdinal),
             firstFrameMilliseconds: try container.decodeIfPresent(Int.self, forKey: .firstFrameMilliseconds),
@@ -1766,6 +1774,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     public let pacingWindow: BenchmarkStreamShapePacingWindow
     public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let averageRequestRegionAreaPermille: Int?
+    public let averageFirstFrameRequestAreaPermille: Int?
     public let runCount: Int
     public let usableRunCount: Int
     public let failedRunCount: Int
@@ -1801,6 +1810,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         case pacingWindow
         case requestRegion
         case averageRequestRegionAreaPermille
+        case averageFirstFrameRequestAreaPermille
         case runCount
         case usableRunCount
         case failedRunCount
@@ -1837,6 +1847,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         averageRequestRegionAreaPermille: Int? = nil,
+        averageFirstFrameRequestAreaPermille: Int? = nil,
         runCount: Int,
         usableRunCount: Int,
         failedRunCount: Int,
@@ -1871,6 +1882,9 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         self.pacingWindow = pacingWindow
         self.requestRegion = requestRegion
         self.averageRequestRegionAreaPermille = Self.clampOptionalPermille(averageRequestRegionAreaPermille)
+        self.averageFirstFrameRequestAreaPermille = Self.clampOptionalPermille(
+            averageFirstFrameRequestAreaPermille
+        )
         self.runCount = max(runCount, 0)
         self.usableRunCount = max(usableRunCount, 0)
         self.failedRunCount = max(failedRunCount, 0)
@@ -1919,6 +1933,10 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             averageRequestRegionAreaPermille: try container.decodeIfPresent(
                 Int.self,
                 forKey: .averageRequestRegionAreaPermille
+            ),
+            averageFirstFrameRequestAreaPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameRequestAreaPermille
             ),
             runCount: try container.decode(Int.self, forKey: .runCount),
             usableRunCount: try container.decode(Int.self, forKey: .usableRunCount),
@@ -2049,6 +2067,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let contentResponsePermille = usableReports.compactMap(\.summary.contentResponsePermille)
         let unansweredSamplePermille = usableReports.compactMap(\.summary.unansweredSamplePermille)
         let requestRegionAreaPermille = reports.compactMap(\.requestRegionAreaPermille)
+        let firstFrameRequestAreaPermille = reports.compactMap(\.firstFrameRequestAreaPermille)
         let phaseBudgets = usableReports
             .map(\.summary.phaseBudget)
             .filter { $0.sampleCount > 0 }
@@ -2061,6 +2080,7 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             pacingWindow: key.pacingWindow,
             requestRegion: key.requestRegion,
             averageRequestRegionAreaPermille: roundedAverage(requestRegionAreaPermille),
+            averageFirstFrameRequestAreaPermille: roundedAverage(firstFrameRequestAreaPermille),
             runCount: reports.count,
             usableRunCount: usableReports.count,
             failedRunCount: reports.count - usableReports.count,
@@ -2202,6 +2222,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     public let pacingWindow: BenchmarkStreamShapePacingWindow
     public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let averageRequestRegionAreaPermille: Int?
+    public let averageFirstFrameRequestAreaPermille: Int?
     public let targetName: String
     public let verdict: BenchmarkStreamShapePracticalVerdict
     public let runCount: Int
@@ -2227,6 +2248,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         case pacingWindow
         case requestRegion
         case averageRequestRegionAreaPermille
+        case averageFirstFrameRequestAreaPermille
         case targetName
         case verdict
         case runCount
@@ -2253,6 +2275,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         averageRequestRegionAreaPermille: Int? = nil,
+        averageFirstFrameRequestAreaPermille: Int? = nil,
         targetName: String,
         verdict: BenchmarkStreamShapePracticalVerdict,
         runCount: Int,
@@ -2277,6 +2300,9 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         self.pacingWindow = pacingWindow
         self.requestRegion = requestRegion
         self.averageRequestRegionAreaPermille = Self.clampOptionalPermille(averageRequestRegionAreaPermille)
+        self.averageFirstFrameRequestAreaPermille = Self.clampOptionalPermille(
+            averageFirstFrameRequestAreaPermille
+        )
         self.targetName = targetName
         self.verdict = verdict
         self.runCount = max(runCount, 0)
@@ -2332,6 +2358,10 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 Int.self,
                 forKey: .averageRequestRegionAreaPermille
             ),
+            averageFirstFrameRequestAreaPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameRequestAreaPermille
+            ),
             targetName: try container.decode(String.self, forKey: .targetName),
             verdict: try container.decode(BenchmarkStreamShapePracticalVerdict.self, forKey: .verdict),
             runCount: try container.decode(Int.self, forKey: .runCount),
@@ -2381,6 +2411,10 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         try container.encode(pacingWindow, forKey: .pacingWindow)
         try container.encode(requestRegion, forKey: .requestRegion)
         try container.encodeIfPresent(averageRequestRegionAreaPermille, forKey: .averageRequestRegionAreaPermille)
+        try container.encodeIfPresent(
+            averageFirstFrameRequestAreaPermille,
+            forKey: .averageFirstFrameRequestAreaPermille
+        )
         try container.encode(targetName, forKey: .targetName)
         try container.encode(verdict, forKey: .verdict)
         try container.encode(runCount, forKey: .runCount)
@@ -2426,9 +2460,13 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         let assessments = reports.map(\.summary.practicalAssessment)
         let targets = BenchmarkStreamShapePracticalTargetSelection(rawValue: key.targetName)?.targets
         let averageRequestRegionAreaPermille = roundedAverage(reports.compactMap(\.requestRegionAreaPermille))
+        let averageFirstFrameRequestAreaPermille = roundedAverage(
+            reports.compactMap(\.firstFrameRequestAreaPermille)
+        )
         let gateIssueCodes = gateIssueCodes(
             firstFrameMilliseconds: reports.compactMap(\.firstFrameMilliseconds),
             averageRequestRegionAreaPermille: averageRequestRegionAreaPermille,
+            averageFirstFrameRequestAreaPermille: averageFirstFrameRequestAreaPermille,
             targets: targets
         )
         let passRunCount = assessments.filter { $0.verdict == .pass }.count
@@ -2447,6 +2485,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             pacingWindow: key.pacingWindow,
             requestRegion: key.requestRegion,
             averageRequestRegionAreaPermille: averageRequestRegionAreaPermille,
+            averageFirstFrameRequestAreaPermille: averageFirstFrameRequestAreaPermille,
             targetName: key.targetName,
             verdict: verdict(
                 passRunCount: passRunCount,
@@ -2527,6 +2566,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     private static func gateIssueCodes(
         firstFrameMilliseconds: [Int],
         averageRequestRegionAreaPermille: Int?,
+        averageFirstFrameRequestAreaPermille: Int?,
         targets: BenchmarkStreamShapePracticalTargets?
     ) -> [BenchmarkStreamShapePracticalIssueCode] {
         guard let targets else {
@@ -2542,12 +2582,16 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 issues.append(.firstFrameWarning)
             }
         }
-        if let averageRequestRegionAreaPermille {
+        let largestRequestAreaPermille = [
+            averageRequestRegionAreaPermille,
+            averageFirstFrameRequestAreaPermille
+        ].compactMap { $0 }.max()
+        if let largestRequestAreaPermille {
             if let failRequestRegionAreaPermille = targets.failRequestRegionAreaPermille,
-               averageRequestRegionAreaPermille > failRequestRegionAreaPermille {
+               largestRequestAreaPermille > failRequestRegionAreaPermille {
                 issues.append(.requestRegionAreaFailed)
             } else if let passRequestRegionAreaPermille = targets.passRequestRegionAreaPermille,
-                      averageRequestRegionAreaPermille > passRequestRegionAreaPermille {
+                      largestRequestAreaPermille > passRequestRegionAreaPermille {
                 issues.append(.requestRegionAreaWarning)
             }
         }

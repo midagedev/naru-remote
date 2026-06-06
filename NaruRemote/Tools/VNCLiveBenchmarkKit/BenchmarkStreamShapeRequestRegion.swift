@@ -57,6 +57,32 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         }
     }
 
+    public func firstFrameVisibleCoreRegion(width: Int, height: Int) -> RFBFramebufferUpdateRegion? {
+        switch self {
+        case .full:
+            return nil
+        case .centerHalf, .centerThird:
+            return region(width: width, height: height, incrementalRequestIndex: 1)
+        case .viewportPhonePortrait, .viewportPhonePortraitHeartbeat:
+            return phonePortraitViewportRegion(
+                width: width,
+                height: height,
+                incrementalRequestIndex: 1,
+                regionTimeoutStreak: 0,
+                expansionMarginPixels: 0,
+                fullHeartbeatInterval: nil
+            )
+        }
+    }
+
+    public func firstFrameVisibleCoreAreaPermille(width: Int, height: Int) -> Int {
+        requestAreaPermille(
+            for: firstFrameVisibleCoreRegion(width: width, height: height),
+            framebufferWidth: width,
+            framebufferHeight: height
+        )
+    }
+
     public func region(
         width: Int,
         height: Int,
@@ -76,6 +102,7 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
                 height: height,
                 incrementalRequestIndex: incrementalRequestIndex,
                 regionTimeoutStreak: regionTimeoutStreak,
+                expansionMarginPixels: 96,
                 fullHeartbeatInterval: nil
             )
         case .viewportPhonePortraitHeartbeat:
@@ -84,6 +111,7 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
                 height: height,
                 incrementalRequestIndex: incrementalRequestIndex,
                 regionTimeoutStreak: regionTimeoutStreak,
+                expansionMarginPixels: 96,
                 fullHeartbeatInterval: 5
             )
         }
@@ -120,11 +148,16 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         return Int((Double(permilles.reduce(0, +)) / Double(interval)).rounded())
     }
 
-    private func requestAreaPermille(
+    public func requestAreaPermille(
         for region: RFBFramebufferUpdateRegion?,
         framebufferWidth: Int,
         framebufferHeight: Int
     ) -> Int {
+        let framebufferWidth = min(max(framebufferWidth, 0), Int(UInt16.max))
+        let framebufferHeight = min(max(framebufferHeight, 0), Int(UInt16.max))
+        guard framebufferWidth > 0, framebufferHeight > 0 else {
+            return 1_000
+        }
         guard let region else {
             return 1_000
         }
@@ -139,6 +172,7 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
         height: Int,
         incrementalRequestIndex: Int,
         regionTimeoutStreak: Int,
+        expansionMarginPixels: Int,
         fullHeartbeatInterval: Int?
     ) -> RFBFramebufferUpdateRegion? {
         let safeWidth = min(max(width, 0), Int(UInt16.max))
@@ -160,7 +194,7 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
             zoomScale: fillZoom
         )
         let policy = ViewportRequestRegionPolicy(
-            expansionMarginPixels: 96,
+            expansionMarginPixels: expansionMarginPixels,
             minimumSavingsPermille: 100,
             fullHeartbeatInterval: fullHeartbeatInterval,
             fullFallbackTimeoutStreak: 1

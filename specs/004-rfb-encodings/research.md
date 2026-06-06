@@ -4453,3 +4453,44 @@ non-incremental frame through
   requires showing lower startup pressure without worse usable-run count,
   hit-rate, p95 tail, or fixed failure-label profile under the poor-network
   target and then passing the physical iPhone gate.
+
+### D101 First-Visible-Core Startup Traffic Gate
+
+**Decision**: bump `VNCLiveBenchmark` to schema v58 and add a benchmark-only
+`streamShapeFirstFrameRequestMode` label `visible-core`. Add
+`firstFrameRequestAreaPermille` to profile probes, aggregates, and gates, and
+make poor-network traffic gates judge the larger of sustained request area and
+first-frame request area. Add
+`sustained-v2-constrained-cellular-visible-core-startup` as the constrained
+cellular probe for this mode.
+
+**Why**:
+- The schema v57 visible-startup run reduced first-frame area versus full-frame
+  startup, but still used the steady viewport policy's 96 px safety margin for
+  the first non-incremental frame. On the 1920x1080 phone-portrait crop-fill
+  benchmark shape, that reports `requestRegionAreaPermille` around 364.
+- Startup remained first-byte dominated and RGB565 stayed just above the poor
+  network 20 s fail band, so the next smallest safe benchmark unit is to remove
+  the startup-only safety margin while leaving sustained-region margin,
+  heartbeat, timeout fallback, and production defaults unchanged.
+- A traffic gate that ignores the first non-incremental request can pass a
+  candidate whose steady requests are small but whose startup request is still
+  full-frame. `firstFrameRequestAreaPermille` closes that reporting gap without
+  exposing dimensions, coordinates, bytes, pixels, or payloads.
+
+**Implementation rule**:
+- `visible-core` derives a fixed phone-portrait crop-fill visible core for the
+  first non-incremental request only. Measured incremental requests continue to
+  use the selected `BenchmarkStreamShapeRequestRegion` policy, including the
+  96 px margin for `viewport-phone-portrait` and heartbeat/fallback behavior
+  where applicable.
+- Reports emit fixed labels plus framebuffer-relative permille ratios only.
+  They do not emit dimensions, coordinates, byte counts, pixels, payloads, host
+  identity, credentials, command text, draft text, marked text, or IME state.
+
+**Interpretation**:
+- Passing `visible-core` would make it a stronger startup traffic candidate
+  than v57 `match-request-region`, but it still remains a benchmark-only result
+  until physical iPhone verification proves the partial first-frame behavior
+  works with real zoom/pan navigation and does not regress sustained-session
+  smoothness.

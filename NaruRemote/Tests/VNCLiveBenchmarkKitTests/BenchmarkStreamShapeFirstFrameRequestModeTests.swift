@@ -8,9 +8,10 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
             BenchmarkStreamShapeFirstFrameRequestMode.matchRequestRegion.rawValue,
             "match-request-region"
         )
+        XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.rawValue, "visible-core")
         XCTAssertEqual(
             BenchmarkStreamShapeFirstFrameRequestMode.usageDescription,
-            "full|match-request-region"
+            "full|match-request-region|visible-core"
         )
     }
 
@@ -35,5 +36,55 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
             region,
             BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.region(width: 1920, height: 1080)
         )
+    }
+
+    func testVisibleCoreInitialRequestUsesSmallerFixedVisibleCore() throws {
+        let matchedRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.matchRequestRegion.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+        let coreRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+
+        XCTAssertEqual(coreRegion.y, 0)
+        XCTAssertEqual(coreRegion.height, 1080)
+        XCTAssertGreaterThan(coreRegion.x, matchedRegion.x)
+        XCTAssertLessThan(coreRegion.width, matchedRegion.width)
+    }
+
+    func testFirstFrameRequestAreaPermilleReflectsMode() {
+        let matchedArea = BenchmarkStreamShapeFirstFrameRequestMode.matchRequestRegion.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080
+        )
+        let coreArea = BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080
+        )
+
+        XCTAssertEqual(
+            BenchmarkStreamShapeFirstFrameRequestMode.full.requestAreaPermille(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            ),
+            1_000
+        )
+        XCTAssertEqual(
+            matchedArea,
+            BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.requestAreaPermille(width: 1920, height: 1080)
+        )
+        XCTAssertGreaterThan(coreArea, 0)
+        XCTAssertLessThan(coreArea, matchedArea)
     }
 }

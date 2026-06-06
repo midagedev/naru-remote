@@ -326,6 +326,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             pacingWindow: .zeroContentDelay,
             requestRegion: .centerHalf,
             requestRegionAreaPermille: 250,
+            firstFrameRequestAreaPermille: 125,
             iterationOrdinal: 2,
             orderOrdinal: 3,
             firstFrameMilliseconds: 1_234,
@@ -340,6 +341,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.pacingWindow, .zeroContentDelay)
         XCTAssertEqual(decoded.requestRegion, .centerHalf)
         XCTAssertEqual(decoded.requestRegionAreaPermille, 250)
+        XCTAssertEqual(decoded.firstFrameRequestAreaPermille, 125)
         XCTAssertEqual(decoded.iterationOrdinal, 2)
         XCTAssertEqual(decoded.orderOrdinal, 3)
     }
@@ -370,7 +372,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         )
         let legacyData = try Self.encodedPayload(
             from: report,
-            removingKeys: ["pacingWindow", "requestRegion", "requestRegionAreaPermille"]
+            removingKeys: [
+                "pacingWindow",
+                "requestRegion",
+                "requestRegionAreaPermille",
+                "firstFrameRequestAreaPermille"
+            ]
         )
 
         let decoded = try JSONDecoder().decode(BenchmarkStreamShapeProfileReport.self, from: legacyData)
@@ -378,6 +385,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.pacingWindow, .single)
         XCTAssertEqual(decoded.requestRegion, .full)
         XCTAssertNil(decoded.requestRegionAreaPermille)
+        XCTAssertNil(decoded.firstFrameRequestAreaPermille)
         XCTAssertEqual(decoded.label, "local-low-latency")
         XCTAssertEqual(decoded.transportMode, .requestResponse)
     }
@@ -654,21 +662,24 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 durations: [90, 100],
                 iteration: 1,
                 requestRegion: .full,
-                requestRegionAreaPermille: 1_000
+                requestRegionAreaPermille: 1_000,
+                firstFrameRequestAreaPermille: 1_000
             ),
             profileReport(
                 label: "zrle-compression-0-clipboard",
                 durations: [120, 130],
                 iteration: 1,
                 requestRegion: .centerHalf,
-                requestRegionAreaPermille: 250
+                requestRegionAreaPermille: 250,
+                firstFrameRequestAreaPermille: 125
             ),
             profileReport(
                 label: "zrle-compression-0-clipboard",
                 durations: [80, 85],
                 iteration: 2,
                 requestRegion: .full,
-                requestRegionAreaPermille: 1_000
+                requestRegionAreaPermille: 1_000,
+                firstFrameRequestAreaPermille: 1_000
             )
         ]
 
@@ -678,9 +689,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(aggregates[0].runCount, 2)
         XCTAssertEqual(aggregates[0].averageUpdateMilliseconds, 89)
         XCTAssertEqual(aggregates[0].averageRequestRegionAreaPermille, 1_000)
+        XCTAssertEqual(aggregates[0].averageFirstFrameRequestAreaPermille, 1_000)
         XCTAssertEqual(aggregates[1].runCount, 1)
         XCTAssertEqual(aggregates[1].averageUpdateMilliseconds, 125)
         XCTAssertEqual(aggregates[1].averageRequestRegionAreaPermille, 250)
+        XCTAssertEqual(aggregates[1].averageFirstFrameRequestAreaPermille, 125)
     }
 
     func testProfileGatesSummarizePracticalVerdictsByProfile() {
@@ -811,14 +824,16 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 durations: [90, 95, 100],
                 iteration: 1,
                 requestRegion: .full,
-                requestRegionAreaPermille: 1_000
+                requestRegionAreaPermille: 1_000,
+                firstFrameRequestAreaPermille: 1_000
             ),
             profileReport(
                 label: "zrle-compression-0-clipboard",
                 durations: [520, 530, 540],
                 iteration: 1,
                 requestRegion: .centerHalf,
-                requestRegionAreaPermille: 250
+                requestRegionAreaPermille: 250,
+                firstFrameRequestAreaPermille: 125
             )
         ]
 
@@ -826,6 +841,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
 
         XCTAssertEqual(gates.map(\.requestRegion), [.full, .centerHalf])
         XCTAssertEqual(gates.map(\.averageRequestRegionAreaPermille), [1_000, 250])
+        XCTAssertEqual(gates.map(\.averageFirstFrameRequestAreaPermille), [1_000, 125])
         XCTAssertEqual(gates[0].verdict, .pass)
         XCTAssertEqual(gates[1].verdict, .fail)
     }
@@ -2077,6 +2093,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 label: "local-low-latency-rgb565",
                 requestRegion: .viewportPhonePortrait,
                 requestRegionAreaPermille: 364,
+                firstFrameRequestAreaPermille: 260,
                 firstFrameMilliseconds: 25_000,
                 summary: BenchmarkStreamShapeSummary(
                     requestedSamples: samples.count,
@@ -2104,6 +2121,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             DiagnosticSustainedSessionNextProbe.inspectServerTransportCadence.rawValue
         )
         XCTAssertEqual(gate.averageRequestRegionAreaPermille, 364)
+        XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 260)
     }
 
     func testPoorNetworkTrafficGateFailsLargeRequestRegionArea() {
@@ -2113,6 +2131,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 label: "full-region",
                 requestRegion: .full,
                 requestRegionAreaPermille: 1_000,
+                firstFrameRequestAreaPermille: 1_000,
                 firstFrameMilliseconds: 1_000,
                 summary: BenchmarkStreamShapeSummary(
                     requestedSamples: samples.count,
@@ -2139,6 +2158,35 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             DiagnosticSustainedSessionNextProbe.runViewportInteractionTrace.rawValue
         )
         XCTAssertEqual(gate.averageRequestRegionAreaPermille, 1_000)
+        XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 1_000)
+    }
+
+    func testPoorNetworkTrafficGateFailsLargeFirstFrameRequestArea() {
+        let samples = Array(repeating: streamShapeSample(duration: 100, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "visible-steady-full-startup",
+                requestRegion: .viewportPhonePortrait,
+                requestRegionAreaPermille: 364,
+                firstFrameRequestAreaPermille: 1_000,
+                firstFrameMilliseconds: 1_000,
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.verdict, .fail)
+        XCTAssertEqual(gate.issueCodes, [.requestRegionAreaFailed])
+        XCTAssertEqual(gate.averageRequestRegionAreaPermille, 364)
+        XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 1_000)
     }
 
     func testSummaryOmitsTimingAggregatesWhenSamplesHaveNoReceiveTiming() {
@@ -2237,7 +2285,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         iteration: Int,
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
-        requestRegionAreaPermille: Int? = nil
+        requestRegionAreaPermille: Int? = nil,
+        firstFrameRequestAreaPermille: Int? = nil
     ) -> BenchmarkStreamShapeProfileReport {
         BenchmarkStreamShapeProfileReport(
             label: label,
@@ -2245,6 +2294,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             pacingWindow: pacingWindow,
             requestRegion: requestRegion,
             requestRegionAreaPermille: requestRegionAreaPermille,
+            firstFrameRequestAreaPermille: firstFrameRequestAreaPermille,
             iterationOrdinal: iteration,
             orderOrdinal: 1,
             firstFrameMilliseconds: 100,
