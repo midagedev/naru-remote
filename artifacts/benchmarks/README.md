@@ -100,6 +100,12 @@ Current helper-video environment live comparison artifact:
 The constrained-cellular live VNC gate uses environment-sourced credentials
 and confirms the helper-video candidate is still benchmark-only disabled until
 the live access-unit sender/listener lands.
+Current helper-video live readiness artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-live-readiness-benchmark-summary.md`.
+The live env preflight is runnable, the external synthetic helper process path
+passes, the external ScreenCaptureKit helper path is blocked by fixed
+permission-missing labels, and a short constrained-cellular VNC run still
+routes the next large unit toward live helper-video capture/decode evidence.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to

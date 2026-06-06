@@ -169,6 +169,10 @@ without unsafe report fields.
   `NaruHelper --video-request-screen-recording-permission` CLI that requests
   macOS Screen Recording permission only when invoked directly and reports only
   fixed helper-video catalog labels. **Done.**
+- [x] T029K [US2] Record env-backed live helper-video readiness evidence that
+  separates runnable VNC credentials, passing external synthetic helper-video,
+  ScreenCaptureKit permission-missing, and the current constrained-cellular VNC
+  receive-path blocker. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
