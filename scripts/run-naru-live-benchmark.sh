@@ -112,6 +112,13 @@ run_benchmark_with_extra() {
   run_benchmark "${args[@]}"
 }
 
+reject_extra_args() {
+  if ((extra_arg_count)); then
+    printf 'Mode %s does not accept extra arguments after --.\n' "$mode" >&2
+    exit 2
+  fi
+}
+
 case "$mode" in
   preflight)
     import_helper_env
@@ -156,10 +163,12 @@ case "$mode" in
       --json
     ;;
   helper-capability)
+    reject_extra_args
     import_helper_env
     "$NARU_HELPER_EXECUTABLE" --video-capability
     ;;
   request-screen-recording)
+    reject_extra_args
     import_helper_env
     "$NARU_HELPER_EXECUTABLE" --video-request-screen-recording-permission
     ;;
