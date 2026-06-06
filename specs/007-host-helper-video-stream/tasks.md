@@ -205,6 +205,12 @@ without unsafe report fields.
 - [x] T029T [US2] Refresh launchctl-backed live startup glance scale evidence
   for `0.35` and `0.25`, keeping `0.25` as a benchmark/physical-gate candidate
   until physical iPhone validation passes. **Done.**
+- [x] T029U [US2] Add a launchctl-backed `helper-readiness-sweep` runner mode
+  that emits one safe JSON object for helper capability, environment preflight,
+  external synthetic helper-video, and external ScreenCaptureKit helper-video
+  probes; record the current live result showing credentials configured,
+  synthetic helper-video passing, and true ScreenCaptureKit capture blocked by
+  helper app bundle Screen Recording permission. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

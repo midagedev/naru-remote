@@ -84,6 +84,7 @@ process only and never prints the variable values.
 scripts/run-naru-live-benchmark.sh preflight
 scripts/run-naru-live-benchmark.sh helper-synthetic-probe
 scripts/run-naru-live-benchmark.sh helper-screen-probe
+scripts/run-naru-live-benchmark.sh helper-readiness-sweep
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
@@ -95,6 +96,13 @@ tools. `helper-synthetic-probe` does not require live VNC target credentials.
 Screen Recording to `NaruHelperDev`. `short-live-comparison` is a compact
 constrained-cellular VNC plus external synthetic helper-video gate for ongoing
 fallback and traffic work.
+`helper-readiness-sweep` emits one JSON object containing helper capability,
+environment preflight, external synthetic helper-video, and external
+ScreenCaptureKit helper-video probe reports. It rejects additional arguments so
+the readiness gate remains repeatable. If a sub-step exits before returning
+JSON, the sweep emits only that step's fixed label and fixed safe failure code;
+it does not print raw helper stderr, credential values, helper paths,
+endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
 
 ## Implemented Helper Video Encoder Prototype
 
