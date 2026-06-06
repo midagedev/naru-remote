@@ -3568,7 +3568,7 @@ private func printUsage() {
       --visual-transport \(BenchmarkVisualTransportSelection.usageDescription)
                                 Visual transport candidates to record in the benchmark report. Defaults to vnc; helper-video emits only fixed labels and no frames, dimensions, endpoints, byte counts, tokens, or exact helper timings.
       --helper-video-probe \(BenchmarkHelperVideoProbeMode.usageDescription)
-                                Helper-video probe used when helper-video is selected. Defaults to disabled; synthetic-tcp uses static access units, synthetic-encoded-tcp uses local VideoToolbox H.264 output, screen-capturekit-tcp uses finite ScreenCaptureKit frames through the same local TCP harness, and external-helper-synthetic-encoded-tcp launches NaruHelper --video-listen with env-indirected synthetic credentials before connecting through the helper-video network client.
+                                Helper-video probe used when helper-video is selected. Defaults to disabled; synthetic-tcp uses static access units, synthetic-encoded-tcp uses local VideoToolbox H.264 output, screen-capturekit-tcp uses finite ScreenCaptureKit frames through the same local TCP harness, external-helper-synthetic-encoded-tcp launches NaruHelper --video-listen with env-indirected synthetic credentials before connecting through the helper-video network client, and external-helper-screen-capturekit-tcp uses the same external helper path with finite ScreenCaptureKit capture.
       --stream-shape-profile-iterations N
                                 Repeat stream-shape profile probes this many times. Defaults to 1; maximum 20.
       --stream-shape-profile-order \(BenchmarkStreamShapeProfileOrderMode.usageDescription)

@@ -161,6 +161,10 @@ without unsafe report fields.
   `NaruHelper --video-listen` with env-indirected synthetic pairing state and
   connects through the helper-video network client while keeping reports
   privacy-safe. **Done.**
+- [x] T029I [US2] Add an external-helper ScreenCaptureKit benchmark probe that
+  launches `NaruHelper --video-listen --video-source screen-capturekit` when
+  Screen Recording permission is available and otherwise reports the fixed
+  permission-missing issue code. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
