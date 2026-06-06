@@ -151,6 +151,11 @@ Using the launchctl runner, `0.25` again improves
 `local-low-latency-rgb565` from failure to warning with a `19` permille
 first-frame request area, but the overall app-low-traffic gate remains failed
 and needs physical iPhone validation before any default promotion.
+Current launchctl request pipeline sweep:
+`artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
+The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps
+every depth below the poor-network target, so request pipelining remains
+benchmark-only.
 Current trackpad follow coupling tuning artifact:
 `artifacts/benchmarks/2026-06-07-trackpad-follow-coupling-tuning-summary.md`.
 Zoomed trackpad follow-pan coupling is raised while keeping visible cursor
