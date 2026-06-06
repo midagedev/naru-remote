@@ -142,7 +142,9 @@ the benchmark-only first-frame visible-glance scales `0.45`, `0.35`, and
 `visible-glance` scale `0.25` plus `local-low-latency-rgb565`. It uses
 environment/`launchctl` live credentials, rejects extra arguments, and runs a
 12 second duration-only sustained phase against the
-`iphone-poor-network-traffic-v1` target.
+`iphone-poor-network-traffic-v1` target. If the live host or password is not
+present in the current shell or `launchctl`, the mode fails before benchmarking
+with the fixed missing-environment-variable setup message.
 
 ## Implemented Helper Video Encoder Prototype
 
