@@ -92,6 +92,76 @@ final class NaruHelperVideoCaptureCapabilityProbeTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("host"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("byte"))
     }
+
+    func testScreenRecordingPermissionRequestGrantedReportsAvailable() throws {
+        let requester = NaruHelperVideoScreenRecordingPermissionRequester(
+            permissionRequest: { true }
+        )
+
+        let response = requester.request()
+
+        XCTAssertEqual(response.schemaVersion, naruHelperVideoPermissionRequestSchemaVersion)
+        XCTAssertEqual(response.availability, .available)
+        XCTAssertEqual(response.screenRecordingPermission, .granted)
+        XCTAssertEqual(response.requestResult, .granted)
+        XCTAssertEqual(response.captureAPI, .screenCaptureKit)
+        XCTAssertNil(response.safeFailureCode)
+    }
+
+    func testScreenRecordingPermissionRequestNotGrantedReportsPermissionMissing() throws {
+        let requester = NaruHelperVideoScreenRecordingPermissionRequester(
+            permissionRequest: { false }
+        )
+
+        let response = requester.request()
+
+        XCTAssertEqual(response.availability, .permissionMissing)
+        XCTAssertEqual(response.screenRecordingPermission, .missing)
+        XCTAssertEqual(response.requestResult, .notGranted)
+        XCTAssertEqual(response.captureAPI, .screenCaptureKit)
+        XCTAssertEqual(response.safeFailureCode, .permissionMissing)
+    }
+
+    func testUnsupportedScreenRecordingPermissionRequestUsesCatalogWithoutCaptureAPI() throws {
+        let requester = NaruHelperVideoScreenRecordingPermissionRequester(
+            captureAPI: nil,
+            permissionRequest: { true }
+        )
+
+        let response = requester.request()
+
+        XCTAssertEqual(response.availability, .failed)
+        XCTAssertEqual(response.screenRecordingPermission, .unsupported)
+        XCTAssertEqual(response.requestResult, .unsupported)
+        XCTAssertNil(response.captureAPI)
+        XCTAssertNil(response.safeFailureCode)
+    }
+
+    func testPermissionRequestJSONUsesOnlyFixedCatalogValues() throws {
+        let response = NaruHelperVideoScreenRecordingPermissionRequestResponse(
+            availability: .permissionMissing,
+            screenRecordingPermission: .missing,
+            requestResult: .notGranted,
+            captureAPI: .screenCaptureKit,
+            safeFailureCode: .permissionMissing
+        )
+
+        let json = String(data: try JSONEncoder().encode(response), encoding: .utf8) ?? ""
+
+        XCTAssertTrue(json.contains("\"availability\":\"permissionMissing\""))
+        XCTAssertTrue(json.contains("\"screenRecordingPermission\":\"missing\""))
+        XCTAssertTrue(json.contains("\"requestResult\":\"notGranted\""))
+        XCTAssertTrue(json.contains("\"captureAPI\":\"screenCaptureKit\""))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("displayID"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("dimension"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("endpoint"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("host"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("byte"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("raw"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("timing"))
+    }
 }
 
 private actor CaptureSourceProbeRecorder {

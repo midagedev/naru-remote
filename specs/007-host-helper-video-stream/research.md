@@ -432,3 +432,33 @@ network client and reports only fixed helper-video health labels.
 - Promote ScreenCaptureKit helper video as a default transport after this
   probe: deferred until physical-device sustained decode, thermal, and fallback
   evidence exists.
+
+## D15 - Keep Screen Recording permission request explicit
+
+**Decision**: Add `NaruHelper --video-request-screen-recording-permission` as
+the only helper-video CLI path that calls `CGRequestScreenCaptureAccess()`.
+Capability checks and benchmark probes continue to use preflight-only behavior.
+
+**Rationale**:
+- Apple's CoreGraphics screen-capture APIs separate checking existing Screen
+  Recording access from requesting it. Naru should preserve that distinction so
+  benchmark runs do not unexpectedly show permission UI.
+- A dedicated helper CLI gives live-benchmark setup a repeatable way to make
+  the permission gate actionable before running
+  `external-helper-screen-capturekit-tcp`.
+- The response uses only fixed catalog labels and does not query
+  `SCShareableContent`, so missing or denied permission remains distinguishable
+  from capture-source and listener failures.
+
+**Sources**:
+- Apple `CGRequestScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgrequestscreencaptureaccess%28%29
+- Apple `CGPreflightScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
+
+**Alternatives considered**:
+- Request permission inside `--video-capability`: rejected because capability
+  should be a quiet diagnostic preflight.
+- Request permission automatically from live benchmark modes: rejected because
+  benchmark reports should stay deterministic and should not mix user prompts
+  with transport performance gates.

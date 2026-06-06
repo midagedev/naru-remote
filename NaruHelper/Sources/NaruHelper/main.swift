@@ -25,6 +25,11 @@ private enum NaruHelperCLI {
             return
         }
 
+        if CommandLine.arguments.contains("--video-request-screen-recording-permission") {
+            try writeVideoScreenRecordingPermissionRequestResponse()
+            return
+        }
+
         if CommandLine.arguments.contains("--video-encoder-prototype") {
             try writeVideoEncoderPrototypeResponse()
             return
@@ -42,6 +47,11 @@ private enum NaruHelperCLI {
 
     private static func writeVideoCapabilityResponse() async throws {
         let response = await NaruHelperVideoCaptureCapabilityProbe.live().capability()
+        try writeJSON(response)
+    }
+
+    private static func writeVideoScreenRecordingPermissionRequestResponse() throws {
+        let response = NaruHelperVideoScreenRecordingPermissionRequester.live().request()
         try writeJSON(response)
     }
 

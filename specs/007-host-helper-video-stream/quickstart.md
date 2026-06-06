@@ -42,12 +42,19 @@ swift test --filter NaruRemoteAppModelTests/testRevokeHelperVideoKeepsCredential
 swift build --product NaruHelper
 swift test --filter NaruHelperVideo
 .build/debug/NaruHelper --video-capability
+.build/debug/NaruHelper --video-request-screen-recording-permission
+.build/debug/NaruHelper --video-capability
 ```
 
 `--video-capability` emits only fixed catalog labels such as
 `permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.
 It must not emit display identifiers, dimensions, window names, endpoints,
 host names, byte counts, frame content, or exact timings.
+`--video-request-screen-recording-permission` is the explicit permission
+request entrypoint for development and manual setup. It may show the macOS
+Screen Recording prompt, emits only fixed catalog labels such as `granted` or
+`notGranted`, and should be followed by `--video-capability` after any required
+helper/app relaunch.
 
 ## Implemented Helper Video Encoder Prototype
 
