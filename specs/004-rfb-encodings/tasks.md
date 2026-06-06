@@ -1225,6 +1225,20 @@ iPhone) and ships as its own PR.
   logs, dimensions, coordinates, pixels, byte counts, draft text, marked text,
   or IME state. Owns: iOS app test hook, physical UI test, launch UI test,
   README, research note, benchmark artifact. **Done.**
+- **T448** Request/response pipeline-depth live benchmark: after D117 and the
+  constrained-cellular app-low-traffic gate showed sustained samples dominated
+  by server/network first-byte wait, add a benchmark-only send-only
+  `FramebufferUpdateRequest` boundary and `VNCLiveBenchmark` schema v66
+  `--stream-shape-request-pipeline-depth 1...3`. Keep depth 1 as the existing
+  baseline, reject depth >1 with ContinuousUpdates, leave production app frame
+  delivery unchanged, and document how to compare depth 1/2/3 using the live
+  password only through `NARU_LIVE_MAC_PASSWORD`. Report only the clamped depth
+  integer plus existing aggregate timing/permille metrics; avoid
+  logging/exporting outstanding-request coordinates, dimensions, byte counts,
+  pixels, payloads, host identity, credentials, command text, draft text,
+  marked text, or IME state. Owns: core RFB client boundary, network client,
+  benchmark CLI/report, fake-server test, help text, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

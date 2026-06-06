@@ -5286,3 +5286,62 @@ explicit candidate labels.
   automation gap so the next online iPhone run can compare the strongest
   poor-network startup traffic candidate against hand-visible quality,
   Compose reliability, and thermal comfort.
+
+### D117 Request/Response Outstanding-Request Pipeline Benchmark
+
+References:
+- RFC 6143 display/update and `FramebufferUpdateRequest` semantics:
+  https://www.rfc-editor.org/rfc/rfc6143
+- `artifacts/benchmarks/2026-06-06-request-pipeline-benchmark-summary.md`.
+
+**Decision**: add a benchmark-only request/response pipeline-depth experiment.
+`RFBNetworkClient` now exposes a send-only `FramebufferUpdateRequest` boundary,
+and `VNCLiveBenchmark` schema v66 adds
+`--stream-shape-request-pipeline-depth 1...3`. Depth 1 preserves the existing
+send-then-receive baseline. Depths 2 and 3 send a bounded burst of incremental
+requests before reading one update, so live runs can test whether macOS Screen
+Sharing responds faster when several update requests are outstanding.
+
+**Why**:
+- The constrained-cellular app-low-traffic gate shows sustained samples are
+  dominated by server/network first-byte wait, while request-loop, payload read,
+  renderer upload, and client processing are already small.
+- RFC 6143 explicitly allows several client requests to be outstanding and a
+  single update to satisfy more than one request. This makes request
+  pipelining a protocol-compatible benchmark candidate, not a private extension.
+- The production app should not adopt this until live and physical gates prove
+  it helps without increasing stalls, thermal pressure, or useless server work.
+
+**Implementation rule**:
+- Keep production `requestFramebufferUpdate` behavior unchanged.
+- Limit the benchmark depth to 1...3 and reject depth >1 for
+  `continuous-updates`.
+- Treat a region-timeout fallback as clearing the viewport/region restriction
+  while preserving incremental request semantics; do not force a
+  non-incremental full refresh in this pipeline-depth experiment.
+- Emit only the clamped depth integer plus existing aggregate timing and
+  permille metrics. Do not emit outstanding-request coordinates, dimensions,
+  byte counts, pixels, payloads, host identity, credentials, command text,
+  draft text, marked text, or IME state.
+
+**Evidence**:
+- The v66 constrained-cellular app-low-traffic live comparison at visible-glance
+  scale 0.25 found the best local-low-latency RGB565 sustained result at depth
+  1: 4/4 content samples, about 2.75 content FPS, 364/579 ms average/p95 update
+  latency, and 577 ms first-byte p95.
+- Depth 2 kept 4/4 content samples but regressed the same profile to about
+  1.90 FPS, 524/614 ms average/p95, and 610 ms first-byte p95.
+- Depth 3 kept 4/4 content samples with about 2.48 FPS, 402/623 ms
+  average/p95, and 618 ms first-byte p95.
+- All depths still failed the poor-network gate on first-frame payload-read
+  pressure.
+
+**Interpretation**:
+- If depth 2 or 3 reduces first-byte wait and content update latency under the
+  same controlled stimulus, the next candidate can promote a conservative app
+  request-pipeline policy behind the low-traffic profile gate.
+- If it does not help, the remaining path is server-side/update-source behavior
+  or a helper/video transport rather than more client request-loop tuning.
+- The first v66 run falls into the second case: request pipelining should remain
+  benchmark-only, and the next practical work should target startup payload
+  representation, server/update-source behavior, or helper/video transport.
