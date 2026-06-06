@@ -4605,3 +4605,64 @@ margin, timeout fallback, and traffic gate.
 - The next large units should split cleanly: staged first-useful-paint for
   startup traffic, and request/update wait inspection for sustained traffic and
   cadence.
+
+### D104 Sustained Poor-Network Traffic Wait Gate
+
+References:
+- RFC 6143 FramebufferUpdateRequest interest rectangle and request cadence:
+  https://www.rfc-editor.org/rfc/rfc6143#section-7.5.3
+- TigerVNC slow-link encoding, compression, quality, color, and pointer-event
+  controls:
+  https://tigervnc.org/doc/vncviewer.html
+- D103 first-visible-focus startup payload gate.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v61 and make
+`iphone-poor-network-traffic-v1` classify sustained receive pressure into
+fixed `first-byte-wait-*` and `payload-read-*` issue codes. Keep both based on
+safe aggregate millisecond summaries and permille shares only. Route sustained
+payload-read pressure to encoding/traffic comparison, and route first-byte wait
+pressure to update-wait timing inspection.
+
+**Why**:
+- A smaller first-frame request area reduced RGB565 startup under the poor
+  network fail band, but the usable sustained runs still feel slow because the
+  steady update loop remains p95-warning and first-byte-wait dominated.
+- RFC 6143 explicitly allows clients to request only the area of interest and
+  notes that incremental updates may arrive after an indefinite wait. That
+  means traffic area, payload-transfer pressure, and server/update wait must be
+  measured separately.
+- TigerVNC's automatic slow-link behavior changes encoding, compression, and
+  pixel format. Naru should treat those as benchmarked traffic levers, not as
+  default changes, until the poor-network gate and physical iPhone gate pass.
+
+**Implementation rule**:
+- Reports may emit only fixed issue labels, fixed next-probe labels, aggregate
+  millisecond timing summaries, and permille shares. They must not emit host
+  identity, credentials, ports, framebuffer dimensions, coordinates, pixels,
+  cursor pixels, byte counts, raw payloads, raw TCP/RFB errors, command text,
+  command output, draft text, marked text, IME state, or full diagnostic
+  payloads.
+- Production startup and sustained request defaults remain unchanged.
+
+**Evidence**:
+- Focused tests cover payload-read pressure failing the poor-network target
+  and routing to `compareEncodingProfileGate`, plus first-byte wait pressure
+  staying a warning and routing to `inspectServerTransportCadence`.
+- The schema v61 constrained-cellular visible-focus live run kept
+  `firstFrameRequestAreaPermille` 192 and `requestRegionAreaPermille` 364.
+- Full-color candidates still failed first frame with
+  `stream-first-frame-read-timeout`.
+- RGB565 candidates survived startup around 16.3 s, with first-frame network
+  read still payload-read dominated at roughly 939-940 permille payload share.
+- Sustained RGB565 samples were high-hit with zero unanswered pressure, but
+  content FPS stayed around 2 fps and max p95 update stayed around 610-646 ms.
+  The new gate correctly classified both usable RGB565 profiles as
+  `first-byte-wait-warning`; sustained payload-read pressure was 0 permille.
+
+**Interpretation**:
+- The current constrained-cellular blocker has split cleanly: startup remains
+  payload/traffic sensitive, while sustained streaming is now update-wait
+  dominated.
+- The next large implementation unit should inspect update-wait timing and
+  request/response cadence before changing app defaults. A later staged
+  first-useful-paint unit can continue startup traffic work independently.

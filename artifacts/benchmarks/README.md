@@ -660,6 +660,14 @@ live artifact is
 `2026-06-06-constrained-cellular-visible-focus-startup-summary.md`; it shows
 RGB565 startup dropping to roughly 16.3-16.4 s while the sustained stream still
 needs update-wait work.
+Schema v61 keeps the same redacted report shape and promotes sustained
+first-byte wait / payload-read pressure into the poor-network traffic gate.
+This keeps request-area savings from being mistaken for practical usability:
+payload-read pressure routes to encoding/traffic comparison, while first-byte
+wait routes to update-wait timing inspection. The first v61 live artifact is
+`2026-06-06-constrained-cellular-sustained-traffic-wait-summary.md`; it keeps
+the RGB565 visible-focus startup win, but classifies the usable sustained
+samples as `first-byte-wait-warning` rather than payload-read pressure.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
