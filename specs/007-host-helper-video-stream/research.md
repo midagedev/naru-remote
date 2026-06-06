@@ -566,3 +566,36 @@ future live benchmark shells.
 - Jump directly to production helper packaging: deferred because the current
   blocker is live benchmark enablement, while the production helper still needs
   a broader install/update/revocation design.
+
+## D19 - Preflight external helper capability before ScreenCaptureKit benchmark runs
+
+**Decision**: `VNCLiveBenchmark --environment-preflight` schema `5` launches
+the selected external helper with `--video-capability` when
+`external-helper-screen-capturekit-tcp` is selected. It records only fixed
+capability and permission identity labels, then blocks the live gate with a
+specific setup action when helper permission or helper availability is not
+ready.
+
+**Rationale**:
+- After D16, the benchmark process no longer false-blocks external helper
+  ScreenCaptureKit runs. The next useful setup gate is the helper process's own
+  quiet capability result.
+- Running helper capability in preflight avoids spending a live benchmark run
+  just to rediscover `helper-video-permission-missing`.
+- Fixed setup actions can distinguish `grant-helper-video-app-screen-recording`
+  from `install-stable-helper-video-executable` without exposing helper paths,
+  bundle identifiers, endpoints, or raw TCC details.
+
+**Sources**:
+- Apple `Process`: https://developer.apple.com/documentation/foundation/process
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+- Apple `CGPreflightScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
+
+**Alternatives considered**:
+- Keep preflight as `delegatedToHelper` only: rejected because it forces the
+  user to run a benchmark to learn that the helper app bundle still lacks
+  Screen Recording permission.
+- Emit helper executable paths in the preflight report: rejected by the safe
+  benchmark artifact boundary.

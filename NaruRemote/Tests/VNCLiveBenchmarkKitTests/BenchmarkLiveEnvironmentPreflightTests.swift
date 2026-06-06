@@ -14,13 +14,14 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 4)
+        XCTAssertEqual(report.schemaVersion, 5)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
         XCTAssertEqual(report.stimulusMode, .externalCommand)
         XCTAssertEqual(report.stimulusCommandStatus, .configured)
         XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
@@ -120,6 +121,9 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             screenCapturePermissionStatusProvider: {
                 XCTFail("external helper permission must not be checked in the benchmark process")
                 return .missing
+            },
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(status: .notChecked)
             }
         )
 
@@ -127,6 +131,136 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testExternalHelperScreenCaptureKitProbeUsesHelperCapabilityWhenAvailable() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                    status: .available,
+                    permissionIdentity: BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity(
+                        processKind: .appBundle,
+                        grantHint: .grantAppBundle
+                    )
+                )
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .granted)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .available)
+        XCTAssertTrue(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testExternalHelperScreenCaptureKitPermissionMissingForAppBundleRoutesToGrantBundleAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                    status: .permissionMissing,
+                    permissionIdentity: BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity(
+                        processKind: .appBundle,
+                        grantHint: .grantAppBundle
+                    )
+                )
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .missing)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .permissionMissing)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
+        XCTAssertEqual(report.setupActionLabels, [.grantHelperVideoAppScreenRecordingPermission])
+    }
+
+    func testExternalHelperScreenCaptureKitPermissionMissingForSwiftPMArtifactRoutesToStableHelperAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                    status: .permissionMissing,
+                    permissionIdentity: BenchmarkLiveEnvironmentPreflightHelperVideoPermissionIdentity(
+                        processKind: .swiftPMBuildArtifact,
+                        grantHint: .useStableHelperExecutable
+                    )
+                )
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .missing)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
+        XCTAssertEqual(report.setupActionLabels, [.installStableHelperVideoExecutable])
+    }
+
+    func testExternalHelperScreenCaptureKitUnavailableRoutesToConfigureHelperAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(status: .unavailable)
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoExternalHelperUnavailable])
+        XCTAssertEqual(report.setupActionLabels, [.configureHelperVideoExecutable])
+    }
+
+    func testExternalHelperScreenCaptureKitFailedRoutesToInspectCapabilityAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(status: .failed)
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoExternalHelperFailed])
+        XCTAssertEqual(report.setupActionLabels, [.inspectHelperVideoCapability])
     }
 
     func testScreenCaptureKitHelperProbeCanRunWhenPermissionGranted() {
@@ -164,6 +298,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         )
 
         XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
         XCTAssertTrue(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [])
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
@@ -229,6 +364,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertFalse(json.contains("secret"))
         XCTAssertFalse(json.contains("secret command"))
         XCTAssertTrue(json.contains("notRequired"))
+        XCTAssertTrue(json.contains("helperVideoExternalCapability"))
         XCTAssertTrue(json.contains("run-live-gate"))
     }
 
@@ -259,6 +395,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.schemaVersion, 1)
         XCTAssertEqual(report.issueCodes, [.missingHost, .missingStimulusCommand])
         XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
         XCTAssertEqual(report.setupActionLabels, [.setHost, .setStimulusCommand])
     }
 
@@ -288,6 +425,38 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
 
         XCTAssertEqual(report.schemaVersion, 2)
         XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .notRequired)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    func testDecodesV4PayloadWithoutExternalHelperCapability() throws {
+        let json = Data(
+            """
+            {
+              "schemaVersion": 4,
+              "hostStatus": "configured",
+              "portStatus": "configured",
+              "credentialStatus": "environment",
+              "stimulusMode": "off",
+              "stimulusCommandStatus": "notRequired",
+              "helperVideoScreenCapturePermissionStatus": "delegatedToHelper",
+              "canRunLiveBenchmark": true,
+              "issueCodes": [],
+              "setupActionLabels": [
+                "run-live-gate"
+              ]
+            }
+            """.utf8
+        )
+
+        let report = try JSONDecoder().decode(
+            BenchmarkLiveEnvironmentPreflightReport.self,
+            from: json
+        )
+
+        XCTAssertEqual(report.schemaVersion, 4)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
     }
 }
