@@ -5568,3 +5568,52 @@ bounded timeout/failure JSON. It must not emit progress file paths, executable
 paths, command lines, host identity, credentials, ports, raw stdout/stderr, raw
 TCP/RFB errors, request coordinates, dimensions, pixels, byte counts, stimulus
 command text, draft text, marked text, or IME state.
+
+### D123 Repeat Warning Candidates Before Promotion
+
+References:
+- `artifacts/benchmarks/2026-06-07-bounded-vnc-candidate-stability-summary.md`
+
+**Decision**: add a launchctl-backed
+`bounded-vnc-candidate-stability` mode for the corrected warning candidates
+`tight-first` and `adaptive-good-full`. It keeps the bounded sustained-v2-style
+request/response shape, runs three order-rotated iterations with two
+stream-shape samples per profile run, and returns the benchmark JSON unless the
+runner's wall-clock guard emits a fixed mode-specific failure.
+
+**Why**:
+- D122 corrected the candidate set, but the one-iteration bounded result still
+  did not prove a production-ready default.
+- Stability across repeated order-rotated runs is a better gate before changing
+  app defaults or making physical-device promotion claims.
+- The runner must keep managed dimensions fixed so future evidence is comparable
+  and cannot silently drift through `--network-condition`, preset, profile,
+  visual-transport, progress-file, compatibility, help, or timing overrides.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- Help text exposes `bounded-vnc-candidate-stability`.
+- Managed `--stream-shape-profiles` overrides are rejected.
+- Managed `--network-condition`, `--help`, `-h`, and
+  `--stream-shape-viewport-interaction-pause-seconds` overrides are rejected.
+- A deliberately invalid extra argument returns
+  `benchmarkStep.boundedVNCCandidateStability.failed` with
+  `lastPhaseLabel=benchmark-running`.
+- The current launchctl-backed live stability run completes. Both candidate
+  gates fail overall with zero pass runs. `tight-first` has two warnings and one
+  fail; `adaptive-good-full` has one warning and two fails. The order-neutral
+  recommendation picks `tight-first`, but the primary constraint is still
+  `clientDecode`.
+
+**Interpretation**:
+- Do not promote a VNC profile default from the current evidence.
+- Keep `tight-first` as the working candidate for the next optimization unit,
+  and reduce client-decode/content-cadence pressure before another promotion
+  attempt.
+
+**Privacy rule**: candidate stability may report only the benchmark's
+privacy-safe JSON plus fixed runner failure labels if it times out/fails. It
+must not emit host identity, credentials, ports, executable paths, command
+lines, raw stdout/stderr, raw TCP/RFB errors, request coordinates, dimensions,
+pixels, byte counts, stimulus command text, draft text, marked text, or IME
+state.
