@@ -1247,6 +1247,11 @@ iPhone) and ships as its own PR.
   real sweep, and record the v66/v67 live result showing no depth clears the
   poor-network target. Owns: launchctl runner script, README, research note,
   benchmark artifact. **Done.**
+- **T450** Bounded launchctl VNC profile sweep: add a live runner mode for the
+  fixed `tight-first,zrle-compression-0,adaptive-good-full` candidate set with a
+  script-level wall-clock guard and fixed timeout JSON, so long live sweeps do
+  not block sustained-usability work or print unsafe diagnostics. Owns:
+  launchctl runner, benchmark docs/artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

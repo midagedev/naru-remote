@@ -329,6 +329,13 @@ signing identity, development team, Xcode account, provisioning, and build-check
 status. The device-selection check is intentionally iPhone-only, so a connected
 iPad does not satisfy the T030/T031 gate.
 
+Current bounded VNC profile sweep artifact:
+`artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh bounded-vnc-profile-sweep` when checking
+whether the current live target can complete the fixed VNC candidate set without
+hanging. The mode compares only fixed safe profile labels and returns a fixed
+timeout JSON label if the wall-clock guard fires.
+
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
 export NARU_PHYSICAL_E2E_PASSWORD
