@@ -534,3 +534,35 @@ unknown context. The paired `grantHint` remains a fixed action label such as
 - Keep only `permissionMissing`: rejected because it does not explain whether
   the user should grant a stable helper app/binary or stop using a transient
   development artifact for live capture.
+
+## D18 - Use a stable development helper app wrapper for live ScreenCaptureKit setup
+
+**Decision**: Add `scripts/install-naru-helper-dev-app.sh` to build
+`NaruHelper`, wrap it in a locally installed `NaruHelperDev.app`, ad-hoc sign
+that app, and optionally set `NARU_HELPER_EXECUTABLE` through `launchctl` for
+future live benchmark shells.
+
+**Rationale**:
+- Screen Recording approval should be tied to the helper process that will
+  actually capture frames. A SwiftPM build artifact is convenient but unstable
+  as a repeated TCC permission target.
+- A small dev app wrapper gives local benchmarking an app-bundle identity
+  (`appBundle` / `grantAppBundle`) before the production helper packaging work
+  is ready.
+- The wrapper is explicitly development-only. It does not change the product
+  helper distribution, launchd lifecycle, revocation model, or user-facing
+  install UX.
+
+**Sources**:
+- Apple `Bundle`: https://developer.apple.com/documentation/foundation/bundle
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+- Apple Code Signing Guide:
+  https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/
+
+**Alternatives considered**:
+- Continue granting `.build/debug/NaruHelper`: rejected because it keeps live
+  benchmark permission state coupled to transient build output.
+- Jump directly to production helper packaging: deferred because the current
+  blocker is live benchmark enablement, while the production helper still needs
+  a broader install/update/revocation design.
