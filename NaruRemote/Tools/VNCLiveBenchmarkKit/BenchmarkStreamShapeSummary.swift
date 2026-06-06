@@ -1693,6 +1693,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let iterationOrdinal: Int?
     public let orderOrdinal: Int?
     public let firstFrameMilliseconds: Int?
+    public let firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
     public let summary: BenchmarkStreamShapeSummary
 
     private enum CodingKeys: String, CodingKey {
@@ -1705,6 +1706,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         case iterationOrdinal
         case orderOrdinal
         case firstFrameMilliseconds
+        case firstFrameReceiveTiming
         case summary
     }
 
@@ -1718,6 +1720,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         iterationOrdinal: Int? = nil,
         orderOrdinal: Int? = nil,
         firstFrameMilliseconds: Int?,
+        firstFrameReceiveTiming: RFBFramebufferUpdateTiming? = nil,
         summary: BenchmarkStreamShapeSummary
     ) {
         self.label = label
@@ -1729,6 +1732,7 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         self.iterationOrdinal = iterationOrdinal.map { max($0, 1) }
         self.orderOrdinal = orderOrdinal.map { max($0, 1) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
+        self.firstFrameReceiveTiming = firstFrameReceiveTiming
         self.summary = summary
     }
 
@@ -1759,6 +1763,10 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
             iterationOrdinal: try container.decodeIfPresent(Int.self, forKey: .iterationOrdinal),
             orderOrdinal: try container.decodeIfPresent(Int.self, forKey: .orderOrdinal),
             firstFrameMilliseconds: try container.decodeIfPresent(Int.self, forKey: .firstFrameMilliseconds),
+            firstFrameReceiveTiming: try container.decodeIfPresent(
+                RFBFramebufferUpdateTiming.self,
+                forKey: .firstFrameReceiveTiming
+            ),
             summary: try container.decode(BenchmarkStreamShapeSummary.self, forKey: .summary)
         )
     }
@@ -1775,6 +1783,13 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
     public let requestRegion: BenchmarkStreamShapeRequestRegion
     public let averageRequestRegionAreaPermille: Int?
     public let averageFirstFrameRequestAreaPermille: Int?
+    public let averageFirstFrameReceiveTotalMilliseconds: Int?
+    public let averageFirstFrameNetworkReadMilliseconds: Int?
+    public let averageFirstFrameFirstByteWaitMilliseconds: Int?
+    public let averageFirstFramePayloadReadMilliseconds: Int?
+    public let averageFirstFrameClientProcessingMilliseconds: Int?
+    public let averageFirstFrameFirstByteWaitSharePermille: Int?
+    public let averageFirstFramePayloadReadSharePermille: Int?
     public let runCount: Int
     public let usableRunCount: Int
     public let failedRunCount: Int
@@ -1811,6 +1826,13 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         case requestRegion
         case averageRequestRegionAreaPermille
         case averageFirstFrameRequestAreaPermille
+        case averageFirstFrameReceiveTotalMilliseconds
+        case averageFirstFrameNetworkReadMilliseconds
+        case averageFirstFrameFirstByteWaitMilliseconds
+        case averageFirstFramePayloadReadMilliseconds
+        case averageFirstFrameClientProcessingMilliseconds
+        case averageFirstFrameFirstByteWaitSharePermille
+        case averageFirstFramePayloadReadSharePermille
         case runCount
         case usableRunCount
         case failedRunCount
@@ -1848,6 +1870,13 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         averageRequestRegionAreaPermille: Int? = nil,
         averageFirstFrameRequestAreaPermille: Int? = nil,
+        averageFirstFrameReceiveTotalMilliseconds: Int? = nil,
+        averageFirstFrameNetworkReadMilliseconds: Int? = nil,
+        averageFirstFrameFirstByteWaitMilliseconds: Int? = nil,
+        averageFirstFramePayloadReadMilliseconds: Int? = nil,
+        averageFirstFrameClientProcessingMilliseconds: Int? = nil,
+        averageFirstFrameFirstByteWaitSharePermille: Int? = nil,
+        averageFirstFramePayloadReadSharePermille: Int? = nil,
         runCount: Int,
         usableRunCount: Int,
         failedRunCount: Int,
@@ -1884,6 +1913,27 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         self.averageRequestRegionAreaPermille = Self.clampOptionalPermille(averageRequestRegionAreaPermille)
         self.averageFirstFrameRequestAreaPermille = Self.clampOptionalPermille(
             averageFirstFrameRequestAreaPermille
+        )
+        self.averageFirstFrameReceiveTotalMilliseconds = averageFirstFrameReceiveTotalMilliseconds.map {
+            max($0, 0)
+        }
+        self.averageFirstFrameNetworkReadMilliseconds = averageFirstFrameNetworkReadMilliseconds.map {
+            max($0, 0)
+        }
+        self.averageFirstFrameFirstByteWaitMilliseconds = averageFirstFrameFirstByteWaitMilliseconds.map {
+            max($0, 0)
+        }
+        self.averageFirstFramePayloadReadMilliseconds = averageFirstFramePayloadReadMilliseconds.map {
+            max($0, 0)
+        }
+        self.averageFirstFrameClientProcessingMilliseconds = averageFirstFrameClientProcessingMilliseconds.map {
+            max($0, 0)
+        }
+        self.averageFirstFrameFirstByteWaitSharePermille = Self.clampOptionalPermille(
+            averageFirstFrameFirstByteWaitSharePermille
+        )
+        self.averageFirstFramePayloadReadSharePermille = Self.clampOptionalPermille(
+            averageFirstFramePayloadReadSharePermille
         )
         self.runCount = max(runCount, 0)
         self.usableRunCount = max(usableRunCount, 0)
@@ -1937,6 +1987,34 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             averageFirstFrameRequestAreaPermille: try container.decodeIfPresent(
                 Int.self,
                 forKey: .averageFirstFrameRequestAreaPermille
+            ),
+            averageFirstFrameReceiveTotalMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameReceiveTotalMilliseconds
+            ),
+            averageFirstFrameNetworkReadMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameNetworkReadMilliseconds
+            ),
+            averageFirstFrameFirstByteWaitMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameFirstByteWaitMilliseconds
+            ),
+            averageFirstFramePayloadReadMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFramePayloadReadMilliseconds
+            ),
+            averageFirstFrameClientProcessingMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameClientProcessingMilliseconds
+            ),
+            averageFirstFrameFirstByteWaitSharePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFrameFirstByteWaitSharePermille
+            ),
+            averageFirstFramePayloadReadSharePermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .averageFirstFramePayloadReadSharePermille
             ),
             runCount: try container.decode(Int.self, forKey: .runCount),
             usableRunCount: try container.decode(Int.self, forKey: .usableRunCount),
@@ -2068,6 +2146,16 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
         let unansweredSamplePermille = usableReports.compactMap(\.summary.unansweredSamplePermille)
         let requestRegionAreaPermille = reports.compactMap(\.requestRegionAreaPermille)
         let firstFrameRequestAreaPermille = reports.compactMap(\.firstFrameRequestAreaPermille)
+        let firstFrameTimings = reports.compactMap(\.firstFrameReceiveTiming)
+        let firstFrameNetworkReadMilliseconds = firstFrameTimings.map(\.networkReadMilliseconds)
+        let firstFrameFirstByteWaitMilliseconds = firstFrameTimings.compactMap(\.firstByteWaitMilliseconds)
+        let firstFramePayloadReadMilliseconds = firstFrameTimings.compactMap(\.payloadReadMilliseconds)
+        let firstFrameFirstByteWaitSharePermille = firstFrameTimings.compactMap { timing in
+            Self.permille(timing.firstByteWaitMilliseconds, of: timing.networkReadMilliseconds)
+        }
+        let firstFramePayloadReadSharePermille = firstFrameTimings.compactMap { timing in
+            Self.permille(timing.payloadReadMilliseconds, of: timing.networkReadMilliseconds)
+        }
         let phaseBudgets = usableReports
             .map(\.summary.phaseBudget)
             .filter { $0.sampleCount > 0 }
@@ -2081,6 +2169,17 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             requestRegion: key.requestRegion,
             averageRequestRegionAreaPermille: roundedAverage(requestRegionAreaPermille),
             averageFirstFrameRequestAreaPermille: roundedAverage(firstFrameRequestAreaPermille),
+            averageFirstFrameReceiveTotalMilliseconds: roundedAverage(
+                firstFrameTimings.map(\.totalMilliseconds)
+            ),
+            averageFirstFrameNetworkReadMilliseconds: roundedAverage(firstFrameNetworkReadMilliseconds),
+            averageFirstFrameFirstByteWaitMilliseconds: roundedAverage(firstFrameFirstByteWaitMilliseconds),
+            averageFirstFramePayloadReadMilliseconds: roundedAverage(firstFramePayloadReadMilliseconds),
+            averageFirstFrameClientProcessingMilliseconds: roundedAverage(
+                firstFrameTimings.map(\.clientProcessingMilliseconds)
+            ),
+            averageFirstFrameFirstByteWaitSharePermille: roundedAverage(firstFrameFirstByteWaitSharePermille),
+            averageFirstFramePayloadReadSharePermille: roundedAverage(firstFramePayloadReadSharePermille),
             runCount: reports.count,
             usableRunCount: usableReports.count,
             failedRunCount: reports.count - usableReports.count,
@@ -2160,6 +2259,14 @@ public struct BenchmarkStreamShapeProfileAggregateReport: Codable, Equatable, Se
             return nil
         }
         return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    private static func permille(_ value: Int?, of total: Int) -> Int? {
+        guard let value, total > 0 else {
+            return nil
+        }
+        let rounded = Int((Double(max(value, 0)) / Double(total) * 1_000).rounded())
+        return min(max(rounded, 0), 1_000)
     }
 
     private static func dominantPhase(

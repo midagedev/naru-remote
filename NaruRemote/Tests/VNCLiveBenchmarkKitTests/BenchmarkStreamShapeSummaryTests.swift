@@ -330,6 +330,11 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             iterationOrdinal: 2,
             orderOrdinal: 3,
             firstFrameMilliseconds: 1_234,
+            firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                totalMilliseconds: 1_234,
+                networkReadMilliseconds: 1_200,
+                firstByteWaitMilliseconds: 900
+            ),
             summary: summary
         )
 
@@ -344,6 +349,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.firstFrameRequestAreaPermille, 125)
         XCTAssertEqual(decoded.iterationOrdinal, 2)
         XCTAssertEqual(decoded.orderOrdinal, 3)
+        XCTAssertEqual(decoded.firstFrameReceiveTiming?.networkReadMilliseconds, 1_200)
+        XCTAssertEqual(decoded.firstFrameReceiveTiming?.firstByteWaitMilliseconds, 900)
+        XCTAssertEqual(decoded.firstFrameReceiveTiming?.payloadReadMilliseconds, 300)
     }
 
     func testProfileReportDecodesLegacyPayloadWithoutPacingWindowAndRequestRegionAsDefaults() throws {
@@ -376,7 +384,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 "pacingWindow",
                 "requestRegion",
                 "requestRegionAreaPermille",
-                "firstFrameRequestAreaPermille"
+                "firstFrameRequestAreaPermille",
+                "firstFrameReceiveTiming"
             ]
         )
 
@@ -386,6 +395,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.requestRegion, .full)
         XCTAssertNil(decoded.requestRegionAreaPermille)
         XCTAssertNil(decoded.firstFrameRequestAreaPermille)
+        XCTAssertNil(decoded.firstFrameReceiveTiming)
         XCTAssertEqual(decoded.label, "local-low-latency")
         XCTAssertEqual(decoded.transportMode, .requestResponse)
     }
@@ -663,7 +673,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 iteration: 1,
                 requestRegion: .full,
                 requestRegionAreaPermille: 1_000,
-                firstFrameRequestAreaPermille: 1_000
+                firstFrameRequestAreaPermille: 1_000,
+                firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: 120,
+                    networkReadMilliseconds: 100,
+                    firstByteWaitMilliseconds: 80
+                )
             ),
             profileReport(
                 label: "zrle-compression-0-clipboard",
@@ -671,7 +686,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 iteration: 1,
                 requestRegion: .centerHalf,
                 requestRegionAreaPermille: 250,
-                firstFrameRequestAreaPermille: 125
+                firstFrameRequestAreaPermille: 125,
+                firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: 90,
+                    networkReadMilliseconds: 80,
+                    firstByteWaitMilliseconds: 20
+                )
             ),
             profileReport(
                 label: "zrle-compression-0-clipboard",
@@ -679,7 +699,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                 iteration: 2,
                 requestRegion: .full,
                 requestRegionAreaPermille: 1_000,
-                firstFrameRequestAreaPermille: 1_000
+                firstFrameRequestAreaPermille: 1_000,
+                firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: 80,
+                    networkReadMilliseconds: 60,
+                    firstByteWaitMilliseconds: 30
+                )
             )
         ]
 
@@ -690,10 +715,24 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(aggregates[0].averageUpdateMilliseconds, 89)
         XCTAssertEqual(aggregates[0].averageRequestRegionAreaPermille, 1_000)
         XCTAssertEqual(aggregates[0].averageFirstFrameRequestAreaPermille, 1_000)
+        XCTAssertEqual(aggregates[0].averageFirstFrameReceiveTotalMilliseconds, 100)
+        XCTAssertEqual(aggregates[0].averageFirstFrameNetworkReadMilliseconds, 80)
+        XCTAssertEqual(aggregates[0].averageFirstFrameFirstByteWaitMilliseconds, 55)
+        XCTAssertEqual(aggregates[0].averageFirstFramePayloadReadMilliseconds, 25)
+        XCTAssertEqual(aggregates[0].averageFirstFrameClientProcessingMilliseconds, 20)
+        XCTAssertEqual(aggregates[0].averageFirstFrameFirstByteWaitSharePermille, 650)
+        XCTAssertEqual(aggregates[0].averageFirstFramePayloadReadSharePermille, 350)
         XCTAssertEqual(aggregates[1].runCount, 1)
         XCTAssertEqual(aggregates[1].averageUpdateMilliseconds, 125)
         XCTAssertEqual(aggregates[1].averageRequestRegionAreaPermille, 250)
         XCTAssertEqual(aggregates[1].averageFirstFrameRequestAreaPermille, 125)
+        XCTAssertEqual(aggregates[1].averageFirstFrameReceiveTotalMilliseconds, 90)
+        XCTAssertEqual(aggregates[1].averageFirstFrameNetworkReadMilliseconds, 80)
+        XCTAssertEqual(aggregates[1].averageFirstFrameFirstByteWaitMilliseconds, 20)
+        XCTAssertEqual(aggregates[1].averageFirstFramePayloadReadMilliseconds, 60)
+        XCTAssertEqual(aggregates[1].averageFirstFrameClientProcessingMilliseconds, 10)
+        XCTAssertEqual(aggregates[1].averageFirstFrameFirstByteWaitSharePermille, 250)
+        XCTAssertEqual(aggregates[1].averageFirstFramePayloadReadSharePermille, 750)
     }
 
     func testProfileGatesSummarizePracticalVerdictsByProfile() {
@@ -2286,7 +2325,8 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         pacingWindow: BenchmarkStreamShapePacingWindow = .single,
         requestRegion: BenchmarkStreamShapeRequestRegion = .full,
         requestRegionAreaPermille: Int? = nil,
-        firstFrameRequestAreaPermille: Int? = nil
+        firstFrameRequestAreaPermille: Int? = nil,
+        firstFrameReceiveTiming: RFBFramebufferUpdateTiming? = nil
     ) -> BenchmarkStreamShapeProfileReport {
         BenchmarkStreamShapeProfileReport(
             label: label,
@@ -2298,6 +2338,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
             iterationOrdinal: iteration,
             orderOrdinal: 1,
             firstFrameMilliseconds: 100,
+            firstFrameReceiveTiming: firstFrameReceiveTiming,
             summary: BenchmarkStreamShapeSummary(
                 requestedSamples: durations.count,
                 samples: durations.map { duration in

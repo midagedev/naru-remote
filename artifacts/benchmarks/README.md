@@ -636,6 +636,16 @@ normal viewport margin and fallback behavior. Poor-network traffic gates now
 judge the larger of sustained request area and first-frame request area, and
 reports still emit only fixed labels and framebuffer-relative permille ratios,
 never coordinates, dimensions, byte counts, pixels, or payloads.
+Schema v59 adds `firstFrameReceiveTiming` and aggregate first-frame receive
+timing fields so startup can be separated into first-byte wait, payload read,
+and client processing without exposing frame contents. The first v59 live
+artifact is
+`2026-06-06-constrained-cellular-visible-core-startup-timing-summary.md`; it
+shows RGB565 visible-core startup still failing just above 20 s, with roughly
+95% of first-frame network read time spent in payload read. Sustained samples
+from the same run remain first-byte-wait dominated, so startup payload pressure
+and steady update-wait cadence should be treated as separate optimization
+tracks.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
