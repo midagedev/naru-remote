@@ -260,6 +260,32 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         timeout: TimeInterval = 2,
         region: RFBFramebufferUpdateRegion?
     ) throws -> RFBFramebufferUpdateResult {
+        try sendFramebufferUpdateRequest(
+            incremental: incremental,
+            timeout: timeout,
+            region: region
+        )
+
+        // Incremental requests are allowed to stay unanswered while the
+        // requested area has no changes. Preserve the socket on a zero-byte
+        // read timeout so viewport-region probes can fall back to a full
+        // request without reconnecting.
+        return try receiveFramebufferUpdate(
+            timeout: timeout,
+            allowsIdleTimeout: incremental
+        )
+    }
+
+    /// Sends `FramebufferUpdateRequest` on the active session without
+    /// waiting for the server reply. Production frame delivery should keep
+    /// using `requestFramebufferUpdate`; this split is for benchmark-only
+    /// request/response pacing experiments that keep multiple requests
+    /// outstanding before reading the next update.
+    public func sendFramebufferUpdateRequest(
+        incremental: Bool = false,
+        timeout: TimeInterval = 2,
+        region: RFBFramebufferUpdateRegion? = nil
+    ) throws {
         let context = lock.withRFBClientLock {
             (activeConnection, clientServerInit)
         }
@@ -277,15 +303,6 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             ),
             to: connection,
             timeout: timeout
-        )
-
-        // Incremental requests are allowed to stay unanswered while the
-        // requested area has no changes. Preserve the socket on a zero-byte
-        // read timeout so viewport-region probes can fall back to a full
-        // request without reconnecting.
-        return try receiveFramebufferUpdate(
-            timeout: timeout,
-            allowsIdleTimeout: incremental
         )
     }
 
@@ -1109,7 +1126,14 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     }
 }
 
-extension RFBNetworkClient: RFBStreamingClient, RFBRegionFramebufferUpdating, RFBContinuousFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {}
+extension RFBNetworkClient:
+    RFBStreamingClient,
+    RFBRegionFramebufferUpdating,
+    RFBFramebufferUpdateRequestSending,
+    RFBContinuousFramebufferUpdateReceiving,
+    RFBTransportControlClient,
+    RFBContinuousUpdateCapabilityReporting
+{}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case invalidPort(UInt16)

@@ -94,6 +94,17 @@ public protocol RFBFramebufferUpdateReceiving: Sendable {
     func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult
 }
 
+/// Capability boundary for sending a `FramebufferUpdateRequest` without
+/// immediately reading the corresponding update. This is used only by
+/// transport experiments that compare request/response pacing strategies.
+public protocol RFBFramebufferUpdateRequestSending: Sendable {
+    func sendFramebufferUpdateRequest(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws
+}
+
 /// ContinuousUpdates-specific receive boundary. Unlike the generic
 /// receive path, implementations may treat an idle receive timeout as a
 /// non-fatal zero-change tick when the transport can preserve partial
