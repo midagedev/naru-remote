@@ -15,6 +15,7 @@ Modes:
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
+  bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -129,6 +130,61 @@ run_benchmark_with_extra() {
     args+=("${extra_args[@]}")
   fi
   run_benchmark "${args[@]}"
+}
+
+run_with_wall_timeout() {
+  local seconds="$1"
+  shift
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  local timeout_marker
+  timeout_marker="$(mktemp "${TMPDIR:-/tmp}/naru-benchmark-timeout.XXXXXX")"
+
+  "$@" &
+  local command_pid=$!
+  (
+    sleep "$seconds"
+    if kill -0 "$command_pid" >/dev/null 2>&1; then
+      printf '1' >"$timeout_marker"
+      pkill -TERM -P "$command_pid" >/dev/null 2>&1 || true
+      kill -TERM "$command_pid" >/dev/null 2>&1 || true
+    fi
+  ) &
+  local watchdog_pid=$!
+
+  local status=0
+  if wait "$command_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  kill "$watchdog_pid" >/dev/null 2>&1 || true
+  wait "$watchdog_pid" >/dev/null 2>&1 || true
+  if [[ -s "$timeout_marker" ]]; then
+    RUN_WITH_WALL_TIMEOUT_EXPIRED=1
+  fi
+  rm -f "$timeout_marker"
+  return "$status"
+}
+
+json_benchmark_or_timeout_failure() {
+  local wall_timeout_seconds="$1"
+  shift
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-benchmark-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":"benchmarkStep.boundedVNCProfileSweep.timedOut"}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-sweep","status":"failed","safeFailureCode":"benchmarkStep.boundedVNCProfileSweep.failed"}\n'
+  fi
+  rm -f "$output_file"
 }
 
 reject_extra_args() {
@@ -535,6 +591,36 @@ case "$mode" in
         --json
     done
     printf '\n]\n'
+    ;;
+  bounded-vnc-profile-sweep)
+    import_live_env
+    reject_extra_flag --stream-shape-profiles
+    reject_extra_flag --stream-shape-transport
+    reject_extra_flag --stream-shape-profile-iterations
+    reject_extra_flag --timeout
+    reject_extra_flag --idle-timeout
+    cd "$repo_root"
+    bounded_args=(
+      --stream-shape-gate-preset sustained-v2-core
+      --stream-shape-transport request-response
+      --stream-shape-profiles tight-first,zrle-compression-0,adaptive-good-full
+      --stream-shape-profile-order rotate
+      --stream-shape-profile-iterations 1
+      --first-frame-profiles none
+      --full-refresh-samples 0
+      --continuous-update-samples 0
+      --stream-shape-samples 1
+      --stream-shape-duration-seconds 2
+      --timeout 8
+      --idle-timeout 2
+      --json
+    )
+    if ((extra_arg_count)); then
+      bounded_args+=("${extra_args[@]}")
+    fi
+    json_benchmark_or_timeout_failure \
+      45 \
+      swift run --quiet VNCLiveBenchmark "${bounded_args[@]}"
     ;;
   physical-device-preflight)
     physical_preflight

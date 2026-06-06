@@ -5387,3 +5387,51 @@ permille metrics. They must not emit host identity, credentials, port values,
 helper executable paths, request coordinates, dimensions, byte counts, pixels,
 cursor pixels, raw TCP/RFB errors, raw payloads, stimulus command text, command
 output, draft text, marked text, or IME state.
+
+### D119 Bound Targeted VNC Profile Sweeps With A Wall-Clock Guard
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- TurboVNC H.264 study: https://turbovnc.org/About/H264
+- Apple frame-rate range guidance:
+  https://developer.apple.com/documentation/quartzcore/cametaldisplaylink/preferredframeraterange
+- `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`
+
+**Decision**: add a launchctl-backed `bounded-vnc-profile-sweep` mode that
+compares the fixed candidate set
+`tight-first,zrle-compression-0,adaptive-good-full` under the sustained v2
+request/response gate, but wraps the benchmark in a script-level wall-clock
+guard. If the benchmark does not finish, the runner emits a fixed timeout JSON
+label instead of blocking long-running work.
+
+**Why**:
+- RFB's portable baseline is client request/response, so a viewer's request
+  cadence and timeout behavior are part of the optimization surface.
+- TigerVNC exposes encoding/compression/quality controls, which supports
+  measuring candidates per server and link rather than assuming one profile is
+  globally best.
+- TurboVNC's H.264 study shows that video-style compression can reduce bytes
+  but cost much more CPU, especially when desktop workloads arrive as many
+  small regions. Helper video should therefore stay benchmark-gated while VNC
+  profile sweeps remain cheap and bounded.
+- Apple's frame-rate APIs are best-effort under device/system policy, so
+  sustained iPhone usability needs repeatable bounded runs instead of open-ended
+  manual waits.
+
+**Evidence**:
+- A direct full-profile live sweep exceeded the interactive wait budget and had
+  to be terminated.
+- A direct single-profile `zrle-compression-0` smoke also exceeded the
+  interactive wait budget.
+- The new bounded runner returns
+  `benchmarkStep.boundedVNCProfileSweep.timedOut` inside the wall-clock guard
+  without printing secrets, host identity, raw errors, dimensions, coordinates,
+  pixels, byte counts, stimulus command text, or command output.
+
+**Interpretation**:
+- The current live path is not ready for profile-promotion evidence; the next
+  useful work is redacted phase attribution for bounded sweeps, not a production
+  streaming-default change.
+- Production stream defaults remain unchanged until a bounded profile report
+  completes and passes the sustained usability candidate contract.
