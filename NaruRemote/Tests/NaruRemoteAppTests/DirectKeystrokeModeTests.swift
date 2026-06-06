@@ -1,3 +1,5 @@
+import Foundation
+import os
 import XCTest
 import NaruRemoteCore
 @testable import NaruRemoteApp
@@ -133,6 +135,63 @@ final class DirectKeystrokeModeTests: XCTestCase {
         // No assertion on wire (no active session); the test's
         // value is that no crash / typed exception leaks out.
         XCTAssertTrue(model.directKeystrokeMode.isActive)
+    }
+
+    func testTapDirectKeyReturnsBeforeSlowWireWritesAndKeepsOrder() async throws {
+        // Regression for live-device freezes: the production RFB
+        // key write path can wait on socket backpressure. A soft-key
+        // tap must enqueue that work and return to MainActor
+        // immediately, while the outbound queue still preserves the
+        // exact key down/up ordering.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            keyEventDelay: .milliseconds(150)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.toggleDirectKeystrokeMode()
+
+        let startedAt = Date()
+        await model.tapDirectKey(.character("a"))
+        await model.tapDirectKey(.character("b"))
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertLessThan(
+            elapsed,
+            0.12,
+            "Direct key taps should not wait for delayed VNC socket writes"
+        )
+        XCTAssertTrue(
+            connector.recordedKeyEvents.isEmpty,
+            "Delayed wire writes should still be pending immediately after enqueue"
+        )
+
+        try await waitForKeyEvents(connector, count: 4)
+        let events = connector.recordedKeyEvents
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0].keysym, 0x0061)
+        XCTAssertTrue(events[0].isDown)
+        XCTAssertEqual(events[1].keysym, 0x0061)
+        XCTAssertFalse(events[1].isDown)
+        XCTAssertEqual(events[2].keysym, 0x0062)
+        XCTAssertTrue(events[2].isDown)
+        XCTAssertEqual(events[3].keysym, 0x0062)
+        XCTAssertFalse(events[3].isDown)
     }
 
     // MARK: - Sticky modifier integration (Phase 4 / US-2)
@@ -412,5 +471,134 @@ final class DirectKeystrokeModeTests: XCTestCase {
         // tap would have flipped locked → idle.  The expected
         // post-clear behavior is idle → armed.
         XCTAssertEqual(model.stickyModifierState.slot(for: .control), .armed)
+    }
+
+    private func waitForConnectedDirectSession(
+        _ model: NaruRemoteAppModel,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if model.snapshot.latestFramebuffer != nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for active Direct Keystroke session")
+        throw DirectKeystrokeTestTimeout.connectedSession
+    }
+
+    private func waitForKeyEvents(
+        _ connector: KeyCapturingStreamingConnector,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connector.recordedKeyEvents.count >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(count) key events; got \(connector.recordedKeyEvents.count)")
+        throw DirectKeystrokeTestTimeout.keyEvents
+    }
+}
+
+private enum DirectKeystrokeTestTimeout: Error {
+    case connectedSession
+    case keyEvents
+}
+
+private final class KeyCapturingStreamingConnector: RFBStreamingClient {
+    private struct Recording {
+        var framebuffers: [RFBRawFramebuffer]
+        var recordedKeyEventsList: [(keysym: UInt32, isDown: Bool)] = []
+    }
+
+    private let recording: OSAllocatedUnfairLock<Recording>
+    private let width: Int
+    private let height: Int
+    private let name: String
+    private let keyEventDelay: Duration?
+
+    init(
+        width: Int,
+        height: Int,
+        name: String,
+        framebuffer: RFBRawFramebuffer,
+        keyEventDelay: Duration? = nil
+    ) {
+        self.width = width
+        self.height = height
+        self.name = name
+        self.keyEventDelay = keyEventDelay
+        self.recording = OSAllocatedUnfairLock(
+            initialState: Recording(framebuffers: [framebuffer, framebuffer, framebuffer])
+        )
+    }
+
+    var state: RFBClientState { .receivingFrames }
+    var lastFrame: RFBFrameMetadata? {
+        RFBFrameMetadata(width: width, height: height)
+    }
+
+    var recordedKeyEvents: [(keysym: UInt32, isDown: Bool)] {
+        recording.withLock { $0.recordedKeyEventsList }
+    }
+
+    func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
+        try connectSession(host: host, port: port, credential: .none, timeout: timeout)
+    }
+
+    func connectFirstFrame(host: String, port: UInt16, credential: RFBConnectionCredential, timeout: TimeInterval) throws -> RFBServerInit {
+        try connectSession(host: host, port: port, credential: credential, timeout: timeout)
+    }
+
+    func connectNoAuthSession(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
+        try connectSession(host: host, port: port, credential: .none, timeout: timeout)
+    }
+
+    func connectSession(host: String, port: UInt16, credential: RFBConnectionCredential, timeout: TimeInterval) throws -> RFBServerInit {
+        RFBServerInit(
+            width: width,
+            height: height,
+            pixelFormat: RFBPixelFormat(
+                bitsPerPixel: 32,
+                depth: 24,
+                isBigEndian: false,
+                isTrueColor: true,
+                redMax: 255,
+                greenMax: 255,
+                blueMax: 255,
+                redShift: 16,
+                greenShift: 8,
+                blueShift: 0
+            ),
+            name: name
+        )
+    }
+
+    func requestRawFramebufferUpdate(incremental: Bool, timeout: TimeInterval) throws -> RFBRawFramebuffer {
+        let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
+            state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+        }
+        guard let framebuffer else {
+            throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
+        }
+        return framebuffer
+    }
+
+    func setClipboardText(_ text: String) throws {}
+    func sendPasteCommand(_ command: PasteCommand) throws {}
+    func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {}
+
+    func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        if let keyEventDelay {
+            try await Task.sleep(for: keyEventDelay)
+        }
+        recording.withLock { state in
+            state.recordedKeyEventsList.append((keysym, isDown))
+        }
     }
 }

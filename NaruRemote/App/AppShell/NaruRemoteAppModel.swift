@@ -247,6 +247,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// an individual write; otherwise two quick taps can interleave as
     /// down/down/up/up instead of two complete click pairs.
     private var pointerEventTail: Task<Void, Never>?
+    /// Serial tail for outbound key events. Direct-mode soft-key taps,
+    /// hardware-keyboard presses, and Compose quick keys must preserve
+    /// the order the user produced them, but the UI thread must not wait
+    /// for synchronous VNC socket writes hidden behind the async protocol
+    /// boundary.
+    private var keyEventTail: Task<Void, Never>?
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -2052,7 +2058,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestViewportTransform = nil
         resetConnectionQuality()
         resetPointerControl()
-        cancelPointerEventQueue()
+        cancelOutboundInputEventQueues()
 
         runConnectionChecks()
         startHelperTextBridgeProbes(for: [profile])
@@ -2082,7 +2088,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stickyModifierState = .init()
             resetPointerControl()
             lastEmittedDragCoord = nil
-            cancelPointerEventQueue()
+            cancelOutboundInputEventQueues()
             latestFramebuffer = nil
             latestFrameDirtyRectangles = nil
             latestFrameChangedPixelCount = nil
@@ -3153,7 +3159,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         stickyModifierState = .init()
         resetPointerControl()
         lastEmittedDragCoord = nil
-        cancelPointerEventQueue()
+        cancelOutboundInputEventQueues()
         stopIncomingClipboardReceive()
 
         var updatedSession = session ?? RemoteSession(profileID: profile.id)
@@ -3443,7 +3449,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         deferredViewportInteractionFrame = nil
         lastViewportInteractionFramePublishedAt = nil
         viewportInteractionStartedAt = nil
+        cancelOutboundInputEventQueues()
+    }
+
+    private func cancelOutboundInputEventQueues() {
         cancelPointerEventQueue()
+        cancelKeyEventQueue()
     }
 
     private func cancelPointerEventQueue() {
@@ -3452,6 +3463,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         pendingPointerMove = nil
         pointerEventTail?.cancel()
         pointerEventTail = nil
+    }
+
+    private func cancelKeyEventQueue() {
+        keyEventTail?.cancel()
+        keyEventTail = nil
     }
 
     /// Begin a long-lived receive loop that pulls `ServerCutText`
@@ -3825,7 +3841,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
             let modifiers = stickyModifierState.activeModifiers
-            try? await emitter.emit(keysym: keysym, modifiers: modifiers)
+            enqueueKeyEventEmission(
+                emitter: emitter,
+                streamID: activeFrameStreamID,
+                sessionID: session?.id,
+                profileID: selectedProfileID
+            ) {
+                try await emitter.emit(keysym: keysym, modifiers: modifiers)
+            }
             stickyModifierState.consumeAfterNonModifierEmission()
 
         case .named(let namedKey):
@@ -3836,7 +3859,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
             let keysym = KeysymMapping.keysym(for: namedKey)
             let modifiers = stickyModifierState.activeModifiers
-            try? await emitter.emit(keysym: keysym, modifiers: modifiers)
+            enqueueKeyEventEmission(
+                emitter: emitter,
+                streamID: activeFrameStreamID,
+                sessionID: session?.id,
+                profileID: selectedProfileID
+            ) {
+                try await emitter.emit(keysym: keysym, modifiers: modifiers)
+            }
             stickyModifierState.consumeAfterNonModifierEmission()
         }
     }
@@ -3896,7 +3926,14 @@ public final class NaruRemoteAppModel: ObservableObject {
         // reuse `KeystrokeEmitter.emitHardware(keysym:modifiers:)`
         // for wrapping without changing this caller surface.
         _ = modifiers
-        try? await emitter.emitHardware(keysym: keysym, isDown: isDown)
+        enqueueKeyEventEmission(
+            emitter: emitter,
+            streamID: activeFrameStreamID,
+            sessionID: session?.id,
+            profileID: selectedProfileID
+        ) {
+            try await emitter.emitHardware(keysym: keysym, isDown: isDown)
+        }
     }
 
     /// Send a discrete terminal-control key (Esc / Tab / Ctrl-C /
@@ -3926,7 +3963,73 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         let emission = key.emission
-        try? await emitter.emit(keysym: emission.keysym, modifiers: emission.modifiers)
+        enqueueKeyEventEmission(
+            emitter: emitter,
+            streamID: activeFrameStreamID,
+            sessionID: session?.id,
+            profileID: selectedProfileID
+        ) {
+            try await emitter.emit(
+                keysym: emission.keysym,
+                modifiers: emission.modifiers
+            )
+        }
+    }
+
+    private func enqueueKeyEventEmission(
+        emitter: KeystrokeEmitter,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?,
+        operation: @escaping @Sendable () async throws -> Void
+    ) {
+        let previous = keyEventTail
+        let task = Task.detached(priority: .userInitiated) { [
+            weak self,
+            previous,
+            emitter,
+            streamID,
+            sessionID,
+            profileID,
+            operation
+        ] in
+            await previous?.value
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let isStillCurrent = await MainActor.run { [weak self] in
+                guard let self else {
+                    return false
+                }
+                return self.activeFrameStreamID == streamID
+                    && self.session?.id == sessionID
+                    && self.selectedProfileID == profileID
+                    && self.keystrokeEmitter === emitter
+            }
+            guard isStillCurrent else {
+                return
+            }
+
+            do {
+                try await operation()
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self,
+                          self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID,
+                          self.keystrokeEmitter === emitter
+                    else {
+                        return
+                    }
+                    self.cancelKeyEventQueue()
+                    self.activeKeyEventClient = nil
+                    self.keystrokeEmitter = nil
+                }
+            }
+        }
+        keyEventTail = task
     }
 
     nonisolated private static func connectAndReadFirstFrame(
@@ -5050,9 +5153,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         let previous = pointerEventTail
-        let task = Task { [weak self, previous, pointerClient, commands, streamID, sessionID, profileID] in
+        let task = Task.detached(priority: .userInitiated) { [
+            weak self,
+            previous,
+            pointerClient,
+            commands,
+            streamID,
+            sessionID,
+            profileID
+        ] in
             await previous?.value
             guard !Task.isCancelled else {
+                return
+            }
+
+            let isStillCurrent = await MainActor.run { [weak self] in
+                guard let self else {
+                    return false
+                }
+                return self.activeFrameStreamID == streamID
+                    && self.session?.id == sessionID
+                    && self.selectedProfileID == profileID
+            }
+            guard isStillCurrent else {
                 return
             }
 
