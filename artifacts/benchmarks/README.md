@@ -145,6 +145,12 @@ confirms external synthetic helper-video is still green, confirms
 `NaruHelperDev` Screen Recording permission is still missing, and records the
 current short constrained-cellular VNC fallback failure as
 `first-frame-payload-read-failed` on the receive path.
+Current launchctl startup glance scale refresh:
+`artifacts/benchmarks/2026-06-07-launchctl-glance-scale-refresh-summary.md`.
+Using the launchctl runner, `0.25` again improves
+`local-low-latency-rgb565` from failure to warning with a `19` permille
+first-frame request area, but the overall app-low-traffic gate remains failed
+and needs physical iPhone validation before any default promotion.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
