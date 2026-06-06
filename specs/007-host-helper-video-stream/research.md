@@ -356,3 +356,41 @@ helper-video port, and an explicit finite source choice:
 - Jump straight to a long-lived adaptive sender: deferred until the finite
   process entrypoint, app runner, and benchmark report path are all connected
   and reviewed.
+
+## D13 - Benchmark the external helper-listen path before live capture default
+
+**Decision**: Add an `external-helper-synthetic-encoded-tcp` benchmark probe
+mode that launches `NaruHelper --video-listen` as a separate process with
+env-indirected synthetic pairing state, connects through the same
+`HelperVideoStreamNetworkClient`, and reports only aggregate helper-video health
+bands.
+
+**Rationale**:
+- The in-process TCP harness proves frame parsing and authentication, but it
+  bypasses the real helper executable, CLI parsing, process environment,
+  listener lifecycle, and app-to-helper connection timing.
+- Apple documents `Foundation.Process` as a process launched with an executable
+  URL, arguments, standard streams, and environment. That is the closest local
+  benchmark shape before the packaged helper/pairing lifecycle exists.
+- The first external-helper benchmark should use the deterministic
+  `synthetic-encoded` source so a missing Screen Recording permission does not
+  hide process/listener regressions.
+- The helper path, environment variable names or values, endpoint, pairing
+  secret, profile fingerprint, access-unit payloads, byte counts, dimensions,
+  raw errors, and exact timings remain outside the report.
+
+**Sources**:
+- Apple `Process`: https://developer.apple.com/documentation/foundation/process
+- Apple `Process.executableURL`:
+  https://developer.apple.com/documentation/foundation/process/executableurl
+
+**Alternatives considered**:
+- Call the helper listen runtime directly from the benchmark: rejected because
+  that would keep the benchmark in the same process and miss CLI/process
+  lifecycle regressions.
+- Use `screen-capturekit` for the first external-helper benchmark: deferred
+  because permission-missing states need to stay distinguishable from helper
+  launch and listener failures.
+- Export the helper executable path or port on failure: rejected because the
+  benchmark report privacy boundary allows only fixed labels and aggregate
+  health bands.

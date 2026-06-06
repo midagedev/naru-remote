@@ -134,6 +134,8 @@ counts, host names, raw OS errors, or exact timings.
 ## Implemented Helper Video Benchmark TCP Probe
 
 ```bash
+swift build --product NaruHelper
+
 NARU_LIVE_MAC_HOST="$(launchctl getenv NARU_LIVE_MAC_HOST)" \
 NARU_LIVE_MAC_PORT="$(launchctl getenv NARU_LIVE_MAC_PORT)" \
 NARU_LIVE_MAC_PASSWORD="$(launchctl getenv NARU_LIVE_MAC_PASSWORD)" \
@@ -154,9 +156,35 @@ VideoToolbox H.264 output as the access-unit source before sending it through
 the same finite TCP harness. `screen-capturekit-tcp` captures a finite batch of
 ScreenCaptureKit frames, converts their `CVPixelBuffer` images through the same
 VideoToolbox encoder, and sends those access units through the local TCP
-harness. These modes report only fixed helper-video labels and aggregate health
-bands. The default remains `disabled` so live VNC reports do not imply a
-long-lived ScreenCaptureKit sender before it exists.
+harness. `external-helper-synthetic-encoded-tcp` launches
+`.build/debug/NaruHelper --video-listen` with env-indirected synthetic pairing
+state, then connects the benchmark's helper-video network client to that
+external helper process. Override the helper executable with
+`NARU_HELPER_EXECUTABLE` when testing a packaged helper build; Xcode smoke
+runs may also use the `BUILT_PRODUCTS_DIR` or `CONFIGURATION_BUILD_DIR`
+fallback for the built `NaruHelper` binary. These modes report only fixed
+helper-video labels and aggregate health bands; reports must not include helper
+executable paths, environment variable names or values, endpoints, frame
+payloads, byte counts, dimensions, raw errors, or exact timings. The default
+remains `disabled` so live VNC reports do not imply a long-lived
+ScreenCaptureKit sender before it exists.
+
+```bash
+swift build --product NaruHelper
+
+NARU_LIVE_MAC_HOST="$(launchctl getenv NARU_LIVE_MAC_HOST)" \
+NARU_LIVE_MAC_PORT="$(launchctl getenv NARU_LIVE_MAC_PORT)" \
+NARU_LIVE_MAC_PASSWORD="$(launchctl getenv NARU_LIVE_MAC_PASSWORD)" \
+NARU_LIVE_STIMULUS_COMMAND="$(launchctl getenv NARU_LIVE_STIMULUS_COMMAND)" \
+swift run VNCLiveBenchmark \
+  --first-frame-profiles none \
+  --full-refresh-samples 0 \
+  --continuous-update-samples 0 \
+  --stream-shape-samples 0 \
+  --visual-transport helper-video \
+  --helper-video-probe external-helper-synthetic-encoded-tcp \
+  --json
+```
 
 ## Implemented iOS H.264 Decode / Display Prototype
 
@@ -207,10 +235,13 @@ helper sender/listener is connected. Use `--helper-video-probe
 synthetic-encoded-tcp` when the benchmark should exercise real local
 VideoToolbox H.264 access units without exporting frames, dimensions,
 endpoints, byte counts, or exact timings. Use `--helper-video-probe
-screen-capturekit-tcp` only when the Mac helper process has Screen Recording
-permission and the run should exercise a finite real screen-capture batch
-through the same safe aggregate report boundary. Reports must preserve the
-privacy boundary from `spec.md` and `research.md`.
+external-helper-synthetic-encoded-tcp` when the benchmark should launch the
+real `NaruHelper --video-listen` process before connecting the helper-video
+client. Use `--helper-video-probe screen-capturekit-tcp` only when the Mac
+helper process has Screen Recording permission and the run should exercise a
+finite real screen-capture batch through the same safe aggregate report
+boundary. Reports must preserve the privacy boundary from `spec.md` and
+`research.md`.
 
 When Screen Recording permission is missing, `screen-capturekit-tcp` reports the
 fixed issue code `helper-video-permission-missing` and must not start capture or

@@ -157,6 +157,10 @@ without unsafe report fields.
   fingerprint/port/source configuration, env indirection for sensitive inputs,
   and finite ScreenCaptureKit or synthetic-encoded access-unit sources.
   **Done.**
+- [x] T029H [US2] Add an external-helper benchmark probe that launches
+  `NaruHelper --video-listen` with env-indirected synthetic pairing state and
+  connects through the helper-video network client while keeping reports
+  privacy-safe. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
