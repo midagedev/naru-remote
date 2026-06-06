@@ -117,3 +117,32 @@ per-frame timings.
   visual checks may record redacted notes, but frame artifacts are not
   committed by default.
 - Raw byte counters: rejected by the existing benchmark privacy posture.
+
+## D6 - Probe ScreenCaptureKit permission before shareable content
+
+**Decision**: The first helper capture probe checks Screen Recording permission
+with `CGPreflightScreenCaptureAccess()` before querying ScreenCaptureKit
+shareable content.
+
+**Rationale**:
+- Apple documents ScreenCaptureKit as the high-performance screen/audio capture
+  framework and shows `SCShareableContent` as the source of displays, apps, and
+  windows that can be captured.
+- Apple's sample notes that first run prompts for Screen Recording permission
+  and that the app needs a restart after granting permission.
+- A preflight check lets the helper report `permissionMissing` without touching
+  shareable content, avoiding accidental prompts or unsafe content metadata in
+  diagnostics.
+
+**Sources**:
+- Apple ScreenCaptureKit: https://developer.apple.com/documentation/screencapturekit
+- Apple Capturing screen content in macOS: https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos
+- Apple `CGRequestScreenCaptureAccess`: https://developer.apple.com/documentation/coregraphics/cgrequestscreencaptureaccess%28%29
+
+**Alternatives considered**:
+- Query `SCShareableContent` first and infer permission from errors: rejected
+  because errors are not diagnostic-safe and the permission boundary should be
+  explicit.
+- Request permission automatically from the CLI smoke: rejected for this PR;
+  the helper should expose fixed state first, then a later UI/pairing flow can
+  decide when to request permission.

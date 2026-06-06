@@ -123,9 +123,9 @@ without unsafe report fields.
 
 ## Phase 6: macOS Helper Prototype
 
-- [ ] T025 [P] [US1] Add ScreenCaptureKit capture capability probe to
+- [x] T025 [P] [US1] Add ScreenCaptureKit capture capability probe to
   `NaruHelper/Sources/NaruHelper/`; verify permission catalog states with
-  `swift test --filter NaruHelperVideo`.
+  `swift test --filter NaruHelperVideo`. **Done.**
 - [ ] T026 [US1] Add VideoToolbox H.264 encoder prototype behind a helper
   feature flag.
 - [ ] T027 [US1] Add authenticated helper-video transport messages according

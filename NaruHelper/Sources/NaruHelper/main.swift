@@ -4,7 +4,7 @@ import NaruHelperKit
 import NaruRemoteCore
 
 private enum NaruHelperCLI {
-    static func run() throws {
+    static func run() async throws {
         if CommandLine.arguments.contains("--listen") {
             try listen()
             return
@@ -12,6 +12,11 @@ private enum NaruHelperCLI {
 
         if CommandLine.arguments.contains("--capability") {
             try writeCapabilityResponse()
+            return
+        }
+
+        if CommandLine.arguments.contains("--video-capability") {
+            try await writeVideoCapabilityResponse()
             return
         }
 
@@ -23,6 +28,11 @@ private enum NaruHelperCLI {
 
     private static func writeCapabilityResponse() throws {
         try writeJSON(capabilityResponse())
+    }
+
+    private static func writeVideoCapabilityResponse() async throws {
+        let response = await NaruHelperVideoCaptureCapabilityProbe.live().capability()
+        try writeJSON(response)
     }
 
     private static func capabilityResponse() -> NaruHelperCapabilityResponse {
@@ -112,7 +122,7 @@ private enum NaruHelperCLI {
 }
 
 do {
-    try NaruHelperCLI.run()
+    try await NaruHelperCLI.run()
 } catch {
     FileHandle.standardError.write(Data("NaruHelper failed with a fixed safe error.\n".utf8))
     Darwin.exit(2)

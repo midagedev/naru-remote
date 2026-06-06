@@ -69,6 +69,38 @@ Privacy:
 - No helper endpoint, host name, auth token, display dimensions, frame content,
   byte counts, coordinates, or exact timing.
 
+## NaruHelperVideoCaptureCapabilityResponse
+
+Safe macOS helper response for the ScreenCaptureKit capture probe.
+
+Fields:
+
+- `schemaVersion`: Integer contract version.
+- `availability`: Fixed `HelperVideoAvailability` label.
+- `screenRecordingPermission`: Fixed label:
+  - `granted`
+  - `missing`
+  - `unsupported`
+- `captureSourceState`: Fixed label:
+  - `notChecked`
+  - `available`
+  - `unavailable`
+  - `unsupported`
+- `captureAPI`: Optional fixed label, initially `screenCaptureKit`.
+- `safeFailureCode`: Optional fixed helper-video failure code.
+
+Rules:
+
+- Missing Screen Recording permission reports `permissionMissing` and does not
+  query shareable screen content.
+- Granted permission may query ScreenCaptureKit shareable content, but reports
+  only a fixed availability state.
+
+Privacy:
+
+- No display identifiers, display names, window names, dimensions, frame
+  content, endpoints, host names, byte counts, exact timings, or OS error text.
+
 ## HelperVideoStreamDescriptor
 
 Safe stream metadata exchanged after authentication.
