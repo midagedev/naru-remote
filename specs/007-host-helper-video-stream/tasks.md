@@ -85,19 +85,20 @@ without unsafe report fields.
 
 ### Tests First
 
-- [ ] T016 [P] [US2] Add failing benchmark CLI/report tests for a fixed
-  helper-video visual transport label.
-- [ ] T017 [P] [US2] Add privacy fixture tests proving helper-video reports
+- [x] T016 [P] [US2] Add failing benchmark CLI/report tests for a fixed
+  helper-video visual transport label. **Done.**
+- [x] T017 [P] [US2] Add privacy fixture tests proving helper-video reports
   omit frames, dimensions, endpoints, byte counts, exact timings, and tokens.
+  **Done.**
 
 ### Implementation
 
-- [ ] T018 [US2] Add benchmark-only helper-video transport shape to
-  `NaruRemote/Tools/VNCLiveBenchmark/`.
-- [ ] T019 [US2] Add fixed gate issue labels for helper-video startup,
-  sustained, decode/render, and fallback health.
-- [ ] T020 [US2] Record a benchmark artifact comparing fake-helper output to
-  the existing VNC report shape before any live run.
+- [x] T018 [US2] Add benchmark-only helper-video transport shape to
+  `NaruRemote/Tools/VNCLiveBenchmark/`. **Done.**
+- [x] T019 [US2] Add fixed gate issue labels for helper-video startup,
+  sustained, decode/render, and fallback health. **Done.**
+- [x] T020 [US2] Record a benchmark artifact comparing fake-helper output to
+  the existing VNC report shape before any live run. **Done.**
 
 **Checkpoint**: Helper-video benchmark artifacts are privacy-safe.
 

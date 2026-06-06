@@ -18,6 +18,7 @@ swift test --filter HelperVideo
 swift test --filter HelperVideoFakeTransportTests
 swift test --filter DiagnosticExportTests
 swift test --filter BenchmarkHelperVideoReportTests
+swift test --filter BenchmarkVisualTransport
 ```
 
 ## Implemented App Model Tests
@@ -50,8 +51,9 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
-The exact CLI option name may change during implementation, but reports must
-preserve the privacy boundary from `spec.md` and `research.md`.
+The helper-video side of the report is still a benchmark-only fake transport
+shape until the helper stream implementation lands. Reports must preserve the
+privacy boundary from `spec.md` and `research.md`.
 
 ## Planned Physical Gate
 

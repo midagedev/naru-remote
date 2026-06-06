@@ -167,6 +167,7 @@ enum VNCLiveBenchmark {
             firstFrameProfiles: options.firstFrameProfiles,
             streamShapeProfiles: options.streamShapeProfiles,
             streamShapeTransportModes: options.streamShapeTransportModes,
+            visualTransports: options.visualTransports,
             profiles: profiles,
             idleProbe: idleProbe,
             streamShapeProbe: streamShapeProbe,
@@ -1335,6 +1336,7 @@ private struct BenchmarkOptions: Equatable {
     var firstFrameProfiles: BenchmarkFirstFrameProfileSelection = .all
     var streamShapeProfiles: StreamShapeProfileSelection = .localLowLatency
     var streamShapeTransportModes: StreamShapeTransportModeSelection = .requestResponse
+    var visualTransports: BenchmarkVisualTransportSelection = .vnc
     var streamShapeProfileIterations = 1
     var streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode = .fixed
     var streamShapePacingWindowCandidates: [BenchmarkStreamShapePacingWindowCandidate] = []
@@ -1536,6 +1538,14 @@ private struct BenchmarkOptions: Equatable {
                     throw UsageError("stream-shape-transport must be request-response, continuous-updates, or both.")
                 }
                 options.streamShapeTransportModes = selection
+                index = arguments.index(index, offsetBy: 2)
+            case "--visual-transport":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                do {
+                    options.visualTransports = try BenchmarkVisualTransportSelection.parse(value)
+                } catch let error as BenchmarkVisualTransportSelectionError {
+                    throw UsageError(error.message)
+                }
                 index = arguments.index(index, offsetBy: 2)
             case "--stream-shape-profile-iterations":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -2222,6 +2232,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let firstFrameProfiles: BenchmarkFirstFrameProfileSelection
     let streamShapeProfiles: String
     let streamShapeTransportModes: StreamShapeTransportModeSelection
+    let visualTransportComparison: BenchmarkVisualTransportComparisonReport
     let timeoutSeconds: TimeInterval
     let idleTimeoutSeconds: TimeInterval
     let safety: [String]
@@ -2270,13 +2281,14 @@ private struct BenchmarkReport: Codable, Equatable {
         firstFrameProfiles: BenchmarkFirstFrameProfileSelection,
         streamShapeProfiles: StreamShapeProfileSelection,
         streamShapeTransportModes: StreamShapeTransportModeSelection,
+        visualTransports: BenchmarkVisualTransportSelection,
         profiles: [ProfileReport],
         idleProbe: IdleProbeReport,
         streamShapeProbe: StreamShapeProbeReport,
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 66
+        self.schemaVersion = 67
         self.target = "configured-redacted"
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
@@ -2349,6 +2361,9 @@ private struct BenchmarkReport: Codable, Equatable {
         self.firstFrameProfiles = firstFrameProfiles
         self.streamShapeProfiles = streamShapeProfiles.rawValue
         self.streamShapeTransportModes = streamShapeTransportModes
+        self.visualTransportComparison = BenchmarkVisualTransportComparisonReport.fakeHelperComparison(
+            selection: visualTransports
+        )
         self.timeoutSeconds = timeoutSeconds
         self.idleTimeoutSeconds = idleTimeoutSeconds
         let streamShapeProfileAggregates = BenchmarkStreamShapeProfileAggregateReport
@@ -2378,6 +2393,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "request-region traffic-pressure metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
             "poor-network traffic gates classify first-frame and sustained first-byte/payload-read pressure using aggregate millisecond summaries and permille shares only",
             "network conditioning reports emit only fixed condition labels; proxy ports, upstream hosts, and byte counters are not emitted",
+            "visual transport comparison reports emit only fixed transport labels, helper-video aggregate bands, fixed issue codes, and no frames, dimensions, endpoints, byte counts, tokens, or exact helper timings",
             "stream-shape phase-budget diagnostics emit only fixed phase/subphase labels, aggregate millisecond summaries, and permille shares",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
@@ -2705,6 +2721,20 @@ private func renderText(_ report: BenchmarkReport) {
     print("first-frame profiles: \(report.firstFrameProfiles.rawValue)")
     print("stream-shape profiles: \(report.streamShapeProfiles)")
     print("stream-shape transport: \(report.streamShapeTransportModes.rawValue)")
+    print(
+        "visual transports: "
+            + report.visualTransportComparison.selectedVisualTransports.map(\.rawValue).joined(separator: ",")
+    )
+    for helperReport in report.visualTransportComparison.helperVideoReports {
+        print(
+            "helper-video candidate: verdict \(helperReport.verdict.rawValue), "
+                + "state \(helperReport.streamState.rawValue), startup \(helperReport.startupBand.rawValue), "
+                + "sustained \(helperReport.sustainedUpdateBand.rawValue), decode "
+                + "\(helperReport.decodePressure.rawValue), fallback "
+                + "\(helperReport.fallbackCountBucket.rawValue), issues "
+                + "\(helperReport.issueCodes.map(\.rawValue).joined(separator: ","))"
+        )
+    }
     print(
         "stream-shape pacing windows: "
             + report.streamShapePacingWindows.map(\.rawValue).joined(separator: ",")
@@ -3476,7 +3506,7 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
@@ -3521,6 +3551,8 @@ private func printUsage() {
                                 Profile set for stream-shape probes. Defaults to local-low-latency; use core-matrix for the practical baseline candidate set, zrle-isolation for ZRLE extension isolation, pixel-format-isolation for benchmark-only full-color/RGB565 pairs, all to compare every encoding profile, or a comma-separated list for targeted long runs.
       --stream-shape-transport request-response|continuous-updates|both
                                 Transport mode for stream-shape probes. Defaults to request-response; use both to compare request/response with the ContinuousUpdates overlay.
+      --visual-transport \(BenchmarkVisualTransportSelection.usageDescription)
+                                Visual transport candidates to record in the benchmark report. Defaults to vnc; helper-video currently emits a benchmark-only fake helper report with fixed labels and no frames, dimensions, endpoints, byte counts, tokens, or exact helper timings.
       --stream-shape-profile-iterations N
                                 Repeat stream-shape profile probes this many times. Defaults to 1; maximum 20.
       --stream-shape-profile-order \(BenchmarkStreamShapeProfileOrderMode.usageDescription)

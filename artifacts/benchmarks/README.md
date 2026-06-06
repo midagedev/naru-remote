@@ -92,6 +92,11 @@ Current live preflight action artifact:
 `artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
 Schema v2 adds fixed setup action labels so missing benchmark inputs route to a
 next action without exposing host, credential, port, or stimulus command values.
+Current helper-video fake comparison artifact:
+`artifacts/benchmarks/2026-06-06-helper-video-fake-transport-comparison-summary.md`.
+Schema v67 adds a visual transport comparison envelope so `vnc` and
+`helper-video` candidates can be reported with fixed labels before a live
+helper stream exists.
 Latest completed live sustained-v2-core baseline:
 `artifacts/benchmarks/2026-06-06-live-sustained-v2-core-baseline.md`.
 This run is not benchmark-green: ContinuousUpdates is still
