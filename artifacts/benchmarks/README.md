@@ -334,7 +334,11 @@ Current bounded VNC profile sweep artifact:
 Use `scripts/run-naru-live-benchmark.sh bounded-vnc-profile-sweep` when checking
 whether the current live target can complete the fixed VNC candidate set without
 hanging. The mode compares only fixed safe profile labels and returns a fixed
-timeout JSON label if the wall-clock guard fires.
+timeout JSON label if the wall-clock guard fires. Follow-up artifact
+`artifacts/benchmarks/2026-06-07-bounded-vnc-profile-phase-attribution-summary.md`
+adds fixed `lastPhaseLabel` values to guarded failures; the current live timeout
+reaches `benchmark-running`, so the remaining bottleneck is inside the bounded
+VNC benchmark path rather than SwiftPM setup.
 
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD

@@ -5435,3 +5435,43 @@ label instead of blocking long-running work.
   streaming-default change.
 - Production stream defaults remain unchanged until a bounded profile report
   completes and passes the sustained usability candidate contract.
+
+### D120 Attribute Bounded Sweep Failures To Fixed Runner Phases
+
+References:
+- `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-phase-attribution-summary.md`
+
+**Decision**: split `bounded-vnc-profile-sweep` into fixed `swift-build` and
+`benchmark-running` runner phases, and include a safe `lastPhaseLabel` only on
+guarded timeout/failure JSON. Success reports continue to pass through the
+benchmark's own JSON unchanged.
+
+**Why**:
+- D119 proved the bounded runner prevents indefinite hangs, but its fixed
+  timeout label still could not distinguish SwiftPM setup from benchmark
+  execution.
+- Phase attribution must remain redacted and catalog-based because live
+  benchmark runs carry private host, password, and sometimes stimulus command
+  configuration through `launchctl`.
+- Separating build from run makes the next tuning decision clearer: if timeout
+  is `swift-build`, improve runner/bootstrap; if timeout is
+  `benchmark-running`, instrument or reduce VNC stream work.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- A deliberately invalid bounded extra argument returns
+  `benchmarkStep.boundedVNCProfileSweep.failed` with
+  `lastPhaseLabel=benchmark-running`.
+- The current launchctl-backed live bounded sweep returns
+  `benchmarkStep.boundedVNCProfileSweep.timedOut` with
+  `lastPhaseLabel=benchmark-running`.
+
+**Interpretation**:
+- The current live timeout reaches benchmark execution, so the next work should
+  focus on shorter per-profile samples, incremental progress reporting, or
+  stream-path bottlenecks rather than SwiftPM startup.
+
+**Privacy rule**: `lastPhaseLabel` may contain only fixed runner phase labels.
+It must not include command lines, executable paths, host identity, credentials,
+ports, raw stderr/stdout, TCP/RFB errors, dimensions, coordinates, pixels, byte
+counts, stimulus text, draft text, marked text, or IME state.

@@ -1252,6 +1252,15 @@ iPhone) and ships as its own PR.
   script-level wall-clock guard and fixed timeout JSON, so long live sweeps do
   not block sustained-usability work or print unsafe diagnostics. Owns:
   launchctl runner, benchmark docs/artifact. **Done.**
+- **T451** Bounded sweep phase attribution: split the launchctl-backed
+  `bounded-vnc-profile-sweep` runner into fixed `swift-build` and
+  `benchmark-running` phases, include only catalog `lastPhaseLabel` values on
+  guarded timeout/failure JSON, and record the current live timeout as reaching
+  benchmark execution. Do not print or export command lines, executable paths,
+  host identity, credentials, ports, raw stdout/stderr, TCP/RFB errors,
+  coordinates, dimensions, pixels, byte counts, stimulus text, draft text,
+  marked text, or IME state. Owns: launchctl runner, README, research note,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
