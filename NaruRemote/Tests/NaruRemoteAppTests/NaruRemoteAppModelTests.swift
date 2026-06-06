@@ -4578,6 +4578,44 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.pipWatchSession?.lastFrame?.changeActivity, .high)
     }
 
+    func testModelDoesNotEnqueueForegroundStreamingFramesToInactivePiPController() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0.05),
+            connectorFactory: { connector },
+            pipWatchController: pipController
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(140))
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
+        XCTAssertNil(model.snapshot.pipWatchSession)
+        XCTAssertEqual(
+            pipController.enqueuedFramebuffers,
+            [],
+            "Foreground VNC frames must not enter the PiP sample-buffer path unless PiP Watch is active."
+        )
+    }
+
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
