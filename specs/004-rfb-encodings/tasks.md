@@ -1310,6 +1310,21 @@ iPhone) and ships as its own PR.
   counts, stimulus command text, draft text, marked text, or IME state. Owns:
   benchmark profile catalog, launchctl runner, profile-selection tests,
   README, research note, benchmark artifact. **Done.**
+- **T456** Tight-first cursor benchmark candidate: add benchmark-only
+  `tight-first-cursor` and `tight-first-cursor-clipboard`, plus a
+  launchctl-backed bounded runner that compares `tight-first` against
+  `tight-first-cursor` for trackpad-friendly server-cursor evidence. Record the
+  live result showing `tight-first-cursor` keeps warning-only gates, 6/6 content
+  samples, lower average/p95 update latency, and 0 permille renderer full-upload
+  pressure, while the clipboard variant is not ready because it increases
+  client-processing pressure. Keep production app stream modes unchanged until
+  a longer sustained or physical iPhone run supports an opt-in. Emit only fixed
+  profile labels, fixed verdict/issue labels, aggregate counts, permille ratios,
+  and aggregate timings; do not print/export host identity, credentials, ports,
+  executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
+  coordinates, dimensions, pixels, byte counts, stimulus command text, draft
+  text, marked text, or IME state. Owns: benchmark profile catalog, launchctl
+  runner, README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

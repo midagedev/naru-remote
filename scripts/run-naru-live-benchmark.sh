@@ -18,6 +18,7 @@ Modes:
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
   bounded-vnc-candidate-stability Repeat bounded warning-candidate VNC sweep.
+  bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -220,6 +221,35 @@ json_benchmark_or_candidate_stability_failure() {
   rm -f "$output_file"
 }
 
+json_benchmark_or_tight_cursor_stability_failure() {
+  local wall_timeout_seconds="$1"
+  local phase_file="$2"
+  local progress_file="$3"
+  shift 3
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-stability-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_bounded_tight_cursor_stability_failure \
+      benchmarkStep.boundedVNCTightCursorStability.timedOut \
+      "$phase_file" \
+      "$progress_file"
+  else
+    json_bounded_tight_cursor_stability_failure \
+      benchmarkStep.boundedVNCTightCursorStability.failed \
+      "$phase_file" \
+      "$progress_file"
+  fi
+  rm -f "$output_file"
+}
+
 json_string() {
   local value="$1"
   local escaped
@@ -288,6 +318,20 @@ json_bounded_candidate_stability_failure() {
   printf '}\n'
 }
 
+json_bounded_tight_cursor_stability_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-tight-cursor-stability","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
 benchmark_progress_subphase_label() {
   local progress_file="$1"
   local label=""
@@ -307,23 +351,32 @@ benchmark_progress_subphase_label() {
   esac
 }
 
+bounded_vnc_profile_label_is_safe() {
+  local label="$1"
+  case "$label" in
+    tight-first|tight-first-rgb565|tight-first-cursor|tight-first-cursor-clipboard|zrle-compression-0|adaptive-good-full)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 benchmark_progress_profile_label() {
   local progress_file="$1"
   local label=""
   if [[ -s "$progress_file" ]]; then
     label="$(awk -F= '$1 == "profileLabel" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
   fi
-  case "$label" in
-    tight-first|tight-first-rgb565|zrle-compression-0|adaptive-good-full)
-      printf '%s' "$label"
-      ;;
-    "")
-      return 1
-      ;;
-    *)
-      printf 'unknown'
-      ;;
-  esac
+  if [[ -z "$label" ]]; then
+    return 1
+  fi
+  if bounded_vnc_profile_label_is_safe "$label"; then
+    printf '%s' "$label"
+  else
+    printf 'unknown'
+  fi
 }
 
 print_benchmark_progress_fields() {
@@ -345,14 +398,11 @@ print_benchmark_progress_fields() {
 
 bounded_drilldown_profile_label() {
   local profile_label="$1"
-  case "$profile_label" in
-    tight-first|tight-first-rgb565|zrle-compression-0|adaptive-good-full)
-      printf '%s' "$profile_label"
-      ;;
-    *)
-      printf 'unknown'
-      ;;
-  esac
+  if bounded_vnc_profile_label_is_safe "$profile_label"; then
+    printf '%s' "$profile_label"
+  else
+    printf 'unknown'
+  fi
 }
 
 json_bounded_drilldown_runner_failure() {
@@ -646,6 +696,78 @@ run_bounded_vnc_candidate_stability() {
   # Three profiles across three iterations need a little more wall-clock room.
   json_benchmark_or_candidate_stability_failure \
     120 \
+    "$phase_file" \
+    "$progress_file" \
+    "$BOUNDED_BENCHMARK_EXECUTABLE" "${stability_args[@]}"
+  rm -f "$phase_file" "$progress_file"
+}
+
+run_bounded_vnc_tight_cursor_stability() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-stability-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-tight-cursor-stability-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_bounded_tight_cursor_stability_failure \
+        benchmarkStep.boundedVNCTightCursorStability.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_bounded_tight_cursor_stability_failure \
+        benchmarkStep.boundedVNCTightCursorStability.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_bounded_tight_cursor_stability_failure \
+      benchmarkStep.boundedVNCTightCursorStability.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local stability_args=(
+    --attempts 1
+    --stream-shape-frame-interval 0.0166666667
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-sustained-usability-v2
+    --stream-shape-transport request-response
+    --stream-shape-profiles tight-first,tight-first-cursor
+    --stream-shape-profile-order rotate
+    --stream-shape-profile-iterations 3
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 2
+    --stream-shape-duration-seconds 2
+    --timeout 8
+    --idle-timeout 2
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+  if ((extra_arg_count)); then
+    stability_args+=("${extra_args[@]}")
+  fi
+
+  write_bounded_sweep_phase "$phase_file" benchmark-running
+  json_benchmark_or_tight_cursor_stability_failure \
+    90 \
     "$phase_file" \
     "$progress_file" \
     "$BOUNDED_BENCHMARK_EXECUTABLE" "${stability_args[@]}"
@@ -1146,6 +1268,12 @@ case "$mode" in
     reject_bounded_vnc_profile_flags
     cd "$repo_root"
     run_bounded_vnc_candidate_stability
+    ;;
+  bounded-vnc-tight-cursor-stability)
+    import_live_env
+    reject_bounded_vnc_profile_flags
+    cd "$repo_root"
+    run_bounded_vnc_tight_cursor_stability
     ;;
   physical-device-preflight)
     physical_preflight
