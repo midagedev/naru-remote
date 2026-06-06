@@ -656,6 +656,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.toggleStreamEncodingMode()
 
+        let savedTightCursorSettings = try await waitForPersistedStreamEncodingMode(
+            .tightFirstCursor,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .tightFirstCursor)
+        XCTAssertEqual(savedTightCursorSettings.streamEncodingMode, .tightFirstCursor)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamEncodingMode()
+
         let savedLocalRGB565Settings = try await waitForPersistedStreamEncodingMode(
             .localLowLatencyRGB565,
             in: persistence
@@ -1429,6 +1439,48 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 RecordingStreamConnectorFactory.Call(
                     encodingPreference: RFBEncodingPreference(zrle: true, compressionLevel: 0),
                     pixelFormatPreference: .rgb565In32LittleEndian
+                )
+            ]
+        )
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
+    }
+
+    func testModelBuildsTightCursorStreamConnectorOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let connectorFactory = RecordingStreamConnectorFactory(connector: connector)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            streamConnectorFactory: { encodingPreference, pixelFormatPreference in
+                connectorFactory.make(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.tightFirstCursor)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(
+            connectorFactory.calls,
+            [
+                RecordingStreamConnectorFactory.Call(
+                    encodingPreference: .tightFirstCursor,
+                    pixelFormatPreference: nil
                 )
             ]
         )

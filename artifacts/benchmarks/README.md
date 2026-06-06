@@ -1061,3 +1061,10 @@ The sustained depth artifact is
 samples, 9.01 content FPS, 78 ms average update, and 2 ms client-processing
 p95. Depth 2 still warns and has lower content cadence; depth 3 fails from
 128 ms client-processing p95. Keep product request pipeline depth at 1.
+The app opt-in artifact is
+`2026-06-07-tight-first-cursor-app-mode-summary.md`; it exposes
+`tight-first-cursor` as a user-selectable stream mode while keeping
+`standard` as the default. The app mode uses Tight + Cursor + quality 8 +
+compression 1, with no RGB565, no ExtendedClipboard, and request pipeline
+depth 1. Use it for physical iPhone trackpad/real-cursor verification before
+any default promotion.

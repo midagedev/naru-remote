@@ -3536,7 +3536,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch appSettings.streamEncodingMode {
         case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
             return true
-        case .standard, .zrleCompressionZero, .adaptiveGoodFull:
+        case .standard, .tightFirstCursor, .zrleCompressionZero, .adaptiveGoodFull:
             return false
         }
     }
@@ -3822,6 +3822,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         switch appSettings.streamEncodingMode {
         case .standard:
             return nil
+        case .tightFirstCursor:
+            return .tightFirstCursor
         case .localLowLatencyRGB565:
             return .localLowLatency
         case .zrleCompressionZero:
@@ -3849,7 +3851,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         switch appSettings.streamEncodingMode {
-        case .standard, .zrleCompressionZero, .adaptiveGoodFull:
+        case .standard, .tightFirstCursor, .zrleCompressionZero, .adaptiveGoodFull:
             return nil
         case .localLowLatencyRGB565, .zrleCompressionZeroRGB565:
             return .rgb565In32LittleEndian

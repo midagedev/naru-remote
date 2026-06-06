@@ -80,6 +80,7 @@ public enum StreamStartupGlanceScaleMode: String, Codable, Equatable, Sendable, 
 /// changes.
 public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterable {
     case standard
+    case tightFirstCursor = "tight-first-cursor"
     case localLowLatencyRGB565 = "local-low-latency-rgb565"
     case zrleCompressionZero = "zrle-compression-0"
     case zrleCompressionZeroRGB565 = "zrle-compression-0-rgb565"
@@ -88,6 +89,8 @@ public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterab
     public var toggled: StreamEncodingMode {
         switch self {
         case .standard:
+            return .tightFirstCursor
+        case .tightFirstCursor:
             return .localLowLatencyRGB565
         case .localLowLatencyRGB565:
             return .zrleCompressionZero

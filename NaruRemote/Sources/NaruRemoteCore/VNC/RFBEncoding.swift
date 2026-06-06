@@ -231,6 +231,16 @@ public struct RFBEncodingPreference: Equatable, Sendable {
         compressionLevel: 0
     )
 
+    /// Benchmark-backed Tight candidate for trackpad sessions that need the
+    /// server cursor pseudo-encoding. This stays opt-in until sustained
+    /// physical-device evidence supports default promotion.
+    public static let tightFirstCursor = RFBEncodingPreference(
+        tight: true,
+        cursor: true,
+        tightQualityLevel: 8,
+        compressionLevel: 1
+    )
+
     /// Power-saver/sustained-session profile. This intentionally
     /// matches the balanced real-encoding order; the difference is the
     /// app-side pacing floor applied by the viewer power policy.

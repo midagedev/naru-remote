@@ -5779,3 +5779,56 @@ ratios, and aggregate timing values. They must not emit host identity,
 credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, request coordinates, dimensions, pixels, byte counts, stimulus
 command text, draft text, marked text, or IME state.
+
+### D127 Expose Tight-First Cursor As App Opt-In
+
+References:
+- `artifacts/benchmarks/2026-06-07-tight-first-cursor-candidate-summary.md`
+- `artifacts/benchmarks/2026-06-07-tight-first-cursor-depth-sweep-summary.md`
+- `artifacts/benchmarks/2026-06-07-tight-first-cursor-app-mode-summary.md`
+
+**Decision**: expose `tight-first-cursor` as a user-selectable app stream mode
+without changing the production default. The mode uses Tight, the Cursor
+pseudo-encoding, Tight quality level 8, and compression level 1. It does not
+request RGB565, ExtendedClipboard, ContinuousUpdates, or request pipeline depth
+greater than 1.
+
+**Why**:
+- D125 identified `tight-first-cursor` as the strongest current
+  trackpad-friendly VNC benchmark candidate.
+- D126 showed request pipeline depth should remain 1 and that depth 3 can fail
+  by client-processing pressure.
+- Users need a way to test the benchmark-backed cursor candidate on real iPhone
+  sessions before any default promotion.
+
+**Implementation rule**:
+- Keep default `StreamEncodingMode.standard`.
+- Toggle order is `standard -> tight-first-cursor ->
+  local-low-latency-rgb565 -> zrle-compression-0 ->
+  zrle-compression-0-rgb565 -> adaptive-good-full -> standard`.
+- `NaruRemoteAppModel` must build initial stream connectors with
+  `.tightFirstCursor` and no pixel-format preference for this mode.
+- Do not mark `tight-first-cursor` as viewport-aware or low-traffic; it keeps
+  the normal full request region and request pipeline depth 1.
+- Do not include ExtendedClipboard in this app mode.
+
+**Evidence**:
+- `AppSettingsCodableTests` cover decoding, encoding, and toggle order for the
+  new persisted label.
+- `NaruRemoteAppModelTests/testModelPersistsStreamEncodingModeToggle` covers
+  persistence through the new toggle step.
+- `NaruRemoteAppModelTests/testModelBuildsTightCursorStreamConnectorOnConnect`
+  covers `.tightFirstCursor` plus `nil` pixel-format preference and no
+  renegotiation.
+
+**Interpretation**:
+- This is a physical-device experiment path, not a default promotion.
+- The next verification should run a real iPhone session with this opt-in,
+  especially trackpad cursor behavior, zoom/pan feel, thermal state, and
+  sustained frame cadence.
+
+**Privacy rule**: the app mode may persist and export only the fixed
+`tight-first-cursor` stream-profile label through existing safe settings and
+diagnostics. It must not log/export host identity, credentials, ports, request
+coordinates, dimensions, pixels, byte counts, command text, draft text, marked
+text, or IME state.

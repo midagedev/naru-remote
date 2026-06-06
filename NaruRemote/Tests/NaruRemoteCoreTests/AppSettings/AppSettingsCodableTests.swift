@@ -67,6 +67,7 @@ final class AppSettingsCodableTests: XCTestCase {
 
     func testStreamEncodingModeDecodesPersistedLabels() throws {
         let cases: [(rawValue: String, mode: StreamEncodingMode)] = [
+            (StreamEncodingMode.tightFirstCursor.rawValue, .tightFirstCursor),
             (StreamEncodingMode.localLowLatencyRGB565.rawValue, .localLowLatencyRGB565),
             (StreamEncodingMode.zrleCompressionZero.rawValue, .zrleCompressionZero),
             (StreamEncodingMode.zrleCompressionZeroRGB565.rawValue, .zrleCompressionZeroRGB565),
@@ -140,6 +141,7 @@ final class AppSettingsCodableTests: XCTestCase {
 
     func testEncodingNonDefaultStreamEncodingModes() throws {
         let modes: [StreamEncodingMode] = [
+            .tightFirstCursor,
             .localLowLatencyRGB565,
             .zrleCompressionZero,
             .zrleCompressionZeroRGB565,
@@ -181,7 +183,8 @@ final class AppSettingsCodableTests: XCTestCase {
     }
 
     func testStreamEncodingModeTogglesThroughBenchmarkCandidates() {
-        XCTAssertEqual(StreamEncodingMode.standard.toggled, .localLowLatencyRGB565)
+        XCTAssertEqual(StreamEncodingMode.standard.toggled, .tightFirstCursor)
+        XCTAssertEqual(StreamEncodingMode.tightFirstCursor.toggled, .localLowLatencyRGB565)
         XCTAssertEqual(StreamEncodingMode.localLowLatencyRGB565.toggled, .zrleCompressionZero)
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZero.toggled, .zrleCompressionZeroRGB565)
         XCTAssertEqual(StreamEncodingMode.zrleCompressionZeroRGB565.toggled, .adaptiveGoodFull)
