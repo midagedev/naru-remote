@@ -626,8 +626,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         guard let connection = currentActiveConnection() else {
             throw RFBNetworkClientError.notConnected
         }
-        try writeActiveConnection(
-            RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y),
+        let message = RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y)
+        try await writeActiveConnectionOffCallerExecutor(
+            message,
             to: connection,
             timeout: 2
         )
@@ -648,8 +649,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         guard let connection = currentActiveConnection() else {
             throw RFBNetworkClientError.notConnected
         }
-        try writeActiveConnection(
-            RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown),
+        let message = RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown)
+        try await writeActiveConnectionOffCallerExecutor(
+            message,
             to: connection,
             timeout: 2
         )
@@ -894,6 +896,16 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             failConnection(connection)
             throw error
         }
+    }
+
+    private func writeActiveConnectionOffCallerExecutor(
+        _ data: Data,
+        to connection: RFBNetworkConnection,
+        timeout: TimeInterval
+    ) async throws {
+        try await Task.detached(priority: .userInitiated) { [self, data, connection, timeout] in
+            try writeActiveConnection(data, to: connection, timeout: timeout)
+        }.value
     }
 
     private func validateNoAuthFirstFrameTranscript(_ transcript: Data) throws {
