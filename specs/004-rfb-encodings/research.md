@@ -4875,3 +4875,74 @@ first-frame request area and sustained payload-read pressure.
   or stage a smaller first-useful-paint path before spending more effort on
   sustained cadence, because the startup payload dominates the current app
   low-traffic failure.
+
+### D109 App Low-Traffic Visible-Focus First Frame
+
+References:
+- RFC 6143 client-driven `FramebufferUpdateRequest` region:
+  https://www.rfc-editor.org/rfc/rfc6143
+- RFB extension registry for optional cursor / continuous-update behavior:
+  https://github.com/rfbproto/rfbproto
+- Apple UI responsiveness guidance:
+  https://developer.apple.com/documentation/xcode/improving-app-responsiveness
+- Metal best-practice guide:
+  https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/
+- VideoToolbox framework boundary:
+  https://developer.apple.com/documentation/videotoolbox
+- `artifacts/research/2026-06-06-sustained-iphone-vnc-performance-plan.md`.
+- `artifacts/benchmarks/2026-06-06-startup-payload-traffic-gate-summary.md`.
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-visible-focus-live-gate-summary.md`.
+
+**Decision**: allow the app's fixed `zrle-compression-0-rgb565`
+low-traffic profile to request a visible-focus region for the first
+non-incremental frame when a safe viewport size or matching live viewport
+transform is available. Keep the production standard profile on full-frame
+first requests.
+
+**Why**:
+- D108 showed the app low-traffic gate is first-frame payload-read dominated,
+  not renderer-upload dominated. The next traffic lever should therefore reduce
+  first-useful-paint request area before changing sustained cadence or default
+  encoding behavior.
+- RFC 6143 already gives the viewer a request rectangle on
+  `FramebufferUpdateRequest`; using that control in an opt-in profile is lower
+  risk than relying on optional ContinuousUpdates behavior.
+- The app can know the session viewport size before pixels arrive. Combining
+  that view size with RFB `ServerInit` dimensions lets the first request match
+  the phone's crop-fill visible focus without logging raw coordinates or pixels.
+
+**Implementation rule**:
+- `SessionViewportView` reports only its local viewport container size to the
+  app model. The value is memory-only.
+- `NaruRemoteAppModel` prefers a matching live `ViewportTransform` for the
+  first request. If the transform is absent or mismatched, it derives a
+  crop-fill visible-focus transform from the last viewport size plus
+  `ServerInit` dimensions.
+- The first-frame region gate is exactly the same product gate as sustained
+  viewport regions: `streamEncodingMode == .zrleCompressionZeroRGB565`, no app
+  power-saver override, and no system low-power override.
+- Standard profile, invalid dimensions, absent viewport size, and fallback
+  cases stay full-frame.
+- No dimensions, coordinates, byte counts, pixels, payloads, host identity,
+  command text, draft text, marked text, or IME state are logged, exported, or
+  persisted.
+
+**Evidence**:
+- App-model tests cover standard full-frame first requests, low-traffic
+  transform-based first requests, low-traffic size-only first requests before a
+  framebuffer exists, mismatched-dimension fallback, and the existing
+  low-traffic incremental viewport request path.
+- A live
+  `sustained-v2-constrained-cellular-app-low-traffic` run after environment
+  configuration stayed aligned with the visible-focus benchmark shape
+  (`firstFrameRequestAreaPermille` 192, `requestRegionAreaPermille` 364) but
+  still failed with primary issue `first-frame-payload-read-failed` because
+  first-frame payload read remained about 14.1 s.
+
+**Interpretation**:
+- This is still an opt-in low-traffic experiment, not a production default
+  promotion.
+- The next live run should use
+  `sustained-v2-constrained-cellular-app-low-traffic` and compare the v62
+  first-frame payload-read classification before pursuing broader cadence or
+  VideoToolbox/helper work.

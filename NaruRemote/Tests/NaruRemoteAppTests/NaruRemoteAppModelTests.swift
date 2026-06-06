@@ -1403,6 +1403,40 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRegions, [nil, nil])
     }
 
+    func testModelKeepsFullInitialStreamRequestInStandardProfile() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(connector.frameUpdateRegions, [nil])
+    }
+
     func testModelRequestsVisibleViewportRegionForLowTrafficIncrementalStreamFrames() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
@@ -1453,6 +1487,114 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
             ]
         )
+    }
+
+    func testModelRequestsVisibleViewportRegionForLowTrafficInitialStreamFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(
+            connector.frameUpdateRegions,
+            [
+                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
+            ]
+        )
+    }
+
+    func testModelUsesViewportSizeForLowTrafficInitialStreamFrameWithoutPriorFramebuffer() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_920,
+            height: 1_080,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_920,
+            height: 1_080,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+        model.updateViewportSize(CGSize(width: 390, height: 844))
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        let region = try XCTUnwrap(connector.frameUpdateRegions.first ?? nil)
+        XCTAssertEqual(region.y, 0)
+        XCTAssertEqual(region.height, 1_080)
+        XCTAssertGreaterThan(region.x, 0)
+        XCTAssertLessThan(region.width, 1_920)
+    }
+
+    func testModelKeepsFullLowTrafficInitialRequestWhenViewportDoesNotMatchServer() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 2_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(connector.frameUpdateRegions, [nil])
     }
 
     func testModelLetsPowerSaverOverrideRGB565LowTrafficStreamConnectorOnConnect() async throws {

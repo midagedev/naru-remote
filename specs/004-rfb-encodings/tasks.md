@@ -1124,6 +1124,18 @@ iPhone) and ships as its own PR.
   counts, pixels, payloads, raw host identity, command text, draft text, marked
   text, or IME state in reports/artifacts. Owns: benchmark summary kit/tests,
   CLI report/help, README, research note, live benchmark artifact. **Done.**
+- **T440** App low-traffic visible-focus first frame: after D108 showed startup
+  payload-read pressure dominates the app low-traffic poor-network gate, wire
+  the session viewport container size into `NaruRemoteAppModel` and let the
+  fixed `zrle-compression-0-rgb565` opt-in profile request a visible-focus
+  first-frame region when a safe matching transform or viewport size is
+  available. Keep standard profile, power-saver/low-power mode, invalid
+  dimensions, and fallback cases full-frame. Document the broader sustained
+  iPhone VNC performance plan, keep viewport size / derived request region
+  memory-only, and avoid logging/exporting dimensions, coordinates, byte counts,
+  pixels, payloads, host identity, command text, draft text, marked text, or IME
+  state. Owns: app shell, session viewport callback, app-model tests, research
+  artifact, spec/research note. **Done.**
 
 ## Cross-cutting (every increment)
 

@@ -260,6 +260,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         viewportInteractionFrameStrategy != nil
     }
     private var latestViewportTransform: ViewportTransform?
+    private var latestViewportSize: CGSize?
     private let viewportRequestRegionPolicy = ViewportRequestRegionPolicy(
         fullHeartbeatInterval: 10,
         fullFallbackTimeoutStreak: 0
@@ -2054,7 +2055,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         reconnectAttempts = 0
         activeStreamProfile = nil
         activeStreamCredential = nil
-        latestViewportTransform = nil
         resetConnectionQuality()
         resetPointerControl()
         cancelOutboundInputEventQueues()
@@ -2338,11 +2338,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                             incrementalRequestIndex: pump.deliveredFrameCount
                         )
                         : nil
+                    let initialRequestRegion = isIncrementalRequest
+                        ? nil
+                        : currentViewportInitialRequestRegion(serverInit: serverInit)
                     let maybeFrame = try await Task.detached {
                         try pump.nextFrame(
                             requestTimeout: requestTimeout,
                             updateMode: configuration.updateMode,
-                            requestRegion: requestRegion
+                            requestRegion: requestRegion,
+                            initialRequestRegion: initialRequestRegion
                         )
                     }.value
                     let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
@@ -2728,6 +2732,14 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func updateViewportTransform(_ transform: ViewportTransform) {
         latestViewportTransform = transform
+        latestViewportSize = transform.viewSize
+    }
+
+    public func updateViewportSize(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else {
+            return
+        }
+        latestViewportSize = size
     }
 
     private func currentViewportRequestRegion(
@@ -2745,6 +2757,61 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    private func currentViewportInitialRequestRegion(
+        serverInit: RFBServerInit
+    ) -> RFBFramebufferUpdateRegion? {
+        guard usesViewportAwareInitialRequestRegion else {
+            return nil
+        }
+        guard let latestViewportTransform else {
+            return currentViewportInitialRequestRegionFromLastViewSize(serverInit: serverInit)
+        }
+        guard Int(latestViewportTransform.framebufferSize.width.rounded(.down)) == serverInit.width,
+              Int(latestViewportTransform.framebufferSize.height.rounded(.down)) == serverInit.height
+        else {
+            return currentViewportInitialRequestRegionFromLastViewSize(serverInit: serverInit)
+        }
+        return latestViewportTransform.visibleFramebufferUpdateRegion(
+            expansionMarginPixels: viewportRequestRegionPolicy.expansionMarginPixels,
+            minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
+        )
+    }
+
+    private func currentViewportInitialRequestRegionFromLastViewSize(
+        serverInit: RFBServerInit
+    ) -> RFBFramebufferUpdateRegion? {
+        guard let latestViewportSize,
+              latestViewportSize.width > 0,
+              latestViewportSize.height > 0,
+              serverInit.width > 0,
+              serverInit.height > 0
+        else {
+            return nil
+        }
+
+        let framebufferSize = CGSize(width: serverInit.width, height: serverInit.height)
+        let fitScale = min(
+            latestViewportSize.width / framebufferSize.width,
+            latestViewportSize.height / framebufferSize.height
+        )
+        guard fitScale > 0 else {
+            return nil
+        }
+        let fillScale = max(
+            latestViewportSize.width / framebufferSize.width,
+            latestViewportSize.height / framebufferSize.height
+        )
+        let transform = ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: latestViewportSize,
+            zoomScale: max(1, fillScale / fitScale)
+        )
+        return transform.visibleFramebufferUpdateRegion(
+            expansionMarginPixels: viewportRequestRegionPolicy.expansionMarginPixels,
+            minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
+        )
+    }
+
     private var usesViewportAwareRequestRegions: Bool {
         guard appSettings.streamPowerMode != .powerSaver,
               !lowPowerModeProvider()
@@ -2752,6 +2819,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             return false
         }
         return appSettings.streamEncodingMode == .zrleCompressionZeroRGB565
+    }
+
+    private var usesViewportAwareInitialRequestRegion: Bool {
+        usesViewportAwareRequestRegions
     }
 
     private func applyStreamFrame(
