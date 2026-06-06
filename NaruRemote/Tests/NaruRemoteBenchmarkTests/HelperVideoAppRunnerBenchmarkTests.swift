@@ -39,12 +39,14 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
                     renderer: renderer
                 )
 
-                let outcome = runner.handleStartResult(
-                    result,
-                    sessionID: session.id,
-                    profileID: profile.id,
-                    model: model
-                )
+                let outcome = waitForAsyncHelperVideoOutcome {
+                    await runner.handleStartResult(
+                        result,
+                        sessionID: session.id,
+                        profileID: profile.id,
+                        model: model
+                    )
+                }
 
                 XCTAssertTrue(outcome.startAccepted)
                 XCTAssertTrue(outcome.selectedVisualTransport)
@@ -75,12 +77,14 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
                     renderer: renderer
                 )
 
-                let outcome = runner.handleStartResult(
-                    result,
-                    sessionID: session.id,
-                    profileID: profile.id,
-                    model: model
-                )
+                let outcome = waitForAsyncHelperVideoOutcome {
+                    await runner.handleStartResult(
+                        result,
+                        sessionID: session.id,
+                        profileID: profile.id,
+                        model: model
+                    )
+                }
 
                 XCTAssertTrue(outcome.startAccepted)
                 XCTAssertTrue(outcome.selectedVisualTransport)
@@ -128,6 +132,32 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
         let options = XCTMeasureOptions()
         options.iterationCount = iterations
         return options
+    }
+
+    private func waitForAsyncHelperVideoOutcome(
+        _ operation: @escaping @MainActor () async -> HelperVideoStreamSessionOutcome,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> HelperVideoStreamSessionOutcome {
+        let expectation = expectation(description: "helper-video-runner")
+        var outcome: HelperVideoStreamSessionOutcome?
+        Task { @MainActor in
+            outcome = await operation()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 10)
+        guard let outcome else {
+            XCTFail("Timed out waiting for helper-video runner.", file: file, line: line)
+            return HelperVideoStreamSessionOutcome(
+                startAccepted: false,
+                selectedVisualTransport: false,
+                receivedAccessUnitCount: 0,
+                displayableFrameCount: 0,
+                fallbackFailureCode: .transportFailed,
+                finalHealth: HelperVideoStreamHealth(state: .fallbackToVNC)
+            )
+        }
+        return outcome
     }
 
     private func requireBenchmarkConfiguration() throws -> HelperVideoAppRunnerBenchmarkConfiguration {

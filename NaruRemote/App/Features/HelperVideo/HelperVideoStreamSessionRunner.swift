@@ -11,6 +11,27 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     func flush()
 }
 
+private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
+    private let renderer: any HelperVideoAccessUnitRendering
+
+    init(_ renderer: any HelperVideoAccessUnitRendering) {
+        self.renderer = renderer
+    }
+
+    @MainActor
+    @discardableResult
+    func enqueueDisplayableAccessUnit(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) throws -> Bool {
+        try renderer.enqueueDisplayableAccessUnit(decoded)
+    }
+
+    @MainActor
+    func flush() {
+        renderer.flush()
+    }
+}
+
 public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
     public var startAccepted: Bool
     public var selectedVisualTransport: Bool
@@ -36,15 +57,14 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
     }
 }
 
-@MainActor
-public final class HelperVideoStreamSessionRunner {
-    public typealias StartStream = (
+public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
+    public typealias StartStream = @Sendable (
         HelperVideoStartStreamRequestBody,
         Int
     ) async throws -> HelperVideoStreamNetworkStartResult
 
     private let startStream: StartStream
-    private let renderer: any HelperVideoAccessUnitRendering
+    private let renderer: HelperVideoMainActorRendererBox
     private let maxServerFrames: Int
 
     public init(
@@ -53,7 +73,7 @@ public final class HelperVideoStreamSessionRunner {
         maxServerFrames: Int = 16
     ) {
         self.startStream = startStream
-        self.renderer = renderer
+        self.renderer = HelperVideoMainActorRendererBox(renderer)
         self.maxServerFrames = max(maxServerFrames, 1)
     }
 
@@ -86,15 +106,15 @@ public final class HelperVideoStreamSessionRunner {
         do {
             result = try await startStream(requestBody, maxServerFrames)
         } catch {
-            guard isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
-                return ignoreStaleResult(
+            guard await isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
+                return await ignoreStaleResult(
                     startAccepted: false,
                     receivedAccessUnitCount: 0,
                     fallbackFailureCode: .transportFailed,
                     model: model
                 )
             }
-            return failBeforeStart(
+            return await failBeforeStart(
                 failureCode: .transportFailed,
                 sessionID: sessionID,
                 profileID: profileID,
@@ -102,7 +122,7 @@ public final class HelperVideoStreamSessionRunner {
             )
         }
 
-        return handleStartResult(
+        return await handleStartResult(
             result,
             sessionID: sessionID,
             profileID: profileID,
@@ -115,18 +135,18 @@ public final class HelperVideoStreamSessionRunner {
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel
-    ) -> HelperVideoStreamSessionOutcome {
+    ) async -> HelperVideoStreamSessionOutcome {
         guard result.startResponse.body.result == .accepted else {
             let failureCode = result.startResponse.body.safeFailureCode ?? .transportFailed
-            guard isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
-                return ignoreStaleResult(
+            guard await isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
+                return await ignoreStaleResult(
                     startAccepted: false,
                     receivedAccessUnitCount: result.accessUnits.count,
                     fallbackFailureCode: failureCode,
                     model: model
                 )
             }
-            return failBeforeStart(
+            return await failBeforeStart(
                 failureCode: failureCode,
                 sessionID: sessionID,
                 profileID: profileID,
@@ -134,8 +154,8 @@ public final class HelperVideoStreamSessionRunner {
             )
         }
 
-        guard isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
-            return ignoreStaleResult(
+        guard await isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
+            return await ignoreStaleResult(
                 startAccepted: true,
                 receivedAccessUnitCount: result.accessUnits.count,
                 fallbackFailureCode: .fallbackToVNC,
@@ -144,12 +164,12 @@ public final class HelperVideoStreamSessionRunner {
         }
 
         let startingHealth = HelperVideoStreamHealth(state: .starting)
-        let selected = model.selectHelperVideoVisualTransport(
+        let selected = await model.selectHelperVideoVisualTransport(
             descriptor: result.startResponse.body.streamDescriptor,
             health: startingHealth
         )
         guard selected else {
-            renderer.flush()
+            await renderer.flush()
             // Selection can fail because the app/session gate rejected the visual switch.
             // Preserve profile failure state so policy rejection stays distinct from
             // helper transport, stall, or decoder failure.
@@ -159,27 +179,27 @@ public final class HelperVideoStreamSessionRunner {
                 receivedAccessUnitCount: result.accessUnits.count,
                 displayableFrameCount: 0,
                 fallbackFailureCode: .fallbackToVNC,
-                finalHealth: model.snapshot.helperVideoStreamHealth
+                finalHealth: await helperVideoStreamHealth(model: model)
             )
         }
 
-        renderer.flush()
+        await renderer.flush()
         var displayableFrameCount = 0
 
         for accessUnit in result.accessUnits {
             do {
-                if try renderer.enqueueDisplayableAccessUnit(accessUnit) {
+                if try await renderer.enqueueDisplayableAccessUnit(accessUnit) {
                     displayableFrameCount += 1
                 }
             } catch {
-                renderer.flush()
+                await renderer.flush()
                 let health = fallbackHealth(for: .decoderRejected)
-                model.updateHelperVideoStreamHealth(
+                await model.updateHelperVideoStreamHealth(
                     health,
                     sessionID: sessionID,
                     profileID: profileID
                 )
-                markProfileFailure(
+                await markProfileFailure(
                     .decoderRejected,
                     sessionID: sessionID,
                     profileID: profileID,
@@ -191,20 +211,20 @@ public final class HelperVideoStreamSessionRunner {
                     receivedAccessUnitCount: result.accessUnits.count,
                     displayableFrameCount: displayableFrameCount,
                     fallbackFailureCode: .decoderRejected,
-                    finalHealth: model.snapshot.helperVideoStreamHealth
+                    finalHealth: await helperVideoStreamHealth(model: model)
                 )
             }
         }
 
         if let stall = result.stall {
-            renderer.flush()
+            await renderer.flush()
             let health = fallbackHealth(for: .streamStalled, reportedHealth: stall.body.health)
-            model.updateHelperVideoStreamHealth(
+            await model.updateHelperVideoStreamHealth(
                 health,
                 sessionID: sessionID,
                 profileID: profileID
             )
-            markProfileFailure(
+            await markProfileFailure(
                 .streamStalled,
                 sessionID: sessionID,
                 profileID: profileID,
@@ -216,19 +236,19 @@ public final class HelperVideoStreamSessionRunner {
                 receivedAccessUnitCount: result.accessUnits.count,
                 displayableFrameCount: displayableFrameCount,
                 fallbackFailureCode: .streamStalled,
-                finalHealth: model.snapshot.helperVideoStreamHealth
+                finalHealth: await helperVideoStreamHealth(model: model)
             )
         }
 
         guard displayableFrameCount > 0 else {
-            renderer.flush()
+            await renderer.flush()
             let health = fallbackHealth(for: .streamStalled)
-            model.updateHelperVideoStreamHealth(
+            await model.updateHelperVideoStreamHealth(
                 health,
                 sessionID: sessionID,
                 profileID: profileID
             )
-            markProfileFailure(
+            await markProfileFailure(
                 .streamStalled,
                 sessionID: sessionID,
                 profileID: profileID,
@@ -240,7 +260,7 @@ public final class HelperVideoStreamSessionRunner {
                 receivedAccessUnitCount: result.accessUnits.count,
                 displayableFrameCount: 0,
                 fallbackFailureCode: .streamStalled,
-                finalHealth: model.snapshot.helperVideoStreamHealth
+                finalHealth: await helperVideoStreamHealth(model: model)
             )
         }
 
@@ -250,12 +270,12 @@ public final class HelperVideoStreamSessionRunner {
             sustainedUpdateBand: .smooth,
             decodePressure: .low
         )
-        model.updateHelperVideoStreamHealth(
+        await model.updateHelperVideoStreamHealth(
             healthy,
             sessionID: sessionID,
             profileID: profileID
         )
-        markProfileAvailable(
+        await markProfileAvailable(
             sessionID: sessionID,
             profileID: profileID,
             model: model
@@ -266,7 +286,7 @@ public final class HelperVideoStreamSessionRunner {
             selectedVisualTransport: true,
             receivedAccessUnitCount: result.accessUnits.count,
             displayableFrameCount: displayableFrameCount,
-            finalHealth: model.snapshot.helperVideoStreamHealth
+            finalHealth: await helperVideoStreamHealth(model: model)
         )
     }
 
@@ -275,15 +295,15 @@ public final class HelperVideoStreamSessionRunner {
         receivedAccessUnitCount: Int,
         fallbackFailureCode: HelperVideoFailureCode?,
         model: NaruRemoteAppModel
-    ) -> HelperVideoStreamSessionOutcome {
-        renderer.flush()
+    ) async -> HelperVideoStreamSessionOutcome {
+        await renderer.flush()
         return HelperVideoStreamSessionOutcome(
             startAccepted: startAccepted,
             selectedVisualTransport: false,
             receivedAccessUnitCount: receivedAccessUnitCount,
             displayableFrameCount: 0,
             fallbackFailureCode: fallbackFailureCode,
-            finalHealth: model.snapshot.helperVideoStreamHealth
+            finalHealth: await helperVideoStreamHealth(model: model)
         )
     }
 
@@ -292,15 +312,15 @@ public final class HelperVideoStreamSessionRunner {
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel
-    ) -> HelperVideoStreamSessionOutcome {
-        renderer.flush()
+    ) async -> HelperVideoStreamSessionOutcome {
+        await renderer.flush()
         let health = fallbackHealth(for: failureCode)
-        model.updateHelperVideoStreamHealth(
+        await model.updateHelperVideoStreamHealth(
             health,
             sessionID: sessionID,
             profileID: profileID
         )
-        markProfileFailure(
+        await markProfileFailure(
             failureCode,
             sessionID: sessionID,
             profileID: profileID,
@@ -312,7 +332,7 @@ public final class HelperVideoStreamSessionRunner {
             receivedAccessUnitCount: 0,
             displayableFrameCount: 0,
             fallbackFailureCode: failureCode,
-            finalHealth: model.snapshot.helperVideoStreamHealth
+            finalHealth: await helperVideoStreamHealth(model: model)
         )
     }
 
@@ -320,13 +340,13 @@ public final class HelperVideoStreamSessionRunner {
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel
-    ) {
-        var state = model.snapshot.helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+    ) async {
+        var state = await model.snapshot.helperVideoProfileState[profileID] ?? HelperVideoProfileState()
         state.isEnabled = true
         state.availability = .available
         state.lastFailureCode = nil
         state.lastCheckedBucket = .recent
-        model.setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
+        await model.setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
     }
 
     private func markProfileFailure(
@@ -334,23 +354,27 @@ public final class HelperVideoStreamSessionRunner {
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel
-    ) {
-        var state = model.snapshot.helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+    ) async {
+        var state = await model.snapshot.helperVideoProfileState[profileID] ?? HelperVideoProfileState()
         state.availability = availability(for: failureCode)
         state.lastFailureCode = failureCode
         state.lastCheckedBucket = .recent
-        model.setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
+        await model.setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
     }
 
     private func isCurrentSession(
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel
-    ) -> Bool {
-        let snapshot = model.snapshot
+    ) async -> Bool {
+        let snapshot = await model.snapshot
         return snapshot.session?.id == sessionID
             && snapshot.session?.profileID == profileID
             && snapshot.selectedProfileID == profileID
+    }
+
+    private func helperVideoStreamHealth(model: NaruRemoteAppModel) async -> HelperVideoStreamHealth {
+        await model.snapshot.helperVideoStreamHealth
     }
 
     private func availability(for failureCode: HelperVideoFailureCode) -> HelperVideoAvailability {

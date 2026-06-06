@@ -905,3 +905,74 @@ capturing and classifying the output instead of printing raw logs.
 - Always infer from the first Apple Development certificate: rejected because
   multiple teams would make the gate ambiguous and could build against the
   wrong account.
+
+## D29 - Combine the VNC 10fps gate with helper-video readiness
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh
+remote-desktop-10fps-readiness`, a fixed launchctl-backed dashboard that
+combines helper capability/preflight, external synthetic H.264 helper-video,
+external ScreenCaptureKit helper-video, and the current VNC
+`iphone-remote-desktop-10fps-v1` probe in one privacy-safe JSON object.
+
+**Rationale**:
+- The user's product floor is now explicit: a sustained visual path below
+  `10fps` is a failure, not a warning. The current VNC path remains useful for
+  input/control/fallback, but its latest live result is still around `1.89`
+  content FPS with `receivePath` as the primary constraint.
+- Helper-video synthetic H.264 already passes the safe probe, so the next
+  promotion blocker is not the helper transport shape; it is true
+  ScreenCaptureKit capture permission and physical iPhone evidence.
+- A combined dashboard prevents repeated small VNC profile-only loops from
+  obscuring the bigger product decision: if VNC is below 10fps and helper
+  synthetic is healthy, the next large unit should unlock true helper-video
+  capture/decode and physical-device verification.
+
+**Alternatives considered**:
+- Keep separate `glance-025-10fps-duration-probe` and `helper-readiness-sweep`
+  commands only: rejected because it makes the product-level go/no-go harder to
+  read from one artifact.
+- Automatically promote helper-video after synthetic pass: rejected because
+  ScreenCaptureKit permission, true live capture, fallback behavior, and
+  physical iPhone thermal/gesture evidence are still required.
+- Remove VNC from the dashboard: rejected because VNC remains the required
+  control/input/fallback path and its 10fps failure is the reason helper-video
+  is being advanced.
+
+## D30 - Keep frame/video processing off the UI executor after physical freeze
+
+**Decision**: Treat physical-device gesture/input freeze on first real VNC
+connection as a MainActor isolation failure until proven otherwise. The VNC
+frame-stream task now uses a detached worker for session connect,
+`RFBFramePump.nextFrame`, decode waits, and pacing sleeps, hopping to
+`NaruRemoteAppModel` only for current-session checks, publication, diagnostics,
+and stats. Foreground VNC frames no longer feed the PiP sample-buffer layer, and
+preview thumbnail sampling is performed in a utility detached task. The
+helper-video runner is also non-MainActor, with only renderer enqueue/flush
+isolated through an explicit main-actor renderer box.
+
+**Rationale**:
+- The observed physical iPhone failure mode was not merely low FPS: once a real
+  connection started, gestures and keyboard input stopped responding. That
+  points to blocking local work on the UI executor, especially full-frame
+  sample-buffer conversion, synchronous thumbnail sampling, or a frame loop that
+  inherited MainActor.
+- The foreground viewer already has a Metal framebuffer path. Converting every
+  received VNC framebuffer into `CMSampleBuffer` for PiP while PiP is not active
+  duplicates local frame work and competes directly with pinch, pan, trackpad,
+  and Compose input.
+- A detached frame worker preserves the existing app-model state boundary while
+  making the expensive/blocked side of the loop unable to monopolize SwiftUI's
+  executor. Helper-video keeps its AVSampleBufferDisplayLayer calls on
+  MainActor, but network start and session-result control flow no longer inherit
+  the app chrome executor.
+
+**Alternatives considered**:
+- Only lower the VNC FPS/pacing cap: rejected because the failure is input
+  freeze, not just excessive visual cadence.
+- Keep feeding PiP layer host for every foreground frame so PiP can attach
+  instantly: rejected because PiP is watch-only and explicitly user-started; a
+  one-frame PiP preparation cost is preferable to freezing normal control.
+- Move all SwiftUI-published state off MainActor: rejected because
+  `ObservableObject` publication and AVSampleBufferDisplayLayer lifecycle still
+  require main-actor boundaries. The safer split is worker-side network/decode
+  with short main-actor publication hops.

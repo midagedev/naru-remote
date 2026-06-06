@@ -3054,7 +3054,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamProfile = profile
         activeStreamCredential = credential
 
-        activeFrameStreamTask = Task { [weak self] in
+        activeFrameStreamTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else {
                 return
             }
@@ -3070,27 +3070,21 @@ public final class NaruRemoteAppModel: ObservableObject {
             // stream task, so client-pressure history never crosses sessions.
             var streamPressurePacingState = SessionStreamPressurePacingState()
             do {
-                let serverInit = try await Task.detached {
-                    try streamingClient.connectSession(
-                        host: profile.host,
-                        port: UInt16(profile.port),
-                        credential: credential,
-                        timeout: configuration.requestTimeout
-                    )
-                }.value
+                let serverInit = try streamingClient.connectSession(
+                    host: profile.host,
+                    port: UInt16(profile.port),
+                    credential: credential,
+                    timeout: configuration.requestTimeout
+                )
                 completedInitialHandshake = true
 
-                guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
+                guard await self.isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
                     return
                 }
 
-                activeTextClient = streamingClient
-                activePointerClient = streamingClient
-                activeKeyEventClient = streamingClient
-                keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
-                lastEmittedDragCoord = nil
+                await self.bindActiveStreamingClients(streamingClient)
                 if shouldRenegotiateConfiguredSustainedEncodings {
-                    await renegotiateConfiguredSustainedEncodingsIfNeeded(
+                    await self.renegotiateConfiguredSustainedEncodingsIfNeeded(
                         transportControl: streamingClient as? any RFBTransportControlClient,
                         requestTimeout: configuration.requestTimeout
                     )
@@ -3108,7 +3102,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 // `unexpectedMessageType(11)` from `parseFramebufferUpdateHeader`.
                 // See task #30.
 
-                while shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
+                while await self.shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
                     if Task.isCancelled {
                         pump.cancel()
                         return
@@ -3123,27 +3117,25 @@ public final class NaruRemoteAppModel: ObservableObject {
                     let requestStart = Date()
                     let isIncrementalRequest = pump.deliveredFrameCount > 0
                     let requestRegion = isIncrementalRequest
-                        ? currentViewportRequestRegion(
+                        ? await self.currentViewportRequestRegion(
                             incrementalRequestIndex: pump.deliveredFrameCount
                         )
                         : nil
                     let initialRequestRegion = isIncrementalRequest
                         ? nil
-                        : currentViewportInitialRequestRegion(serverInit: serverInit)
-                    let maybeFrame = try await Task.detached {
-                        try pump.nextFrame(
-                            requestTimeout: requestTimeout,
-                            updateMode: configuration.updateMode,
-                            requestRegion: requestRegion,
-                            initialRequestRegion: initialRequestRegion
-                        )
-                    }.value
+                        : await self.currentViewportInitialRequestRegion(serverInit: serverInit)
+                    let maybeFrame = try pump.nextFrame(
+                        requestTimeout: requestTimeout,
+                        updateMode: configuration.updateMode,
+                        requestRegion: requestRegion,
+                        initialRequestRegion: initialRequestRegion
+                    )
                     let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
                     guard let frame = maybeFrame else {
                         return
                     }
                     if !frame.transportIdleTimedOut {
-                        recordFrameLatency(
+                        await self.recordFrameLatency(
                             milliseconds: roundTripMilliseconds,
                             streamID: streamID,
                             sessionID: pendingSession.id,
@@ -3153,11 +3145,11 @@ public final class NaruRemoteAppModel: ObservableObject {
                         )
                     }
 
-                    guard isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
+                    guard await self.isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
                         pump.cancel()
                         return
                     }
-                    let thermalState = thermalStateProvider()
+                    let thermalState = await self.currentSessionStreamThermalState()
 
                     // An empty incremental update (zero changed pixels)
                     // means the connection is alive but framebuffer
@@ -3172,7 +3164,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
                     let appFrameApplyStart = Date()
                     if isEmptyUpdate, let serverCursor = frame.serverCursor {
-                        noteServerCursorUpdate(
+                        await self.noteServerCursorUpdate(
                             serverCursor,
                             sessionID: pendingSession.id,
                             profile: profile,
@@ -3180,14 +3172,14 @@ public final class NaruRemoteAppModel: ObservableObject {
                             capturedAt: frame.capturedAt
                         )
                     } else if isEmptyUpdate {
-                        noteStreamLiveness(
+                        await self.noteStreamLiveness(
                             sessionID: pendingSession.id,
                             profile: profile,
                             streamID: streamID,
                             capturedAt: frame.capturedAt
                         )
                     } else {
-                        applyStreamFrame(
+                        await self.applyStreamFrame(
                             frame,
                             serverInit: serverInit,
                             profile: profile,
@@ -3203,64 +3195,30 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     let usesAdaptiveClientPressurePacing = streamPressurePacingState
                         .usesAdaptivePowerSaverPacing
-                    recordSessionStreamStats(
-                        for: frame,
-                        thermalState: thermalState,
-                        usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
-                        appFrameApplyMilliseconds: appFrameApplyMilliseconds
-                    )
                     if frame.sequence == 1 {
-                        scheduleActiveDiagnosticExportForTestingIfRequested()
-                        let startupPreflightResult = await performStartupPreflightFrames(
-                            policy: currentStreamStartupPreflightPolicy(),
+                        await self.scheduleActiveDiagnosticExportForTestingIfRequested()
+                        let startupPreflightResult = await self.performStartupPreflightFrames(
+                            policy: await self.currentStreamStartupPreflightPolicy(),
                             configuration: configuration,
                             pump: pump,
                             streamID: streamID,
                             sessionID: pendingSession.id,
                             profileID: profile.id
                         )
-                        recordSessionStreamStartupPreflight(startupPreflightResult)
+                        await self.recordSessionStreamStartupPreflight(startupPreflightResult)
                     }
-                    let usesPowerSaverPacing = lowPowerModeProvider()
-                        || appSettings.streamPowerMode == .powerSaver
-                        || usesAdaptiveClientPressurePacing
-                    let usesViewportInteractionPacing = isViewportInteractionActive
-                    let viewportInteractionContentFrameInterval = isEmptyUpdate
-                        ? StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
-                        : Self.viewportInteractionContentFrameInterval(
-                            for: frame,
-                            currentFramebuffer: latestFramebuffer,
-                            frameStrategy: viewportInteractionFrameStrategy
-                        )
-
-                    // Adaptive pacing: request the next content frame as
-                    // fast as the configured active cap allows
-                    // (60 Hz-class in production); back off only on
-                    // empty/idle polls (idleFrameInterval) so a static
-                    // screen never busy-loops the request path. Sustained
-                    // empty updates add a small extra backoff, but content
-                    // frames reset the streak immediately.
-                    let pacingDecision = isEmptyUpdate
-                        ? SessionStreamPacingPolicy.decision(
-                            for: .emptyUpdate,
-                            configuredDelay: configuration.idleFrameInterval,
-                            thermalState: thermalState,
-                            usesPowerSaverPacing: usesPowerSaverPacing,
-                            usesViewportInteractionPacing: usesViewportInteractionPacing,
-                            emptyUpdateStreak: emptyUpdateStreak
-                        )
-                        : SessionStreamPacingPolicy.decision(
-                            for: .contentFrame,
-                            configuredDelay: configuration.frameInterval,
-                            thermalState: thermalState,
-                            usesPowerSaverPacing: usesPowerSaverPacing,
-                            usesViewportInteractionPacing: usesViewportInteractionPacing,
-                            viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval
-                        )
-                    recordSessionStreamPacingDecision(pacingDecision)
+                    let pacingDecision = await self.recordSessionStreamStatsAndPacingDecision(
+                        for: frame,
+                        configuration: configuration,
+                        thermalState: thermalState,
+                        usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
+                        appFrameApplyMilliseconds: appFrameApplyMilliseconds,
+                        isEmptyUpdate: isEmptyUpdate,
+                        emptyUpdateStreak: emptyUpdateStreak
+                    )
                     let pacingDelay = pacingDecision.delay
                     if pacingDelay > 0 {
-                        if let streamPacingSleepOverride {
+                        if let streamPacingSleepOverride = await self.currentStreamPacingSleepOverride() {
                             try await streamPacingSleepOverride(pacingDelay)
                         } else {
                             try await Task.sleep(for: .seconds(pacingDelay))
@@ -3270,7 +3228,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             } catch is CancellationError {
                 pump.cancel()
             } catch {
-                handleStreamFailure(
+                await self.handleStreamFailure(
                     profile: profile,
                     sessionID: pendingSession.id,
                     streamID: streamID,
@@ -3279,6 +3237,73 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             }
         }
+    }
+
+    private func bindActiveStreamingClients(_ streamingClient: any RFBStreamingClient) {
+        activeTextClient = streamingClient
+        activePointerClient = streamingClient
+        activeKeyEventClient = streamingClient
+        keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
+        lastEmittedDragCoord = nil
+    }
+
+    private func currentSessionStreamThermalState() -> SessionStreamThermalState {
+        thermalStateProvider()
+    }
+
+    private func currentStreamPacingSleepOverride() -> (@Sendable (TimeInterval) async throws -> Void)? {
+        streamPacingSleepOverride
+    }
+
+    private func recordSessionStreamStatsAndPacingDecision(
+        for frame: RFBFramePumpFrame,
+        configuration: RFBFramePumpConfiguration,
+        thermalState: SessionStreamThermalState,
+        usesAdaptiveClientPressurePacing: Bool,
+        appFrameApplyMilliseconds: Int?,
+        isEmptyUpdate: Bool,
+        emptyUpdateStreak: Int
+    ) -> SessionStreamPacingDecision {
+        recordSessionStreamStats(
+            for: frame,
+            thermalState: thermalState,
+            usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
+            appFrameApplyMilliseconds: appFrameApplyMilliseconds
+        )
+        let usesPowerSaverPacing = lowPowerModeProvider()
+            || appSettings.streamPowerMode == .powerSaver
+            || usesAdaptiveClientPressurePacing
+        let usesViewportInteractionPacing = isViewportInteractionActive
+        let viewportInteractionContentFrameInterval = isEmptyUpdate
+            ? StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
+            : Self.viewportInteractionContentFrameInterval(
+                for: frame,
+                currentFramebuffer: latestFramebuffer,
+                frameStrategy: viewportInteractionFrameStrategy
+            )
+
+        // Adaptive pacing: request the next content frame as fast as the
+        // configured active cap allows; back off only when local pressure,
+        // thermal state, or viewport interaction asks for breathing room.
+        let pacingDecision = isEmptyUpdate
+            ? SessionStreamPacingPolicy.decision(
+                for: .emptyUpdate,
+                configuredDelay: configuration.idleFrameInterval,
+                thermalState: thermalState,
+                usesPowerSaverPacing: usesPowerSaverPacing,
+                usesViewportInteractionPacing: usesViewportInteractionPacing,
+                emptyUpdateStreak: emptyUpdateStreak
+            )
+            : SessionStreamPacingPolicy.decision(
+                for: .contentFrame,
+                configuredDelay: configuration.frameInterval,
+                thermalState: thermalState,
+                usesPowerSaverPacing: usesPowerSaverPacing,
+                usesViewportInteractionPacing: usesViewportInteractionPacing,
+                viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval
+            )
+        recordSessionStreamPacingDecision(pacingDecision)
+        return pacingDecision
     }
 
     private func cachePreview(
@@ -3301,20 +3326,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        guard let thumbnail = ProfilePreviewThumbnail(
-            framebuffer: framebuffer,
-            capturedAt: capturedAt
-        ) else {
-            return
-        }
-
         lastPreviewPublishAt[profileID] = capturedAt
-        profilePreviews[profileID] = thumbnail
-        guard let profilePreviewStore else {
-            return
-        }
-
         let shouldSave: Bool
+        let storeForSave = profilePreviewStore
         if forceDiskSave {
             shouldSave = true
         } else if let lastSavedAt = lastPreviewSaveAt[profileID] {
@@ -3323,13 +3337,33 @@ public final class NaruRemoteAppModel: ObservableObject {
             shouldSave = true
         }
 
-        guard shouldSave else {
-            return
+        if shouldSave {
+            lastPreviewSaveAt[profileID] = capturedAt
         }
-        lastPreviewSaveAt[profileID] = capturedAt
 
-        Task { [profilePreviewStore, thumbnail, profileID] in
-            try? await profilePreviewStore.saveThumbnail(thumbnail, for: profileID)
+        // Thumbnail sampling walks framebuffer pixels. Keep it off MainActor so
+        // the first visible frame cannot stall gestures or soft-keyboard input.
+        let thumbnailTask = Task.detached(priority: .utility) {
+            ProfilePreviewThumbnail(
+                framebuffer: framebuffer,
+                capturedAt: capturedAt
+            )
+        }
+
+        Task { [weak self, storeForSave, profileID, shouldSave, thumbnailTask] in
+            guard let thumbnail = await thumbnailTask.value else {
+                return
+            }
+            guard let self else {
+                return
+            }
+            guard self.profiles.contains(where: { $0.id == profileID }) else {
+                return
+            }
+            self.profilePreviews[profileID] = thumbnail
+            if shouldSave, let storeForSave {
+                try? await storeForSave.saveThumbnail(thumbnail, for: profileID)
+            }
         }
     }
 
@@ -3450,7 +3484,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
-    private static func elapsedMilliseconds(since start: Date) -> Int {
+    private nonisolated static func elapsedMilliseconds(since start: Date) -> Int {
         max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
     }
 
@@ -3670,7 +3704,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestServerCursor = serverCursor
         }
         session = updatedSession
-        forwardFrameToLayerHost(frame.framebuffer)
+        // Do not feed the PiP sample-buffer layer during ordinary foreground
+        // viewing. That path converts the full framebuffer to video samples and
+        // must stay out of the live gesture/input critical path unless PiP is
+        // actually active.
         updatePiPWatchFrameIfNeeded(
             framebuffer: frame.framebuffer,
             sessionID: updatedSession.id,
@@ -6742,6 +6779,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         do {
+            forwardFrameToLayerHost(framebuffer)
             try pipWatchController.enqueue(framebuffer, viewport: currentPiPWatchViewport)
         } catch {
             pipWatchSession.fail("PiP frame could not be rendered.")

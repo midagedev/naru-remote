@@ -305,7 +305,7 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         )
     }
 
-    private static func startResult(
+    private nonisolated static func startResult(
         result: HelperVideoStartStreamResult = .accepted,
         descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
         safeFailureCode: HelperVideoFailureCode? = nil,
@@ -330,7 +330,7 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         )
     }
 
-    private static func accessUnit(
+    private nonisolated static func accessUnit(
         sequence: Int,
         kind: HelperVideoAccessUnitKind
     ) -> HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>> {

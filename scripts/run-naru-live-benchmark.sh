@@ -18,6 +18,7 @@ Modes:
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
   glance-025-profile-sweep Duration-only 0.25 startup glance app profile sweep.
   glance-025-10fps-duration-probe 10fps target probe for the 0.25 local RGB565 candidate.
+  remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
@@ -1887,6 +1888,85 @@ open_screen_recording_settings_status() {
   fi
 }
 
+print_helper_readiness_sweep_report() {
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-readiness-sweep",\n'
+  printf '  "capability": '
+  json_step_or_fixed_failure \
+    helperCapability \
+    benchmarkStep.helperCapability.failed \
+    "$NARU_HELPER_EXECUTABLE" --video-capability
+  printf ',\n'
+  printf '  "preflight": '
+  json_step_or_fixed_failure \
+    environmentPreflight \
+    benchmarkStep.environmentPreflight.failed \
+    swift run --quiet VNCLiveBenchmark \
+    --environment-preflight \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-screen-capturekit-tcp \
+    --json
+  printf ',\n'
+  printf '  "syntheticProbe": '
+  json_step_or_fixed_failure \
+    externalSyntheticProbe \
+    benchmarkStep.externalSyntheticProbe.failed \
+    swift run --quiet VNCLiveBenchmark \
+    --helper-video-probe-only \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-synthetic-encoded-tcp \
+    --json
+  printf ',\n'
+  printf '  "screenProbe": '
+  json_step_or_fixed_failure \
+    externalScreenCaptureKitProbe \
+    benchmarkStep.externalScreenCaptureKitProbe.failed \
+    swift run --quiet VNCLiveBenchmark \
+    --helper-video-probe-only \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-screen-capturekit-tcp \
+    --json
+  printf '\n}\n'
+}
+
+remote_desktop_10fps_readiness() {
+  reject_extra_args
+  import_helper_env
+  import_live_env
+  cd "$repo_root"
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "remote-desktop-10fps-readiness",\n'
+  printf '  "targetLabel": "iphone-remote-desktop-10fps-v1",\n'
+  printf '  "minimumContentFPS": 10,\n'
+  printf '  "promotionPolicyLabels": [\n'
+  printf '    "vnc-below-10fps-is-product-failure",\n'
+  printf '    "helper-video-is-primary-smoothness-candidate",\n'
+  printf '    "physical-iphone-gate-required-before-default-promotion"\n'
+  printf '  ],\n'
+  printf '  "helperReadinessSweep": '
+  json_step_or_fixed_failure \
+    helperReadinessSweep \
+    benchmarkStep.helperReadinessSweep.failed \
+    print_helper_readiness_sweep_report
+  printf ',\n'
+  printf '  "vnc10fpsProbe": '
+  json_step_or_fixed_failure \
+    remoteDesktop10fpsProbe \
+    benchmarkStep.remoteDesktop10fpsProbe.failed \
+    run_glance_025_10fps_duration_probe
+  printf ',\n'
+  printf '  "nextActionLabels": [\n'
+  printf '    "grant-helper-video-app-screen-recording-permission",\n'
+  printf '    "rerun-helper-screen-probe",\n'
+  printf '    "run-true-helper-video-live-capture-benchmark",\n'
+  printf '    "run-physical-iphone-helper-video-gate"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
 case "$mode" in
   preflight)
     import_helper_env
@@ -1920,45 +2000,7 @@ case "$mode" in
     import_helper_env
     import_optional_live_env
     cd "$repo_root"
-    printf '{\n'
-    printf '  "schemaVersion": 1,\n'
-    printf '  "mode": "helper-readiness-sweep",\n'
-    printf '  "capability": '
-    json_step_or_fixed_failure \
-      helperCapability \
-      benchmarkStep.helperCapability.failed \
-      "$NARU_HELPER_EXECUTABLE" --video-capability
-    printf ',\n'
-    printf '  "preflight": '
-    json_step_or_fixed_failure \
-      environmentPreflight \
-      benchmarkStep.environmentPreflight.failed \
-      swift run --quiet VNCLiveBenchmark \
-      --environment-preflight \
-      --visual-transport helper-video \
-      --helper-video-probe external-helper-screen-capturekit-tcp \
-      --json
-    printf ',\n'
-    printf '  "syntheticProbe": '
-    json_step_or_fixed_failure \
-      externalSyntheticProbe \
-      benchmarkStep.externalSyntheticProbe.failed \
-      swift run --quiet VNCLiveBenchmark \
-      --helper-video-probe-only \
-      --visual-transport helper-video \
-      --helper-video-probe external-helper-synthetic-encoded-tcp \
-      --json
-    printf ',\n'
-    printf '  "screenProbe": '
-    json_step_or_fixed_failure \
-      externalScreenCaptureKitProbe \
-      benchmarkStep.externalScreenCaptureKitProbe.failed \
-      swift run --quiet VNCLiveBenchmark \
-      --helper-video-probe-only \
-      --visual-transport helper-video \
-      --helper-video-probe external-helper-screen-capturekit-tcp \
-      --json
-    printf '\n}\n'
+    print_helper_readiness_sweep_report
     ;;
   short-live-comparison)
     import_helper_env
@@ -1999,6 +2041,9 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_glance_025_10fps_duration_probe
+    ;;
+  remote-desktop-10fps-readiness)
+    remote_desktop_10fps_readiness
     ;;
   request-pipeline-sweep)
     import_live_env
