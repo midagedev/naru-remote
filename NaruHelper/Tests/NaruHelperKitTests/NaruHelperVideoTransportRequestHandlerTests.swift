@@ -175,6 +175,20 @@ final class NaruHelperVideoTransportRequestHandlerTests: XCTestCase {
         XCTAssertEqual(response.body.safeFailureCode, .transportFailed)
     }
 
+    func testSchemaVersionMismatchIsRejectedBeforeAuthorization() {
+        let handler = makeHandler()
+        var request = signedEnvelope(
+            messageType: .capabilityRequest,
+            body: HelperVideoCapabilityRequestBody()
+        )
+        request.schemaVersion = naruHelperVideoStreamSchemaVersion + 1
+
+        let response = handler.handleCapabilityRequest(request)
+
+        XCTAssertEqual(response.body.availability, .failed)
+        XCTAssertEqual(response.body.safeFailureCode, .transportFailed)
+    }
+
     func testUnsupportedCodecStartStreamUsesSafeFailureCode() {
         let handler = makeHandler()
         let request = signedEnvelope(
