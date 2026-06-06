@@ -431,6 +431,76 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         )
     }
 
+    func testIncrementalFramebufferRequestTimeoutReturnsIdleFrameAndKeepsConnectionUsable() async throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([
+                Self.rawTwoByTwoUpdateData()
+            ]),
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let first = try client.requestFramebufferUpdate()
+        let idle = try client.requestFramebufferUpdate(incremental: true, timeout: 0.05)
+
+        XCTAssertEqual(idle.framebuffer, first.framebuffer)
+        XCTAssertTrue(idle.dirtyRectangles.isEmpty)
+        XCTAssertEqual(idle.changedPixelCount, 0)
+        XCTAssertTrue(idle.transportIdleTimedOut)
+        XCTAssertEqual(client.state, .receivingFrames)
+
+        try await client.sendPointerEvent(buttonMask: 0, x: 1, y: 1)
+        XCTAssertEqual(
+            try recorder.waitForPointerEvents(1),
+            [FakeRFBPointerEvent(buttonMask: 0, x: 1, y: 1)]
+        )
+    }
+
+    func testIncrementalRegionTimeoutCanRecoverWithFullFallbackOnSameConnection() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferRequestResponses([
+                .send(Self.rawTwoByTwoUpdateData()),
+                .holdOpen,
+                .send(Self.secondRawTwoByTwoUpdateData())
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let first = try client.requestFramebufferUpdate()
+        let idle = try client.requestFramebufferUpdate(
+            incremental: true,
+            timeout: 0.05,
+            region: RFBFramebufferUpdateRegion(x: 0, y: 0, width: 1, height: 1)
+        )
+        let recovered = try client.requestFramebufferUpdate(
+            incremental: false,
+            timeout: 1,
+            region: nil
+        )
+
+        XCTAssertEqual(idle.framebuffer, first.framebuffer)
+        XCTAssertTrue(idle.transportIdleTimedOut)
+        XCTAssertEqual(recovered.framebuffer[0, 0], RFBColor(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(recovered.framebuffer[1, 0], RFBColor(red: 0, green: 0, blue: 255))
+        XCTAssertEqual(recovered.framebuffer[1, 1], RFBColor(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(client.state, .receivingFrames)
+    }
+
     func testContinuousReceiveAfterPartialMessageFailsConnection() throws {
         let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
         let server = try FakeRFBServer(

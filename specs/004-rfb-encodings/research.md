@@ -4225,3 +4225,61 @@ candidates report their nominal cycle average.
   request-region/default changes should be rejected if they do not reduce the
   traffic proxy under the same sustained usability gate, or if they reduce area
   but increase unanswered requests, timeout/failure labels, or p95 update tail.
+
+## D97 — Incremental request idle timeouts are recoverable traffic events
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- D95 viewport-aware request-region foundation.
+- D96 traffic-pressure promotion metric.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v54 and treat a zero-byte read
+timeout after an incremental `FramebufferUpdateRequest` as a non-fatal idle
+frame when a previous framebuffer exists. The request/response benchmark then
+uses the existing viewport-region timeout policy to issue an immediate full
+fallback request on the same socket instead of reconnecting.
+
+**Why**:
+- RFC 6143's incremental request model lets a server delay a
+  `FramebufferUpdate` until the requested area changes. Multiple outstanding
+  requests may also be satisfied by one later update, so a narrowed request
+  that sees no changes is an idle transport event, not proof that the TCP/RFB
+  session is broken.
+- Poor-network optimization now has an explicit traffic target. Viewport-aware
+  request regions can reduce requested framebuffer area, but they are unusable
+  if a missed region forces reconnects or reports `not-connected` failures.
+- Keeping partial-message and non-incremental/full-request timeouts fatal
+  preserves corruption protection. Only the safe zero-byte incremental case
+  becomes recoverable.
+
+**Implementation rule**:
+- `RFBNetworkClient.requestFramebufferUpdate(incremental:true, ...)` reuses the
+  same idle-timeout path as ContinuousUpdates only when the read consumed zero
+  bytes and a previous framebuffer exists.
+- `requestFramebufferUpdate(incremental:false, ...)`, direct
+  `receiveFramebufferUpdate`, and any timeout after consuming part of a server
+  message still fail and tear down the connection.
+- `VNCLiveBenchmark` treats an incremental idle frame from a narrowed request
+  the same as the previous thrown timeout fallback: increment the safe timeout
+  streak and request a full frame on the same connection.
+
+**Evidence**:
+- `FakeRFBServer` can script per-request responses with `send(update)` and
+  `holdOpen`, allowing deterministic region-miss and same-socket full-fallback
+  tests.
+- Integration tests prove incremental zero-byte timeouts return
+  `transportIdleTimedOut`, preserve `receivingFrames`, keep pointer writes
+  usable, and recover with a later full request on the same connection.
+- A redacted live schema v54 `sustained-v2-zrle-viewport-region` run reported
+  5/5 usable runs for `full`, `viewport-phone-portrait`, and
+  `viewport-phone-portrait-heartbeat` with no failure labels. The viewport
+  candidates reported `requestRegionAreaPermille` averages of 364 and 491
+  versus 1000 for full requests while keeping the same first-byte-wait dominant
+  p95 tail profile.
+
+**Interpretation**:
+- Viewport-region experiments should now fail or pass on actual hit-rate,
+  latency, and requested-area pressure instead of collapsing into reconnect
+  artifacts. This does not yet promote region requests to a production default;
+  the v54 live benchmark and physical iPhone gate still need to prove sustained
+  usability under the same traffic contract.

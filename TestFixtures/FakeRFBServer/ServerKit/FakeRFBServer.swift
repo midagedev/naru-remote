@@ -2,10 +2,16 @@ import Foundation
 import Network
 
 public final class FakeRFBServer: @unchecked Sendable {
+    public enum FramebufferRequestResponse: Sendable {
+        case send(Data)
+        case holdOpen
+    }
+
     public enum Mode: Sendable {
         case transcript
         case noAuthHandshake
         case noAuthFramebufferUpdates([Data])
+        case noAuthFramebufferRequestResponses([FramebufferRequestResponse])
         /// Sends each opaque server message immediately after the no-auth
         /// handshake completes, without expecting `FramebufferUpdateRequest`
         /// messages in between. Useful for `ServerCutText` and other
@@ -65,7 +71,16 @@ public final class FakeRFBServer: @unchecked Sendable {
                     connection: connection,
                     transcript: transcript,
                     clientMessageRecorder: clientMessageRecorder,
-                    frameUpdates: frameUpdates
+                    frameUpdates: frameUpdates,
+                    framebufferRequestResponses: nil
+                ).start()
+            case .noAuthFramebufferRequestResponses(let requestResponses):
+                FakeRFBNoAuthHandshakeConnection(
+                    connection: connection,
+                    transcript: transcript,
+                    clientMessageRecorder: clientMessageRecorder,
+                    frameUpdates: nil,
+                    framebufferRequestResponses: requestResponses
                 ).start()
             case .noAuthServerMessages(let serverMessages):
                 FakeRFBNoAuthServerMessagesConnection(
@@ -121,17 +136,20 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
     private let transcript: FakeRFBTranscript
     private let clientMessageRecorder: FakeRFBClientMessageRecorder?
     private let frameUpdates: [Data]?
+    private let framebufferRequestResponses: [FakeRFBServer.FramebufferRequestResponse]?
 
     init(
         connection: NWConnection,
         transcript: FakeRFBTranscript,
         clientMessageRecorder: FakeRFBClientMessageRecorder?,
-        frameUpdates: [Data]?
+        frameUpdates: [Data]?,
+        framebufferRequestResponses: [FakeRFBServer.FramebufferRequestResponse]? = nil
     ) {
         self.connection = connection
         self.transcript = transcript
         self.clientMessageRecorder = clientMessageRecorder
         self.frameUpdates = frameUpdates
+        self.framebufferRequestResponses = framebufferRequestResponses
     }
 
     func start() {
@@ -172,12 +190,17 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
     }
 
     private func receiveFramebufferRequestsAndSendUpdates() {
-        let updates = frameUpdates ?? [transcript.bytes[safe: 46..<62]]
-        receiveFramebufferRequestsAndSendUpdates(ArraySlice(updates))
+        let responses = framebufferRequestResponses
+            ?? (frameUpdates ?? [transcript.bytes[safe: 46..<62]]).map {
+                FakeRFBServer.FramebufferRequestResponse.send($0)
+            }
+        receiveFramebufferRequestsAndSendUpdates(ArraySlice(responses))
     }
 
-    private func receiveFramebufferRequestsAndSendUpdates(_ updates: ArraySlice<Data>) {
-        guard let update = updates.first else {
+    private func receiveFramebufferRequestsAndSendUpdates(
+        _ responses: ArraySlice<FakeRFBServer.FramebufferRequestResponse>
+    ) {
+        guard let response = responses.first else {
             if let clientMessageRecorder {
                 receiveClientMessages(into: clientMessageRecorder)
             } else {
@@ -187,8 +210,13 @@ private final class FakeRFBNoAuthHandshakeConnection: @unchecked Sendable {
         }
 
         receive(byteCount: 10) { [self] in
-            send(update) { [self] in
-                receiveFramebufferRequestsAndSendUpdates(updates.dropFirst())
+            switch response {
+            case .send(let update):
+                send(update) { [self] in
+                    receiveFramebufferRequestsAndSendUpdates(responses.dropFirst())
+                }
+            case .holdOpen:
+                receiveFramebufferRequestsAndSendUpdates(responses.dropFirst())
             }
         }
     }

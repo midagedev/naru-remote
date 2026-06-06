@@ -1009,6 +1009,15 @@ iPhone) and ships as its own PR.
   pressure reduction and unchanged-or-better stream stability. Owns: benchmark
   request-region kit/tests, summary kit/tests, CLI schema/text report, README,
   spec/research notes. **Done.**
+- **T429** Incremental request timeout recovery: preserve the active RFB
+  connection when an incremental request times out before reading any server
+  bytes, return a zero-change idle frame, and let viewport-region benchmark
+  probes immediately recover with a full fallback request on the same socket.
+  Keep non-incremental and partial-message timeouts fatal, bump
+  `VNCLiveBenchmark` to schema v54, and prove the behavior with
+  `FakeRFBServer` request scripts before comparing live traffic candidates.
+  Owns: `RFBNetworkClient`, `VNCLiveBenchmark`, fake-server tests, README,
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 

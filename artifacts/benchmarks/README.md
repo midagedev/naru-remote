@@ -589,6 +589,13 @@ emit byte counts, dimensions, coordinates, pixels, or payloads. Treat this
 metric together with usable runs, hit-rate, p95 update tail, failure labels, and
 full fallback/heartbeat behavior: area savings without stability is not a
 production default candidate.
+Schema v54 keeps the same redacted report shape but changes request/response
+region recovery semantics: a zero-byte incremental request timeout with an
+existing framebuffer is an idle frame, and viewport-region probes can issue
+their full fallback request on the same socket. Non-incremental request
+timeouts and partial-message timeouts remain fatal. Use v54 when comparing
+poor-network traffic candidates so `requestRegionAreaPermille` is judged
+against stability rather than reconnect artifacts.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
