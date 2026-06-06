@@ -10,6 +10,7 @@ not a single constant:
 
 - stream transport and request cadence
 - stream encoding profile
+- startup and sustained traffic pressure
 - startup preflight mode
 - viewport zoom/pan and zoomed trackpad behavior
 - Compose route and preparation behavior
@@ -31,6 +32,8 @@ that is usable for real terminal and AI CLI work:
 - the phone should not reach `.serious` or `.critical` thermal state
 - the app should preserve a request/response fallback when server extensions
   are not confirmed
+- poor-network candidates should reduce startup/request-area and payload
+  pressure without turning sustained updates into long first-byte waits
 
 ## Benchmark Gate
 
@@ -50,6 +53,22 @@ ready. A candidate is benchmark-green only when the report-level decision or
 transport/cadence diagnosis routes to `runPhysicalDeviceSustainedGate`, or when
 an artifact explicitly accepts a warning and explains why the warning does not
 block physical testing.
+
+For traffic-sensitive candidates, also run the poor-network traffic gate:
+
+```bash
+swift run VNCLiveBenchmark \
+  --environment-preflight \
+  --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
+  --ask-password \
+  --json
+```
+
+Then run the same preset live after preflight is ready. A traffic candidate is
+promotion-ready only when it avoids first-frame failure, avoids
+request-region-area failure, avoids payload-read failure, and either passes or
+has an explicitly accepted first-byte-wait warning with a follow-up cadence
+plan.
 
 The sustained v2 numeric floor remains:
 
@@ -81,6 +100,7 @@ candidate using fixed labels only. The first comparison set should be:
 | --- | --- | --- | --- | --- |
 | current-baseline | `balanced` | `standard` | `disabled` | current production behavior |
 | sustained-candidate | `balanced` | selected fixed label | selected fixed label | proposed normal default |
+| poor-network-candidate | `balanced` | `zrle-compression-0-rgb565` or selected fixed label | selected fixed label | constrained-link traffic candidate |
 | thermal-candidate | `power-saver` | selected fixed label | selected fixed label | heat/battery fallback |
 
 The physical gate is green only when the final safe diagnostic export reports
@@ -101,6 +121,9 @@ Until both gates are green, larger PRs should stay on one of these tracks:
   v43 diagnosis.
 - **Encoding/profile**: compare fixed request/response candidates with the
   sustained v2 gate before changing the default profile.
+- **Traffic**: compare the app low-traffic profile with
+  `sustained-v2-constrained-cellular-app-low-traffic` before promoting any
+  poor-network behavior beyond opt-in.
 - **Startup preflight**: compare `disabled` versus `one-hidden-frame` only after
   the benchmark target can graduate to the physical gate.
 - **Interaction/input**: improve viewport and Compose behavior under the same

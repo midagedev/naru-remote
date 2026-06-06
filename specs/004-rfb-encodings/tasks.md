@@ -1103,6 +1103,16 @@ iPhone) and ships as its own PR.
   coordinates, byte counts, pixels, or per-sample timings. Owns: app shell,
   session viewport callback, app-model tests, spec/research note, benchmark
   artifact. **Done.**
+- **T438** App low-traffic poor-network benchmark preset: add an
+  `app-low-traffic` stream-shape profile selection and
+  `sustained-v2-constrained-cellular-app-low-traffic` gate preset that keeps
+  the v61 constrained-cellular visible-focus traffic shape but runs only the
+  fixed `zrle-compression-0-rgb565` app opt-in profile. Preserve report labels
+  as fixed catalog values, update CLI help and benchmark promotion contracts,
+  and keep raw dimensions, coordinates, byte counts, pixels, payloads, raw
+  errors, command text, draft text, marked text, and IME state out of artifacts.
+  Owns: benchmark profile selection, CLI preset, tests, README, research note,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

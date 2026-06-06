@@ -4,6 +4,7 @@ public enum BenchmarkStreamShapeProfileSelection {
     public static let coreMatrixSelection = "core-matrix"
     public static let zrleIsolationSelection = "zrle-isolation"
     public static let pixelFormatIsolationSelection = "pixel-format-isolation"
+    public static let appLowTrafficSelection = "app-low-traffic"
     /// Current default, pure ZRLE, non-ZRLE fallback, and future adaptive path.
     public static let defaultCoreMatrixLabels = [
         "local-low-latency",
@@ -27,11 +28,16 @@ public enum BenchmarkStreamShapeProfileSelection {
         "zrle-compression-0",
         "zrle-compression-0-rgb565"
     ]
+    /// Exact app-side opt-in low-traffic stream profile label.
+    public static let defaultAppLowTrafficLabels = [
+        "zrle-compression-0-rgb565"
+    ]
 
     public static func usageDescription(allProfileLabels: [String]) -> String {
         let labels = uniqueLabels(allProfileLabels).joined(separator: ",")
         return "local-low-latency|\(coreMatrixSelection)|\(zrleIsolationSelection)|"
-            + "\(pixelFormatIsolationSelection)|all|comma-separated labels (\(labels))"
+            + "\(pixelFormatIsolationSelection)|\(appLowTrafficSelection)|"
+            + "all|comma-separated labels (\(labels))"
     }
 
     public static func selectedLabels(
@@ -40,7 +46,8 @@ public enum BenchmarkStreamShapeProfileSelection {
         localLowLatencyLabel: String = "local-low-latency",
         coreMatrixLabels: [String] = defaultCoreMatrixLabels,
         zrleIsolationLabels: [String] = defaultZrleIsolationLabels,
-        pixelFormatIsolationLabels: [String] = defaultPixelFormatIsolationLabels
+        pixelFormatIsolationLabels: [String] = defaultPixelFormatIsolationLabels,
+        appLowTrafficLabels: [String] = defaultAppLowTrafficLabels
     ) throws -> [String] {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -76,6 +83,13 @@ public enum BenchmarkStreamShapeProfileSelection {
                 pixelFormatIsolationLabels,
                 allProfileLabels: allProfileLabels,
                 missingError: BenchmarkStreamShapeProfileSelectionError.missingPixelFormatIsolationLabels
+            )
+        }
+        if trimmed == appLowTrafficSelection {
+            return try namedSelectionLabels(
+                appLowTrafficLabels,
+                allProfileLabels: allProfileLabels,
+                missingError: BenchmarkStreamShapeProfileSelectionError.missingAppLowTrafficLabels
             )
         }
 
@@ -139,6 +153,7 @@ public enum BenchmarkStreamShapeProfileSelectionError: Error, Equatable, Sendabl
     case missingCoreMatrixLabels([String])
     case missingZrleIsolationLabels([String])
     case missingPixelFormatIsolationLabels([String])
+    case missingAppLowTrafficLabels([String])
     case duplicateLabels([String])
 
     public var message: String {
@@ -155,6 +170,9 @@ public enum BenchmarkStreamShapeProfileSelectionError: Error, Equatable, Sendabl
                 + "required profile label(s) are missing: \(labels.joined(separator: ", "))."
         case let .missingPixelFormatIsolationLabels(labels):
             return "pixel-format-isolation stream-shape profile selection is unavailable because "
+                + "required profile label(s) are missing: \(labels.joined(separator: ", "))."
+        case let .missingAppLowTrafficLabels(labels):
+            return "app-low-traffic stream-shape profile selection is unavailable because "
                 + "required profile label(s) are missing: \(labels.joined(separator: ", "))."
         case let .duplicateLabels(labels):
             return "duplicate stream-shape profile label(s): \(labels.joined(separator: ", "))."

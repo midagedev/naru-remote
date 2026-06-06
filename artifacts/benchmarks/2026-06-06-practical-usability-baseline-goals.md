@@ -12,23 +12,31 @@ uncomfortably?
 
 ## Baseline Target
 
-`iphone-sustained-usability-v2` remains the active target for new streaming
-work.
+`iphone-sustained-usability-v2` remains the active target for normal sustained
+streaming work. `iphone-poor-network-traffic-v1` is now a required companion
+target for changes intended to improve cellular, lossy Wi-Fi, Tailnet relay, or
+otherwise constrained links.
 
 Entry criteria for a larger optimization PR:
 
-- Use a redacted schema v37 live `VNCLiveBenchmark` run with
-  `streamShapeProfileGates` and controlled stimulus whenever a live target is
-  available.
+- Use a redacted schema v61 live `VNCLiveBenchmark` run with
+  `streamShapeProfileGates`, controlled stimulus, and the appropriate practical
+  target whenever a live target is available.
+- For poor-network work, run or explicitly defer
+  `sustained-v2-constrained-cellular-app-low-traffic` so startup area,
+  sustained request area, first-byte wait, and payload-read pressure are judged
+  together.
 - Treat the profile gate as the first decision screen:
   - `fail`: do not promote the profile or cadence change until the issue-code
     union is resolved.
   - `warning`: require an explicit artifact judgment before using it as a
     candidate.
   - `pass`: eligible for physical iPhone verification only.
-- Do not change production streaming defaults until a 10 minute physical iPhone
-  hand-feel and thermal pass confirms immediate local zoom/pan, reliable
-  Compose route diagnostics, and no `.serious` or `.critical` thermal state.
+- Do not change production streaming defaults until sustained-usability and
+  poor-network traffic gates are green or explicitly accepted as warnings, and
+  a 10 minute physical iPhone hand-feel/thermal pass confirms immediate local
+  zoom/pan, reliable Compose route diagnostics, and no `.serious` or
+  `.critical` thermal state.
 
 ## Simulator Frame-Pipeline Baseline
 
@@ -65,25 +73,30 @@ Result: the clean simulator benchmark run passed.
 The simulator result does not prove physical-device thermal comfort, but it
 does make renderer upload alone a weak primary suspect for the current reported
 low frame rate and heat. The next larger implementation unit should therefore
-start from live v37 profile gates and physical iPhone hand-feel evidence:
+start from live schema v61 profile/traffic gates and physical iPhone hand-feel
+evidence:
 
+- High request area or payload-read pressure points toward traffic reduction:
+  pixel format, encoding profile, first-useful-paint, or visible-region
+  request strategy.
 - Low received/content hit-rate points toward target reachability, request
   cadence, transport behavior, or stimulus assumptions.
 - Good hit-rate with slow content-bearing updates points toward server/network
   wait, decode/apply, or physical-device pacing pressure.
-- A passing v37 gate that still feels stepped or hot on the phone points toward
-  viewport scheduling, input routing, thermal policy, or device pacing rather
-  than simulator renderer upload.
+- A passing schema v61 gate that still feels stepped or hot on the phone points
+  toward viewport scheduling, input routing, thermal policy, or device pacing
+  rather than simulator renderer upload.
 
 ## Live Benchmark Status
 
-A redacted live v37 benchmark was not executed in this increment because the
-current shell did not provide live target or stimulus environment values. The
-next live run should use the same v37 gate shape documented in the benchmark
-README and keep target identity, credentials, framebuffer dimensions,
-coordinates, pixels, cursor pixels, byte counts, raw samples, raw payloads, raw
-errors, external command text, command output, draft text, marked text, and IME
-state out of artifacts.
+The current live evidence is no longer green for default promotion: RGB565
+low-traffic candidates can survive constrained-cellular startup, but sustained
+samples remain first-byte-wait/update-cadence dominated. The next live run
+should use the schema v61 gate shapes documented in the benchmark README and
+keep target identity, credentials, framebuffer dimensions, coordinates, pixels,
+cursor pixels, byte counts, raw samples, raw payloads, raw errors, external
+command text, command output, draft text, marked text, and IME state out of
+artifacts.
 
 ## Verification
 

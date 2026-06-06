@@ -668,6 +668,15 @@ wait routes to update-wait timing inspection. The first v61 live artifact is
 `2026-06-06-constrained-cellular-sustained-traffic-wait-summary.md`; it keeps
 the RGB565 visible-focus startup win, but classifies the usable sustained
 samples as `first-byte-wait-warning` rather than payload-read pressure.
+The app low-traffic follow-up adds the `app-low-traffic` profile selection and
+`--stream-shape-gate-preset
+sustained-v2-constrained-cellular-app-low-traffic`. This preset keeps the v61
+constrained-cellular visible-focus shape, but narrows the matrix to the app's
+fixed `zrle-compression-0-rgb565` opt-in profile so physical iPhone and live
+CLI runs can judge the same traffic candidate without full-color startup
+failures dominating the report. It remains an opt-in candidate gate: production
+defaults still require sustained and poor-network benchmark evidence plus the
+physical iPhone hand-feel/thermal/Compose gate before promotion.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

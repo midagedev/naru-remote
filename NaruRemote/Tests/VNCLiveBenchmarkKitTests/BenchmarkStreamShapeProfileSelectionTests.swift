@@ -9,7 +9,7 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
                 allProfileLabels: ["local-low-latency", "tight-first"]
             ),
             "local-low-latency|core-matrix|zrle-isolation|pixel-format-isolation|"
-                + "all|comma-separated labels (local-low-latency,tight-first)"
+                + "app-low-traffic|all|comma-separated labels (local-low-latency,tight-first)"
         )
     }
 
@@ -176,6 +176,42 @@ final class BenchmarkStreamShapeProfileSelectionTests: XCTestCase {
 
         XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZero.rawValue))
         XCTAssertTrue(labels.contains(StreamEncodingMode.zrleCompressionZeroRGB565.rawValue))
+    }
+
+    func testAppLowTrafficSelectsOnlyAppRGB565LowTrafficLabel() throws {
+        let labels = try BenchmarkStreamShapeProfileSelection.selectedLabels(
+            from: " app-low-traffic ",
+            allProfileLabels: [
+                "local-low-latency",
+                StreamEncodingMode.zrleCompressionZero.rawValue,
+                StreamEncodingMode.zrleCompressionZeroRGB565.rawValue,
+                "adaptive-good-full"
+            ]
+        )
+
+        XCTAssertEqual(labels, [StreamEncodingMode.zrleCompressionZeroRGB565.rawValue])
+    }
+
+    func testAppLowTrafficThrowsWhenProfileIsMissing() {
+        XCTAssertThrowsError(
+            try BenchmarkStreamShapeProfileSelection.selectedLabels(
+                from: "app-low-traffic",
+                allProfileLabels: [
+                    "local-low-latency",
+                    StreamEncodingMode.zrleCompressionZero.rawValue
+                ]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BenchmarkStreamShapeProfileSelectionError,
+                .missingAppLowTrafficLabels([StreamEncodingMode.zrleCompressionZeroRGB565.rawValue])
+            )
+            XCTAssertEqual(
+                (error as? BenchmarkStreamShapeProfileSelectionError)?.message,
+                "app-low-traffic stream-shape profile selection is unavailable because "
+                    + "required profile label(s) are missing: zrle-compression-0-rgb565."
+            )
+        }
     }
 
     func testPixelFormatIsolationThrowsWhenAPairProfileIsMissing() {
