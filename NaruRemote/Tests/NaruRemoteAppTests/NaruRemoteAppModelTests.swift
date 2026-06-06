@@ -1524,7 +1524,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(
             connector.frameUpdateRegions,
             [
-                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
+                RFBFramebufferUpdateRegion(x: 350, y: 350, width: 300, height: 300)
             ]
         )
     }
@@ -1556,10 +1556,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(connector.frameUpdateRequests, [false])
         let region = try XCTUnwrap(connector.frameUpdateRegions.first ?? nil)
-        XCTAssertEqual(region.y, 0)
-        XCTAssertEqual(region.height, 1_080)
         XCTAssertGreaterThan(region.x, 0)
+        XCTAssertGreaterThan(region.y, 0)
         XCTAssertLessThan(region.width, 1_920)
+        XCTAssertLessThan(region.height, 1_080)
     }
 
     func testModelKeepsFullLowTrafficInitialRequestWhenViewportDoesNotMatchServer() async throws {

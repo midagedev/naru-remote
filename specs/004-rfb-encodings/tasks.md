@@ -1136,6 +1136,20 @@ iPhone) and ships as its own PR.
   pixels, payloads, host identity, command text, draft text, marked text, or IME
   state. Owns: app shell, session viewport callback, app-model tests, research
   artifact, spec/research note. **Done.**
+- **T441** App low-traffic visible-glance startup region: after D109 and the
+  smaller-area live probe showed visible-focus still spends too long in
+  startup payload read, split first-useful-paint from sustained viewport
+  streaming. Add a shared centered-scale helper, use a 0.60 visible-core
+  startup slice only for the first app low-traffic request, keep sustained
+  incremental requests on the existing margin-expanded viewport policy, add a
+  fixed benchmark `visible-glance` mode with schema v63, and document the live
+  app-candidate gate result. Keep standard profile, power-saver/low-power
+  override, mismatched transforms, invalid dimensions, and fallback cases
+  full-frame, and avoid logging/exporting dimensions, coordinates, byte counts,
+  pixels, payloads, host identity, command text, draft text, marked text, or
+  IME state. Owns: core viewport helper/tests, app-model startup policy/tests,
+  benchmark first-frame mode/tests/help, README, research note, live benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

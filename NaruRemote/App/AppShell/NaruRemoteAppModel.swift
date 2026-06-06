@@ -62,6 +62,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// but give the remote clipboard enough time to adopt the payload
     /// before the paste shortcut arrives.
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.30
+    private static let initialViewportGlanceScale = 0.60
 
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?
@@ -2772,9 +2773,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             return currentViewportInitialRequestRegionFromLastViewSize(serverInit: serverInit)
         }
         return latestViewportTransform.visibleFramebufferUpdateRegion(
-            expansionMarginPixels: viewportRequestRegionPolicy.expansionMarginPixels,
+            expansionMarginPixels: 0,
             minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
-        )
+        )?.centeredScaled(by: Self.initialViewportGlanceScale)
     }
 
     private func currentViewportInitialRequestRegionFromLastViewSize(
@@ -2807,9 +2808,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             zoomScale: max(1, fillScale / fitScale)
         )
         return transform.visibleFramebufferUpdateRegion(
-            expansionMarginPixels: viewportRequestRegionPolicy.expansionMarginPixels,
+            expansionMarginPixels: 0,
             minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
-        )
+        )?.centeredScaled(by: Self.initialViewportGlanceScale)
     }
 
     private var usesViewportAwareRequestRegions: Bool {

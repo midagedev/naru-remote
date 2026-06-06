@@ -686,6 +686,15 @@ renderer-upload work. The first v62 live artifact is
 local VNC app-low-traffic run where first-frame request area was 192 permille,
 but about 14.2 s of payload read still made startup fail the poor-network
 traffic target.
+Schema v63 adds the fixed `visible-glance` first-frame request mode for
+startup-only first-useful-paint experiments. It scales the visible core down
+before the first non-incremental request, then returns sustained incremental
+requests to the normal viewport-aware region. The app-candidate live artifact is
+`2026-06-06-app-low-traffic-visible-glance-live-gate-summary.md`; it records the
+fixed `zrle-compression-0-rgb565` profile at 108 permille first-frame request
+area, about 10.4 s first-frame payload read, and 4/4 sustained content samples.
+The gate still fails, so this is a startup improvement and not a default
+promotion.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
