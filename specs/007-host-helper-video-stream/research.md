@@ -652,3 +652,32 @@ verdicts, and fixed issue codes.
   needs helper setup evidence.
 - Write raw helper diagnostic JSON to artifacts: rejected by the safe benchmark
   artifact boundary.
+
+## D22 - Standardize launchctl-backed live benchmark entrypoints
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh` as a local development
+wrapper for repeated live benchmark runs. The wrapper imports
+`NARU_HELPER_EXECUTABLE`, `NARU_LIVE_MAC_HOST`, `NARU_LIVE_MAC_PORT`,
+`NARU_LIVE_MAC_PASSWORD`, and `NARU_LIVE_STIMULUS_COMMAND` from `launchctl`
+when the current shell does not already provide them, then runs fixed
+preflight, helper-video probe-only, helper capability, permission request, or
+short constrained-cellular comparison modes.
+
+**Rationale**:
+- Codex, GUI-launched terminals, and manual shells do not always inherit the
+  same process environment. `launchctl getenv` is the stable source for this
+  development machine's live credential references.
+- A wrapper prevents accidental command-line password literals while still
+  making repeated helper-video and VNC fallback benchmarks easy to run.
+- The wrapper delegates report generation to the existing safe CLIs, so it does
+  not add a second JSON schema or print credential values, helper paths,
+  endpoints, payloads, byte counts, dimensions, raw OS errors, or exact helper
+  timings.
+
+**Alternatives considered**:
+- Add a `VNCLiveBenchmark --launchctl-env` flag immediately: deferred because
+  the current need is a development workflow wrapper, and changing the CLI's
+  environment provider would add a broader surface to test.
+- Document only the long `NARU_LIVE_*="$(launchctl getenv ...)"` command
+  prefixes: rejected because the repeated command shape is easy to mistype and
+  obscures the actual benchmark mode being run.

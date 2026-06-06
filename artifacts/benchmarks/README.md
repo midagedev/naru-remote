@@ -138,6 +138,13 @@ Current helper-video probe-only artifact:
 `VNCLiveBenchmark --helper-video-probe-only` runs helper-video probes without
 live VNC target credentials, so helper setup can be checked before full
 constrained-cellular VNC comparisons.
+Current launchctl live benchmark runner artifact:
+`artifacts/benchmarks/2026-06-07-launchctl-live-benchmark-runner-summary.md`.
+The wrapper imports live/helper values from `launchctl` without printing them,
+confirms external synthetic helper-video is still green, confirms
+`NaruHelperDev` Screen Recording permission is still missing, and records the
+current short constrained-cellular VNC fallback failure as
+`first-frame-payload-read-failed` on the receive path.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to

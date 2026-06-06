@@ -198,6 +198,10 @@ without unsafe report fields.
 - [x] T029R [US2] Add `VNCLiveBenchmark --helper-video-probe-only` so external
   synthetic and ScreenCaptureKit helper-video probes can run without live VNC
   target credentials while preserving privacy-safe report labels. **Done.**
+- [x] T029S [US2] Add a launchctl-backed live benchmark runner script for
+  repeated preflight, helper-video probe-only, permission-request, and short
+  constrained-cellular comparison runs without printing live credential values.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
