@@ -725,6 +725,19 @@ and 0.25 under the app-low-traffic constrained-cellular preset. In that run,
 samples and 0 permille renderer full-upload pressure. Product default
 promotion is intentionally deferred until device visual inspection proves the
 smaller first-useful-paint patch is recognizable.
+Schema v65 adds a synthetic first-frame visual audit for `visible-glance`
+reports. The audit emits only a fixed `synthetic-terminal-grid` model label,
+axis/area coverage permille values, omitted-area permille, fixed risk label,
+and a `visualCheckRequired` boolean. It never emits live pixels, coordinates,
+dimensions, byte counts, host identity, or text. The visual-audit artifact is
+`2026-06-06-app-low-traffic-visual-audit-summary.md`; it records that the 0.25
+scale covers only 250 permille of each visible-core axis and 63 permille of the
+visible-core area. The same v65 live run improved the app-low-traffic
+poor-network verdict to `warning`, with about 4.9 s first-frame payload read,
+4/4 sustained content samples, and 0 permille renderer full-upload pressure for
+both app RGB565 candidates. That makes 0.25 the strongest startup traffic
+candidate so far, but it remains a `glance-only` visual-risk candidate requiring
+real iPhone visual inspection before any product-default promotion.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

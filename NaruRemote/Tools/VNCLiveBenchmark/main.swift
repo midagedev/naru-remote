@@ -2039,6 +2039,7 @@ private struct BenchmarkReport: Codable, Equatable {
     let streamShapeRequestRegions: [BenchmarkStreamShapeRequestRegion]
     let streamShapeFirstFrameRequestMode: BenchmarkStreamShapeFirstFrameRequestMode
     let streamShapeFirstFrameVisibleGlanceScalePermille: Int
+    let streamShapeFirstFrameVisualAudit: BenchmarkFirstFrameVisualAudit?
     let streamShapeViewportInteractionPauseSeconds: TimeInterval
     let streamShapeViewportInteractionRequestPausePollSeconds: TimeInterval
     let streamShapeLowPowerContentFrameIntervalSeconds: TimeInterval
@@ -2113,7 +2114,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 64
+        self.schemaVersion = 65
         self.target = "configured-redacted"
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
@@ -2145,6 +2146,9 @@ private struct BenchmarkReport: Codable, Equatable {
             BenchmarkStreamShapeRequestRegion.firstFrameVisibleGlanceScalePermille(
                 streamShapeFirstFrameVisibleGlanceScale
             )
+        self.streamShapeFirstFrameVisualAudit = streamShapeFirstFrameRequestMode == .visibleGlance
+            ? BenchmarkFirstFrameVisualAudit(scale: streamShapeFirstFrameVisibleGlanceScale)
+            : nil
         self.streamShapeViewportInteractionPauseSeconds = 0
         self.streamShapeViewportInteractionRequestPausePollSeconds = 0
         self.streamShapeLowPowerContentFrameIntervalSeconds =
@@ -2204,6 +2208,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape request-region comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "stream-shape first-frame request mode emits only a fixed mode label and never dimensions, coordinates, bytes, or pixels",
             "stream-shape visible-glance scale emits only a clamped permille value and never dimensions, coordinates, bytes, or pixels",
+            "stream-shape first-frame visual audit emits only synthetic terminal-grid coverage permille values and fixed risk labels, never live pixels, dimensions, coordinates, bytes, or text",
             "stream-shape first-frame request-area metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
             "stream-shape first-frame receive timing emits only aggregate millisecond summaries and permille shares",
             "request-region traffic-pressure metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
@@ -2548,6 +2553,14 @@ private func renderText(_ report: BenchmarkReport) {
         "stream-shape first-frame visible-glance scale permille: "
             + "\(report.streamShapeFirstFrameVisibleGlanceScalePermille)"
     )
+    if let audit = report.streamShapeFirstFrameVisualAudit {
+        print(
+            "stream-shape first-frame visual audit: "
+                + "\(audit.model), axis \(audit.visibleCoreAxisCoveragePermille) permille, "
+                + "area \(audit.visibleCoreAreaCoveragePermille) permille, "
+                + "risk \(audit.riskLabel.rawValue), visual-check-required \(audit.visualCheckRequired)"
+        )
+    }
     print("continuous-update samples: \(report.continuousUpdateSamples)")
     print("timeout seconds: \(formatSeconds(report.timeoutSeconds))")
     print("idle timeout seconds: \(formatSeconds(report.idleTimeoutSeconds))")
@@ -3306,7 +3319,7 @@ private func printUsage() {
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v64 reports network-condition, viewport request-region area, first-frame request mode, visible-glance scale permille, first-frame request-area permille, first-frame receive timing, first-frame payload-read traffic pressure, sustained first-byte/payload-read traffic pressure, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v65 reports network-condition, viewport request-region area, first-frame request mode, visible-glance scale permille, synthetic first-frame visual-audit coverage permille, first-frame request-area permille, first-frame receive timing, first-frame payload-read traffic pressure, sustained first-byte/payload-read traffic pressure, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
