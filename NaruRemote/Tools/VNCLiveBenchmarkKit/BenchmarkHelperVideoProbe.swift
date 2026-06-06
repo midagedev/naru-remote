@@ -12,9 +12,10 @@ public enum BenchmarkHelperVideoProbeMode: String, Equatable, Sendable {
     case syntheticEncodedTCP = "synthetic-encoded-tcp"
     case screenCaptureKitTCP = "screen-capturekit-tcp"
     case externalHelperSyntheticEncodedTCP = "external-helper-synthetic-encoded-tcp"
+    case externalHelperScreenCaptureKitTCP = "external-helper-screen-capturekit-tcp"
 
     public static var usageDescription: String {
-        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp"
+        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp"
     }
 
     public static func parse(_ rawValue: String) -> BenchmarkHelperVideoProbeMode? {
@@ -67,6 +68,11 @@ public enum BenchmarkHelperVideoProbe {
             return .helperComparison(
                 selection: selection,
                 helperVideoReport: externalHelperSyntheticEncodedTCPHelperVideoReport()
+            )
+        case .externalHelperScreenCaptureKitTCP:
+            return .helperComparison(
+                selection: selection,
+                helperVideoReport: externalHelperScreenCaptureKitTCPHelperVideoReport()
             )
         }
     }
@@ -192,32 +198,90 @@ public enum BenchmarkHelperVideoProbe {
     public static func externalHelperSyntheticEncodedTCPHelperVideoReport(
         helperExecutablePath: String? = nil
     ) -> BenchmarkHelperVideoReport {
+        externalHelperVideoReport(
+            helperExecutablePath: helperExecutablePath,
+            sourceMode: .syntheticEncoded
+        )
+    }
+
+    public static func externalHelperScreenCaptureKitTCPHelperVideoReport(
+        helperExecutablePath: String? = nil
+    ) -> BenchmarkHelperVideoReport {
+        if let preflightReport = screenCaptureKitPreflightFailureReport() {
+            return preflightReport
+        }
+        return externalHelperVideoReport(
+            helperExecutablePath: helperExecutablePath,
+            sourceMode: .screenCaptureKit
+        )
+    }
+
+    private static func externalHelperVideoReport(
+        helperExecutablePath: String?,
+        sourceMode: NaruHelperVideoListenSourceMode
+    ) -> BenchmarkHelperVideoReport {
         do {
-            let result = try runExternalHelperSyntheticEncodedTCPProbe(
-                helperExecutablePath: helperExecutablePath
+            let result = try runExternalHelperTCPProbe(
+                helperExecutablePath: helperExecutablePath,
+                sourceMode: sourceMode
             )
-            let descriptor = result.startResponse.body.streamDescriptor
-            let health = HelperVideoStreamHealth(
-                state: .healthy,
-                startupBand: .fast,
-                sustainedUpdateBand: result.accessUnits.isEmpty ? .stalled : .smooth,
-                decodePressure: .low,
-                fallbackCountBucket: .none
-            )
-            return BenchmarkHelperVideoReport(descriptor: descriptor, health: health)
+            return helperVideoReport(for: result)
         } catch {
             return failedReport()
         }
     }
 
-    private static func runExternalHelperSyntheticEncodedTCPProbe(
-        helperExecutablePath: String?
+    private static func helperVideoReport(
+        for result: HelperVideoStreamNetworkStartResult
+    ) -> BenchmarkHelperVideoReport {
+        let startBody = result.startResponse.body
+        guard startBody.result == .accepted else {
+            return failedReport(issueCodes: issueCodes(for: startBody.safeFailureCode))
+        }
+        let health = HelperVideoStreamHealth(
+            state: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: result.accessUnits.isEmpty ? .stalled : .smooth,
+            decodePressure: .low,
+            fallbackCountBucket: .none
+        )
+        return BenchmarkHelperVideoReport(
+            descriptor: startBody.streamDescriptor,
+            health: health
+        )
+    }
+
+    private static func issueCodes(
+        for failureCode: HelperVideoFailureCode?
+    ) -> [BenchmarkHelperVideoIssueCode] {
+        switch failureCode {
+        case .permissionMissing:
+            return [.permissionMissing]
+        case .notConfigured,
+             .disabled,
+             .authFailed,
+             .codecUnsupported,
+             .streamStalled,
+             .decoderRejected,
+             .revoked,
+             .transportFailed,
+             .fallbackToVNC,
+             .privateNetworkRequired,
+             .none:
+            return []
+        }
+    }
+
+    private static func runExternalHelperTCPProbe(
+        helperExecutablePath: String?,
+        sourceMode: NaruHelperVideoListenSourceMode
     ) throws -> HelperVideoStreamNetworkStartResult {
         var lastError: Error?
         for _ in 0..<BenchmarkHelperVideoProbeTiming.externalHelperPortAttempts {
             do {
-                return try runExternalHelperSyntheticEncodedTCPProbe(
+                return try runExternalHelperTCPProbe(
                     helperExecutablePath: helperExecutablePath,
+                    sourceMode: sourceMode,
                     port: externalHelperPortCandidate()
                 )
             } catch {
@@ -227,8 +291,9 @@ public enum BenchmarkHelperVideoProbe {
         throw lastError ?? BenchmarkHelperVideoProbeError.helperUnavailable
     }
 
-    private static func runExternalHelperSyntheticEncodedTCPProbe(
+    private static func runExternalHelperTCPProbe(
         helperExecutablePath: String?,
+        sourceMode: NaruHelperVideoListenSourceMode,
         port: UInt16
     ) throws -> HelperVideoStreamNetworkStartResult {
         let pairingSecret = "benchmark-helper-video-external-secret"
@@ -244,7 +309,7 @@ public enum BenchmarkHelperVideoProbe {
             "--port",
             "\(port)",
             "--video-source",
-            "synthetic-encoded",
+            sourceMode.rawValue,
             "--video-frame-count",
             "2"
         ]

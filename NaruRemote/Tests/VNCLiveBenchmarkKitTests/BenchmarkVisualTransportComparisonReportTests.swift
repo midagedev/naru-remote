@@ -68,10 +68,14 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
             BenchmarkHelperVideoProbeMode.parse("external-helper-synthetic-encoded-tcp"),
             .externalHelperSyntheticEncodedTCP
         )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeMode.parse("external-helper-screen-capturekit-tcp"),
+            .externalHelperScreenCaptureKitTCP
+        )
         XCTAssertNil(BenchmarkHelperVideoProbeMode.parse("local"))
         XCTAssertEqual(
             BenchmarkHelperVideoProbeMode.usageDescription,
-            "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp"
+            "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp"
         )
     }
 
@@ -148,6 +152,29 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
     func testExternalHelperSyntheticEncodedTCPProbeFailsSafelyWhenExecutableIsMissing() throws {
         let missingPath = "/tmp/naru-helper-missing-\(UUID().uuidString)"
         let helperReport = BenchmarkHelperVideoProbe.externalHelperSyntheticEncodedTCPHelperVideoReport(
+            helperExecutablePath: missingPath
+        )
+
+        XCTAssertEqual(helperReport.streamState, .failed)
+        XCTAssertEqual(helperReport.startupBand, .failed)
+        XCTAssertEqual(helperReport.verdict, .fail)
+        XCTAssertTrue(helperReport.issueCodes.contains(.streamUnhealthy))
+        XCTAssertTrue(helperReport.issueCodes.contains(.startupFailed))
+
+        let json = String(
+            decoding: try JSONEncoder().encode(helperReport),
+            as: UTF8.self
+        )
+        XCTAssertFalse(json.contains(missingPath))
+        XCTAssertFalse(json.contains("NARU_HELPER_VIDEO_BENCHMARK_TOKEN"))
+        XCTAssertFalse(json.contains("NARU_HELPER_VIDEO_BENCHMARK_PROFILE_FINGERPRINT"))
+        XCTAssertFalse(json.contains("benchmark-helper-video-external-secret"))
+        XCTAssertFalse(json.contains("sha256:benchmark-helper-video-external"))
+    }
+
+    func testExternalHelperScreenCaptureKitTCPProbeFailsSafelyWhenUnavailable() throws {
+        let missingPath = "/tmp/naru-helper-screen-missing-\(UUID().uuidString)"
+        let helperReport = BenchmarkHelperVideoProbe.externalHelperScreenCaptureKitTCPHelperVideoReport(
             helperExecutablePath: missingPath
         )
 

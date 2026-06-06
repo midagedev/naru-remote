@@ -394,3 +394,41 @@ bands.
 - Export the helper executable path or port on failure: rejected because the
   benchmark report privacy boundary allows only fixed labels and aggregate
   health bands.
+
+## D14 - Add external helper ScreenCaptureKit benchmark as the live-capture gate
+
+**Decision**: Add an `external-helper-screen-capturekit-tcp` benchmark probe
+mode that launches the real `NaruHelper --video-listen` process with
+`--video-source screen-capturekit`, then connects through the helper-video
+network client and reports only fixed helper-video health labels.
+
+**Rationale**:
+- The external synthetic probe validates process launch, CLI parsing, listener
+  readiness, authenticated start, and finite H.264 access-unit delivery. The
+  next gate should keep the same external process boundary but swap the source
+  to finite ScreenCaptureKit capture.
+- Preflighting Screen Recording permission before launch keeps missing
+  permission runs from touching shareable content and preserves the fixed
+  `helper-video-permission-missing` report path.
+- Mapping a rejected helper `startStream` response through fixed issue codes
+  prevents the benchmark from accidentally treating permission or codec
+  rejection as a healthy stream.
+- Reports still omit helper executable paths, environment variable names or
+  values, endpoints, frame payloads, byte counts, dimensions, raw errors, and
+  exact timings.
+
+**Sources**:
+- Apple ScreenCaptureKit: https://developer.apple.com/documentation/screencapturekit
+- Apple `CGPreflightScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
+- Apple `Process`: https://developer.apple.com/documentation/foundation/process
+
+**Alternatives considered**:
+- Use only the in-process `screen-capturekit-tcp` probe: rejected because it
+  bypasses helper executable launch and listener lifecycle.
+- Launch the helper even when preflight permission is missing: rejected because
+  the benchmark should not prompt, inspect shareable content, or blur
+  permission failures with process/listener regressions.
+- Promote ScreenCaptureKit helper video as a default transport after this
+  probe: deferred until physical-device sustained decode, thermal, and fallback
+  evidence exists.
