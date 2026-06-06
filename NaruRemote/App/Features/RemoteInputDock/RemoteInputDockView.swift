@@ -725,6 +725,10 @@ public struct RemoteInputDockView: View {
             return false
         }
 
+        if newValue == currentText {
+            return true
+        }
+
         if newValue.isEmpty {
             if isComposeFieldFocused,
                !currentText.isEmpty,

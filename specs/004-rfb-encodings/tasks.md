@@ -1369,6 +1369,16 @@ iPhone) and ships as its own PR.
   host identity, credentials, command text, draft text, marked text, or IME
   state. Owns: app model, direct-keystroke tests, research note, benchmark
   artifact. **Done.**
+- **T461** Focused Compose model-echo acknowledgment: when the focused Compose
+  editor's local text already matches the model's external snapshot, treat that
+  snapshot as acknowledged even though no UIKit text write is needed. Continue
+  deferring all non-identical external updates while marked text is active or
+  while a focused local draft is ahead of the model. This prevents a committed
+  Korean/local draft from staying permanently "ahead" and blocking later model
+  clears after send. Emit no command text, draft text, marked text, IME state,
+  host identity, credentials, keysyms, coordinates, dimensions, pixels, or byte
+  counts. Owns: RemoteInputDock sync policy/tests, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
