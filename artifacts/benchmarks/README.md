@@ -78,6 +78,11 @@ Current physical sustained candidate gate artifact:
 `artifacts/benchmarks/2026-06-06-physical-sustained-candidate-gate-summary.md`.
 The opt-in UI test now injects fixed candidate labels, exercises viewport /
 trackpad / Compose paths, and emits a delayed active-session diagnostic export.
+Current physical glance candidate follow-up:
+`artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
+It adds the low-traffic RGB565 stream labels and startup glance scale label to
+the physical gate so 0.45/0.35/0.25 can be compared on the phone without a
+rebuild.
 Current sustained usability candidate contract:
 `artifacts/benchmarks/2026-06-06-sustained-usability-candidate-contract.md`.
 Use this as the merge contract for larger default-changing PRs: benchmark-green
@@ -178,10 +183,12 @@ For the larger sustained candidate gate, keep the same target variables and run
 the opt-in sustained UI test. The recommended production-promotion duration is
 600 seconds. The three candidate labels below are required; the test fails
 configuration early rather than silently running with the phone's existing
-settings or defaults. The test injects only fixed candidate labels into the app,
-performs viewport pinch/pan, trackpad movement, and a Compose send attempt, then
-keeps the session alive while the app emits a delayed diagnostic JSON block
-through the safe `makeDiagnosticExport()` path.
+settings or defaults. The fourth label, startup glance scale, is required so
+low-traffic RGB565 candidates can compare 0.45/0.35/0.25 first-useful-paint
+quality without rebuilding. The test injects only fixed candidate labels into
+the app, performs viewport pinch/pan, trackpad movement, and a Compose send
+attempt, then keeps the session alive while the app emits a delayed diagnostic
+JSON block through the safe `makeDiagnosticExport()` path.
 
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
@@ -191,8 +198,9 @@ export NARU_PHYSICAL_E2E_PORT=5900
 export NARU_PHYSICAL_E2E_HOST_KIND=privateAddress
 export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS=600
 export NARU_PHYSICAL_E2E_STREAM_POWER_MODE=balanced
-export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=standard
+export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=local-low-latency-rgb565
 export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=one-hidden-frame
+export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE=glance-025
 
 xcodebuild \
   -project NaruRemote.xcodeproj \
@@ -211,6 +219,10 @@ promotion signal is
 `sustainedSessionAssessment.physicalGateVerdict == "pass"` with matching manual
 hand-feel notes; `blocked` means the next PR should follow
 `primaryConstraint` / `recommendedNextProbe` instead of changing defaults.
+For a current-baseline run, use `standard` plus `standard-045`. For low-traffic
+poor-network candidates, use either `local-low-latency-rgb565` or
+`zrle-compression-0-rgb565`, then compare `standard-045`, `minimal-035`, and
+`glance-025` as separate fixed labels.
 Set `NARU_PHYSICAL_E2E_COMPOSE_TEXT` only when intentionally testing a specific
 IME payload; the UI test attachment records only `ascii`/`unicode`, never the
 text.
