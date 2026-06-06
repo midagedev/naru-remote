@@ -30,6 +30,8 @@ public enum BenchmarkStreamShapePracticalVerdict: String, Codable, Equatable, Se
 public enum BenchmarkStreamShapePracticalIssueCode: String, Codable, Equatable, Sendable, CaseIterable {
     case probeDisabled = "probe-disabled"
     case probeFailed = "probe-failed"
+    case firstFrameWarning = "first-frame-warning"
+    case firstFrameFailed = "first-frame-failed"
     case noContentUpdates = "no-content-updates"
     case insufficientContentSamples = "insufficient-content-samples"
     case contentFPSWarning = "content-fps-warning"
@@ -43,6 +45,8 @@ public enum BenchmarkStreamShapePracticalIssueCode: String, Codable, Equatable, 
     case verySlowUpdate = "very-slow-update"
     case fullUploadWarning = "full-upload-warning"
     case fullUploadFailed = "full-upload-failed"
+    case requestRegionAreaWarning = "request-region-area-warning"
+    case requestRegionAreaFailed = "request-region-area-failed"
     case adaptivePressureWarning = "adaptive-pressure-warning"
     case adaptivePressureFailed = "adaptive-pressure-failed"
 }
@@ -82,6 +86,27 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         minimumContentUpdateSamples: 8
     )
 
+    public static let iPhonePoorNetworkTraffic = BenchmarkStreamShapePracticalTargets(
+        name: "iphone-poor-network-traffic-v1",
+        passContentFramesPerSecond: 4,
+        failContentFramesPerSecond: 1,
+        passAverageUpdateMilliseconds: 350,
+        failAverageUpdateMilliseconds: 700,
+        passP95UpdateMilliseconds: 600,
+        failP95UpdateMilliseconds: 1_000,
+        passClientProcessingP95Milliseconds: 24,
+        failClientProcessingP95Milliseconds: 50,
+        passRendererFullUploadPermille: 0,
+        failRendererFullUploadPermille: 50,
+        passAdaptivePressurePermille: 100,
+        failAdaptivePressurePermille: 500,
+        minimumContentUpdateSamples: 4,
+        passFirstFrameMilliseconds: 5_000,
+        failFirstFrameMilliseconds: 20_000,
+        passRequestRegionAreaPermille: 400,
+        failRequestRegionAreaPermille: 700
+    )
+
     public let name: String
     public let passContentFramesPerSecond: Double
     public let failContentFramesPerSecond: Double
@@ -96,6 +121,10 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
     public let passAdaptivePressurePermille: Int
     public let failAdaptivePressurePermille: Int
     public let minimumContentUpdateSamples: Int
+    public let passFirstFrameMilliseconds: Int?
+    public let failFirstFrameMilliseconds: Int?
+    public let passRequestRegionAreaPermille: Int?
+    public let failRequestRegionAreaPermille: Int?
 
     public init(
         name: String,
@@ -111,7 +140,11 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         failRendererFullUploadPermille: Int,
         passAdaptivePressurePermille: Int,
         failAdaptivePressurePermille: Int,
-        minimumContentUpdateSamples: Int
+        minimumContentUpdateSamples: Int,
+        passFirstFrameMilliseconds: Int? = nil,
+        failFirstFrameMilliseconds: Int? = nil,
+        passRequestRegionAreaPermille: Int? = nil,
+        failRequestRegionAreaPermille: Int? = nil
     ) {
         self.name = name
         self.passContentFramesPerSecond = max(passContentFramesPerSecond, 0)
@@ -139,6 +172,16 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
             self.passAdaptivePressurePermille
         )
         self.minimumContentUpdateSamples = max(minimumContentUpdateSamples, 0)
+        let passFirstFrameMilliseconds = passFirstFrameMilliseconds.map { max($0, 0) }
+        self.passFirstFrameMilliseconds = passFirstFrameMilliseconds
+        self.failFirstFrameMilliseconds = failFirstFrameMilliseconds.map {
+            max($0, passFirstFrameMilliseconds ?? 0)
+        }
+        let passRequestRegionAreaPermille = passRequestRegionAreaPermille.map(Self.clampPermille)
+        self.passRequestRegionAreaPermille = passRequestRegionAreaPermille
+        self.failRequestRegionAreaPermille = failRequestRegionAreaPermille.map {
+            max(Self.clampPermille($0), passRequestRegionAreaPermille ?? 0)
+        }
     }
 
     private static func clampPermille(_ value: Int) -> Int {
@@ -149,6 +192,7 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
 public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equatable, Sendable, CaseIterable {
     case iPhonePracticalBaseline = "iphone-practical-baseline-v1"
     case iPhoneSustainedUsability = "iphone-sustained-usability-v2"
+    case iPhonePoorNetworkTraffic = "iphone-poor-network-traffic-v1"
 
     public static let defaultSelection = Self.iPhoneSustainedUsability
 
@@ -162,6 +206,8 @@ public enum BenchmarkStreamShapePracticalTargetSelection: String, Codable, Equat
             return .iPhonePracticalBaseline
         case .iPhoneSustainedUsability:
             return .iPhoneSustainedUsability
+        case .iPhonePoorNetworkTraffic:
+            return .iPhonePoorNetworkTraffic
         }
     }
 }
@@ -198,6 +244,8 @@ public struct BenchmarkStreamShapeTriageLabelCount: Codable, Equatable, Sendable
 fileprivate enum BenchmarkStreamShapeTriage {
     static let primaryIssuePriority: [BenchmarkStreamShapePracticalIssueCode] = [
         .probeFailed,
+        .firstFrameFailed,
+        .requestRegionAreaFailed,
         .fullUploadFailed,
         .clientProcessingFailed,
         .verySlowUpdate,
@@ -210,6 +258,8 @@ fileprivate enum BenchmarkStreamShapeTriage {
         .averageUpdateWarning,
         .p95UpdateWarning,
         .contentFPSWarning,
+        .firstFrameWarning,
+        .requestRegionAreaWarning,
         .adaptivePressureFailed,
         .adaptivePressureWarning,
         .insufficientContentSamples,
@@ -256,6 +306,8 @@ fileprivate enum BenchmarkStreamShapeTriage {
         case .noContentUpdates?, .contentFPSWarning?, .contentFPSFailed?:
             return .contentCadence
         case .probeFailed?,
+            .firstFrameWarning?,
+            .firstFrameFailed?,
             .averageUpdateWarning?,
             .averageUpdateFailed?,
             .p95UpdateWarning?,
@@ -266,6 +318,8 @@ fileprivate enum BenchmarkStreamShapeTriage {
             return .clientDecode
         case .fullUploadWarning?, .fullUploadFailed?:
             return .rendererUpload
+        case .requestRegionAreaWarning?, .requestRegionAreaFailed?:
+            return .viewportInteraction
         case .adaptivePressureWarning?, .adaptivePressureFailed?:
             return .adaptivePacing
         }
@@ -2370,13 +2424,20 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         reports: [BenchmarkStreamShapeProfileReport]
     ) -> BenchmarkStreamShapeProfileGateReport {
         let assessments = reports.map(\.summary.practicalAssessment)
+        let targets = BenchmarkStreamShapePracticalTargetSelection(rawValue: key.targetName)?.targets
+        let averageRequestRegionAreaPermille = roundedAverage(reports.compactMap(\.requestRegionAreaPermille))
+        let gateIssueCodes = gateIssueCodes(
+            firstFrameMilliseconds: reports.compactMap(\.firstFrameMilliseconds),
+            averageRequestRegionAreaPermille: averageRequestRegionAreaPermille,
+            targets: targets
+        )
         let passRunCount = assessments.filter { $0.verdict == .pass }.count
         let warningRunCount = assessments.filter { $0.verdict == .warning }.count
         let failRunCount = assessments.filter { $0.verdict == .fail }.count
         let disabledRunCount = assessments.filter { $0.verdict == .disabled }.count
-        let issueCodes = assessments.flatMap(\.issueCodes)
+        let issueCodes = assessments.flatMap(\.issueCodes) + gateIssueCodes
         let primaryIssueCode = BenchmarkStreamShapeTriage.primaryIssue(
-            for: assessments.compactMap(\.primaryIssueCode)
+            for: assessments.compactMap(\.primaryIssueCode) + gateIssueCodes
         )
         let primaryConstraint = BenchmarkStreamShapeTriage.primaryConstraint(for: primaryIssueCode)
         let recommendedNextProbe = BenchmarkStreamShapeTriage.recommendedNextProbe(for: primaryIssueCode)
@@ -2385,13 +2446,14 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             transportMode: key.transportMode,
             pacingWindow: key.pacingWindow,
             requestRegion: key.requestRegion,
-            averageRequestRegionAreaPermille: roundedAverage(reports.compactMap(\.requestRegionAreaPermille)),
+            averageRequestRegionAreaPermille: averageRequestRegionAreaPermille,
             targetName: key.targetName,
             verdict: verdict(
                 passRunCount: passRunCount,
                 warningRunCount: warningRunCount,
                 failRunCount: failRunCount,
-                disabledRunCount: disabledRunCount
+                disabledRunCount: disabledRunCount,
+                gateIssueCodes: gateIssueCodes
             ),
             runCount: reports.count,
             passRunCount: passRunCount,
@@ -2404,9 +2466,11 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             recommendedNextProbe: recommendedNextProbe.rawValue,
             primaryConstraintCounts: BenchmarkStreamShapeTriage.primaryConstraintCounts(
                 for: assessments.map(\.primaryConstraint)
+                    + gateIssueCodes.map { BenchmarkStreamShapeTriage.primaryConstraint(for: $0).rawValue }
             ),
             recommendedNextProbeCounts: BenchmarkStreamShapeTriage.recommendedNextProbeCounts(
                 for: assessments.map(\.recommendedNextProbe)
+                    + gateIssueCodes.map { BenchmarkStreamShapeTriage.recommendedNextProbe(for: $0).rawValue }
             ),
             failureLabelCounts: BenchmarkStreamShapeTriage.failureLabelCounts(
                 for: reports.compactMap(\.summary.failureLabel)
@@ -2422,10 +2486,18 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         passRunCount: Int,
         warningRunCount: Int,
         failRunCount: Int,
-        disabledRunCount: Int
+        disabledRunCount: Int,
+        gateIssueCodes: [BenchmarkStreamShapePracticalIssueCode] = []
     ) -> BenchmarkStreamShapePracticalVerdict {
+        let gateVerdict = gateVerdict(for: gateIssueCodes)
+        if gateVerdict == .fail {
+            return .fail
+        }
         if failRunCount > 0 {
             return .fail
+        }
+        if gateVerdict == .warning {
+            return .warning
         }
         if warningRunCount > 0 {
             return .warning
@@ -2437,6 +2509,49 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             return .disabled
         }
         return .disabled
+    }
+
+    private static func gateVerdict(
+        for issues: [BenchmarkStreamShapePracticalIssueCode]
+    ) -> BenchmarkStreamShapePracticalVerdict {
+        let failures: Set<BenchmarkStreamShapePracticalIssueCode> = [
+            .firstFrameFailed,
+            .requestRegionAreaFailed
+        ]
+        if issues.contains(where: failures.contains) {
+            return .fail
+        }
+        return issues.isEmpty ? .pass : .warning
+    }
+
+    private static func gateIssueCodes(
+        firstFrameMilliseconds: [Int],
+        averageRequestRegionAreaPermille: Int?,
+        targets: BenchmarkStreamShapePracticalTargets?
+    ) -> [BenchmarkStreamShapePracticalIssueCode] {
+        guard let targets else {
+            return []
+        }
+        var issues: [BenchmarkStreamShapePracticalIssueCode] = []
+        if let maxFirstFrameMilliseconds = firstFrameMilliseconds.max() {
+            if let failFirstFrameMilliseconds = targets.failFirstFrameMilliseconds,
+               maxFirstFrameMilliseconds > failFirstFrameMilliseconds {
+                issues.append(.firstFrameFailed)
+            } else if let passFirstFrameMilliseconds = targets.passFirstFrameMilliseconds,
+                      maxFirstFrameMilliseconds > passFirstFrameMilliseconds {
+                issues.append(.firstFrameWarning)
+            }
+        }
+        if let averageRequestRegionAreaPermille {
+            if let failRequestRegionAreaPermille = targets.failRequestRegionAreaPermille,
+               averageRequestRegionAreaPermille > failRequestRegionAreaPermille {
+                issues.append(.requestRegionAreaFailed)
+            } else if let passRequestRegionAreaPermille = targets.passRequestRegionAreaPermille,
+                      averageRequestRegionAreaPermille > passRequestRegionAreaPermille {
+                issues.append(.requestRegionAreaWarning)
+            }
+        }
+        return BenchmarkStreamShapeTriage.safeIssueCodes(issues)
     }
 
     private static func orderedGateKeys(

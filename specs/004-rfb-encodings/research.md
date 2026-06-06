@@ -4340,3 +4340,68 @@ profile label.
   before promoting any request-region, encoding, pacing, or pixel-format change.
   The conditioned run can be short, but it must show whether area savings still
   preserve usable-run count, hit-rate, p95 tail, and failure-label profile.
+
+## D99 — Poor-network traffic gates must include startup survival
+
+References:
+- D96 traffic-pressure promotion metric.
+- D98 benchmark-local conditioning.
+- `artifacts/benchmarks/2026-06-06-constrained-cellular-bootstrap-gate-summary.md`
+
+**Decision**: bump `VNCLiveBenchmark` to schema v56 and add
+`iphone-poor-network-traffic-v1` plus the benchmark-only
+`sustained-v2-constrained-cellular-bootstrap` preset. The target treats
+first-frame startup latency and request-region area as first-class gate
+signals, emitting only fixed issue codes such as `first-frame-failed` and
+`request-region-area-failed`.
+
+**Why**:
+- Under `constrained-cellular`, viewport incremental request-region
+  comparisons did not reach their steady-state samples until the initial
+  full-frame bootstrap survived. Traffic work therefore cannot focus only on
+  post-start incremental request area.
+- RGB565 pixel-format candidates can make startup survive where full-color
+  candidates time out, but a roughly 30 s first frame is not usable on iPhone.
+  The benchmark needs to distinguish "survived enough to collect samples" from
+  "promotion-ready".
+- The target still avoids raw byte counts. Startup latency is a safe aggregate
+  proxy for first-frame transfer pressure, and `requestRegionAreaPermille` stays
+  a framebuffer-relative ratio rather than dimensions or coordinates.
+
+**Implementation rule**:
+- `sustained-v2-constrained-cellular-bootstrap` applies the fixed
+  `constrained-cellular` network condition, request/response transport,
+  `pixel-format-isolation` profiles, the `viewport-phone-portrait` incremental
+  request label, four stream-shape samples, one fixed-order iteration, 30 s
+  request timeout, and 5 s idle timeout.
+- The gate may fail a run at profile-gate level even when the stream-shape
+  summary itself is only a warning, because first-frame startup is held on the
+  profile report rather than the per-frame summary.
+- Reports may emit fixed target/preset/profile labels, first-frame millisecond
+  aggregates already present in benchmark output, request-region area permille,
+  hit-rate permille, aggregate timing summaries, and fixed issue/triage labels.
+  They must not emit host identity, credentials, ports, byte counts, dimensions,
+  coordinates, pixels, cursor pixels, raw payloads, command text, command
+  output, draft text, marked text, or IME state.
+
+**Evidence**:
+- Focused unit tests prove the poor-network target is available from CLI target
+  selection and that profile gates fail slow startup as `first-frame-failed`
+  and oversized request area as `request-region-area-failed`.
+- The schema v56 live preset run reported `networkCondition:
+  constrained-cellular`, `streamShapePracticalTarget:
+  iphone-poor-network-traffic-v1`, and four request/response-only
+  pixel-format candidates.
+- Full-color candidates (`local-low-latency`, `zrle-compression-0`) failed
+  before stream samples with `stream-first-frame-read-timeout`.
+- RGB565 candidates reached 4/4 and 4/4 received samples respectively, but both
+  first frames were about 30 s and therefore failed the startup gate with
+  `first-frame-failed`. Their steady-state updates were first-byte-wait
+  dominant, with average update latency around 435-505 ms and p95 around
+  608-623 ms.
+
+**Interpretation**:
+- Low-color pixel format is a useful bootstrap lever but is not enough by
+  itself for the user's poor-network target. The next large unit should test a
+  first-visible-region startup path, or an equivalent server-side resolution /
+  initial-region strategy, before promoting viewport-aware traffic defaults.
