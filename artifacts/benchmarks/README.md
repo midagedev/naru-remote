@@ -106,6 +106,11 @@ The live env preflight is runnable, the external synthetic helper process path
 passes, the external ScreenCaptureKit helper path is blocked by fixed
 permission-missing labels, and a short constrained-cellular VNC run still
 routes the next large unit toward live helper-video capture/decode evidence.
+Current external helper ScreenCaptureKit permission delegation artifact:
+`artifacts/benchmarks/2026-06-06-external-helper-screen-capture-permission-delegation-summary.md`.
+Schema v4 preflight now reports `delegatedToHelper` for external-helper
+ScreenCaptureKit probes so the helper process, not `VNCLiveBenchmark`, owns the
+macOS Screen Recording permission result.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
@@ -120,9 +125,10 @@ Current live preflight action artifact:
 `artifacts/benchmarks/2026-06-06-live-preflight-action-hints-summary.md`.
 Schema v2 adds fixed setup action labels so missing benchmark inputs route to a
 next action without exposing host, credential, port, or stimulus command values.
-Schema v3 additionally reports helper-video ScreenCaptureKit permission
-readiness when a ScreenCaptureKit helper probe is selected, using only fixed
-status, issue, and setup-action labels.
+Schema v4 reports helper-video ScreenCaptureKit permission readiness using only
+fixed status, issue, and setup-action labels. In-process ScreenCaptureKit probes
+preflight the benchmark process; external-helper ScreenCaptureKit probes report
+`delegatedToHelper` and let the helper process return permission failures.
 Current helper-video fake comparison artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-fake-transport-comparison-summary.md`.
 Schema v67 adds a visual transport comparison envelope so `vnc` and
@@ -469,7 +475,7 @@ do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
-v3 readiness labels before connecting or prompting for a password, including
+v4 readiness labels before connecting or prompting for a password, including
 fixed `setupActionLabels` such as `set-naru-live-mac-host`,
 `set-naru-live-stimulus-command`,
 `request-helper-video-screen-recording-permission`, and `run-live-gate`. It is

@@ -14,7 +14,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 3)
+        XCTAssertEqual(report.schemaVersion, 4)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
@@ -86,7 +86,27 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.setupActionLabels, [.fixPort])
     }
 
-    func testScreenCaptureKitHelperProbeRequiresPermissionWhenSelected() {
+    func testInProcessScreenCaptureKitHelperProbeRequiresPermissionWhenSelected() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .screenCaptureKitTCP,
+            screenCapturePermissionStatusProvider: { .missing }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .missing)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
+        XCTAssertEqual(report.setupActionLabels, [.requestHelperVideoScreenRecordingPermission])
+    }
+
+    func testExternalHelperScreenCaptureKitProbeDelegatesPermissionToHelperProcess() {
         let report = BenchmarkLiveEnvironmentPreflightReport.make(
             environment: [
                 "NARU_LIVE_MAC_HOST": "private-target",
@@ -97,13 +117,16 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .off,
             visualTransports: .helperVideo,
             helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
-            screenCapturePermissionStatusProvider: { .missing }
+            screenCapturePermissionStatusProvider: {
+                XCTFail("external helper permission must not be checked in the benchmark process")
+                return .missing
+            }
         )
 
-        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .missing)
-        XCTAssertFalse(report.canRunLiveBenchmark)
-        XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
-        XCTAssertEqual(report.setupActionLabels, [.requestHelperVideoScreenRecordingPermission])
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertTrue(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [])
+        XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
     }
 
     func testScreenCaptureKitHelperProbeCanRunWhenPermissionGranted() {

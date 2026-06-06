@@ -176,6 +176,9 @@ without unsafe report fields.
 - [x] T029L [US2] Add helper-video ScreenCaptureKit readiness and fixed setup
   action labels to `VNCLiveBenchmark --environment-preflight` so permission
   blockers are reported before capture benchmarks run. **Done.**
+- [x] T029M [US2] Delegate external-helper ScreenCaptureKit permission checks
+  to the helper process so helper-video capture benchmarks are not false-blocked
+  by the benchmark process's macOS Screen Recording permission state. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
