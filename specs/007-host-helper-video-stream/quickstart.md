@@ -89,6 +89,7 @@ scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
 scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh physical-device-preflight
+scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
@@ -122,7 +123,11 @@ print device names, device IDs, provisioning profile names, bundle identifiers,
 raw xcodebuild logs, live VNC credentials, or helper paths. Set
 `NARU_PHYSICAL_IOS_DEVICE_ID` only when multiple physical iPhones are connected,
 and set `NARU_XCODE_DEVELOPMENT_TEAM` locally or through `launchctl` when
-testing a specific signing team.
+testing a specific signing team. If no team is supplied and exactly one local
+Apple Development signing team is available, the runner may use it for the
+build check while reporting only `developmentTeamStatus=inferred`.
+`physical-team-inference-self-test` verifies the missing, ambiguous, inferred,
+and explicit-environment branches without invoking `security` or `xcodebuild`.
 
 ## Implemented Helper Video Encoder Prototype
 

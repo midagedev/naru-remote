@@ -878,6 +878,10 @@ capturing and classifying the output instead of printing raw logs.
   needed to decide the next setup action.
 - Keeping this in the local runner matches the existing live helper-video setup
   flow and avoids committing a personal development team ID to `project.yml`.
+- The runner may infer a development team only when the local keychain exposes
+  exactly one Apple Development team. The inferred Team ID is passed only to the
+  captured `xcodebuild` child process; the report emits the fixed
+  `developmentTeamStatus=inferred` label and never prints the Team ID.
 
 **Alternatives considered**:
 - Commit `DEVELOPMENT_TEAM` to the XcodeGen project: rejected because this repo
@@ -886,3 +890,6 @@ capturing and classifying the output instead of printing raw logs.
   expose device identity, account/profile names, local paths, and bundle IDs.
 - Wait until a physical test fails and inspect the console manually: rejected
   because T030/T031 should fail fast with actionable fixed setup labels.
+- Always infer from the first Apple Development certificate: rejected because
+  multiple teams would make the gate ambiguous and could build against the
+  wrong account.
