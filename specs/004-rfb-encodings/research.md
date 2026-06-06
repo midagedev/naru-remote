@@ -5251,3 +5251,38 @@ schema v30.
 - This is a device-test enablement step, not a default promotion. It lets the
   next iPhone run compare hand-visible first-useful-paint quality against the
   v65 traffic result.
+
+### D116 Physical Gate Covers Glance Candidates
+
+References:
+- `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
+
+**Decision**: extend the physical sustained candidate gate so the same fixed
+low-traffic RGB565 and startup glance labels used by the app can be injected by
+XCUITest launch environment. The gate now accepts `local-low-latency-rgb565`,
+`zrle-compression-0-rgb565`, and `standard-045|minimal-035|glance-025` as
+explicit candidate labels.
+
+**Why**:
+- D115 made 0.25 and 0.35 testable through the app UI, but the automated
+  physical gate still could not launch those candidates directly.
+- Manual tapping before a 10 minute run makes the evidence harder to reproduce,
+  and persisted device settings can contaminate candidate comparison.
+- Keeping launch-time labels required makes the final diagnostic block and test
+  attachment explain exactly which fixed candidate ran.
+
+**Evidence**:
+- The app's XCUITest settings override now accepts
+  `NARU_TEST_STARTUP_GLANCE_SCALE_MODE` without persisting it.
+- The physical sustained candidate gate forwards
+  `NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE` and records the safe fixed
+  label in its configuration attachment.
+- A simulator UI regression verifies the startup glance scale control is hidden
+  for the standard stream profile, appears for `local-low-latency-rgb565`, and
+  cycles from `glance-025` back to `standard-045`.
+
+**Interpretation**:
+- This is still not a physical pass or default promotion. It removes the
+  automation gap so the next online iPhone run can compare the strongest
+  poor-network startup traffic candidate against hand-visible quality,
+  Compose reliability, and thermal comfort.

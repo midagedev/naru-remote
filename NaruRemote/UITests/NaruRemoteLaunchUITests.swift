@@ -55,16 +55,68 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         XCTAssertEqual(hostField.value as? String, "studio.tailnet.ts.net")
     }
 
+    func testStartupGlanceScaleOverrideIsScopedToLowTrafficProfiles() {
+        XCUIDevice.shared.orientation = .portrait
+
+        let standardApp = launchAppWithProfileStore(
+            seedProfiles: [
+                SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+            ],
+            launchEnvironment: [
+                "NARU_TEST_START_PROFILE_DETAIL": "1",
+                "NARU_TEST_SKIP_SETTINGS_STORE_LOAD": "1"
+            ]
+        )
+        openFirstConnectionCardIfPresent(app: standardApp)
+        XCTAssertFalse(
+            startupGlanceButton(in: standardApp).waitForExistence(timeout: 1),
+            "Standard stream profile must not expose the startup glance scale control"
+        )
+        standardApp.terminate()
+
+        let lowTrafficApp = launchAppWithProfileStore(
+            seedProfiles: [
+                SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+            ],
+            launchEnvironment: [
+                "NARU_TEST_START_PROFILE_DETAIL": "1",
+                "NARU_TEST_SKIP_SETTINGS_STORE_LOAD": "1",
+                "NARU_TEST_STREAM_ENCODING_MODE": "local-low-latency-rgb565",
+                "NARU_TEST_STARTUP_GLANCE_SCALE_MODE": "glance-025"
+            ]
+        )
+        openFirstConnectionCardIfPresent(app: lowTrafficApp)
+
+        let glance025 = startupGlanceButton(in: lowTrafficApp, containing: "Startup glance 0.25")
+        XCTAssertTrue(
+            glance025.waitForExistence(timeout: 4),
+            "Low-traffic RGB565 physical candidates must expose the injected glance scale"
+        )
+
+        glance025.tap()
+        XCTAssertTrue(
+            startupGlanceButton(in: lowTrafficApp, containing: "Startup glance 0.45")
+                .waitForExistence(timeout: 2),
+            "Startup glance scale control must cycle to the default candidate"
+        )
+    }
+
     private func launchAppWithEmptyProfileStore() -> XCUIApplication {
         launchAppWithProfileStore()
     }
 
-    private func launchAppWithProfileStore(seedProfiles: [SeedProfile] = []) -> XCUIApplication {
+    private func launchAppWithProfileStore(
+        seedProfiles: [SeedProfile] = [],
+        launchEnvironment: [String: String] = [:]
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        for (key, value) in launchEnvironment {
+            app.launchEnvironment[key] = value
+        }
         if !seedProfiles.isEmpty {
             try? writeSeedProfiles(seedProfiles, to: storeURL)
         }
@@ -81,6 +133,25 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
         XCTAssertTrue(firstCard.waitForExistence(timeout: 4))
         firstCard.tap()
+    }
+
+    private func startupGlanceButton(
+        in app: XCUIApplication,
+        containing labelFragment: String? = nil
+    ) -> XCUIElement {
+        if let labelFragment {
+            return app.buttons
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", labelFragment))
+                .firstMatch
+        }
+
+        let identified = app.buttons["naru.session.startupGlanceScaleMode"]
+        if identified.exists {
+            return identified
+        }
+        return app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Startup glance"))
+            .firstMatch
     }
 
     private struct SeedProfile {

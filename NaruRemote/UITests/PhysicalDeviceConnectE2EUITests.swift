@@ -219,12 +219,23 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             (
                 "NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE",
                 "NARU_TEST_STREAM_ENCODING_MODE",
-                ["standard", "zrle-compression-0", "adaptive-good-full"]
+                [
+                    "standard",
+                    "local-low-latency-rgb565",
+                    "zrle-compression-0",
+                    "zrle-compression-0-rgb565",
+                    "adaptive-good-full"
+                ]
             ),
             (
                 "NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE",
                 "NARU_TEST_STARTUP_PREFLIGHT_MODE",
                 ["disabled", "one-hidden-frame"]
+            ),
+            (
+                "NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE",
+                "NARU_TEST_STARTUP_GLANCE_SCALE_MODE",
+                ["standard-045", "minimal-035", "glance-025"]
             )
         ]
 
@@ -319,6 +330,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             "streamPowerMode=\(env["NARU_PHYSICAL_E2E_STREAM_POWER_MODE"] ?? "default")",
             "streamEncodingMode=\(env["NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE"] ?? "default")",
             "startupPreflightMode=\(env["NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE"] ?? "default")",
+            "startupGlanceScaleMode=\(env["NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE"] ?? "default")",
             "composePayloadClass=\(composeClass)",
             "diagnosticExport=look for the final NARU_DIAGNOSTIC_EXPORT block in xcodebuild logs"
         ].joined(separator: "\n")

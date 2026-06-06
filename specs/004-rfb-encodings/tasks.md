@@ -1212,6 +1212,19 @@ iPhone) and ships as its own PR.
   marked text, or IME state. Owns: app settings, app model stream region
   policy, session control, diagnostic schema/tests, README, research note.
   **Done.**
+- **T447** Physical glance candidate gate coverage: after D116 found the
+  physical sustained candidate gate could not directly launch the new
+  low-traffic RGB565 startup-glance candidates, add the test-only startup
+  glance scale override, accept `local-low-latency-rgb565` /
+  `zrle-compression-0-rgb565` and `standard-045|minimal-035|glance-025` in the
+  physical gate environment, record only the fixed candidate label in the
+  configuration attachment, and add a simulator UI regression that proves the
+  glance button stays hidden for standard streams but appears and cycles for a
+  low-traffic candidate. Do not change production defaults and avoid
+  logging/exporting host identity, credentials, device id, screenshots, raw
+  logs, dimensions, coordinates, pixels, byte counts, draft text, marked text,
+  or IME state. Owns: iOS app test hook, physical UI test, launch UI test,
+  README, research note, benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

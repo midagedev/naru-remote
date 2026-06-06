@@ -11,6 +11,7 @@ candidate shape before production defaults change:
 - stream power mode
 - stream encoding mode
 - startup preflight mode
+- startup glance scale mode
 - viewport pinch/pan and zoomed trackpad movement
 - Compose Send route and preparation diagnostics
 - delayed active-session diagnostic export
@@ -22,15 +23,18 @@ candidate shape before production defaults change:
 - The sustained test is opt-in via `NARU_PHYSICAL_E2E_SUSTAINED_SECONDS`; the
   recommended promotion duration remains 600 seconds.
 - The test forwards only fixed candidate labels into the app:
-  `balanced|power-saver`, `standard|zrle-compression-0|adaptive-good-full`, and
-  `disabled|one-hidden-frame`.
-- All three candidate labels are required once the sustained gate is enabled, so
+  `balanced|power-saver`,
+  `standard|local-low-latency-rgb565|zrle-compression-0|zrle-compression-0-rgb565|adaptive-good-full`,
+  `disabled|one-hidden-frame`, and
+  `standard-045|minimal-035|glance-025`.
+- All four candidate labels are required once the sustained gate is enabled, so
   a run cannot accidentally fall back to persisted or default settings.
 - The app can apply those labels for a test launch without persisting them to
   the device settings store.
 - Active-session test logging now emits through `makeDiagnosticExport()`, so
-  the final log can include stream performance, startup preflight, Compose
-  route/preparation, sustained-session triage, and `physicalGateVerdict`.
+  the final log can include stream performance, startup preflight, startup
+  glance scale, Compose route/preparation, sustained-session triage, and
+  `physicalGateVerdict`.
 
 ## Gate Interpretation
 

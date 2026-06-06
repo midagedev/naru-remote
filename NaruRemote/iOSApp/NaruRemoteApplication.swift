@@ -130,8 +130,9 @@ struct NaruRemoteApplication: App {
     }
 
     /// XCUITest physical-gate hook — lets the test launch a specific
-    /// non-secret stream candidate (power / encoding / startup preflight)
-    /// without tapping through the UI or persisting that candidate to disk.
+    /// non-secret stream candidate (power / encoding / startup preflight /
+    /// startup glance scale) without tapping through the UI or persisting
+    /// that candidate to disk.
     @MainActor
     private static func applyTestAppSettingsOverrides(to model: NaruRemoteAppModel) {
         let env = ProcessInfo.processInfo.environment
@@ -151,6 +152,11 @@ struct NaruRemoteApplication: App {
         if let raw = env["NARU_TEST_STARTUP_PREFLIGHT_MODE"],
            let mode = StreamStartupPreflightMode(rawValue: raw) {
             settings.startupPreflightMode = mode
+            didOverride = true
+        }
+        if let raw = env["NARU_TEST_STARTUP_GLANCE_SCALE_MODE"],
+           let mode = StreamStartupGlanceScaleMode(rawValue: raw) {
+            settings.startupGlanceScaleMode = mode
             didOverride = true
         }
 

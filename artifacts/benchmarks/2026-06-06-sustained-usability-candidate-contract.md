@@ -91,17 +91,18 @@ export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS=600
 export NARU_PHYSICAL_E2E_STREAM_POWER_MODE=balanced
 export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=standard
 export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=disabled
+export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE=standard-045
 ```
 
 For a default-changing PR, compare the current baseline with the proposed
 candidate using fixed labels only. The first comparison set should be:
 
-| candidate | power | encoding | preflight | purpose |
-| --- | --- | --- | --- | --- |
-| current-baseline | `balanced` | `standard` | `disabled` | current production behavior |
-| sustained-candidate | `balanced` | selected fixed label | selected fixed label | proposed normal default |
-| poor-network-candidate | `balanced` | `zrle-compression-0-rgb565` or selected fixed label | selected fixed label | constrained-link traffic candidate |
-| thermal-candidate | `power-saver` | selected fixed label | selected fixed label | heat/battery fallback |
+| candidate | power | encoding | preflight | startup glance | purpose |
+| --- | --- | --- | --- | --- | --- |
+| current-baseline | `balanced` | `standard` | `disabled` | `standard-045` | current production behavior |
+| sustained-candidate | `balanced` | selected fixed label | selected fixed label | selected fixed label | proposed normal default |
+| poor-network-candidate | `balanced` | `local-low-latency-rgb565`, `zrle-compression-0-rgb565`, or selected fixed label | selected fixed label | `standard-045`, `minimal-035`, or `glance-025` | constrained-link traffic candidate |
+| thermal-candidate | `power-saver` | selected fixed label | selected fixed label | selected fixed label | heat/battery fallback |
 
 The physical gate is green only when the final safe diagnostic export reports
 `sustainedSessionAssessment.physicalGateVerdict = pass` and the manual
