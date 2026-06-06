@@ -73,86 +73,10 @@ public struct NaruRemoteAppShell: View {
     @ViewBuilder
     private func sessionViewport(fillsAvailableHeight: Bool) -> some View {
         let snapshot = model.snapshot
-        SessionViewportView(
-            title: snapshot.title,
-            subtitle: snapshot.subtitle,
-            session: snapshot.session,
-            framebuffer: snapshot.latestFramebuffer,
-            frameDirtyRectangles: snapshot.latestFrameDirtyRectangles,
-            frameChangedPixelCount: snapshot.latestFrameChangedPixelCount,
-            serverCursor: snapshot.latestServerCursor,
-            isPiPWatchAvailable: model.canStartPiPWatch,
-            pipWatchStatusText: model.pipWatchStatusText,
-            isPiPWatching: snapshot.pipWatchSession?.state == .watching,
-            pointerControlMode: model.pointerControlMode,
-            trackpadCursor: model.trackpadCursor,
-            pipLayerHost: model.pipLayerHost,
-            onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
-            onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
-            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
-            onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
-            onFramebufferTap: { point, size in
-                model.sendTapAt(viewPoint: point, viewSize: size)
-            },
-            onFramebufferRightClick: { point, size in
-                model.sendRightClickAt(viewPoint: point, viewSize: size)
-            },
-            onFramebufferScroll: { point, size, delta in
-                model.sendScrollAt(
-                    viewPoint: point,
-                    viewSize: size,
-                    deltaX: delta.width,
-                    deltaY: delta.height
-                )
-            },
-            onFramebufferPointerDown: { point, size in
-                Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
-            },
-            onFramebufferPointerMove: { point, size in
-                Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
-            },
-            onFramebufferPointerUp: { point, size in
-                Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
-            },
-            onTrackpadGesture: { gesture, transform in
-                model.handleTrackpadGesture(gesture, transform: transform)
-            },
-            onViewportTransformChange: { transform in
-                model.updateViewportTransform(transform)
-            },
-            onViewportSizeChange: { size in
-                model.updateViewportSize(size)
-            },
-            onViewportInteractionChange: { isActive, frameStrategy in
-                model.setViewportInteractionActive(isActive, frameStrategy: frameStrategy)
-            },
-            onViewportRedrawDiagnostics: { diagnostics in
-                model.recordViewportRedrawDiagnostics(diagnostics)
-            },
-            onRendererUploadTiming: { milliseconds in
-                model.recordRendererUploadTiming(milliseconds: milliseconds)
-            },
-            onTogglePointerMode: {
-                model.togglePointerControlMode()
-            },
-            streamPowerMode: model.appSettings.streamPowerMode,
-            onToggleStreamPowerMode: {
-                model.toggleStreamPowerMode()
-            },
-            streamEncodingMode: model.appSettings.streamEncodingMode,
-            onToggleStreamEncodingMode: {
-                model.toggleStreamEncodingMode()
-            },
-            startupPreflightMode: model.appSettings.startupPreflightMode,
-            onToggleStartupPreflightMode: {
-                model.toggleStartupPreflightMode()
-            },
-            startupGlanceScaleMode: model.appSettings.startupGlanceScaleMode,
-            onToggleStartupGlanceScaleMode: {
-                model.toggleStartupGlanceScaleMode()
-            },
-            canUseStartupGlanceScaleMode: model.canUseStartupGlanceScaleMode,
-            connectionQuality: model.connectionQuality,
+        SessionViewportFrameBridge(
+            model: model,
+            snapshot: snapshot,
+            frameStore: model.frameStore,
             fillsAvailableHeight: fillsAvailableHeight
         )
     }
@@ -348,6 +272,99 @@ public struct NaruRemoteAppShell: View {
             await model.loadStoredProfiles()
             await model.loadStoredSettings()
         }
+    }
+}
+
+private struct SessionViewportFrameBridge: View {
+    let model: NaruRemoteAppModel
+    let snapshot: NaruRemoteAppSnapshot
+    @ObservedObject var frameStore: SessionFrameStore
+    let fillsAvailableHeight: Bool
+
+    var body: some View {
+        let frameState = frameStore.state
+        SessionViewportView(
+            title: snapshot.title,
+            subtitle: snapshot.subtitle,
+            session: snapshot.session,
+            framebuffer: frameState.framebuffer,
+            frameDirtyRectangles: frameState.dirtyRectangles,
+            frameChangedPixelCount: frameState.changedPixelCount,
+            serverCursor: frameState.serverCursor,
+            isPiPWatchAvailable: model.canStartPiPWatch,
+            pipWatchStatusText: model.pipWatchStatusText,
+            isPiPWatching: snapshot.pipWatchSession?.state == .watching,
+            pointerControlMode: model.pointerControlMode,
+            trackpadCursor: model.trackpadCursor,
+            pipLayerHost: model.pipLayerHost,
+            onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
+            onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
+            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
+            onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
+            onFramebufferTap: { point, size in
+                model.sendTapAt(viewPoint: point, viewSize: size)
+            },
+            onFramebufferRightClick: { point, size in
+                model.sendRightClickAt(viewPoint: point, viewSize: size)
+            },
+            onFramebufferScroll: { point, size, delta in
+                model.sendScrollAt(
+                    viewPoint: point,
+                    viewSize: size,
+                    deltaX: delta.width,
+                    deltaY: delta.height
+                )
+            },
+            onFramebufferPointerDown: { point, size in
+                Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
+            },
+            onFramebufferPointerMove: { point, size in
+                Task { await model.sendPointerMoveTo(viewPoint: point, viewSize: size) }
+            },
+            onFramebufferPointerUp: { point, size in
+                Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
+            },
+            onTrackpadGesture: { gesture, transform in
+                model.handleTrackpadGesture(gesture, transform: transform)
+            },
+            onViewportTransformChange: { transform in
+                model.updateViewportTransform(transform)
+            },
+            onViewportSizeChange: { size in
+                model.updateViewportSize(size)
+            },
+            onViewportInteractionChange: { isActive, frameStrategy in
+                model.setViewportInteractionActive(isActive, frameStrategy: frameStrategy)
+            },
+            onViewportRedrawDiagnostics: { diagnostics in
+                model.recordViewportRedrawDiagnostics(diagnostics)
+            },
+            onRendererUploadTiming: { milliseconds in
+                model.recordRendererUploadTiming(milliseconds: milliseconds)
+            },
+            onTogglePointerMode: {
+                model.togglePointerControlMode()
+            },
+            streamPowerMode: model.appSettings.streamPowerMode,
+            onToggleStreamPowerMode: {
+                model.toggleStreamPowerMode()
+            },
+            streamEncodingMode: model.appSettings.streamEncodingMode,
+            onToggleStreamEncodingMode: {
+                model.toggleStreamEncodingMode()
+            },
+            startupPreflightMode: model.appSettings.startupPreflightMode,
+            onToggleStartupPreflightMode: {
+                model.toggleStartupPreflightMode()
+            },
+            startupGlanceScaleMode: model.appSettings.startupGlanceScaleMode,
+            onToggleStartupGlanceScaleMode: {
+                model.toggleStartupGlanceScaleMode()
+            },
+            canUseStartupGlanceScaleMode: model.canUseStartupGlanceScaleMode,
+            connectionQuality: model.connectionQuality,
+            fillsAvailableHeight: fillsAvailableHeight
+        )
     }
 }
 
