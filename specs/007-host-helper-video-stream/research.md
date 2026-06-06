@@ -466,3 +466,35 @@ Capability checks and benchmark probes continue to use preflight-only behavior.
 - Request permission automatically from live benchmark modes: rejected because
   benchmark reports should stay deterministic and should not mix user prompts
   with transport performance gates.
+
+## D16 - Delegate external-helper ScreenCaptureKit permission checks to the helper process
+
+**Decision**: `external-helper-screen-capturekit-tcp` should not be blocked by
+the benchmark process's `CGPreflightScreenCaptureAccess()` result. The
+environment preflight reports `delegatedToHelper`, launches remain explicit,
+and the external helper process reports `permissionMissing` from its own
+`startStream` path when needed.
+
+**Rationale**:
+- The benchmark process and helper process may have different macOS TCC
+  identities, especially once the helper is packaged or launched from a stable
+  bundle path.
+- Blocking external-helper capture on the benchmark process permission would
+  keep live helper-video benchmarking broken even after the helper process has
+  Screen Recording permission.
+- The helper runtime already preflights Screen Recording before touching
+  `SCShareableContent`, so delegating the check preserves the privacy boundary
+  while testing the real process that will capture frames.
+
+**Sources**:
+- Apple `CGPreflightScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+
+**Alternatives considered**:
+- Keep benchmark-process preflight for external-helper mode: rejected because
+  it can false-block a correctly permissioned helper process.
+- Request Screen Recording permission from `VNCLiveBenchmark`: rejected because
+  benchmark runs should not show permission UI and should not request capture
+  permission for the wrong process identity.

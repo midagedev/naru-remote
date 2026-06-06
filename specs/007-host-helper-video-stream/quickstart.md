@@ -154,10 +154,12 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
-When Screen Recording permission is missing for a ScreenCaptureKit helper
-probe, the preflight emits schema `3`, `helperVideoScreenCapturePermissionStatus`
-as `missing`, fixed issue code `helper-video-permission-missing`, and setup
-action `request-helper-video-screen-recording-permission`.
+For `external-helper-screen-capturekit-tcp`, the preflight emits schema `4`
+and `helperVideoScreenCapturePermissionStatus` as `delegatedToHelper` so the
+benchmark process does not falsely block a differently permissioned helper
+process. If the helper process is still missing Screen Recording permission,
+the actual helper-video report emits fixed issue code
+`helper-video-permission-missing`.
 
 ```bash
 swift build --product NaruHelper

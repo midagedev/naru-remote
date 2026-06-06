@@ -207,9 +207,6 @@ public enum BenchmarkHelperVideoProbe {
     public static func externalHelperScreenCaptureKitTCPHelperVideoReport(
         helperExecutablePath: String? = nil
     ) -> BenchmarkHelperVideoReport {
-        if let preflightReport = screenCaptureKitPreflightFailureReport() {
-            return preflightReport
-        }
         return externalHelperVideoReport(
             helperExecutablePath: helperExecutablePath,
             sourceMode: .screenCaptureKit

@@ -183,6 +183,7 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         XCTAssertEqual(helperReport.verdict, .fail)
         XCTAssertTrue(helperReport.issueCodes.contains(.streamUnhealthy))
         XCTAssertTrue(helperReport.issueCodes.contains(.startupFailed))
+        XCTAssertFalse(helperReport.issueCodes.contains(.permissionMissing))
 
         let json = String(
             decoding: try JSONEncoder().encode(helperReport),

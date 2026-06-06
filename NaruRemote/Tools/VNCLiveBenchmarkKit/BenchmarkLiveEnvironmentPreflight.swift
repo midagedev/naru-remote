@@ -5,7 +5,7 @@ import CoreGraphics
 #endif
 
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -236,6 +236,9 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
               helperVideoProbeMode.requiresScreenCapturePermission else {
             return .notRequired
         }
+        if helperVideoProbeMode.delegatesScreenCapturePermissionToExternalHelper {
+            return .delegatedToHelper
+        }
         return provider()
     }
 
@@ -303,6 +306,7 @@ public enum BenchmarkLiveEnvironmentPreflightHelperVideoScreenCapturePermissionS
     case granted
     case missing
     case unsupported
+    case delegatedToHelper
 }
 
 public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatable {
@@ -333,5 +337,9 @@ private extension BenchmarkHelperVideoProbeMode {
         case .disabled, .syntheticTCP, .syntheticEncodedTCP, .externalHelperSyntheticEncodedTCP:
             return false
         }
+    }
+
+    var delegatesScreenCapturePermissionToExternalHelper: Bool {
+        self == .externalHelperScreenCaptureKitTCP
     }
 }
