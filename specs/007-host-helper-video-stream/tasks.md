@@ -138,6 +138,8 @@ without unsafe report fields.
 - [x] T029A [US1] Add authenticated helper-video access-unit frame pipeline
   that emits `startStream`, `videoAccessUnit`, and safe `streamStalled`
   frames, with an iOS decode-path integration test. **Done.**
+- [x] T029B [US1] Add prototype TCP helper-video stream server/client harness
+  for authenticated start response, access-unit, and safe stall frames. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

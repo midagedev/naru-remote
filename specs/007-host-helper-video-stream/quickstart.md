@@ -91,6 +91,19 @@ frames with binary payload outside JSON. If an accepted stream has no access
 units, it emits a safe `streamStalled` frame for VNC fallback. It is still a
 testable frame pipeline, not a live ScreenCaptureKit/VideoToolbox sender.
 
+## Implemented Helper Video TCP Harness
+
+```bash
+swift test --filter NaruHelperVideoStreamNetworkService
+```
+
+The prototype TCP harness connects the helper-side frame pipeline to an
+`NWListener` and a finite `HelperVideoStreamNetworkClient` batch reader. It is
+for local integration and benchmark bring-up: it sends authenticated
+`startStream` requests, receives safe start responses, drains access-unit or
+stall frames, and closes the connection after the finite batch. It is not yet
+the long-lived live ScreenCaptureKit/VideoToolbox sender.
+
 ## Implemented iOS H.264 Decode / Display Prototype
 
 ```bash
