@@ -738,6 +738,13 @@ poor-network verdict to `warning`, with about 4.9 s first-frame payload read,
 both app RGB565 candidates. That makes 0.25 the strongest startup traffic
 candidate so far, but it remains a `glance-only` visual-risk candidate requiring
 real iPhone visual inspection before any product-default promotion.
+The app follow-up artifact is
+`2026-06-06-startup-glance-scale-setting-summary.md`. It keeps the product
+default at 0.45 but adds an inactive-session low-traffic RGB565 toggle for
+0.45/0.35/0.25 startup glance candidates, plus diagnostic schema v30
+`viewerStartupGlanceScaleMode` safe labels. This lets physical iPhone runs
+compare visual recognizability without rebuilding or exporting live pixels,
+dimensions, coordinates, bytes, host identity, or text.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

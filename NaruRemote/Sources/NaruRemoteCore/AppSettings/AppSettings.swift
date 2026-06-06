@@ -43,6 +43,37 @@ public enum StreamStartupPreflightMode: String, Codable, Equatable, Sendable, Ca
     }
 }
 
+/// Benchmark-backed startup first-frame visible-glance scale. The default
+/// keeps the current product behavior; smaller modes are opt-in so physical
+/// iPhone runs can judge recognizability before promotion.
+public enum StreamStartupGlanceScaleMode: String, Codable, Equatable, Sendable, CaseIterable {
+    case standard045 = "standard-045"
+    case minimal035 = "minimal-035"
+    case glance025 = "glance-025"
+
+    public var toggled: StreamStartupGlanceScaleMode {
+        switch self {
+        case .standard045:
+            return .minimal035
+        case .minimal035:
+            return .glance025
+        case .glance025:
+            return .standard045
+        }
+    }
+
+    public var scale: Double {
+        switch self {
+        case .standard045:
+            return 0.45
+        case .minimal035:
+            return 0.35
+        case .glance025:
+            return 0.25
+        }
+    }
+}
+
 /// Benchmark-backed sustained-stream encoding experiment. The default keeps
 /// the current production path; non-default cases are opt-in so physical
 /// iPhone runs can reproduce live benchmark candidates before any default
@@ -89,15 +120,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var streamPowerMode: StreamPowerMode
     public var streamEncodingMode: StreamEncodingMode
     public var startupPreflightMode: StreamStartupPreflightMode
+    public var startupGlanceScaleMode: StreamStartupGlanceScaleMode
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
         streamEncodingMode: StreamEncodingMode = .standard,
-        startupPreflightMode: StreamStartupPreflightMode = .disabled
+        startupPreflightMode: StreamStartupPreflightMode = .disabled,
+        startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045
     ) {
         self.streamPowerMode = streamPowerMode
         self.streamEncodingMode = streamEncodingMode
         self.startupPreflightMode = startupPreflightMode
+        self.startupGlanceScaleMode = startupGlanceScaleMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,10 +148,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
             StreamEncodingMode.self,
             forKey: .streamEncodingMode
         ) ?? .standard
+        let startupGlanceScaleMode = try container.decodeIfPresent(
+            StreamStartupGlanceScaleMode.self,
+            forKey: .startupGlanceScaleMode
+        ) ?? .standard045
         self.init(
             streamPowerMode: streamPowerMode,
             streamEncodingMode: streamEncodingMode,
-            startupPreflightMode: startupPreflightMode
+            startupPreflightMode: startupPreflightMode,
+            startupGlanceScaleMode: startupGlanceScaleMode
         )
     }
 
@@ -132,11 +171,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if startupPreflightMode != .disabled {
             try container.encode(startupPreflightMode, forKey: .startupPreflightMode)
         }
+        if startupGlanceScaleMode != .standard045 {
+            try container.encode(startupGlanceScaleMode, forKey: .startupGlanceScaleMode)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case streamPowerMode
         case streamEncodingMode
         case startupPreflightMode
+        case startupGlanceScaleMode
     }
 }

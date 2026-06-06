@@ -147,6 +147,11 @@ public struct NaruRemoteAppShell: View {
             onToggleStartupPreflightMode: {
                 model.toggleStartupPreflightMode()
             },
+            startupGlanceScaleMode: model.appSettings.startupGlanceScaleMode,
+            onToggleStartupGlanceScaleMode: {
+                model.toggleStartupGlanceScaleMode()
+            },
+            canUseStartupGlanceScaleMode: model.canUseStartupGlanceScaleMode,
             connectionQuality: model.connectionQuality,
             fillsAvailableHeight: fillsAvailableHeight
         )

@@ -62,8 +62,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// but give the remote clipboard enough time to adopt the payload
     /// before the paste shortcut arrives.
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.30
-    private static let initialViewportGlanceScale = 0.45
-
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?
     @Published public private(set) var session: RemoteSession?
@@ -599,6 +597,25 @@ public final class NaruRemoteAppModel: ObservableObject {
         setStartupPreflightMode(appSettings.startupPreflightMode.toggled)
     }
 
+    public func setStartupGlanceScaleMode(_ mode: StreamStartupGlanceScaleMode) {
+        var updated = appSettings
+        updated.startupGlanceScaleMode = mode
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    public func toggleStartupGlanceScaleMode() {
+        setStartupGlanceScaleMode(appSettings.startupGlanceScaleMode.toggled)
+    }
+
+    public var canUseStartupGlanceScaleMode: Bool {
+        usesViewportAwareInitialRequestRegion
+    }
+
     /// XCUITest hook for physical-device candidate gates. Unlike the user
     /// setters above, this does not persist to disk; it keeps a launched test
     /// candidate isolated from whichever settings the phone had before.
@@ -1114,6 +1131,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let viewerStreamPowerMode = appSettings.streamPowerMode
         let viewerStreamEncodingMode = appSettings.streamEncodingMode
         let viewerStartupPreflightMode = appSettings.startupPreflightMode
+        let viewerStartupGlanceScaleMode = appSettings.startupGlanceScaleMode
         let composeRoute = composeRouteDiagnosticSnapshot()
         let input = DiagnosticInputReport(
             composeDraft: composeDraft,
@@ -1140,6 +1158,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 viewerStreamPowerMode: viewerStreamPowerMode,
                 viewerStreamEncodingMode: viewerStreamEncodingMode,
                 viewerStartupPreflightMode: viewerStartupPreflightMode,
+                viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
                 input: input,
                 sustainedSessionAssessment: sustainedSessionAssessment
             )
@@ -1150,6 +1169,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             viewerStreamPowerMode: viewerStreamPowerMode,
             viewerStreamEncodingMode: viewerStreamEncodingMode,
             viewerStartupPreflightMode: viewerStartupPreflightMode,
+            viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
             input: input,
             sustainedSessionAssessment: sustainedSessionAssessment
         )
@@ -2775,7 +2795,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         return latestViewportTransform.visibleFramebufferUpdateRegion(
             expansionMarginPixels: 0,
             minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
-        )?.centeredScaled(by: Self.initialViewportGlanceScale)
+        )?.centeredScaled(by: appSettings.startupGlanceScaleMode.scale)
     }
 
     private func currentViewportInitialRequestRegionFromLastViewSize(
@@ -2810,7 +2830,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         return transform.visibleFramebufferUpdateRegion(
             expansionMarginPixels: 0,
             minimumSavingsPermille: viewportRequestRegionPolicy.minimumSavingsPermille
-        )?.centeredScaled(by: Self.initialViewportGlanceScale)
+        )?.centeredScaled(by: appSettings.startupGlanceScaleMode.scale)
     }
 
     private var usesViewportAwareRequestRegions: Bool {
