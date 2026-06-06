@@ -1113,6 +1113,17 @@ iPhone) and ships as its own PR.
   errors, command text, draft text, marked text, and IME state out of artifacts.
   Owns: benchmark profile selection, CLI preset, tests, README, research note,
   benchmark artifact. **Done.**
+- **T439** Startup payload traffic gate: after the app low-traffic live gate
+  showed a small first-frame request area can still spend most startup time in
+  payload read, bump `VNCLiveBenchmark` to schema v62 and add
+  `first-frame-payload-read-warning` / `first-frame-payload-read-failed` issue
+  codes to the poor-network profile gate. Classify first-frame payload-read
+  milliseconds and payload-read share permille from aggregate
+  `RFBFramebufferUpdateTiming`, route failures to encoding/traffic comparison,
+  and preserve the existing privacy boundary: no dimensions, coordinates, byte
+  counts, pixels, payloads, raw host identity, command text, draft text, marked
+  text, or IME state in reports/artifacts. Owns: benchmark summary kit/tests,
+  CLI report/help, README, research note, live benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
