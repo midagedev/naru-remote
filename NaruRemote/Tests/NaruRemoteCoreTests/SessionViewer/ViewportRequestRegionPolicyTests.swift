@@ -29,6 +29,17 @@ final class ViewportRequestRegionPolicyTests: XCTestCase {
         XCTAssertEqual(region.height, 500)
     }
 
+    func testFramebufferUpdateRegionCanBeCenteredScaledForStartupGlance() {
+        let region = RFBFramebufferUpdateRegion(x: 250, y: 250, width: 500, height: 500)
+
+        let scaled = region.centeredScaled(by: 0.6)
+
+        XCTAssertEqual(scaled.x, 350)
+        XCTAssertEqual(scaled.y, 350)
+        XCTAssertEqual(scaled.width, 300)
+        XCTAssertEqual(scaled.height, 300)
+    }
+
     func testRegionExpansionIsClampedToFramebufferBounds() throws {
         let transform = ViewportTransform(
             framebufferSize: CGSize(width: 1000, height: 1000),

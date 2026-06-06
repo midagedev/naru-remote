@@ -4946,3 +4946,64 @@ first requests.
   `sustained-v2-constrained-cellular-app-low-traffic` and compare the v62
   first-frame payload-read classification before pursuing broader cadence or
   VideoToolbox/helper work.
+
+### D110 App Low-Traffic Visible-Glance Startup Region
+
+References:
+- RFC 6143 client-driven `FramebufferUpdateRequest` region:
+  https://www.rfc-editor.org/rfc/rfc6143
+- Apple UI responsiveness guidance:
+  https://developer.apple.com/documentation/xcode/improving-app-responsiveness
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-visible-glance-live-gate-summary.md`.
+
+**Decision**: split the app low-traffic startup region from the sustained
+viewport region. The fixed `zrle-compression-0-rgb565` opt-in profile should
+request a centered 60% x 60% slice of the visible core for only the first
+non-incremental frame, then return all sustained incremental requests to the
+existing margin-expanded viewport-aware policy.
+
+**Why**:
+- The visible-core live run made startup worse at 300 permille, while the
+  center-third experiment showed that a roughly 111 permille first request can
+  cut payload-read time but loses sustained content if the stream stays that
+  narrow.
+- The v63 app-candidate run keeps sustained viewport requests at 364 permille
+  and receives 4/4 content samples, while reducing first-frame request area to
+  108 permille and first-frame payload read to about 10.4 s.
+- This follows RFC 6143's client-driven rectangle request path and keeps the
+  UI responsive by showing a smaller first useful area sooner rather than
+  waiting on a larger startup payload.
+
+**Implementation rule**:
+- `ViewportTransform` keeps the normal visible-region calculation and exposes a
+  pure centered-scale helper for startup-only first-useful-paint regions.
+- `NaruRemoteAppModel` applies the 0.60 centered scale only to the first
+  low-traffic request, only when the normal low-traffic viewport-region gate is
+  active.
+- Incremental sustained requests, standard profile, power-saver/low-power
+  override, invalid dimensions, and mismatched transforms keep their existing
+  behavior.
+- `VNCLiveBenchmark` exposes the same fixed policy as
+  `--stream-shape-first-frame-request visible-glance` and bumps report schema
+  to v63 because a new fixed report label exists.
+- No dimensions, coordinates, byte counts, pixels, payloads, host identity,
+  command text, draft text, marked text, or IME state are logged, exported, or
+  persisted.
+
+**Evidence**:
+- Core tests cover centered scaling.
+- Benchmark kit tests cover `visible-glance` area ordering and heartbeat
+  independence.
+- App-model tests cover the smaller first request, size-only startup fallback,
+  standard full-frame behavior, mismatched fallback, and unchanged low-traffic
+  incremental viewport requests.
+- Live v63 app-candidate run:
+  `firstFrameRequestAreaPermille` 108, `requestRegionAreaPermille` 364,
+  first-frame total/network/payload about 12.0/11.4/10.4 s, sustained 4/4
+  content samples, content FPS about 2.34, average/p95 update about 426/871 ms.
+
+**Interpretation**:
+- This should improve startup hand-feel under poor networks, but it is not a
+  benchmark-green production default.
+- The next larger unit should compare encoding/profile behavior and inspect the
+  sustained wait/render tail after keeping this first-useful-paint policy.

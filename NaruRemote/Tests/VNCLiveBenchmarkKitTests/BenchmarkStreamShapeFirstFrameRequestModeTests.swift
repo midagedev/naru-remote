@@ -10,9 +10,10 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
         )
         XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleCore.rawValue, "visible-core")
         XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleFocus.rawValue, "visible-focus")
+        XCTAssertEqual(BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.rawValue, "visible-glance")
         XCTAssertEqual(
             BenchmarkStreamShapeFirstFrameRequestMode.usageDescription,
-            "full|match-request-region|visible-core|visible-focus"
+            "full|match-request-region|visible-core|visible-focus|visible-glance"
         )
     }
 
@@ -77,6 +78,11 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
             framebufferWidth: 1920,
             framebufferHeight: 1080
         )
+        let glanceArea = BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080
+        )
 
         XCTAssertEqual(
             BenchmarkStreamShapeFirstFrameRequestMode.full.requestAreaPermille(
@@ -94,6 +100,8 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
         XCTAssertLessThan(coreArea, matchedArea)
         XCTAssertGreaterThan(focusArea, 0)
         XCTAssertLessThan(focusArea, coreArea)
+        XCTAssertGreaterThan(glanceArea, 0)
+        XCTAssertLessThan(glanceArea, focusArea)
     }
 
     func testVisibleFocusInitialRequestUsesSmallerCentralFocusArea() throws {
@@ -116,5 +124,27 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
         XCTAssertGreaterThan(focusRegion.y, coreRegion.y)
         XCTAssertLessThan(focusRegion.width, coreRegion.width)
         XCTAssertLessThan(focusRegion.height, coreRegion.height)
+    }
+
+    func testVisibleGlanceInitialRequestUsesSmallerCentralGlanceArea() throws {
+        let focusRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleFocus.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+        let glanceRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+
+        XCTAssertGreaterThan(glanceRegion.x, focusRegion.x)
+        XCTAssertGreaterThan(glanceRegion.y, focusRegion.y)
+        XCTAssertLessThan(glanceRegion.width, focusRegion.width)
+        XCTAssertLessThan(glanceRegion.height, focusRegion.height)
     }
 }

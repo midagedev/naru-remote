@@ -3,6 +3,8 @@ import Foundation
 import NaruRemoteCore
 
 public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Sendable, CaseIterable {
+    private static let firstFrameVisibleGlanceScale = 0.60
+
     case full
     case centerHalf = "center-half"
     case centerThird = "center-third"
@@ -104,6 +106,22 @@ public enum BenchmarkStreamShapeRequestRegion: String, Codable, Equatable, Senda
     public func firstFrameVisibleFocusAreaPermille(width: Int, height: Int) -> Int {
         requestAreaPermille(
             for: firstFrameVisibleFocusRegion(width: width, height: height),
+            framebufferWidth: width,
+            framebufferHeight: height
+        )
+    }
+
+    public func firstFrameVisibleGlanceRegion(width: Int, height: Int) -> RFBFramebufferUpdateRegion? {
+        guard let core = firstFrameVisibleCoreRegion(width: width, height: height) else {
+            return nil
+        }
+
+        return core.centeredScaled(by: Self.firstFrameVisibleGlanceScale)
+    }
+
+    public func firstFrameVisibleGlanceAreaPermille(width: Int, height: Int) -> Int {
+        requestAreaPermille(
+            for: firstFrameVisibleGlanceRegion(width: width, height: height),
             framebufferWidth: width,
             framebufferHeight: height
         )

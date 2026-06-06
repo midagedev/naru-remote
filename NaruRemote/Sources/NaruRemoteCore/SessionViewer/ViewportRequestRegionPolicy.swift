@@ -130,3 +130,28 @@ public extension ViewportTransform {
         )
     }
 }
+
+public extension RFBFramebufferUpdateRegion {
+    /// Returns a smaller rectangle centered inside this region. This is useful
+    /// for first-useful-paint probes where the stream should fetch a small
+    /// visible core before sustained viewport-aware requests take over.
+    func centeredScaled(by scale: Double) -> RFBFramebufferUpdateRegion {
+        let clampedScale = min(max(scale, 0.01), 1)
+        let currentWidth = Int(width)
+        let currentHeight = Int(height)
+        guard currentWidth > 0, currentHeight > 0 else {
+            return self
+        }
+        let scaledWidth = max(Int((Double(currentWidth) * clampedScale).rounded()), 1)
+        let scaledHeight = max(Int((Double(currentHeight) * clampedScale).rounded()), 1)
+        let insetX = max((currentWidth - scaledWidth) / 2, 0)
+        let insetY = max((currentHeight - scaledHeight) / 2, 0)
+
+        return RFBFramebufferUpdateRegion(
+            x: UInt16(min(Int(x) + insetX, Int(UInt16.max))),
+            y: UInt16(min(Int(y) + insetY, Int(UInt16.max))),
+            width: UInt16(min(scaledWidth, Int(UInt16.max))),
+            height: UInt16(min(scaledHeight, Int(UInt16.max)))
+        )
+    }
+}

@@ -6,6 +6,7 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
     case matchRequestRegion = "match-request-region"
     case visibleCore = "visible-core"
     case visibleFocus = "visible-focus"
+    case visibleGlance = "visible-glance"
 
     public static var usageDescription: String {
         allCases.map(\.rawValue).joined(separator: "|")
@@ -45,6 +46,14 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
                 width: framebufferWidth,
                 height: framebufferHeight
             )
+        case .visibleGlance:
+            // Start with an even smaller fixed central glance area that mirrors
+            // the app's first-useful-paint policy. Sustained requests still
+            // expand back to the normal viewport margin/heartbeat policy.
+            return requestRegion.firstFrameVisibleGlanceRegion(
+                width: framebufferWidth,
+                height: framebufferHeight
+            )
         }
     }
 
@@ -65,6 +74,11 @@ public enum BenchmarkStreamShapeFirstFrameRequestMode: String, Codable, Equatabl
             )
         case .visibleFocus:
             return requestRegion.firstFrameVisibleFocusAreaPermille(
+                width: framebufferWidth,
+                height: framebufferHeight
+            )
+        case .visibleGlance:
+            return requestRegion.firstFrameVisibleGlanceAreaPermille(
                 width: framebufferWidth,
                 height: framebufferHeight
             )
