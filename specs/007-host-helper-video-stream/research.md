@@ -793,3 +793,33 @@ with a fixed label when the host encoder cannot provide access units.
 - Make the benchmark always run in CI: rejected because CPU, memory, and encoder
   characteristics vary by simulator/host and should be opt-in investigation
   evidence until physical-device gates exist.
+
+## D26 - Bootstrap helper-video only after VNC is already usable
+
+**Decision**: Start the app-side helper-video stream only after the selected VNC
+profile has produced its first framebuffer and the VNC input/control clients are
+active. The bootstrap loads the helper-video pairing secret off the MainActor,
+then returns to the app model to run the helper-video session runner. Helper
+start failures keep the VNC framebuffer, Compose draft, and pointer input path
+active while marking only fixed helper-video failure labels.
+
+**Rationale**:
+- Helper video is visual-only for the first milestone; VNC remains the control
+  and fallback transport. Starting helper video after the first VNC frame makes
+  that invariant concrete in the app lifecycle.
+- Loading the helper pairing secret outside MainActor avoids turning Keychain or
+  credential-store latency into viewer chrome freezes.
+- The session runner already owns safe visual selection, renderer handoff,
+  health updates, and VNC fallback. A connect bootstrap seam lets tests inject a
+  fake helper stream today and lets the production default use the authenticated
+  helper-video network client when the profile is enabled.
+
+**Alternatives considered**:
+- Start helper video before VNC connects: rejected because helper setup failure
+  could delay or confuse the baseline VNC view/control path.
+- Require a separate manual helper-video toggle after every connect: rejected for
+  paired private-network profiles because it would make benchmark and physical
+  validation less representative of the intended opt-in profile behavior.
+- Store raw helper start errors or pairing-secret details for debugging:
+  rejected by the helper-video privacy boundary; fixed failure codes and
+  aggregate health labels are sufficient for this layer.

@@ -218,6 +218,10 @@ without unsafe report fields.
 - [x] T029W [US2] Add an opt-in helper-video app-runner benchmark that measures
   finite H.264 access units through visual transport selection and CoreMedia
   sample-buffer creation while normal test loops skip by default. **Done.**
+- [x] T029X [US1] Connect helper-video bootstrap to the app-model VNC connect
+  path so an enabled private-network profile starts helper-video after the first
+  VNC frame, keeps VNC input/control active, and falls back to VNC on helper
+  start failure. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

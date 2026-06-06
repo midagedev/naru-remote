@@ -115,6 +115,11 @@ Current helper-video app runner benchmark artifact:
 The app benchmark now exercises the finite helper-video access-unit path
 through visual transport selection and sample-buffer creation without requiring
 Screen Recording permission.
+Current helper-video connect bootstrap artifact:
+`artifacts/benchmarks/2026-06-07-helper-video-connect-bootstrap-summary.md`.
+The app model now starts helper-video after the first VNC framebuffer for
+enabled private-network profiles, keeps VNC input/control active, and falls back
+to VNC with fixed helper-video labels when helper start fails.
 Current helper-video auth transport artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-auth-transport-summary.md`.
 The helper-video request contract now signs capability/start/keyframe/stop
