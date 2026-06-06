@@ -133,6 +133,11 @@ Current external helper timeout preflight artifact:
 `artifacts/benchmarks/2026-06-07-external-helper-timeout-preflight-summary.md`.
 Schema v6 bounds the external helper capability wait and emits fixed
 `timedOut` labels instead of letting setup diagnostics block.
+Current helper-video probe-only artifact:
+`artifacts/benchmarks/2026-06-07-helper-video-probe-only-summary.md`.
+`VNCLiveBenchmark --helper-video-probe-only` runs helper-video probes without
+live VNC target credentials, so helper setup can be checked before full
+constrained-cellular VNC comparisons.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
@@ -158,6 +163,10 @@ identity and setup-action labels only.
 Schema v6 bounds that external helper capability wait and reports
 `helper-video-external-helper-timed-out` plus `inspect-helper-video-capability`
 if the helper executable does not answer.
+The helper-video probe-only report wraps the same helper-video comparison schema
+and adds only the fixed selected probe-mode label. It omits live target
+credentials, helper executable paths, endpoints, tokens, frame payloads, byte
+counts, dimensions, coordinates, raw OS errors, and exact helper timings.
 Current helper-video fake comparison artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-fake-transport-comparison-summary.md`.
 Schema v67 adds a visual transport comparison envelope so `vnc` and
@@ -511,6 +520,9 @@ fixed `setupActionLabels` such as `set-naru-live-mac-host`,
 `inspect-helper-video-capability`, and `run-live-gate`. It is
 meant to explain why a live profile gate could not be attempted without
 printing configured target values.
+`--helper-video-probe-only` is a separate helper setup check. It does not read
+live VNC target credentials and should be used after helper install or Screen
+Recording permission changes before running a full live comparison.
 Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus
 `streamShapeGatePreset` in benchmark reports. Schema v39 adds
 `sustained-v2-pixel-format` and `--stream-shape-profiles

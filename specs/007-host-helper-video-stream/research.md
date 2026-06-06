@@ -627,3 +627,28 @@ process after a smoke run.
   non-blocking diagnostic goal.
 - Emit raw helper stderr on timeout: rejected by the safe benchmark artifact
   boundary.
+
+## D21 - Add helper-video probe-only benchmark mode
+
+**Decision**: Add `VNCLiveBenchmark --helper-video-probe-only` so helper-video
+probe modes can be exercised without live VNC target credentials. The report
+wraps the existing helper-video comparison schema, records the selected probe
+mode, and emits only fixed helper-video labels, aggregate health bands,
+verdicts, and fixed issue codes.
+
+**Rationale**:
+- Helper capture/encode/transport problems should be diagnosable before
+  spending a full live VNC benchmark run.
+- After granting macOS Screen Recording to the helper app bundle, this gives a
+  fast first confirmation that external ScreenCaptureKit access units can travel
+  through the helper-video path.
+- The mode is also useful while permission is missing: synthetic external
+  helper probes can stay green, while the ScreenCaptureKit probe reports only
+  `helper-video-permission-missing`.
+
+**Alternatives considered**:
+- Keep helper-video smoke embedded only in full live reports: rejected because
+  it requires host credentials and runs unrelated VNC probes when the user only
+  needs helper setup evidence.
+- Write raw helper diagnostic JSON to artifacts: rejected by the safe benchmark
+  artifact boundary.

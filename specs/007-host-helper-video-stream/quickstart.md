@@ -172,6 +172,32 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
+To exercise the helper-video transport without requiring live VNC target
+credentials, run the probe-only mode. This is the fastest gate after installing
+or granting the helper because it reports only helper-video fixed labels and
+does not connect to the VNC server.
+
+```bash
+NARU_HELPER_EXECUTABLE="$(launchctl getenv NARU_HELPER_EXECUTABLE)" \
+swift run VNCLiveBenchmark \
+  --helper-video-probe-only \
+  --visual-transport helper-video \
+  --helper-video-probe external-helper-synthetic-encoded-tcp \
+  --json
+```
+
+After Screen Recording is granted to `NaruHelperDev`, rerun probe-only with the
+real capture source before attempting the full constrained-cellular comparison:
+
+```bash
+NARU_HELPER_EXECUTABLE="$(launchctl getenv NARU_HELPER_EXECUTABLE)" \
+swift run VNCLiveBenchmark \
+  --helper-video-probe-only \
+  --visual-transport helper-video \
+  --helper-video-probe external-helper-screen-capturekit-tcp \
+  --json
+```
+
 For `external-helper-screen-capturekit-tcp`, the preflight emits schema `6`.
 The benchmark process still does not use its own Screen Recording permission
 state, but it now launches the selected helper executable with

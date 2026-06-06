@@ -29,6 +29,18 @@ enum VNCLiveBenchmark {
                 }
                 return
             }
+            if options.helperVideoProbeOnly {
+                let report = BenchmarkHelperVideoProbeOnlyReport.make(
+                    selection: options.visualTransports,
+                    probeMode: options.helperVideoProbeMode
+                )
+                if options.json {
+                    try renderJSON(report)
+                } else {
+                    renderText(report)
+                }
+                return
+            }
 
             let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
             guard let configuration = LiveTargetConfiguration.fromEnvironment(
@@ -1357,6 +1369,7 @@ private struct BenchmarkOptions: Equatable {
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
     var environmentPreflight = false
+    var helperVideoProbeOnly = false
     var json = false
     var showHelp = false
 
@@ -1378,6 +1391,9 @@ private struct BenchmarkOptions: Equatable {
                 index = arguments.index(after: index)
             case "--environment-preflight":
                 options.environmentPreflight = true
+                index = arguments.index(after: index)
+            case "--helper-video-probe-only":
+                options.helperVideoProbeOnly = true
                 index = arguments.index(after: index)
             case "--network-condition":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -1628,6 +1644,14 @@ private struct BenchmarkOptions: Equatable {
     }
 
     private func validate() throws {
+        if helperVideoProbeOnly {
+            guard visualTransports.transports.contains(.helperVideo) else {
+                throw UsageError("helper-video-probe-only requires --visual-transport helper-video or all.")
+            }
+            guard helperVideoProbeMode != .disabled else {
+                throw UsageError("helper-video-probe-only requires a non-disabled --helper-video-probe.")
+            }
+        }
         guard streamShapeRequestPipelineDepth > 1 else {
             return
         }
@@ -3473,6 +3497,33 @@ private func renderJSON(_ report: BenchmarkReport) throws {
     print(String(decoding: data, as: UTF8.self))
 }
 
+private func renderText(_ report: BenchmarkHelperVideoProbeOnlyReport) {
+    print("\(toolName) helper-video probe-only")
+    print("helper video probe: \(report.helperVideoProbeMode.rawValue)")
+    print(
+        "visual transports: "
+            + report.visualTransportComparison.selectedVisualTransports.map(\.rawValue).joined(separator: ",")
+    )
+    for helperReport in report.visualTransportComparison.helperVideoReports {
+        print("helper video stream: \(helperReport.streamState.rawValue)")
+        print("helper video startup: \(helperReport.startupBand.rawValue)")
+        print("helper video sustained: \(helperReport.sustainedUpdateBand.rawValue)")
+        print("helper video decode pressure: \(helperReport.decodePressure.rawValue)")
+        print("helper video fallback count: \(helperReport.fallbackCountBucket.rawValue)")
+        print("helper video verdict: \(helperReport.verdict.rawValue)")
+        let issues = helperReport.issueCodes.map(\.rawValue).joined(separator: ",")
+        print("helper video issues: \(issues.isEmpty ? "none" : issues)")
+    }
+    print("safety: live target, credentials, helper paths, endpoints, tokens, frames, bytes, dimensions, and raw errors are redacted")
+}
+
+private func renderJSON(_ report: BenchmarkHelperVideoProbeOnlyReport) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(report)
+    print(String(decoding: data, as: UTF8.self))
+}
+
 private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
     print("\(toolName) environment preflight")
     print("host: \(report.hostStatus.rawValue)")
@@ -3528,11 +3579,13 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
-                                Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
+                            Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
+      --helper-video-probe-only
+                            Run only the selected helper-video probe and emit a privacy-safe helper-video report without requiring live VNC target credentials.
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
