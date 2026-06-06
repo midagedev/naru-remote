@@ -152,6 +152,11 @@ without unsafe report fields.
   applies finite network start results to the iOS access-unit renderer, helper
   visual transport state, and VNC fallback health without exporting endpoints,
   payloads, byte counts, or raw errors. **Done.**
+- [x] T029G [US1] Add a `NaruHelper --video-listen` entrypoint backed by the
+  authenticated helper-video TCP server, with explicit token/profile
+  fingerprint/port/source configuration, env indirection for sensitive inputs,
+  and finite ScreenCaptureKit or synthetic-encoded access-unit sources.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

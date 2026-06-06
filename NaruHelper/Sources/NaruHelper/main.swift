@@ -10,6 +10,11 @@ private enum NaruHelperCLI {
             return
         }
 
+        if CommandLine.arguments.contains("--video-listen") {
+            try await listenVideo()
+            return
+        }
+
         if CommandLine.arguments.contains("--capability") {
             try writeCapabilityResponse()
             return
@@ -117,6 +122,25 @@ private enum NaruHelperCLI {
         let server = try NaruHelperNetworkServer(port: port, handler: handler)
         server.start()
         RunLoop.main.run()
+    }
+
+    private static func listenVideo() async throws {
+        #if canImport(Network)
+        let configuration = try NaruHelperVideoListenConfiguration.parse(
+            arguments: CommandLine.arguments
+        )
+        let server = try NaruHelperVideoListenRuntime(
+            configuration: configuration
+        ).makeServer()
+        server.start()
+        while true {
+            _ = server.port
+            try await Task.sleep(for: .seconds(3_600))
+        }
+        #else
+        FileHandle.standardError.write(Data("NaruHelper video listen unsupported.\n".utf8))
+        Darwin.exit(2)
+        #endif
     }
 
     private static func optionValue(after name: String) -> String? {
