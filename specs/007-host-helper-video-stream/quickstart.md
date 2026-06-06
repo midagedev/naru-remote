@@ -16,12 +16,12 @@ Expected: no matches.
 ```bash
 swift test --filter HelperVideo
 swift test --filter HelperVideoFakeTransportTests
+swift test --filter DiagnosticExportTests
 ```
 
 ## Planned Unit And App Tests
 
 ```bash
-swift test --filter HelperVideoDiagnostics
 swift test --filter HelperVideoBenchmark
 ```
 

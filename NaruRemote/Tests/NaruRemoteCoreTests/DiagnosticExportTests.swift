@@ -262,7 +262,7 @@ final class DiagnosticExportTests: XCTestCase {
         let renderedAgain = export.renderCollectionJSON(buildVersion: "0.1.0", now: pinnedDate)
 
         XCTAssertEqual(rendered, renderedAgain)
-        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 30"))
+        XCTAssertTrue(rendered.contains("\"schemaVersion\" : 31"))
         XCTAssertTrue(rendered.contains("\"generatedAt\" : \"2024-05-01T00:00:00Z\""))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
         XCTAssertFalse(rendered.contains(profileID.uuidString.lowercased()))
@@ -274,7 +274,7 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(rendered.utf8)
         )
-        XCTAssertEqual(decoded.schemaVersion, 30)
+        XCTAssertEqual(decoded.schemaVersion, 31)
         XCTAssertEqual(decoded.generatedAt, "2024-05-01T00:00:00Z")
         XCTAssertEqual(decoded.buildVersion, "0.1.0")
         XCTAssertEqual(decoded.runID, runID.uuidString.lowercased())
@@ -300,6 +300,7 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(decoded.viewerStreamEncodingMode)
         XCTAssertNil(decoded.viewerStartupPreflightMode)
         XCTAssertNil(decoded.viewerStartupGlanceScaleMode)
+        XCTAssertNil(decoded.helperVideo)
     }
 
     func testRenderCollectionJSONIncludesSafeStreamPerformanceSummary() throws {
@@ -398,7 +399,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 30)
+        XCTAssertEqual(decoded.schemaVersion, 31)
         XCTAssertEqual(decoded.streamPerformance, performance)
         XCTAssertEqual(decoded.viewerStreamPowerMode, StreamPowerMode.powerSaver.rawValue)
         XCTAssertEqual(decoded.viewerStreamEncodingMode, StreamEncodingMode.adaptiveGoodFull.rawValue)
@@ -438,6 +439,100 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertTrue(rendered.contains("\"viewerStartupGlanceScaleMode\" : \"glance-025\""))
         XCTAssertFalse(rendered.contains("caller detail"))
         XCTAssertFalse(rendered.contains(profileID.uuidString))
+    }
+
+    func testRenderCollectionJSONIncludesSafeHelperVideoReportWithoutUnsafeFields() throws {
+        let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let run = ConnectionDiagnosticRun(
+            profileID: profileID,
+            finishedAt: Date(timeIntervalSince1970: 1),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .firstFrame,
+                    status: .passed,
+                    safeTitle: "Streaming",
+                    safeDetail: "caller detail must not appear"
+                )
+            ]
+        )
+        let helperVideo = DiagnosticHelperVideoReport(
+            profileState: HelperVideoProfileState(
+                isEnabled: true,
+                pairingFingerprint: "sha256:should-not-export-helper-pairing",
+                availability: .available,
+                lastFailureCode: .streamStalled,
+                lastCheckedBucket: .recent
+            ),
+            streamDescriptor: HelperVideoStreamDescriptor(
+                protocolVersion: 2,
+                codec: .h264,
+                codecProfile: .high,
+                latencyMode: .lowLatency,
+                qualityBucket: .readability,
+                frameRateBucket: .upTo30,
+                colorMode: .standardDynamicRange,
+                supportsKeyframeRequest: true,
+                supportsFallbackSignal: true
+            ),
+            streamHealth: HelperVideoStreamHealth(
+                state: .stalled,
+                startupBand: .usable,
+                sustainedUpdateBand: .stalled,
+                decodePressure: .medium,
+                fallbackCountBucket: .one
+            )
+        )
+        let export = DiagnosticExport(run: run, helperVideo: helperVideo)
+
+        let rendered = export.renderCollectionJSON(
+            buildVersion: "0.1.0",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let decoded = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(rendered.utf8)
+        )
+
+        XCTAssertEqual(decoded.schemaVersion, 31)
+        XCTAssertEqual(decoded.helperVideo, helperVideo)
+        XCTAssertEqual(decoded.helperVideo?.isEnabled, true)
+        XCTAssertEqual(decoded.helperVideo?.hasPairingFingerprint, true)
+        XCTAssertEqual(decoded.helperVideo?.availability, HelperVideoAvailability.available.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.lastFailureCode, HelperVideoFailureCode.streamStalled.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.lastCheckedBucket, HelperVideoLastCheckedBucket.recent.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.canAttemptHelperVideoStream, true)
+        XCTAssertEqual(decoded.helperVideo?.profileUsesVNCVisualFallback, false)
+        XCTAssertEqual(decoded.helperVideo?.streamProtocolVersion, 2)
+        XCTAssertEqual(decoded.helperVideo?.streamCodec, HelperVideoCodec.h264.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamCodecProfile, HelperVideoCodecProfile.high.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamLatencyMode, HelperVideoLatencyMode.lowLatency.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamQualityBucket, HelperVideoQualityBucket.readability.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamFrameRateBucket, HelperVideoFrameRateBucket.upTo30.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamState, HelperVideoStreamState.stalled.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.sustainedUpdateBand, HelperVideoSustainedUpdateBand.stalled.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.decodePressure, HelperVideoDecodePressure.medium.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.fallbackCountBucket, HelperVideoFallbackCountBucket.one.rawValue)
+        XCTAssertEqual(decoded.helperVideo?.streamUsesVNCVisualFallback, true)
+        XCTAssertTrue(rendered.contains("\"helperVideo\""))
+        XCTAssertTrue(rendered.contains("\"streamSupportsFallbackSignal\" : true"))
+        XCTAssertFalse(rendered.contains("sha256:should-not-export-helper-pairing"))
+        XCTAssertFalse(rendered.contains("caller detail"))
+
+        for forbidden in [
+            "framePayload",
+            "encoded-bytes",
+            "displayID-SECRET",
+            "displayName-SECRET",
+            "1920x1080",
+            "10.0.0.10",
+            "desk.local",
+            "auth-token",
+            "authProof",
+            "REMOTE_COPY_TEXT",
+            "한글과 English"
+        ] {
+            XCTAssertFalse(rendered.contains(forbidden))
+        }
     }
 
     func testRenderCollectionJSONIncludesSafeInputReportWithoutDraftText() throws {
@@ -509,7 +604,7 @@ final class DiagnosticExportTests: XCTestCase {
             from: Data(rendered.utf8)
         )
 
-        XCTAssertEqual(decoded.schemaVersion, 30)
+        XCTAssertEqual(decoded.schemaVersion, 31)
         XCTAssertEqual(decoded.input?.directKeystrokeModeActive, false)
         XCTAssertEqual(decoded.input?.hasComposeDraftText, true)
         XCTAssertEqual(decoded.input?.composeSendState, ComposeSendState.unknown.rawValue)
@@ -691,6 +786,59 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertNil(input.latestInjectionPasteCommandStatus)
         XCTAssertNil(input.latestInjectionRemoteClipboardRestore)
         XCTAssertNil(input.latestInjectionDurationBucket)
+    }
+
+    func testHelperVideoReportClampsUnsafeCatalogValues() {
+        let report = DiagnosticHelperVideoReport(
+            isEnabled: true,
+            hasPairingFingerprint: true,
+            availability: "availability=SECRET",
+            lastFailureCode: HelperVideoFailureCode.transportFailed.rawValue,
+            lastCheckedBucket: "checked=SECRET",
+            canAttemptHelperVideoStream: true,
+            profileUsesVNCVisualFallback: false,
+            streamProtocolVersion: -3,
+            streamCodec: "codec=SECRET",
+            streamCodecProfile: "profile=SECRET",
+            streamLatencyMode: "latency=SECRET",
+            streamQualityBucket: "quality=SECRET",
+            streamFrameRateBucket: "frameRate=SECRET",
+            streamColorMode: "color=SECRET",
+            streamSupportsKeyframeRequest: true,
+            streamSupportsFallbackSignal: true,
+            streamState: HelperVideoStreamState.fallbackToVNC.rawValue,
+            startupBand: "startup=SECRET",
+            sustainedUpdateBand: HelperVideoSustainedUpdateBand.choppy.rawValue,
+            decodePressure: "decode=SECRET",
+            fallbackCountBucket: HelperVideoFallbackCountBucket.many.rawValue,
+            streamUsesVNCVisualFallback: true
+        )
+
+        XCTAssertEqual(report.isEnabled, true)
+        XCTAssertEqual(report.hasPairingFingerprint, true)
+        XCTAssertNil(report.availability)
+        XCTAssertEqual(report.lastFailureCode, HelperVideoFailureCode.transportFailed.rawValue)
+        XCTAssertNil(report.lastCheckedBucket)
+        XCTAssertEqual(report.canAttemptHelperVideoStream, true)
+        XCTAssertEqual(report.profileUsesVNCVisualFallback, false)
+        XCTAssertEqual(
+            report.streamProtocolVersion,
+            HelperVideoStreamDescriptor.minimumSupportedProtocolVersion
+        )
+        XCTAssertNil(report.streamCodec)
+        XCTAssertNil(report.streamCodecProfile)
+        XCTAssertNil(report.streamLatencyMode)
+        XCTAssertNil(report.streamQualityBucket)
+        XCTAssertNil(report.streamFrameRateBucket)
+        XCTAssertNil(report.streamColorMode)
+        XCTAssertEqual(report.streamSupportsKeyframeRequest, true)
+        XCTAssertEqual(report.streamSupportsFallbackSignal, true)
+        XCTAssertEqual(report.streamState, HelperVideoStreamState.fallbackToVNC.rawValue)
+        XCTAssertNil(report.startupBand)
+        XCTAssertEqual(report.sustainedUpdateBand, HelperVideoSustainedUpdateBand.choppy.rawValue)
+        XCTAssertNil(report.decodePressure)
+        XCTAssertEqual(report.fallbackCountBucket, HelperVideoFallbackCountBucket.many.rawValue)
+        XCTAssertEqual(report.streamUsesVNCVisualFallback, true)
     }
 
     func testCollectionReportClampsUnsafeViewerStreamPowerMode() throws {
@@ -1545,8 +1693,8 @@ final class DiagnosticExportTests: XCTestCase {
 
         XCTAssertTrue(payload.hasPrefix("Naru Remote Diagnostic Summary"))
         XCTAssertTrue(payload.contains("[dns] passed"))
-        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v30 ---"))
-        XCTAssertTrue(payload.contains("\"schemaVersion\" : 30"))
+        XCTAssertTrue(payload.contains("--- Naru Remote Diagnostic JSON v31 ---"))
+        XCTAssertTrue(payload.contains("\"schemaVersion\" : 31"))
         XCTAssertTrue(payload.contains("\"stageID\" : \"dns\""))
         XCTAssertFalse(payload.contains("caller detail"))
     }
