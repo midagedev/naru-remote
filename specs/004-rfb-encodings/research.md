@@ -5175,3 +5175,44 @@ first-useful-paint patch is recognizable.
 - 0.25 is the strongest traffic candidate so far, but it may be too small to
   be useful visually. The next product-default PR should pair a 0.25/0.35 live
   comparison with device screenshot inspection before changing app behavior.
+
+### D114 Synthetic First-Frame Visual Audit
+
+References:
+- `artifacts/benchmarks/2026-06-06-app-low-traffic-visual-audit-summary.md`.
+
+**Decision**: add schema v65 `streamShapeFirstFrameVisualAudit` for
+`visible-glance` reports. The audit is a synthetic terminal-grid coverage proxy,
+not a live screenshot analyzer, and product defaults still require device visual
+inspection before promoting scales below 0.45.
+
+**Why**:
+- D113 made 0.25 the best startup traffic candidate, but traffic metrics alone
+  do not prove the first-useful-paint patch is recognizable on an iPhone.
+- A safe report-side visual proxy lets benchmark artifacts communicate how much
+  visible-core context is intentionally omitted without storing live pixels or
+  leaking dimensions.
+- The field keeps the benchmark loop fast while forcing risky small scales to
+  carry an explicit `visualCheckRequired` signal.
+
+**Evidence**:
+- Focused benchmark-kit tests cover 0.25, 0.35, 0.45, and clamped scales with
+  stable permille coverage and fixed risk labels.
+- The v65 0.25 audit reports 250 permille axis coverage, 63 permille area
+  coverage, 937 permille omitted visible-core area, `glance-only`, and
+  `visualCheckRequired: true`.
+- The v65 0.25 live app-low-traffic run reports about 4.9 s first-frame
+  payload read, 19 permille first-frame request area, 4/4 sustained content
+  samples, 0 permille renderer full-upload pressure for both app RGB565
+  candidates, and an overall poor-network traffic verdict of `warning`.
+- The v65 0.45 app default candidate reports 450 permille axis coverage,
+  203 permille area coverage, `central-context`, and
+  `visualCheckRequired: false`.
+
+**Interpretation**:
+- 0.25 remains a useful poor-network benchmark candidate, but it is now clearly
+  marked as a glance-only visual-risk candidate rather than a default-ready app
+  setting, even after the live traffic verdict improved from failed to warning.
+- The next product behavior PR should use live iPhone screenshots or direct
+  device inspection to decide whether 0.25, 0.35, or the current 0.45 default
+  is the right first-useful-paint scale.

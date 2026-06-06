@@ -1190,6 +1190,17 @@ iPhone) and ships as its own PR.
   text, or IME state. Owns: benchmark request-region override, first-frame
   mode plumbing, CLI/report schema/help, tests, README, research note, live
   benchmark artifact. **Done.**
+- **T445** Synthetic first-frame visual audit: after D114 separated startup
+  traffic wins from recognizable first-useful-paint quality, add a v65
+  `visible-glance` audit that reports only synthetic terminal-grid axis/area
+  coverage permille values, omitted-area permille, a fixed risk label, and a
+  `visualCheckRequired` boolean. Use it to mark 0.25 as a `glance-only`
+  candidate before any product-default change, even though the v65 live run
+  improved the poor-network traffic verdict to `warning` with about 4.9 s
+  first-frame payload read. Avoid logging/exporting live pixels, dimensions,
+  coordinates, byte counts, payloads, host identity, command text, draft text,
+  marked text, or IME state. Owns: benchmark report schema/help/text output,
+  benchmark-kit tests, README, research note, live benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
