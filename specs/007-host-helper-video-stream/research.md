@@ -823,3 +823,36 @@ active while marking only fixed helper-video failure labels.
 - Store raw helper start errors or pairing-secret details for debugging:
   rejected by the helper-video privacy boundary; fixed failure codes and
   aggregate health labels are sufficient for this layer.
+
+## D27 - Add a network-backed app bootstrap smoke before physical live video
+
+**Decision**: Add an opt-in macOS SwiftPM smoke benchmark that drives the
+app-model helper-video bootstrap through a real authenticated loopback TCP
+helper-video server/client path after the fake VNC connector supplies the first
+framebuffer. The test still skips by default unless `NARU_RUN_SIM_BENCHMARKS=1`
+is set.
+
+**Rationale**:
+- T029X proved the app lifecycle with an injected start-stream closure, while
+  T029B/T029D proved the helper-video network and H.264 access-unit pieces in
+  isolation. The next useful automatic gate is their composition at the app
+  bootstrap boundary.
+- The true live ScreenCaptureKit benchmark still depends on the helper app
+  bundle's macOS Screen Recording permission. A loopback TCP smoke avoids that
+  privacy setting while validating the wire protocol, H.264 sample-buffer path,
+  VNC first-frame ordering, and VNC pointer/control retention together.
+- Keeping it opt-in avoids adding host encoder/network variance to normal CI and
+  keeps committed evidence to fixed pass/skip labels instead of raw timings,
+  payload bytes, dimensions, endpoints, byte counts, host names, credentials, or
+  raw OS errors.
+
+**Alternatives considered**:
+- Put the real TCP path only in `NaruRemoteAppTests`: rejected because this is
+  benchmark-style, host-dependent evidence and belongs with the existing opt-in
+  helper-video app-runner benchmark.
+- Wait for physical iPhone live ScreenCaptureKit before composing these pieces:
+  rejected because it would leave the app/network seam untested while a manual
+  macOS privacy permission is pending.
+- Record measured TCP startup timings in the committed artifact: rejected by
+  the helper-video privacy posture; local XCTest output is enough for
+  investigation and committed docs should stay catalog-level.

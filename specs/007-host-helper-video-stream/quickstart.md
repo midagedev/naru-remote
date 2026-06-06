@@ -369,6 +369,11 @@ swift test --filter HelperVideoAppRunnerBenchmarkTests
 NARU_RUN_SIM_BENCHMARKS=1 \
 NARU_SIM_BENCHMARK_ITERATIONS=1 \
 swift test --filter HelperVideoAppRunnerBenchmarkTests
+
+NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=1 \
+NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=2 \
+swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedHelperVideoBootstrapThroughAppModelSmoke
 ```
 
 The default command proves the benchmark target still skips during normal test
@@ -376,9 +381,12 @@ loops. The opt-in command measures finite helper-video H.264 access units
 through app visual transport selection and CoreMedia sample-buffer creation.
 On macOS SwiftPM runs, it also attempts an optional VideoToolbox synthetic
 helper source and skips that case with a fixed label if the host encoder is not
-available. Do not store payload bytes, display dimensions, helper endpoints,
-byte counts, exact timings, raw encoder errors, host names, or credentials in
-benchmark artifacts.
+available. The network-backed smoke command starts the helper-side TCP
+`NWListener`, connects through `HelperVideoStreamNetworkClient` after the app
+receives its first VNC framebuffer, feeds the iOS sample-buffer renderer, and
+confirms VNC pointer/control remains active. Do not store payload bytes, display
+dimensions, helper endpoints, byte counts, exact timings, raw encoder errors,
+host names, or credentials in benchmark artifacts.
 
 ## Planned Live Benchmark Shape
 

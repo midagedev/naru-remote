@@ -120,6 +120,11 @@ Current helper-video connect bootstrap artifact:
 The app model now starts helper-video after the first VNC framebuffer for
 enabled private-network profiles, keeps VNC input/control active, and falls back
 to VNC with fixed helper-video labels when helper start fails.
+Current helper-video network bootstrap smoke artifact:
+`artifacts/benchmarks/2026-06-07-helper-video-network-bootstrap-smoke-summary.md`.
+The opt-in app benchmark now composes first-frame VNC bootstrap with the real
+authenticated helper-video TCP server/client path before the physical live video
+gate.
 Current helper-video auth transport artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-auth-transport-summary.md`.
 The helper-video request contract now signs capability/start/keyframe/stop
