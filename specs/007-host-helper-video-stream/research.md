@@ -761,3 +761,35 @@ for non-interactive verification.
   exposing local paths or raw OS errors.
 - Always open System Settings during automated checks: rejected because CI and
   non-interactive validation need a no-UI path that still verifies JSON shape.
+
+## D25 - Benchmark the app-side helper-video runner path before true capture
+
+**Decision**: Add an opt-in `HelperVideoAppRunnerBenchmarkTests` target path
+that measures finite helper-video H.264 access units through app visual
+transport selection and CoreMedia sample-buffer creation. The normal test loop
+skips the benchmark unless `NARU_RUN_SIM_BENCHMARKS=1` is set. macOS SwiftPM
+runs also attempt an optional VideoToolbox synthetic helper source and skip it
+with a fixed label when the host encoder cannot provide access units.
+
+**Rationale**:
+- True ScreenCaptureKit helper-video evidence remains blocked until the stable
+  helper app bundle receives macOS Screen Recording permission. The app can
+  still reduce risk by benchmarking the post-network visual path that will run
+  after helper access units arrive.
+- The app-side runner is the boundary where accepted helper-video streams select
+  visual transport, feed the renderer, mark health, or fall back to VNC. Making
+  that path measurable prevents future smoothness work from focusing only on
+  server/network probes.
+- Keeping the benchmark opt-in preserves CI determinism and avoids exporting
+  payload bytes, display dimensions, byte counts, helper endpoints, host names,
+  credentials, exact timings, raw encoder errors, or frame content to artifacts.
+
+**Alternatives considered**:
+- Wait for Screen Recording permission before adding any helper-video benchmark:
+  rejected because it leaves the app decode/display bridge unmeasured while a
+  user-controlled macOS privacy setting is pending.
+- Benchmark only the H.264 sample-buffer factory: rejected because it would miss
+  visual transport selection, helper health updates, and VNC fallback state.
+- Make the benchmark always run in CI: rejected because CPU, memory, and encoder
+  characteristics vary by simulator/host and should be opt-in investigation
+  evidence until physical-device gates exist.

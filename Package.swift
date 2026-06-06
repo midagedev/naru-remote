@@ -99,7 +99,11 @@ let package = Package(
         ),
         .testTarget(
             name: "NaruRemoteBenchmarkTests",
-            dependencies: ["NaruRemoteApp", "NaruRemoteCore"],
+            dependencies: [
+                "NaruRemoteApp",
+                "NaruRemoteCore",
+                .target(name: "NaruHelperKit", condition: .when(platforms: [.macOS]))
+            ],
             path: "NaruRemote/Tests/NaruRemoteBenchmarkTests"
         ),
         .testTarget(

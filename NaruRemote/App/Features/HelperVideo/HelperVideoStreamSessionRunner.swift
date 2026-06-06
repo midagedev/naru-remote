@@ -102,6 +102,20 @@ public final class HelperVideoStreamSessionRunner {
             )
         }
 
+        return handleStartResult(
+            result,
+            sessionID: sessionID,
+            profileID: profileID,
+            model: model
+        )
+    }
+
+    func handleStartResult(
+        _ result: HelperVideoStreamNetworkStartResult,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID,
+        model: NaruRemoteAppModel
+    ) -> HelperVideoStreamSessionOutcome {
         guard result.startResponse.body.result == .accepted else {
             let failureCode = result.startResponse.body.safeFailureCode ?? .transportFailed
             guard isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
