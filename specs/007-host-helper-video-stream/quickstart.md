@@ -98,6 +98,7 @@ scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh glance-scale-sweep
 scripts/run-naru-live-benchmark.sh glance-025-duration-probe
+scripts/run-naru-live-benchmark.sh glance-025-profile-sweep
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
 ```
@@ -145,6 +146,10 @@ environment/`launchctl` live credentials, rejects extra arguments, and runs a
 `iphone-poor-network-traffic-v1` target. If the live host or password is not
 present in the current shell or `launchctl`, the mode fails before benchmarking
 with the fixed missing-environment-variable setup message.
+`glance-025-profile-sweep` uses the same fixed `0.25` poor-network shape as the
+duration probe, but compares the current app-selectable stream profile
+candidates. It rejects extra arguments and should be rerun before changing the
+default stream profile for poor-network startup.
 
 ## Implemented Helper Video Encoder Prototype
 

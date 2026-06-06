@@ -6103,3 +6103,73 @@ privacy-safe benchmark reports. It must not print or export host identity,
 credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
+
+### D133 Add A Glance 0.25 App Profile Sweep Runner
+
+References:
+- `artifacts/benchmarks/2026-06-07-glance-025-profile-sweep-summary.md`
+- D132 glance 0.25 duration probe runner.
+
+**Decision**: add a fixed launchctl-backed `glance-025-profile-sweep` runner
+mode that compares the current app-selectable stream profile candidates under
+the same fixed `0.25` poor-network startup shape as D132. The sweep imports
+live VNC credentials from environment/`launchctl`, builds `VNCLiveBenchmark`
+once, rejects extra arguments, and runs `tight-first-cursor`,
+`local-low-latency-rgb565`, `zrle-compression-0`,
+`zrle-compression-0-rgb565`, and `adaptive-good-full` as VNC-only duration-only
+12 second probes.
+
+**Why**:
+- D132 kept `local-low-latency-rgb565` as the leading single-profile candidate,
+  but the benchmark recommendation still asked for an encoding/profile gate
+  comparison under the same shape.
+- Previous profile evidence mixed other startup scales, shorter bounded
+  samples, or non-poor-network targets. This sweep removes that drift by
+  holding first-frame scale, request region, network condition, transport,
+  target, and duration fixed.
+- The result should decide whether another quick profile default flip is worth
+  trying before moving deeper into update wait timing / server cadence.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `glance-025-profile-sweep`.
+- `scripts/run-naru-live-benchmark.sh glance-025-profile-sweep -- --stream-shape-profiles tight-first`
+  rejects extra arguments with a fixed mode error.
+- A clean live `glance-025-profile-sweep` run exited `rc=0` and completed all
+  five profiles.
+- Live result:
+  - `tight-first-cursor`: fail, `probe-failed`, first-frame receive
+    `27642` ms, first-frame payload read `26503` ms, `500/500/1000`
+    received/content/content-response sample permille.
+  - `local-low-latency-rgb565`: fail, `first-frame-payload-read-failed`,
+    `1.99` content FPS, `501` ms average update, `625` ms p95 update,
+    first-frame receive `6064` ms, first-frame payload read `4944` ms,
+    renderer full-upload `0` permille, `1000/1000/1000`
+    received/content/content-response sample permille.
+  - `zrle-compression-0`: fail, `1.71` content FPS, `559` ms average update,
+    `617` ms p95 update, first-frame receive `12510` ms, renderer full-upload
+    `48` permille, `1000/955/955` sample permille.
+  - `zrle-compression-0-rgb565`: fail, `1.73` content FPS, `525` ms average
+    update, `687` ms p95 update, first-frame receive `6130` ms, renderer
+    full-upload `48` permille, `1000/913/913` sample permille.
+  - `adaptive-good-full`: fail, `1.65` content FPS, `548` ms average update,
+    `629` ms p95 update, first-frame receive `12443` ms, renderer full-upload
+    `50` permille, `1000/909/909` sample permille.
+
+**Interpretation**:
+- Keep `local-low-latency-rgb565` as the leading poor-network app profile
+  candidate.
+- Do not promote any profile as a default yet: every profile still fails the
+  poor-network target, and the common primary constraint remains receive path.
+- The next larger unit should inspect update wait timing / server transport
+  cadence under the fixed 0.25 shape rather than trying another profile-only
+  default change.
+
+**Privacy rule**: the runner emits only fixed mode/profile labels, fixed
+target/transport/request labels, scale permille values, fixed verdict/issue
+labels, aggregate counts, permille ratios, aggregate timings, and existing
+privacy-safe benchmark reports. It must not print or export host identity,
+credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
+text, draft text, marked text, or IME state.

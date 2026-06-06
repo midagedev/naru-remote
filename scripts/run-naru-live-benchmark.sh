@@ -16,6 +16,7 @@ Modes:
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
+  glance-025-profile-sweep Duration-only 0.25 startup glance app profile sweep.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
@@ -696,6 +697,180 @@ run_glance_025_duration_probe() {
       "$progress_file"
   fi
   rm -f "$phase_file" "$progress_file" "$output_file"
+}
+
+json_glance_025_profile_sweep_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"glance-025-profile-sweep","scalePermille":250,"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
+json_glance_025_profile_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="$3"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$4")"
+  local profile_ordinal="$5"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"glance-025-profile-sweep-profile","profileLabel":'
+  json_string "$profile_label"
+  printf ',"profileOrdinal":%d,"scalePermille":250,"status":"failed","safeFailureCode":' "$profile_ordinal"
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}'
+}
+
+json_glance_025_profile_result() {
+  local phase_file="$1"
+  local progress_file="$2"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$3")"
+  local profile_ordinal="$4"
+  shift 4
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-profile-output.XXXXXX")"
+  : >"$progress_file"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout 90 "$@" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    printf '{"schemaVersion":1,"mode":"glance-025-profile-sweep-profile","profileLabel":'
+    json_string "$profile_label"
+    printf ',"profileOrdinal":%d,"scalePermille":250,"status":"passed","report":' "$profile_ordinal"
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_glance_025_profile_failure \
+      benchmarkStep.glance025ProfileSweep.timedOut \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  else
+    json_glance_025_profile_failure \
+      benchmarkStep.glance025ProfileSweep.failed \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  fi
+  rm -f "$output_file"
+}
+
+glance_025_profile_args() {
+  local profile_label="$1"
+  local progress_file="$2"
+  GLANCE_025_PROFILE_ARGS=(
+    --attempts 1
+    --network-condition constrained-cellular
+    --visual-transport vnc
+    --stream-shape-frame-interval 0
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-poor-network-traffic-v1
+    --stream-shape-transport request-response
+    --stream-shape-request-pipeline-depth 1
+    --stream-shape-request-region viewport-phone-portrait
+    --stream-shape-first-frame-request visible-glance
+    --stream-shape-first-frame-visible-glance-scale 0.25
+    --stream-shape-profiles "$profile_label"
+    --stream-shape-profile-order fixed
+    --stream-shape-profile-iterations 1
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 0
+    --stream-shape-duration-seconds 12
+    --timeout 30
+    --idle-timeout 5
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+}
+
+run_glance_025_profile_sweep() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-profile-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-glance-025-profile-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_glance_025_profile_sweep_failure \
+        benchmarkStep.glance025ProfileSweep.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_glance_025_profile_sweep_failure \
+        benchmarkStep.glance025ProfileSweep.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_glance_025_profile_sweep_failure \
+      benchmarkStep.glance025ProfileSweep.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local profiles=(
+    tight-first-cursor
+    local-low-latency-rgb565
+    zrle-compression-0
+    zrle-compression-0-rgb565
+    adaptive-good-full
+  )
+  local first_profile=1
+  local profile_label
+  local profile_ordinal=0
+  printf '{"schemaVersion":1,"mode":"glance-025-profile-sweep","status":"completed","scalePermille":250,"profiles":[\n'
+  for profile_label in "${profiles[@]}"; do
+    profile_ordinal=$((profile_ordinal + 1))
+    if ((first_profile)); then
+      first_profile=0
+    else
+      printf ',\n'
+    fi
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    glance_025_profile_args "$profile_label" "$progress_file"
+    json_glance_025_profile_result \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal" \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${GLANCE_025_PROFILE_ARGS[@]}"
+  done
+  printf '\n]}\n'
+  rm -f "$phase_file" "$progress_file"
 }
 
 bounded_benchmark_executable() {
@@ -1705,6 +1880,12 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_glance_025_duration_probe
+    ;;
+  glance-025-profile-sweep)
+    reject_extra_args
+    import_live_env
+    cd "$repo_root"
+    run_glance_025_profile_sweep
     ;;
   request-pipeline-sweep)
     import_live_env
