@@ -340,6 +340,16 @@ adds fixed `lastPhaseLabel` values to guarded failures; the current live timeout
 reaches `benchmark-running`, so the remaining bottleneck is inside the bounded
 VNC benchmark path rather than SwiftPM setup.
 
+Current per-profile bounded VNC drilldown artifact:
+`artifacts/benchmarks/2026-06-07-bounded-vnc-profile-drilldown-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh bounded-vnc-profile-drilldown` when the
+all-profile bounded sweep times out. It builds once, runs the fixed VNC
+candidates one at a time with a per-profile wall-clock guard, and reports only
+catalog profile labels plus fixed failure/phase labels. The current live
+drilldown shows all three candidates timing out in `benchmark-running`, which
+points to a broader benchmark/VNC runtime bottleneck rather than a single
+encoding profile.
+
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
 export NARU_PHYSICAL_E2E_PASSWORD

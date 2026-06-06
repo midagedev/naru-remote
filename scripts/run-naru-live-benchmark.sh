@@ -16,6 +16,7 @@ Modes:
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
+  bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
@@ -240,6 +241,84 @@ json_bounded_sweep_failure() {
   printf '}\n'
 }
 
+bounded_drilldown_profile_label() {
+  local profile_label="$1"
+  case "$profile_label" in
+    tight-first|zrle-compression-0|adaptive-good-full)
+      printf '%s' "$profile_label"
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+json_bounded_drilldown_runner_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  printf '}\n'
+}
+
+json_bounded_drilldown_profile_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$3")"
+  local profile_ordinal="$4"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown-profile","profileLabel":'
+  json_string "$profile_label"
+  printf ',"profileOrdinal":%d,"status":"failed","safeFailureCode":' "$profile_ordinal"
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  printf '}'
+}
+
+json_bounded_drilldown_profile_result() {
+  local phase_file="$1"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$2")"
+  local profile_ordinal="$3"
+  local wall_timeout_seconds="$4"
+  shift 4
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-drilldown-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$wall_timeout_seconds" "$@" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown-profile","profileLabel":'
+    json_string "$profile_label"
+    printf ',"profileOrdinal":%d,"status":"passed","report":' "$profile_ordinal"
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_bounded_drilldown_profile_failure \
+      benchmarkStep.boundedVNCProfileDrilldown.timedOut \
+      "$phase_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  else
+    json_bounded_drilldown_profile_failure \
+      benchmarkStep.boundedVNCProfileDrilldown.failed \
+      "$phase_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  fi
+  rm -f "$output_file"
+}
+
 bounded_benchmark_executable() {
   local build_bin_path
   build_bin_path="$(cd "$repo_root" && swift build --show-bin-path 2>/dev/null || true)"
@@ -263,15 +342,30 @@ bounded_benchmark_executable() {
   done
 }
 
+prepare_bounded_benchmark_executable() {
+  local phase_file="$1"
+  BOUNDED_BENCHMARK_EXECUTABLE=""
+  write_bounded_sweep_phase "$phase_file" swift-build
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if ! run_with_wall_timeout 30 swift build --product VNCLiveBenchmark >/dev/null 2>/dev/null; then
+    return 1
+  fi
+
+  local benchmark_executable
+  benchmark_executable="$(bounded_benchmark_executable)"
+  if [[ -z "$benchmark_executable" ]]; then
+    return 1
+  fi
+  BOUNDED_BENCHMARK_EXECUTABLE="$benchmark_executable"
+}
+
 run_bounded_vnc_profile_sweep() {
   local phase_file
   phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-sweep-phase.XXXXXX")"
   write_bounded_sweep_phase "$phase_file" runner-starting
 
   local bounded_args=("$@")
-  write_bounded_sweep_phase "$phase_file" swift-build
-  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
-  if ! run_with_wall_timeout 30 swift build --product VNCLiveBenchmark >/dev/null 2>/dev/null; then
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
     if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
       json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.timedOut "$phase_file"
     else
@@ -281,9 +375,7 @@ run_bounded_vnc_profile_sweep() {
     return
   fi
 
-  local benchmark_executable
-  benchmark_executable="$(bounded_benchmark_executable)"
-  if [[ -z "$benchmark_executable" ]]; then
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
     json_bounded_sweep_failure benchmarkStep.boundedVNCProfileSweep.failed "$phase_file"
     rm -f "$phase_file"
     return
@@ -293,7 +385,70 @@ run_bounded_vnc_profile_sweep() {
   json_benchmark_or_timeout_failure \
     45 \
     "$phase_file" \
-    "$benchmark_executable" "${bounded_args[@]}"
+    "$BOUNDED_BENCHMARK_EXECUTABLE" "${bounded_args[@]}"
+  rm -f "$phase_file"
+}
+
+run_bounded_vnc_profile_drilldown() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-bounded-drilldown-phase.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_bounded_drilldown_runner_failure benchmarkStep.boundedVNCProfileDrilldown.timedOut "$phase_file"
+    else
+      json_bounded_drilldown_runner_failure benchmarkStep.boundedVNCProfileDrilldown.failed "$phase_file"
+    fi
+    rm -f "$phase_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_bounded_drilldown_runner_failure benchmarkStep.boundedVNCProfileDrilldown.failed "$phase_file"
+    rm -f "$phase_file"
+    return
+  fi
+
+  local profiles=(tight-first zrle-compression-0 adaptive-good-full)
+  local first_profile=1
+  local profile_label
+  local profile_ordinal=0
+  printf '{"schemaVersion":1,"mode":"bounded-vnc-profile-drilldown","status":"completed","profiles":[\n'
+  for profile_label in "${profiles[@]}"; do
+    profile_ordinal=$((profile_ordinal + 1))
+    if ((first_profile)); then
+      first_profile=0
+    else
+      printf ',\n'
+    fi
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    local profile_args=(
+      --stream-shape-gate-preset sustained-v2-core
+      --stream-shape-transport request-response
+      --stream-shape-profiles "$profile_label"
+      --stream-shape-profile-order fixed
+      --stream-shape-profile-iterations 1
+      --first-frame-profiles none
+      --full-refresh-samples 0
+      --continuous-update-samples 0
+      --stream-shape-samples 1
+      --stream-shape-duration-seconds 1
+      --timeout 5
+      --idle-timeout 1
+      --json
+    )
+    if ((extra_arg_count)); then
+      profile_args+=("${extra_args[@]}")
+    fi
+    json_bounded_drilldown_profile_result \
+      "$phase_file" \
+      "$profile_label" \
+      "$profile_ordinal" \
+      20 \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${profile_args[@]}"
+  done
+  printf '\n]}\n'
   rm -f "$phase_file"
 }
 
@@ -729,6 +884,24 @@ case "$mode" in
       bounded_args+=("${extra_args[@]}")
     fi
     run_bounded_vnc_profile_sweep "${bounded_args[@]}"
+    ;;
+  bounded-vnc-profile-drilldown)
+    import_live_env
+    reject_extra_flag --stream-shape-gate-preset
+    reject_extra_flag --stream-shape-profiles
+    reject_extra_flag --stream-shape-transport
+    reject_extra_flag --stream-shape-profile-order
+    reject_extra_flag --stream-shape-profile-iterations
+    reject_extra_flag --first-frame-profiles
+    reject_extra_flag --full-refresh-samples
+    reject_extra_flag --continuous-update-samples
+    reject_extra_flag --stream-shape-samples
+    reject_extra_flag --stream-shape-duration-seconds
+    reject_extra_flag --timeout
+    reject_extra_flag --idle-timeout
+    reject_extra_flag --json
+    cd "$repo_root"
+    run_bounded_vnc_profile_drilldown
     ;;
   physical-device-preflight)
     physical_preflight

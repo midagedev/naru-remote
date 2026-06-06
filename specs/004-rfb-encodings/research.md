@@ -5475,3 +5475,46 @@ benchmark's own JSON unchanged.
 It must not include command lines, executable paths, host identity, credentials,
 ports, raw stderr/stdout, TCP/RFB errors, dimensions, coordinates, pixels, byte
 counts, stimulus text, draft text, marked text, or IME state.
+
+### D121 Split Bounded VNC Candidate Checks Into Per-Profile Drilldown
+
+References:
+- `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-drilldown-summary.md`
+
+**Decision**: add `bounded-vnc-profile-drilldown`, a launchctl-backed runner
+mode that builds `VNCLiveBenchmark` once and then runs the fixed VNC candidate
+profiles one at a time with a 20 second wall-clock guard per profile. Failed
+entries expose only catalog `profileLabel`, `profileOrdinal`,
+`safeFailureCode`, and `lastPhaseLabel`; successful entries embed the benchmark
+JSON under `report`.
+
+**Why**:
+- D120 showed the all-profile bounded sweep reaches `benchmark-running`, but it
+  still could not tell whether one encoding candidate was responsible.
+- A runner-level split is lower risk than changing benchmark internals and can
+  be used immediately with the launchctl password workflow.
+- Per-profile wall-clock guards keep bad live runs bounded while preserving
+  enough evidence to choose the next instrumentation target.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- Help text exposes `bounded-vnc-profile-drilldown`.
+- Managed `--stream-shape-profiles` overrides are rejected.
+- A deliberately invalid extra argument returns three profile-level fixed
+  failures with `lastPhaseLabel=benchmark-running`.
+- The current launchctl-backed live drilldown returns timeout for
+  `tight-first`, `zrle-compression-0`, and `adaptive-good-full`, all in
+  `benchmark-running`.
+
+**Interpretation**:
+- Current live timeout is not isolated to one VNC encoding profile. The next
+  useful work is stream-path subphase progress inside `benchmark-running`, or a
+  shorter stream-only probe that can distinguish TCP/RFB connect, security/auth,
+  first framebuffer update, idle probe, and stream-shape sample collection.
+
+**Privacy rule**: profile drilldown may report only catalog profile labels,
+fixed ordinals, fixed runner phase labels, fixed safe failure labels, and
+successful benchmark JSON. It must not include host identity, credentials,
+ports, executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
+request coordinates, dimensions, pixels, byte counts, stimulus command text,
+draft text, marked text, or IME state.
