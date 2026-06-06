@@ -37,7 +37,14 @@ enum VNCLiveBenchmark {
                 exit(2)
             }
 
-            let report = try run(configuration: configuration, options: options)
+            let proxy = try configuration.networkConditioningProxy(
+                profile: options.networkConditionProfile
+            )
+            defer { proxy?.stop() }
+            let report = try run(
+                configuration: configuration.conditioned(by: proxy),
+                options: options
+            )
             if options.json {
                 try renderJSON(report)
             } else {
@@ -129,6 +136,7 @@ enum VNCLiveBenchmark {
             attemptsPerProfile: options.attempts,
             fullRefreshSamplesPerAttempt: options.fullRefreshSamples,
             continuousUpdateSamples: options.continuousUpdateSamples,
+            networkConditionProfile: options.networkConditionProfile,
             timeoutSeconds: options.timeout,
             idleTimeoutSeconds: options.idleTimeout,
             streamShapeSamples: options.streamShapeSamples,
@@ -1156,6 +1164,7 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeProfileOrderMode: BenchmarkStreamShapeProfileOrderMode = .fixed
     var streamShapePacingWindowCandidates: [BenchmarkStreamShapePacingWindowCandidate] = []
     var streamShapeRequestRegions: [BenchmarkStreamShapeRequestRegion] = []
+    var networkConditionProfile: BenchmarkNetworkConditionProfile = .none
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
@@ -1182,6 +1191,15 @@ private struct BenchmarkOptions: Equatable {
             case "--environment-preflight":
                 options.environmentPreflight = true
                 index = arguments.index(after: index)
+            case "--network-condition":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let profile = BenchmarkNetworkConditionProfile(rawValue: value) else {
+                    throw UsageError(
+                        "network-condition must be \(BenchmarkNetworkConditionProfile.usageDescription)."
+                    )
+                }
+                options.networkConditionProfile = profile
+                index = arguments.index(index, offsetBy: 2)
             case "--attempts":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 guard let attempts = Int(value), attempts > 0 else {
@@ -1636,6 +1654,30 @@ private struct LiveTargetConfiguration {
 
         return LiveTargetConfiguration(host: host, port: port, password: password)
     }
+
+    func networkConditioningProxy(
+        profile: BenchmarkNetworkConditionProfile
+    ) throws -> BenchmarkNetworkConditioningProxy? {
+        guard profile != .none else {
+            return nil
+        }
+        return try BenchmarkNetworkConditioningProxy.start(
+            upstreamHost: host,
+            upstreamPort: port,
+            profile: profile
+        )
+    }
+
+    func conditioned(by proxy: BenchmarkNetworkConditioningProxy?) -> LiveTargetConfiguration {
+        guard let proxy else {
+            return self
+        }
+        return LiveTargetConfiguration(
+            host: "127.0.0.1",
+            port: proxy.localPort,
+            password: password
+        )
+    }
 }
 
 private func readPasswordFromTerminal() throws -> String {
@@ -1849,6 +1891,7 @@ private extension RFBEncodingPreference {
 private struct BenchmarkReport: Codable, Equatable {
     let schemaVersion: Int
     let target: String
+    let networkCondition: BenchmarkNetworkConditionProfile
     let attemptsPerProfile: Int
     let fullRefreshSamplesPerAttempt: Int
     let continuousUpdateSamples: Int
@@ -1912,6 +1955,7 @@ private struct BenchmarkReport: Codable, Equatable {
         attemptsPerProfile: Int,
         fullRefreshSamplesPerAttempt: Int,
         continuousUpdateSamples: Int,
+        networkConditionProfile: BenchmarkNetworkConditionProfile,
         timeoutSeconds: TimeInterval,
         idleTimeoutSeconds: TimeInterval,
         streamShapeSamples: Int,
@@ -1942,8 +1986,9 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 54
+        self.schemaVersion = 55
         self.target = "configured-redacted"
+        self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
         self.continuousUpdateSamples = continuousUpdateSamples
@@ -2026,6 +2071,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "stream-shape pacing-window comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "stream-shape request-region comparisons emit only fixed candidate labels plus existing aggregate stream-shape metrics",
             "request-region traffic-pressure metrics emit only framebuffer-relative area permille ratios, never dimensions, coordinates, bytes, or pixels",
+            "network conditioning reports emit only fixed condition labels; proxy ports, upstream hosts, and byte counters are not emitted",
             "stream-shape phase-budget diagnostics emit only fixed phase/subphase labels, aggregate millisecond summaries, and permille shares",
             "pixel-format benchmark profiles emit only fixed profile labels; negotiated framebuffer dimensions, pixels, and byte counts are not emitted",
             "viewport-interaction metrics emit only fixed mode labels, configured pause windows, fixed pacing floors, counts, aggregate paused milliseconds, and permille ratios",
@@ -2273,6 +2319,7 @@ private enum ContinuousUpdateSampleKind: Equatable {
 private func renderText(_ report: BenchmarkReport) {
     print("\(toolName)")
     print("target: \(report.target)")
+    print("network condition: \(report.networkCondition.rawValue)")
     print("safety: \(report.safety.joined(separator: "; "))")
     print("attempts per profile: \(report.attemptsPerProfile)")
     print("full-refresh samples per successful attempt: \(report.fullRefreshSamplesPerAttempt)")
@@ -3064,13 +3111,15 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-practical-target iphone-practical-baseline-v1|iphone-sustained-usability-v2] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--json]
 
     Options:
       --environment-preflight
                                 Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
+      --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
+                                Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v54 viewport request-region area plus incremental idle-timeout recovery reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports. Presets use 5 rotated iterations, app client-pressure pacing, steady-stream viewport mode, 10 second duration, 12 Hz stimulus cadence, and schema v55 network-condition plus viewport request-region area reporting. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

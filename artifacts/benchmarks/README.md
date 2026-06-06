@@ -596,6 +596,14 @@ their full fallback request on the same socket. Non-incremental request
 timeouts and partial-message timeouts remain fatal. Use v54 when comparing
 poor-network traffic candidates so `requestRegionAreaPermille` is judged
 against stability rather than reconnect artifacts.
+Schema v55 adds `networkCondition`, a fixed-label live benchmark conditioning
+profile. Pass `--network-condition wan-latency` to inject benchmark-local
+latency without a throughput cap, or `--network-condition constrained-cellular`
+to add higher latency, smaller chunks, and a fixed throughput cap through a
+local TCP proxy. Reports emit only the fixed profile label; they do not emit
+proxy ports, upstream hosts, byte counters, dimensions, coordinates, pixels, or
+payloads. Use v55 for poor-network traffic comparisons before promoting any
+request-region, encoding, pacing, or pixel-format default.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.
