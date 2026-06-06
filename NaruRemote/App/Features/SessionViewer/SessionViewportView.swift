@@ -26,6 +26,7 @@ public struct SessionViewportView: View {
     private let subtitle: String
     private let session: RemoteSession?
     private let framebuffer: RFBRawFramebuffer?
+    private let frameStore: SessionFrameStore?
     private let frameDirtyRectangles: [RFBFrameDamageRect]?
     private let frameChangedPixelCount: Int?
     private let serverCursor: RFBServerCursor?
@@ -172,6 +173,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        frameStore: SessionFrameStore? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         frameChangedPixelCount: Int? = nil,
         serverCursor: RFBServerCursor? = nil,
@@ -217,6 +219,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.frameStore = frameStore
         self.frameDirtyRectangles = frameDirtyRectangles
         self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
         self.serverCursor = serverCursor
@@ -261,6 +264,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        frameStore: SessionFrameStore? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         frameChangedPixelCount: Int? = nil,
         serverCursor: RFBServerCursor? = nil,
@@ -305,6 +309,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.frameStore = frameStore
         self.frameDirtyRectangles = frameDirtyRectangles
         self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
         self.serverCursor = serverCursor
@@ -1250,6 +1255,7 @@ public struct SessionViewportView: View {
         if MetalFramebufferView.isSupported() {
             let preview = MetalFramebufferView(
                 framebuffer: framebuffer,
+                frameStore: frameStore,
                 dirtyRectangles: frameDirtyRectangles,
                 changedPixelCount: frameChangedPixelCount,
                 sessionID: session?.id,

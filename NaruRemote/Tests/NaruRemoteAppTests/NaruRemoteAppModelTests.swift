@@ -4617,7 +4617,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
-    func testStreamingFramesPublishThroughFrameStoreWithoutInvalidatingAppModelChrome() async throws {
+    func testStreamingFramesFlowThroughFrameEventsWithoutInvalidatingSwiftUIChrome() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1,
@@ -4654,6 +4654,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let frameStoreCancellable = model.frameStore.objectWillChange.sink {
             frameStorePublishCount += 1
         }
+        var frameEventCount = 0
+        let frameEventCancellable = model.frameStore.framePublisher.sink { _ in
+            frameEventCount += 1
+        }
 
         await model.connectSelectedProfile()
         for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
@@ -4669,6 +4673,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         let appModelBaseline = appModelPublishCount
         let frameStoreBaseline = frameStorePublishCount
+        let frameEventBaseline = frameEventCount
 
         await pacingGate.releaseNext()
         for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
@@ -4683,13 +4688,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
             appModelBaseline,
             "After the session is already active, content frames should not invalidate the app shell/input dock."
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             frameStorePublishCount,
             frameStoreBaseline,
-            "The viewport still needs a dedicated frame-store publish for the Metal subtree."
+            "Same-size content frames should not force SwiftUI to rebuild the viewport representable."
+        )
+        XCTAssertGreaterThan(
+            frameEventCount,
+            frameEventBaseline,
+            "The Metal host still needs a dedicated side-channel frame event for redraw."
         )
 
-        withExtendedLifetime((appModelCancellable, frameStoreCancellable)) {}
+        withExtendedLifetime((appModelCancellable, frameStoreCancellable, frameEventCancellable)) {}
     }
 
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {

@@ -261,6 +261,11 @@ without unsafe report fields.
   chrome. Keep snapshot/diagnostic frame state memory-only on the app model and
   verify the second streaming frame publishes through `SessionFrameStore`
   without `NaruRemoteAppModel.objectWillChange`. **Done.**
+- [x] T029AF [US1] Route same-size steady VNC frames from `SessionFrameStore`
+  to the Metal host through a frame-event side channel, leaving SwiftUI
+  presentation refreshes for first frame, dimension changes, and clear only.
+  Verify frame events continue while both app-model and frame-store
+  `objectWillChange` stay quiet after session activation. **Done.**
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**

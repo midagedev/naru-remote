@@ -1003,8 +1003,8 @@ direct-keyboard subtree.
   changes.
 
 **Verification**:
-- `NaruRemoteAppModelTests/testStreamingFramesPublishThroughFrameStoreWithoutInvalidatingAppModelChrome`
-  proves a second streaming content frame publishes through `SessionFrameStore`
+- `NaruRemoteAppModelTests/testStreamingFramesFlowThroughFrameEventsWithoutInvalidatingSwiftUIChrome`
+  proves a second streaming content frame flows through `SessionFrameStore`
   while leaving `NaruRemoteAppModel.objectWillChange` unchanged.
 - `swift test --filter NaruRemoteAppModelTests` passed after the split.
 
@@ -1018,3 +1018,46 @@ direct-keyboard subtree.
 - Remove snapshot framebuffer values entirely: rejected because existing tests,
   pointer mapping, PiP start checks, and diagnostics use the latest frame as
   memory-only model state.
+
+## D32 - Deliver steady VNC frames to Metal without SwiftUI frame-diff cadence
+
+**Decision**: Split `SessionFrameStore` into a presentation revision and a
+frame-event side channel. The SwiftUI viewport bridge observes only
+presentation changes (first frame, framebuffer dimension changes, and clear),
+while `MetalFramebufferView.Coordinator` subscribes to `framePublisher` and
+enqueues same-size content frames directly into the Metal host. The first frame
+still seeds the representable from SwiftUI so layout, aspect ratio, and
+fallback views have a concrete framebuffer.
+
+**Rationale**:
+- PR #349 narrowed per-frame invalidation to the viewport subtree, but
+  `@Published state` still made SwiftUI rebuild the representable at frame
+  cadence. On physical iPhone that can still compete with UIKit gestures,
+  keyboard composition, and renderer upload callbacks as soon as a real stream
+  starts.
+- The UIKit/Metal host already owns the hot pinch, pan, trackpad, cursor, and
+  redraw path. Sending steady frames directly to that host keeps video cadence
+  out of SwiftUI while preserving the existing texture upload gate and
+  gesture-time redraw throttle.
+- Framebuffer dimension changes must still publish through SwiftUI because
+  they affect layout, aspect ratio, viewport transforms, and fallback preview
+  composition. Same-size content changes do not.
+
+**Verification**:
+- `SessionFrameStoreTests/testSameSizeFramesEmitEventsWithoutSwiftUIPresentationRefresh`
+  proves same-size frames emit frame events without bumping presentation state,
+  while size changes still refresh presentation.
+- `NaruRemoteAppModelTests/testStreamingFramesFlowThroughFrameEventsWithoutInvalidatingSwiftUIChrome`
+  proves the second streamed frame updates the model/store and emits a frame
+  event without invalidating app model or frame-store SwiftUI observation.
+
+**Alternatives considered**:
+- Keep `SessionFrameStore.state` as `@Published`: rejected because that still
+  routes every frame through SwiftUI's update cycle.
+- Replace the whole viewport with a fully imperative controller now: deferred
+  because the current host already has the required imperative gesture and
+  redraw hooks; the side channel removes the frame-diff bottleneck with less
+  risk to input behavior.
+- Publish only a sampled FPS through SwiftUI: rejected because the Metal
+  renderer still needs every admitted frame event, even when the UI shell does
+  not.
