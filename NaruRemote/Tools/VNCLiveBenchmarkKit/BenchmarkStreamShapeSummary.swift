@@ -47,6 +47,8 @@ public enum BenchmarkStreamShapePracticalIssueCode: String, Codable, Equatable, 
     case fullUploadFailed = "full-upload-failed"
     case requestRegionAreaWarning = "request-region-area-warning"
     case requestRegionAreaFailed = "request-region-area-failed"
+    case firstFramePayloadReadWarning = "first-frame-payload-read-warning"
+    case firstFramePayloadReadFailed = "first-frame-payload-read-failed"
     case firstByteWaitWarning = "first-byte-wait-warning"
     case firstByteWaitFailed = "first-byte-wait-failed"
     case payloadReadWarning = "payload-read-warning"
@@ -109,6 +111,10 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         failFirstFrameMilliseconds: 20_000,
         passRequestRegionAreaPermille: 400,
         failRequestRegionAreaPermille: 700,
+        passFirstFramePayloadReadMilliseconds: 2_000,
+        failFirstFramePayloadReadMilliseconds: 8_000,
+        passFirstFramePayloadReadSharePermille: 650,
+        failFirstFramePayloadReadSharePermille: 850,
         passFirstByteWaitP95Milliseconds: 350,
         failFirstByteWaitP95Milliseconds: 900,
         passPayloadReadP95Milliseconds: 250,
@@ -135,6 +141,10 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
     public let failFirstFrameMilliseconds: Int?
     public let passRequestRegionAreaPermille: Int?
     public let failRequestRegionAreaPermille: Int?
+    public let passFirstFramePayloadReadMilliseconds: Int?
+    public let failFirstFramePayloadReadMilliseconds: Int?
+    public let passFirstFramePayloadReadSharePermille: Int?
+    public let failFirstFramePayloadReadSharePermille: Int?
     public let passFirstByteWaitP95Milliseconds: Int?
     public let failFirstByteWaitP95Milliseconds: Int?
     public let passPayloadReadP95Milliseconds: Int?
@@ -161,6 +171,10 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         failFirstFrameMilliseconds: Int? = nil,
         passRequestRegionAreaPermille: Int? = nil,
         failRequestRegionAreaPermille: Int? = nil,
+        passFirstFramePayloadReadMilliseconds: Int? = nil,
+        failFirstFramePayloadReadMilliseconds: Int? = nil,
+        passFirstFramePayloadReadSharePermille: Int? = nil,
+        failFirstFramePayloadReadSharePermille: Int? = nil,
         passFirstByteWaitP95Milliseconds: Int? = nil,
         failFirstByteWaitP95Milliseconds: Int? = nil,
         passPayloadReadP95Milliseconds: Int? = nil,
@@ -203,6 +217,16 @@ public struct BenchmarkStreamShapePracticalTargets: Codable, Equatable, Sendable
         self.passRequestRegionAreaPermille = passRequestRegionAreaPermille
         self.failRequestRegionAreaPermille = failRequestRegionAreaPermille.map {
             max(Self.clampPermille($0), passRequestRegionAreaPermille ?? 0)
+        }
+        let passFirstFramePayloadReadMilliseconds = passFirstFramePayloadReadMilliseconds.map { max($0, 0) }
+        self.passFirstFramePayloadReadMilliseconds = passFirstFramePayloadReadMilliseconds
+        self.failFirstFramePayloadReadMilliseconds = failFirstFramePayloadReadMilliseconds.map {
+            max($0, passFirstFramePayloadReadMilliseconds ?? 0)
+        }
+        let passFirstFramePayloadReadSharePermille = passFirstFramePayloadReadSharePermille.map(Self.clampPermille)
+        self.passFirstFramePayloadReadSharePermille = passFirstFramePayloadReadSharePermille
+        self.failFirstFramePayloadReadSharePermille = failFirstFramePayloadReadSharePermille.map {
+            max(Self.clampPermille($0), passFirstFramePayloadReadSharePermille ?? 0)
         }
         let passFirstByteWaitP95Milliseconds = passFirstByteWaitP95Milliseconds.map { max($0, 0) }
         self.passFirstByteWaitP95Milliseconds = passFirstByteWaitP95Milliseconds
@@ -282,9 +306,11 @@ fileprivate enum BenchmarkStreamShapeTriage {
     static let primaryIssuePriority: [BenchmarkStreamShapePracticalIssueCode] = [
         .probeFailed,
         .firstFrameFailed,
+        .firstFramePayloadReadFailed,
         .requestRegionAreaFailed,
         .payloadReadFailed,
         .firstByteWaitFailed,
+        .firstFramePayloadReadWarning,
         .fullUploadFailed,
         .clientProcessingFailed,
         .verySlowUpdate,
@@ -349,6 +375,8 @@ fileprivate enum BenchmarkStreamShapeTriage {
         case .probeFailed?,
             .firstFrameWarning?,
             .firstFrameFailed?,
+            .firstFramePayloadReadWarning?,
+            .firstFramePayloadReadFailed?,
             .averageUpdateWarning?,
             .averageUpdateFailed?,
             .p95UpdateWarning?,
@@ -374,7 +402,10 @@ fileprivate enum BenchmarkStreamShapeTriage {
         for issue: BenchmarkStreamShapePracticalIssueCode?
     ) -> DiagnosticSustainedSessionNextProbe {
         switch issue {
-        case .payloadReadWarning?, .payloadReadFailed?:
+        case .firstFramePayloadReadWarning?,
+            .firstFramePayloadReadFailed?,
+            .payloadReadWarning?,
+            .payloadReadFailed?:
             return .compareEncodingProfileGate
         case .firstByteWaitWarning?, .firstByteWaitFailed?:
             return .inspectServerTransportCadence
@@ -2678,6 +2709,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
         )
         let gateIssueCodes = gateIssueCodes(
             firstFrameMilliseconds: reports.compactMap(\.firstFrameMilliseconds),
+            firstFrameReceiveTimings: reports.compactMap(\.firstFrameReceiveTiming),
             averageRequestRegionAreaPermille: averageRequestRegionAreaPermille,
             averageFirstFrameRequestAreaPermille: averageFirstFrameRequestAreaPermille,
             targets: targets
@@ -2768,6 +2800,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
     ) -> BenchmarkStreamShapePracticalVerdict {
         let failures: Set<BenchmarkStreamShapePracticalIssueCode> = [
             .firstFrameFailed,
+            .firstFramePayloadReadFailed,
             .requestRegionAreaFailed
         ]
         if issues.contains(where: failures.contains) {
@@ -2778,6 +2811,7 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
 
     private static func gateIssueCodes(
         firstFrameMilliseconds: [Int],
+        firstFrameReceiveTimings: [RFBFramebufferUpdateTiming],
         averageRequestRegionAreaPermille: Int?,
         averageFirstFrameRequestAreaPermille: Int?,
         targets: BenchmarkStreamShapePracticalTargets?
@@ -2795,6 +2829,35 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
                 issues.append(.firstFrameWarning)
             }
         }
+        if let maxPayloadReadMilliseconds = firstFrameReceiveTimings.compactMap(\.payloadReadMilliseconds).max() {
+            var firstFramePayloadReadIsAbovePass = false
+            if let passPayloadReadMilliseconds = targets.passFirstFramePayloadReadMilliseconds,
+               maxPayloadReadMilliseconds > passPayloadReadMilliseconds {
+                firstFramePayloadReadIsAbovePass = true
+            }
+            if let failPayloadReadMilliseconds = targets.failFirstFramePayloadReadMilliseconds,
+               maxPayloadReadMilliseconds > failPayloadReadMilliseconds {
+                issues.append(.firstFramePayloadReadFailed)
+            } else if firstFramePayloadReadIsAbovePass {
+                issues.append(.firstFramePayloadReadWarning)
+            }
+
+            // Only classify share once absolute payload-read time is already
+            // meaningful; otherwise tiny startup payloads can look large in
+            // permille terms without being a practical traffic bottleneck.
+            if firstFramePayloadReadIsAbovePass,
+               let maxPayloadReadSharePermille = firstFrameReceiveTimings.compactMap({
+                   firstFramePayloadReadSharePermille(timing: $0)
+               }).max() {
+                if let failPayloadReadSharePermille = targets.failFirstFramePayloadReadSharePermille,
+                   maxPayloadReadSharePermille > failPayloadReadSharePermille {
+                    issues.append(.firstFramePayloadReadFailed)
+                } else if let passPayloadReadSharePermille = targets.passFirstFramePayloadReadSharePermille,
+                          maxPayloadReadSharePermille > passPayloadReadSharePermille {
+                    issues.append(.firstFramePayloadReadWarning)
+                }
+            }
+        }
         let largestRequestAreaPermille = [
             averageRequestRegionAreaPermille,
             averageFirstFrameRequestAreaPermille
@@ -2809,6 +2872,20 @@ public struct BenchmarkStreamShapeProfileGateReport: Codable, Equatable, Sendabl
             }
         }
         return BenchmarkStreamShapeTriage.safeIssueCodes(issues)
+    }
+
+    private static func firstFramePayloadReadSharePermille(
+        timing: RFBFramebufferUpdateTiming
+    ) -> Int? {
+        guard let payloadReadMilliseconds = timing.payloadReadMilliseconds,
+              timing.networkReadMilliseconds > 0
+        else {
+            return nil
+        }
+        let rounded = Int(
+            (Double(payloadReadMilliseconds) / Double(timing.networkReadMilliseconds) * 1_000).rounded()
+        )
+        return payloadReadMilliseconds > 0 ? min(max(rounded, 1), 1_000) : 0
     }
 
     private static func orderedGateKeys(

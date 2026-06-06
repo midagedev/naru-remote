@@ -2258,6 +2258,78 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(gate.averageFirstFrameRequestAreaPermille, 192)
     }
 
+    func testPoorNetworkTrafficGateFailsStartupPayloadReadPressure() {
+        let samples = Array(repeating: streamShapeSample(duration: 100, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "visible-focus-rgb565",
+                requestRegion: .viewportPhonePortrait,
+                requestRegionAreaPermille: 364,
+                firstFrameRequestAreaPermille: 192,
+                firstFrameMilliseconds: 16_000,
+                firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: 16_000,
+                    networkReadMilliseconds: 15_000,
+                    firstByteWaitMilliseconds: 1_000
+                ),
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.verdict, .fail)
+        XCTAssertEqual(gate.issueCodes, [.firstFrameWarning, .firstFramePayloadReadFailed])
+        XCTAssertEqual(gate.primaryIssueCode, .firstFramePayloadReadFailed)
+        XCTAssertEqual(
+            gate.primaryConstraint,
+            DiagnosticSustainedSessionPrimaryConstraint.receivePath.rawValue
+        )
+        XCTAssertEqual(
+            gate.recommendedNextProbe,
+            DiagnosticSustainedSessionNextProbe.compareEncodingProfileGate.rawValue
+        )
+    }
+
+    func testPoorNetworkTrafficGateIgnoresTinyStartupPayloadReadShare() {
+        let samples = Array(repeating: streamShapeSample(duration: 100, rendererUploadStrategy: .partial), count: 4)
+        let reports = [
+            BenchmarkStreamShapeProfileReport(
+                label: "visible-focus-rgb565",
+                requestRegion: .viewportPhonePortrait,
+                requestRegionAreaPermille: 364,
+                firstFrameRequestAreaPermille: 192,
+                firstFrameMilliseconds: 1_000,
+                firstFrameReceiveTiming: RFBFramebufferUpdateTiming(
+                    totalMilliseconds: 1_000,
+                    networkReadMilliseconds: 10,
+                    firstByteWaitMilliseconds: 1
+                ),
+                summary: BenchmarkStreamShapeSummary(
+                    requestedSamples: samples.count,
+                    samples: samples,
+                    elapsedMilliseconds: 1_000,
+                    firstTimeoutMilliseconds: nil,
+                    failureLabel: nil,
+                    practicalTargets: .iPhonePoorNetworkTraffic
+                )
+            )
+        ]
+
+        let gate = BenchmarkStreamShapeProfileGateReport.gates(from: reports)[0]
+
+        XCTAssertEqual(gate.verdict, .pass)
+        XCTAssertEqual(gate.issueCodes, [])
+        XCTAssertNil(gate.primaryIssueCode)
+    }
+
     func testPoorNetworkTrafficTargetFailsPayloadReadPressure() {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 4,

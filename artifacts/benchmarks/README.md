@@ -677,6 +677,15 @@ CLI runs can judge the same traffic candidate without full-color startup
 failures dominating the report. It remains an opt-in candidate gate: production
 defaults still require sustained and poor-network benchmark evidence plus the
 physical iPhone hand-feel/thermal/Compose gate before promotion.
+Schema v62 keeps that app low-traffic shape but adds startup payload-read
+pressure to the poor-network profile gate. A run can now fail with
+`first-frame-payload-read-failed` even when the first-frame request area is
+small, which routes the next action to encoding/traffic comparison instead of
+renderer-upload work. The first v62 live artifact is
+`2026-06-06-startup-payload-traffic-gate-summary.md`; it records a redacted
+local VNC app-low-traffic run where first-frame request area was 192 permille,
+but about 14.2 s of payload read still made startup fail the poor-network
+traffic target.
 When `--stream-shape-transport both` is used with rotate mode, transport order
 also rotates by iteration so request/response and ContinuousUpdates do not
 always run in the same relative slot.

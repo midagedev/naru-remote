@@ -4814,3 +4814,64 @@ runs only the app's fixed `zrle-compression-0-rgb565` opt-in profile.
 - Future traffic PRs can now run a smaller gate for the app's actual
   low-traffic candidate before deciding between startup first-useful-paint work
   and sustained update-wait/cadence work.
+
+### D108 Startup Payload Pressure Gate for App Low-Traffic Runs
+
+References:
+- RFC 6143 `FramebufferUpdateRequest` interest rectangle and client cadence:
+  https://www.rfc-editor.org/rfc/rfc6143#section-7.5.3
+- TigerVNC Fence/ContinuousUpdates region and congestion-control implementation:
+  https://sources.debian.org/src/tigervnc/1.7.0%2Bdfsg-7%2Bdeb9u1/common/rfb/VNCSConnectionST.cxx/#L1850
+- `artifacts/benchmarks/2026-06-06-startup-payload-traffic-gate-summary.md`.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v62 and make poor-network
+profile gates classify first-frame payload-read pressure separately from
+first-frame request area and sustained payload-read pressure.
+
+**Why**:
+- The first app low-traffic live run reduced first-frame request area to 192
+  permille and sustained request area to 364 permille, but startup still spent
+  roughly 14 s reading payload under constrained-cellular conditioning.
+- v61 could report first-frame receive timing, but the profile gate primary
+  issue still favored sustained renderer-upload or broad first-frame timing
+  labels. That obscured the next traffic action when the real bottleneck was
+  startup payload.
+- RFC 6143 gives the viewer control over the requested interest rectangle and
+  incremental cadence, but servers can still reply with expensive encoded
+  payloads. The gate therefore needs to classify the observed receive phase, not
+  only the requested area proxy.
+
+**Implementation rule**:
+- Add fixed issue codes `first-frame-payload-read-warning` and
+  `first-frame-payload-read-failed`.
+- Add poor-network target thresholds for first-frame payload-read milliseconds
+  and payload-read share permille.
+- Profile gates derive startup payload pressure from redacted
+  `RFBFramebufferUpdateTiming` aggregates and route payload failures to
+  `compareEncodingProfileGate`.
+- First-frame payload-read share is interpreted within network-read time, not
+  total startup time.
+- Keep all raw dimensions, coordinates, byte counts, pixels, payloads, host
+  identity, command text, draft text, marked text, and IME state out of reports
+  and artifacts.
+
+**Evidence**:
+- `BenchmarkStreamShapeSummaryTests` cover that a visible-focus app
+  low-traffic run with acceptable request-area permille but excessive
+  first-frame payload read fails with `first-frame-payload-read-failed` and
+  routes to `compareEncodingProfileGate`.
+- A redacted schema v62 live run of
+  `sustained-v2-constrained-cellular-app-low-traffic` produced:
+  first-frame total about 16.0 s, first-frame payload read about 14.2 s,
+  first-frame payload-read share 938 permille of network-read time, sustained
+  content FPS about 2.43, sustained average/p95 update about 411/629 ms, and 0
+  permille sustained renderer full-upload pressure. The overall optimization
+  decision now reports primary issue `first-frame-payload-read-failed`.
+
+**Interpretation**:
+- View-aware regions remain the correct traffic direction, but request-area
+  savings are not sufficient proof of practical poor-network usability.
+- The next larger unit should compare startup encoding/pixel-format candidates
+  or stage a smaller first-useful-paint path before spending more effort on
+  sustained cadence, because the startup payload dominates the current app
+  low-traffic failure.
