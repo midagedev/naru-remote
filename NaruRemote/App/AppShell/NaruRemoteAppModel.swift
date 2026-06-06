@@ -57,6 +57,15 @@ private struct ComposeRouteDiagnosticSnapshot {
 
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
+    public typealias HelperVideoStartStream = @Sendable (
+        ConnectionProfile,
+        String,
+        String,
+        HelperVideoStartStreamRequestBody,
+        Int
+    ) async throws -> HelperVideoStreamNetworkStartResult
+    public typealias HelperVideoRendererFactory = @MainActor @Sendable () -> any HelperVideoAccessUnitRendering
+
     /// macOS Screen Sharing and other VNC servers apply ClientCutText
     /// asynchronously from key events. Keep the Send button responsive,
     /// but give the remote clipboard enough time to adopt the payload
@@ -185,6 +194,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let pipWatchController: (any PiPWatchControlling)?
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let helperTextInsertClient: (any HelperTextInsertClient)?
+    private let helperVideoStartStream: HelperVideoStartStream?
+    private let helperVideoRendererFactory: HelperVideoRendererFactory?
     private let streamStartupPreflightPolicyOverride: SessionStreamStartupPreflightPolicy?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
@@ -260,6 +271,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
+    private var activeHelperVideoStreamTask: Task<Void, Never>?
+    private var activeHelperVideoStreamID: UUID?
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
     private var isViewportInteractionActive: Bool {
         viewportInteractionFrameStrategy != nil
@@ -350,6 +363,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         pipWatchController: (any PiPWatchControlling)? = nil,
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         helperTextInsertClient: (any HelperTextInsertClient)? = nil,
+        helperVideoStartStream: HelperVideoStartStream? = nil,
+        helperVideoRendererFactory: HelperVideoRendererFactory? = nil,
         streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
@@ -433,6 +448,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.pipWatchController = pipWatchController
         self.localClipboardWriter = localClipboardWriter
         self.helperTextInsertClient = helperTextInsertClient
+        self.helperVideoStartStream = helperVideoStartStream ?? Self.defaultHelperVideoStartStream()
+        self.helperVideoRendererFactory = helperVideoRendererFactory ?? Self.defaultHelperVideoRendererFactory()
         self.streamStartupPreflightPolicyOverride = streamStartupPreflightPolicy
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
@@ -441,6 +458,32 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
+        #endif
+    }
+
+    private static func defaultHelperVideoStartStream() -> HelperVideoStartStream? {
+        #if canImport(Network)
+        return { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+            let client = HelperVideoStreamNetworkClient(
+                host: profile.host,
+                port: UInt16(naruHelperVideoStreamDefaultPort),
+                profileFingerprint: pairingFingerprint,
+                pairingSecret: pairingSecret
+            )
+            return try await client.startStream(requestBody, maxServerFrames: maxServerFrames)
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    private static func defaultHelperVideoRendererFactory() -> HelperVideoRendererFactory? {
+        #if canImport(AVFoundation) && canImport(CoreMedia)
+        return {
+            HelperVideoH264SampleBufferRenderer()
+        }
+        #else
+        return nil
         #endif
     }
 
@@ -1010,6 +1053,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func selectProfile(id: ConnectionProfile.ID) {
         if selectedProfileID != id {
             cancelPendingReconnect()
+            stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
@@ -1278,6 +1322,295 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    private func startHelperVideoStreamIfConfigured(
+        profile: ConnectionProfile,
+        sessionID: RemoteSession.ID
+    ) {
+        stopHelperVideoStreamBootstrap()
+        guard isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profile.id) else {
+            return
+        }
+        guard let configuration = profile.helperVideo,
+              configuration.isEnabled,
+              !configuration.isRevoked
+        else {
+            return
+        }
+        guard profile.hostKind != .advancedManualPublicEndpoint else {
+            markHelperVideoBootstrapFailure(
+                .privateNetworkRequired,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: configuration.pairingFingerprint
+            )
+            return
+        }
+        guard let secretRef = configuration.pairingSecretRef,
+              let pairingFingerprint = configuration.pairingFingerprint,
+              !pairingFingerprint.isEmpty
+        else {
+            markHelperVideoBootstrapFailure(
+                .notConfigured,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: configuration.pairingFingerprint
+            )
+            return
+        }
+        let currentState = helperVideoState(for: profile.id)
+        guard Self.shouldAttemptHelperVideoBootstrap(
+            configuration: configuration,
+            state: currentState
+        ) else {
+            return
+        }
+        guard let credentialStore else {
+            markHelperVideoBootstrapFailure(
+                .notConfigured,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: pairingFingerprint
+            )
+            return
+        }
+        guard let helperVideoStartStream else {
+            markHelperVideoBootstrapFailure(
+                .transportFailed,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: pairingFingerprint
+            )
+            return
+        }
+        guard let helperVideoRendererFactory else {
+            markHelperVideoBootstrapFailure(
+                .codecUnsupported,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: pairingFingerprint
+            )
+            return
+        }
+
+        let bootstrapID = UUID()
+        activeHelperVideoStreamID = bootstrapID
+        markHelperVideoBootstrapChecking(
+            profileID: profile.id,
+            sessionID: sessionID,
+            pairingFingerprint: pairingFingerprint
+        )
+        activeHelperVideoStreamTask = Task.detached(priority: .userInitiated) { [weak self, credentialStore, profile, secretRef, pairingFingerprint, sessionID, bootstrapID, helperVideoStartStream, helperVideoRendererFactory] in
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.clearHelperVideoStreamBootstrap(id: bootstrapID)
+                }
+            }
+
+            guard await Self.isCurrentHelperVideoBootstrap(
+                self,
+                id: bootstrapID,
+                sessionID: sessionID,
+                profileID: profile.id
+            ) else {
+                return
+            }
+
+            let pairingSecret: String
+            do {
+                guard let loadedSecret = try await credentialStore.password(for: secretRef),
+                      !loadedSecret.isEmpty
+                else {
+                    await self?.markHelperVideoBootstrapFailure(
+                        .notConfigured,
+                        profileID: profile.id,
+                        sessionID: sessionID,
+                        pairingFingerprint: pairingFingerprint
+                    )
+                    return
+                }
+                pairingSecret = loadedSecret
+            } catch {
+                await self?.markHelperVideoBootstrapFailure(
+                    .notConfigured,
+                    profileID: profile.id,
+                    sessionID: sessionID,
+                    pairingFingerprint: pairingFingerprint
+                )
+                return
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+            await self?.runLoadedHelperVideoStreamBootstrap(
+                profile: profile,
+                sessionID: sessionID,
+                bootstrapID: bootstrapID,
+                pairingSecret: pairingSecret,
+                pairingFingerprint: pairingFingerprint,
+                startStream: helperVideoStartStream,
+                rendererFactory: helperVideoRendererFactory
+            )
+        }
+    }
+
+    private static func shouldAttemptHelperVideoBootstrap(
+        configuration: HelperVideoConnectionConfiguration,
+        state: HelperVideoProfileState
+    ) -> Bool {
+        guard configuration.isEnabled, !configuration.isRevoked else {
+            return false
+        }
+        switch state.availability {
+        case .checking, .available, .unreachable, .failed:
+            return true
+        case .notConfigured, .disabled, .permissionMissing, .codecUnsupported, .revoked,
+             .privateNetworkRequired:
+            return false
+        }
+    }
+
+    private func runLoadedHelperVideoStreamBootstrap(
+        profile: ConnectionProfile,
+        sessionID: RemoteSession.ID,
+        bootstrapID: UUID,
+        pairingSecret: String,
+        pairingFingerprint: String,
+        startStream: @escaping HelperVideoStartStream,
+        rendererFactory: HelperVideoRendererFactory
+    ) async {
+        guard isCurrentHelperVideoBootstrap(
+            id: bootstrapID,
+            sessionID: sessionID,
+            profileID: profile.id
+        ) else {
+            return
+        }
+
+        markHelperVideoBootstrapReady(
+            profileID: profile.id,
+            sessionID: sessionID,
+            pairingFingerprint: pairingFingerprint
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            startStream: { requestBody, maxServerFrames in
+                try await startStream(
+                    profile,
+                    pairingSecret,
+                    pairingFingerprint,
+                    requestBody,
+                    maxServerFrames
+                )
+            },
+            renderer: rendererFactory()
+        )
+        _ = await runner.start(sessionID: sessionID, profileID: profile.id, model: self)
+    }
+
+    private func markHelperVideoBootstrapChecking(
+        profileID: ConnectionProfile.ID,
+        sessionID: RemoteSession.ID,
+        pairingFingerprint: String
+    ) {
+        var state = helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+        state.isEnabled = true
+        state.pairingFingerprint = pairingFingerprint
+        state.availability = .checking
+        state.lastFailureCode = nil
+        state.lastCheckedBucket = .recent
+        setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
+    }
+
+    private func markHelperVideoBootstrapReady(
+        profileID: ConnectionProfile.ID,
+        sessionID: RemoteSession.ID,
+        pairingFingerprint: String
+    ) {
+        var state = helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+        state.isEnabled = true
+        state.pairingFingerprint = pairingFingerprint
+        state.availability = .available
+        state.lastFailureCode = nil
+        state.lastCheckedBucket = .recent
+        setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
+    }
+
+    private func markHelperVideoBootstrapFailure(
+        _ failureCode: HelperVideoFailureCode,
+        profileID: ConnectionProfile.ID,
+        sessionID: RemoteSession.ID,
+        pairingFingerprint: String?
+    ) {
+        var state = helperVideoProfileState[profileID] ?? HelperVideoProfileState()
+        state.isEnabled = failureCode != .disabled && failureCode != .revoked
+        state.pairingFingerprint = pairingFingerprint
+        state.availability = Self.helperVideoAvailability(for: failureCode)
+        state.lastFailureCode = failureCode
+        state.lastCheckedBucket = .recent
+        setHelperVideoProfileState(state, for: profileID, sessionID: sessionID)
+    }
+
+    private static func helperVideoAvailability(
+        for failureCode: HelperVideoFailureCode
+    ) -> HelperVideoAvailability {
+        switch failureCode {
+        case .notConfigured:
+            return .notConfigured
+        case .disabled:
+            return .disabled
+        case .permissionMissing:
+            return .permissionMissing
+        case .codecUnsupported:
+            return .codecUnsupported
+        case .revoked:
+            return .revoked
+        case .privateNetworkRequired:
+            return .privateNetworkRequired
+        case .transportFailed:
+            return .unreachable
+        case .authFailed, .streamStalled, .decoderRejected, .fallbackToVNC:
+            return .failed
+        }
+    }
+
+    private static func isCurrentHelperVideoBootstrap(
+        _ model: NaruRemoteAppModel?,
+        id: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) async -> Bool {
+        await MainActor.run {
+            model?.isCurrentHelperVideoBootstrap(
+                id: id,
+                sessionID: sessionID,
+                profileID: profileID
+            ) ?? false
+        }
+    }
+
+    private func isCurrentHelperVideoBootstrap(
+        id: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) -> Bool {
+        activeHelperVideoStreamID == id
+            && isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profileID)
+    }
+
+    private func clearHelperVideoStreamBootstrap(id: UUID) {
+        guard activeHelperVideoStreamID == id else {
+            return
+        }
+        activeHelperVideoStreamTask = nil
+        activeHelperVideoStreamID = nil
+    }
+
+    private func stopHelperVideoStreamBootstrap() {
+        activeHelperVideoStreamTask?.cancel()
+        activeHelperVideoStreamTask = nil
+        activeHelperVideoStreamID = nil
+    }
+
     nonisolated private static func initialHelperTextBridgeState(
         for profile: ConnectionProfile
     ) -> HelperTextBridgeProfileState? {
@@ -1433,6 +1766,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         if wasActive {
             cancelPendingReconnect()
+            stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
@@ -2436,6 +2770,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         resetConnectionQuality()
         resetPointerControl()
         cancelOutboundInputEventQueues()
+        stopHelperVideoStreamBootstrap()
         resetVisualTransportState()
 
         runConnectionChecks()
@@ -2576,6 +2911,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     ]
                 )
                 recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
+                startHelperVideoStreamIfConfigured(profile: profile, sessionID: nextSession.id)
             } catch {
                 activeTextClient = nil
                 activePointerClient = nil
@@ -3306,6 +3642,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ]
             )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
+            startHelperVideoStreamIfConfigured(profile: profile, sessionID: updatedSession.id)
         }
     }
 
@@ -3858,6 +4195,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func disconnect() {
         explicitlyDisconnected = true
         cancelPendingReconnect()
+        stopHelperVideoStreamBootstrap()
         stopFrameStream()
         stopIncomingClipboardReceive()
         pendingIncomingClipboard = nil

@@ -2752,6 +2752,126 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testHelperVideoBootstrapStartsAfterVNCFirstFrameWithoutDroppingControl() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Desk", framebuffer: framebuffer)
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        let snapshot = model.snapshot
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.profileID, profile.id)
+        XCTAssertEqual(calls.first?.pairingFingerprint, "sha256:helper-video")
+        XCTAssertEqual(calls.first?.loadedSecretWasPresent, true)
+        XCTAssertEqual(snapshot.session?.state, .active)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.visualTransportMode, VisualTransportMode.helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamDescriptor?.codecProfile, .baseline)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, nil)
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+    }
+
+    func testHelperVideoBootstrapFailureKeepsVNCFrameAndControlPathActive() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 30, green: 20, blue: 10)
+        )
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Desk", framebuffer: framebuffer)
+        let helperRecorder = HelperVideoStartRecorder(failure: .transportUnavailable)
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoAvailability(model, profileID: profile.id, availability: .unreachable)
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        let snapshot = model.snapshot
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(snapshot.session?.state, .active)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .fallbackToVNC)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .transportFailed)
+        XCTAssertEqual(snapshot.composeDraft?.sendState, .idle)
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+    }
+
     func testStoredPublicHostHelperVideoInitializesPrivateNetworkRequiredState() async throws {
         let profile = try ConnectionProfile(
             displayName: "Desk",
@@ -5046,6 +5166,107 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    private func waitForHelperVideoAvailability(
+        _ model: NaruRemoteAppModel,
+        profileID: ConnectionProfile.ID,
+        availability expectedAvailability: HelperVideoAvailability,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.helperVideoProfileState[profileID]?.availability == expectedAvailability {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            model.snapshot.helperVideoProfileState[profileID]?.availability,
+            expectedAvailability,
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForHelperVideoHealth(
+        _ model: NaruRemoteAppModel,
+        state expectedState: HelperVideoStreamState,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.helperVideoStreamHealth.state == expectedState {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            model.snapshot.helperVideoStreamHealth.state,
+            expectedState,
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForPointerEvents(
+        _ connector: FakeStreamingConnector,
+        count expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<60 {
+            if connector.recordedPointerEvents.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            connector.recordedPointerEvents.count,
+            expectedCount,
+            file: file,
+            line: line
+        )
+    }
+
+    private static func helperVideoStartResult(
+        result: HelperVideoStartStreamResult = .accepted,
+        descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
+        safeFailureCode: HelperVideoFailureCode? = nil,
+        accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>] = []
+    ) -> HelperVideoStreamNetworkStartResult {
+        let requestID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        return HelperVideoStreamNetworkStartResult(
+            requestID: requestID,
+            startResponse: HelperVideoWireEnvelope(
+                requestID: requestID,
+                messageType: .startStream,
+                profileFingerprint: "sha256:helper-video",
+                body: HelperVideoStartStreamResponseBody(
+                    result: result,
+                    streamDescriptor: descriptor,
+                    safeFailureCode: safeFailureCode
+                )
+            ),
+            accessUnits: accessUnits
+        )
+    }
+
+    private static func helperVideoAccessUnit(
+        sequence: Int,
+        kind: HelperVideoAccessUnitKind
+    ) -> HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>> {
+        HelperVideoDecodedFrame(
+            envelope: HelperVideoWireEnvelope(
+                messageType: .videoAccessUnit,
+                profileFingerprint: "sha256:helper-video",
+                body: HelperVideoAccessUnitBody(sequence: sequence, kind: kind)
+            ),
+            binaryPayload: Data([0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21])
+        )
+    }
+
     private func waitForHelperServerPort(
         _ server: NaruHelperNetworkServer,
         file: StaticString = #filePath,
@@ -5319,6 +5540,85 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
         recording.withLock { state in
             state.recordedPasteCommands.append(command)
         }
+    }
+}
+
+private enum FakeHelperVideoStartError: Error, Sendable {
+    case transportUnavailable
+}
+
+private actor HelperVideoStartRecorder {
+    struct Call: Equatable, Sendable {
+        let profileID: ConnectionProfile.ID
+        let pairingFingerprint: String
+        let loadedSecretWasPresent: Bool
+        let requestBody: HelperVideoStartStreamRequestBody
+        let maxServerFrames: Int
+    }
+
+    private let result: HelperVideoStreamNetworkStartResult?
+    private let failure: FakeHelperVideoStartError?
+    private var recordedCalls: [Call] = []
+
+    init(
+        result: HelperVideoStreamNetworkStartResult? = nil,
+        failure: FakeHelperVideoStartError? = nil
+    ) {
+        self.result = result
+        self.failure = failure
+    }
+
+    func recordedCallSnapshot() -> [Call] {
+        recordedCalls
+    }
+
+    func start(
+        profile: ConnectionProfile,
+        pairingSecret: String,
+        pairingFingerprint: String,
+        requestBody: HelperVideoStartStreamRequestBody,
+        maxServerFrames: Int
+    ) async throws -> HelperVideoStreamNetworkStartResult {
+        recordedCalls.append(
+            Call(
+                profileID: profile.id,
+                pairingFingerprint: pairingFingerprint,
+                loadedSecretWasPresent: !pairingSecret.isEmpty,
+                requestBody: requestBody,
+                maxServerFrames: maxServerFrames
+            )
+        )
+        if let failure {
+            throw failure
+        }
+        guard let result else {
+            throw FakeHelperVideoStartError.transportUnavailable
+        }
+        return result
+    }
+}
+
+@MainActor
+private final class AppModelFakeHelperVideoRenderer: HelperVideoAccessUnitRendering {
+    private let displayableSequences: Set<Int>
+
+    private(set) var enqueuedSequences: [Int] = []
+    private(set) var flushCount = 0
+
+    init(displayableSequences: Set<Int> = []) {
+        self.displayableSequences = displayableSequences
+    }
+
+    func enqueueDisplayableAccessUnit(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) throws -> Bool {
+        let sequence = decoded.envelope.body.sequence
+        enqueuedSequences.append(sequence)
+        return displayableSequences.contains(sequence)
+    }
+
+    func flush() {
+        flushCount += 1
     }
 }
 

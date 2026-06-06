@@ -34,6 +34,8 @@ swift test --filter NaruRemoteAppModelTests/testStoredPublicHostHelperVideoIniti
 swift test --filter NaruRemoteAppModelTests/testDisableAndRevokeHelperVideoFallsBackWithoutDroppingSession
 swift test --filter NaruRemoteAppModelTests/testDisableAndRevokeHelperVideoPersistThroughProfileReload
 swift test --filter NaruRemoteAppModelTests/testRevokeHelperVideoKeepsCredentialWhenProfilePersistenceFails
+swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapStartsAfterVNCFirstFrameWithoutDroppingControl
+swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapFailureKeepsVNCFrameAndControlPathActive
 ```
 
 ## Implemented Helper Video Probe
