@@ -39,8 +39,8 @@ description: "Tasks: Host Helper Video Stream"
   `NaruRemote/Sources/NaruRemoteCore/Diagnostics/`; add privacy tests proving
   no frames, dimensions, endpoints, byte counts, exact timings, tokens, host
   names, Compose text, or clipboard contents are exported. **Done.**
-- [ ] T009 [US2] Add benchmark report fixtures for helper-video schema fields
-  in `NaruRemote/Tests/VNCLiveBenchmarkKitTests/`.
+- [x] T009 [US2] Add benchmark report fixtures for helper-video schema fields
+  in `NaruRemote/Tests/VNCLiveBenchmarkKitTests/`. **Done.**
 - [x] T010 Update `quickstart.md` with exact test names after implementation
   test classes exist. **Done.**
 
