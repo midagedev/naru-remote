@@ -4666,3 +4666,52 @@ pressure to update-wait timing inspection.
 - The next large implementation unit should inspect update-wait timing and
   request/response cadence before changing app defaults. A later staged
   first-useful-paint unit can continue startup traffic work independently.
+
+### D105 App-Side RGB565 Low-Traffic Stream Profile
+
+References:
+- D103 first-visible-focus startup payload gate.
+- D104 sustained poor-network traffic wait gate.
+- `artifacts/benchmarks/2026-06-06-app-rgb565-low-traffic-profile-summary.md`.
+
+**Decision**: add `zrle-compression-0-rgb565` to the app-side stream profile
+experiment catalog as an explicit opt-in profile. When selected, the app builds
+the streaming RFB client with ZRLE compression level 0 and
+`RFBPixelFormat.rgb565In32LittleEndian` before the first streaming framebuffer
+request. Keep the production default on the current standard stream profile.
+
+**Why**:
+- Poor-network live gates consistently show full-color candidates failing
+  first-frame startup while RGB565 candidates survive long enough to collect
+  sustained samples.
+- Pixel format must be applied before framebuffer requests to affect startup
+  traffic. The previous app experiment only re-advertised encodings after the
+  streaming handshake, so it could not reproduce the benchmark's RGB565 first
+  frame behavior.
+- The constrained-cellular run still did not pass the target, so this is an
+  experiment toggle rather than a default promotion.
+
+**Implementation rule**:
+- Production defaults remain unchanged.
+- Power-saver mode continues to override configured encoding experiments.
+- The app and benchmark must share the fixed label
+  `zrle-compression-0-rgb565` so physical-device runs can be compared against
+  the poor-network traffic gate.
+
+**Evidence**:
+- Unit tests cover settings decode/encode/toggle, persistence, app-side
+  connector creation with RGB565, power-saver override behavior, and
+  app/benchmark label drift.
+- Full package test run passed: 952 tests, 10 skipped, 0 failures.
+- A constrained-cellular visible-focus live smoke confirmed the benchmark
+  matrix includes the same `zrle-compression-0-rgb565` label. Full-color
+  profiles failed first-frame startup; RGB565 profiles survived and collected
+  all 4 sustained samples. `zrle-compression-0-rgb565` remained warning-only
+  with about 1.95 content FPS, p95 update about 635 ms, first-byte wait p95
+  about 630 ms, and payload-read p95 about 1 ms.
+
+**Interpretation**:
+- The app can now reproduce the benchmark-backed low-traffic candidate on real
+  sessions without changing defaults.
+- The next production-quality unit should focus on update-wait cadence and
+  first useful paint rather than broad encoding default changes.

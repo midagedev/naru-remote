@@ -654,6 +654,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.toggleStreamEncodingMode()
 
+        let savedRGB565Settings = try await waitForPersistedStreamEncodingMode(
+            .zrleCompressionZeroRGB565,
+            in: persistence
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .zrleCompressionZeroRGB565)
+        XCTAssertEqual(savedRGB565Settings.streamEncodingMode, .zrleCompressionZeroRGB565)
+        XCTAssertNil(model.settingsPersistenceError)
+
+        model.toggleStreamEncodingMode()
+
         let savedAdaptiveSettings = try await waitForPersistedStreamEncodingMode(
             .adaptiveGoodFull,
             in: persistence
@@ -1304,6 +1314,91 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connector.renegotiatedPreferences,
             [RFBEncodingPreference(zrle: true, compressionLevel: 0)]
         )
+    }
+
+    func testModelBuildsRGB565LowTrafficStreamConnectorOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let connectorFactory = RecordingStreamConnectorFactory(connector: connector)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            streamConnectorFactory: { encodingPreference, pixelFormatPreference in
+                connectorFactory.make(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(
+            connectorFactory.calls,
+            [
+                RecordingStreamConnectorFactory.Call(
+                    encodingPreference: RFBEncodingPreference(zrle: true, compressionLevel: 0),
+                    pixelFormatPreference: .rgb565In32LittleEndian
+                )
+            ]
+        )
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
+    }
+
+    func testModelLetsPowerSaverOverrideRGB565LowTrafficStreamConnectorOnConnect() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let connectorFactory = RecordingStreamConnectorFactory(connector: connector)
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            streamConnectorFactory: { encodingPreference, pixelFormatPreference in
+                connectorFactory.make(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            },
+            lowPowerModeProvider: { false }
+        )
+        model.setStreamEncodingMode(.zrleCompressionZeroRGB565)
+        model.setStreamPowerMode(.powerSaver)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(
+            connectorFactory.calls,
+            [
+                RecordingStreamConnectorFactory.Call(
+                    encodingPreference: .powerSaverSustained,
+                    pixelFormatPreference: nil
+                )
+            ]
+        )
+        XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
     func testModelLetsPowerSaverStreamModeOverrideConfiguredEncodingOnConnect() async throws {
@@ -4282,6 +4377,39 @@ private final class FakeStreamingConnectorSequence: @unchecked Sendable {
         connectors.withLock { connectors in
             connectors.removeFirst()
         }
+    }
+}
+
+private final class RecordingStreamConnectorFactory: @unchecked Sendable {
+    struct Call: Equatable {
+        let encodingPreference: RFBEncodingPreference
+        let pixelFormatPreference: RFBPixelFormat?
+    }
+
+    private let connector: RFBFirstFrameConnecting
+    private let recording = OSAllocatedUnfairLock(initialState: [Call]())
+
+    init(connector: RFBFirstFrameConnecting) {
+        self.connector = connector
+    }
+
+    var calls: [Call] {
+        recording.withLock { $0 }
+    }
+
+    func make(
+        encodingPreference: RFBEncodingPreference,
+        pixelFormatPreference: RFBPixelFormat?
+    ) -> RFBFirstFrameConnecting {
+        recording.withLock { calls in
+            calls.append(
+                Call(
+                    encodingPreference: encodingPreference,
+                    pixelFormatPreference: pixelFormatPreference
+                )
+            )
+        }
+        return connector
     }
 }
 
