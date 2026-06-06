@@ -1176,6 +1176,20 @@ iPhone) and ships as its own PR.
   counts, pixels, payloads, host identity, command text, draft text, marked
   text, or IME state. Owns: app startup scale, benchmark request-region scale,
   tests, README, research note, live benchmark artifact. **Done.**
+- **T444** Benchmark-only visible-glance scale sweep: after D113 showed 0.45
+  still fails the poor-network gate on first-frame payload-read pressure, add a
+  v64 live benchmark override for visible-glance startup scale so 0.35/0.25 can
+  be measured without changing product code. Emit only a clamped scale permille
+  plus existing fixed labels and area-permille metrics, keep product app
+  default at 0.45 until device visual inspection proves a smaller patch is
+  recognizable, and document the live v64 runs where 0.25 reduced first-frame
+  area to 19 permille and payload read to about 5.1 s while both app RGB565
+  candidates kept 4/4 sustained content samples and 0 permille renderer
+  full-upload pressure. Avoid logging/exporting dimensions, coordinates, byte
+  counts, pixels, payloads, host identity, command text, draft text, marked
+  text, or IME state. Owns: benchmark request-region override, first-frame
+  mode plumbing, CLI/report schema/help, tests, README, research note, live
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

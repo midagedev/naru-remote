@@ -152,6 +152,42 @@ final class BenchmarkStreamShapeRequestRegionTests: XCTestCase {
         XCTAssertLessThan(glanceArea, focusArea)
     }
 
+    func testFirstFrameVisibleGlanceScalePermilleClampsSafeRange() {
+        XCTAssertEqual(
+            BenchmarkStreamShapeRequestRegion.firstFrameVisibleGlanceScalePermille(
+                BenchmarkStreamShapeRequestRegion.defaultFirstFrameVisibleGlanceScale
+            ),
+            450
+        )
+        XCTAssertEqual(BenchmarkStreamShapeRequestRegion.firstFrameVisibleGlanceScalePermille(0.35), 350)
+        XCTAssertEqual(BenchmarkStreamShapeRequestRegion.firstFrameVisibleGlanceScalePermille(0.01), 100)
+        XCTAssertEqual(BenchmarkStreamShapeRequestRegion.firstFrameVisibleGlanceScalePermille(1.50), 1_000)
+    }
+
+    func testFirstFrameVisibleGlanceAreaUsesBenchmarkScaleOverride() {
+        let defaultArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleGlanceAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+        let smallerArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleGlanceAreaPermille(
+            width: 1920,
+            height: 1080,
+            scale: 0.35
+        )
+        let coreArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleCoreAreaPermille(
+            width: 1920,
+            height: 1080
+        )
+        let fullScaleArea = BenchmarkStreamShapeRequestRegion.viewportPhonePortrait.firstFrameVisibleGlanceAreaPermille(
+            width: 1920,
+            height: 1080,
+            scale: 1.0
+        )
+
+        XCTAssertLessThan(smallerArea, defaultArea)
+        XCTAssertEqual(fullScaleArea, coreArea)
+    }
+
     func testFirstFrameVisibleCoreIgnoresHeartbeatEscalation() {
         XCTAssertNotNil(
             BenchmarkStreamShapeRequestRegion.viewportPhonePortraitHeartbeat.firstFrameVisibleCoreRegion(

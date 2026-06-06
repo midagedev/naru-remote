@@ -147,4 +147,39 @@ final class BenchmarkStreamShapeFirstFrameRequestModeTests: XCTestCase {
         XCTAssertLessThan(glanceRegion.width, focusRegion.width)
         XCTAssertLessThan(glanceRegion.height, focusRegion.height)
     }
+
+    func testVisibleGlanceInitialRequestUsesScaleOverride() throws {
+        let defaultRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080
+            )
+        )
+        let smallerRegion = try XCTUnwrap(
+            BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.initialRegion(
+                matching: .viewportPhonePortrait,
+                framebufferWidth: 1920,
+                framebufferHeight: 1080,
+                visibleGlanceScale: 0.35
+            )
+        )
+        let defaultArea = BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080
+        )
+        let smallerArea = BenchmarkStreamShapeFirstFrameRequestMode.visibleGlance.requestAreaPermille(
+            matching: .viewportPhonePortrait,
+            framebufferWidth: 1920,
+            framebufferHeight: 1080,
+            visibleGlanceScale: 0.35
+        )
+
+        XCTAssertGreaterThan(smallerRegion.x, defaultRegion.x)
+        XCTAssertGreaterThan(smallerRegion.y, defaultRegion.y)
+        XCTAssertLessThan(smallerRegion.width, defaultRegion.width)
+        XCTAssertLessThan(smallerRegion.height, defaultRegion.height)
+        XCTAssertLessThan(smallerArea, defaultArea)
+    }
 }
