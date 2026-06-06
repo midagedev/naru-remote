@@ -172,7 +172,7 @@ swift run VNCLiveBenchmark \
   --json
 ```
 
-For `external-helper-screen-capturekit-tcp`, the preflight emits schema `5`.
+For `external-helper-screen-capturekit-tcp`, the preflight emits schema `6`.
 The benchmark process still does not use its own Screen Recording permission
 state, but it now launches the selected helper executable with
 `--video-capability` and records only fixed helper capability labels. A helper
@@ -180,7 +180,11 @@ app bundle missing Screen Recording permission reports
 `helperVideoScreenCapturePermissionStatus=missing`,
 `helperVideoExternalCapability.status=permissionMissing`, and setup action
 `grant-helper-video-app-screen-recording-permission`. A SwiftPM helper artifact
-uses setup action `install-stable-helper-video-executable`.
+uses setup action `install-stable-helper-video-executable`. If the helper
+capability command does not return within the bounded timeout, the preflight
+reports `helperVideoExternalCapability.status=timedOut`, issue code
+`helper-video-external-helper-timed-out`, and setup action
+`inspect-helper-video-capability`.
 
 ```bash
 swift build --product NaruHelper

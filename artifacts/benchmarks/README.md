@@ -129,6 +129,10 @@ Schema v5 runs the selected helper's safe `--video-capability` before
 `external-helper-screen-capturekit-tcp` and now blocks setup with
 `grant-helper-video-app-screen-recording-permission` when the helper app bundle
 lacks Screen Recording permission.
+Current external helper timeout preflight artifact:
+`artifacts/benchmarks/2026-06-07-external-helper-timeout-preflight-summary.md`.
+Schema v6 bounds the external helper capability wait and emits fixed
+`timedOut` labels instead of letting setup diagnostics block.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
@@ -151,6 +155,9 @@ Schema v5 additionally runs the selected external helper's safe
 `--video-capability` for `external-helper-screen-capturekit-tcp`, so helper app
 bundle permission gaps are surfaced before the live benchmark run with fixed
 identity and setup-action labels only.
+Schema v6 bounds that external helper capability wait and reports
+`helper-video-external-helper-timed-out` plus `inspect-helper-video-capability`
+if the helper executable does not answer.
 Current helper-video fake comparison artifact:
 `artifacts/benchmarks/2026-06-06-helper-video-fake-transport-comparison-summary.md`.
 Schema v67 adds a visual transport comparison envelope so `vnc` and
@@ -497,10 +504,11 @@ do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
-v5 readiness labels before connecting or prompting for a password, including
+v6 readiness labels before connecting or prompting for a password, including
 fixed `setupActionLabels` such as `set-naru-live-mac-host`,
 `set-naru-live-stimulus-command`,
-`grant-helper-video-app-screen-recording-permission`, and `run-live-gate`. It is
+`grant-helper-video-app-screen-recording-permission`,
+`inspect-helper-video-capability`, and `run-live-gate`. It is
 meant to explain why a live profile gate could not be attempted without
 printing configured target values.
 Schema v38 adds `--stream-shape-gate-preset none|sustained-v2-core` plus

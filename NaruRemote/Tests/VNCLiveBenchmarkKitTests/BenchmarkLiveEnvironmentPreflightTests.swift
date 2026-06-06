@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import VNCLiveBenchmarkKit
 
@@ -14,7 +15,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 5)
+        XCTAssertEqual(report.schemaVersion, 6)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
@@ -263,6 +264,53 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.setupActionLabels, [.inspectHelperVideoCapability])
     }
 
+    func testExternalHelperScreenCaptureKitTimedOutRoutesToInspectCapabilityAction() {
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP,
+            externalHelperCapabilityProvider: {
+                BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(status: .timedOut)
+            }
+        )
+
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoExternalHelperTimedOut])
+        XCTAssertEqual(report.setupActionLabels, [.inspectHelperVideoCapability])
+    }
+
+    func testExternalHelperScreenCaptureKitLiveCapabilityTimeoutDoesNotBlockPreflight() throws {
+        let helperURL = try makeSlowHelperExecutable()
+        let startedAt = Date()
+        let report = BenchmarkLiveEnvironmentPreflightReport.make(
+            environment: [
+                "NARU_LIVE_MAC_HOST": "private-target",
+                "NARU_LIVE_MAC_PORT": "5900",
+                "NARU_LIVE_MAC_PASSWORD": "secret",
+                "NARU_HELPER_EXECUTABLE": helperURL.path,
+                "NARU_HELPER_CAPABILITY_TIMEOUT_SECONDS": "0.05"
+            ],
+            askPassword: false,
+            stimulusMode: .off,
+            visualTransports: .helperVideo,
+            helperVideoProbeMode: .externalHelperScreenCaptureKitTCP
+        )
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1)
+        XCTAssertEqual(report.helperVideoExternalCapability.status, .timedOut)
+        XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
+        XCTAssertFalse(report.canRunLiveBenchmark)
+        XCTAssertEqual(report.issueCodes, [.helperVideoExternalHelperTimedOut])
+        XCTAssertEqual(report.setupActionLabels, [.inspectHelperVideoCapability])
+    }
+
     func testScreenCaptureKitHelperProbeCanRunWhenPermissionGranted() {
         let report = BenchmarkLiveEnvironmentPreflightReport.make(
             environment: [
@@ -458,5 +506,27 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.helperVideoScreenCapturePermissionStatus, .delegatedToHelper)
         XCTAssertEqual(report.helperVideoExternalCapability.status, .notRequired)
         XCTAssertEqual(report.setupActionLabels, [.runLiveGate])
+    }
+
+    private func makeSlowHelperExecutable() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let helperURL = directory.appendingPathComponent("slow-helper")
+        try """
+        #!/bin/sh
+        exec /bin/sleep 5
+        """.write(to: helperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: helperURL.path
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        return helperURL
     }
 }

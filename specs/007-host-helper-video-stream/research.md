@@ -582,9 +582,10 @@ ready.
   quiet capability result.
 - Running helper capability in preflight avoids spending a live benchmark run
   just to rediscover `helper-video-permission-missing`.
-- Fixed setup actions can distinguish `grant-helper-video-app-screen-recording`
-  from `install-stable-helper-video-executable` without exposing helper paths,
-  bundle identifiers, endpoints, or raw TCC details.
+- Fixed setup actions can distinguish
+  `grant-helper-video-app-screen-recording-permission` from
+  `install-stable-helper-video-executable` without exposing helper paths, bundle
+  identifiers, endpoints, or raw TCC details.
 
 **Sources**:
 - Apple `Process`: https://developer.apple.com/documentation/foundation/process
@@ -599,3 +600,30 @@ ready.
   Screen Recording permission.
 - Emit helper executable paths in the preflight report: rejected by the safe
   benchmark artifact boundary.
+
+## D20 - Bound external helper process waits in benchmark setup
+
+**Decision**: `VNCLiveBenchmark --environment-preflight` schema `6` gives the
+external helper `--video-capability` command a bounded wait and emits fixed
+`timedOut` labels when it does not return. The actual external helper-video TCP
+probe now uses the same bounded termination helper when cleaning up the helper
+process after a smoke run.
+
+**Rationale**:
+- A diagnostic or benchmark preflight must not hang merely because the helper
+  executable is wedged, waiting on an OS prompt, or blocked before writing JSON.
+- The timeout path should be actionable without exposing helper paths, process
+  arguments, stderr, bundle identifiers, or host configuration.
+- Reusing the bounded cleanup for live helper probes reduces the risk that a
+  failed helper server keeps `VNCLiveBenchmark` stuck after the client side has
+  already produced a result.
+
+**Sources**:
+- Apple `Process`: https://developer.apple.com/documentation/foundation/process
+- POSIX signal behavior through Darwin `kill(2)` for force cleanup on macOS.
+
+**Alternatives considered**:
+- Keep unbounded `waitUntilExit()`: rejected because it conflicts with the
+  non-blocking diagnostic goal.
+- Emit raw helper stderr on timeout: rejected by the safe benchmark artifact
+  boundary.

@@ -6,7 +6,7 @@ import CoreGraphics
 #endif
 
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 5
+    public static let schemaVersion = 6
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -199,6 +199,9 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if helperVideoExternalCapability.status == .failed {
             issueCodes.append(.helperVideoExternalHelperFailed)
         }
+        if helperVideoExternalCapability.status == .timedOut {
+            issueCodes.append(.helperVideoExternalHelperTimedOut)
+        }
         let canRunLiveBenchmark = issueCodes.isEmpty
 
         return BenchmarkLiveEnvironmentPreflightReport(
@@ -267,6 +270,9 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         if helperVideoExternalCapability.status == .failed {
             actions.append(.inspectHelperVideoCapability)
         }
+        if helperVideoExternalCapability.status == .timedOut {
+            actions.append(.inspectHelperVideoCapability)
+        }
         return actions
     }
 
@@ -303,7 +309,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
                 return .missing
             case .unsupported:
                 return .unsupported
-            case .notRequired, .notChecked, .unavailable, .failed:
+            case .notRequired, .notChecked, .unavailable, .failed, .timedOut:
                 return .delegatedToHelper
             }
         }
@@ -339,6 +345,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
     private static func liveExternalHelperCapability(
         environment: [String: String]
     ) -> BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability {
+        let timeout = helperCapabilityTimeout(environment: environment)
         let process = Process()
         process.executableURL = helperExecutableURL(environment: environment)
         process.arguments = ["--video-capability"]
@@ -350,10 +357,15 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
                 status: .unavailable
+            )
+        }
+        guard BenchmarkProcessWaiter.waitForExit(process, timeout: timeout) else {
+            BenchmarkProcessWaiter.terminateAndWait(process)
+            return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(
+                status: .timedOut
             )
         }
 
@@ -373,6 +385,15 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
             )
         }
         return BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability(response: response)
+    }
+
+    private static func helperCapabilityTimeout(environment: [String: String]) -> TimeInterval {
+        guard let rawTimeout = environment["NARU_HELPER_CAPABILITY_TIMEOUT_SECONDS"],
+              let parsedTimeout = TimeInterval(rawTimeout)
+        else {
+            return 3
+        }
+        return min(max(parsedTimeout, 0.05), 30)
     }
 
     private static func helperExecutableURL(environment: [String: String]) -> URL {
@@ -503,6 +524,7 @@ public enum BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapabilityStatus
     case unsupported
     case unavailable
     case failed
+    case timedOut
 
     init(response: NaruHelperVideoCaptureCapabilityResponse) {
         switch response.availability {
@@ -596,6 +618,7 @@ public enum BenchmarkLiveEnvironmentPreflightIssueCode: String, Codable, Equatab
     case helperVideoCaptureUnsupported = "helper-video-capture-unsupported"
     case helperVideoExternalHelperUnavailable = "helper-video-external-helper-unavailable"
     case helperVideoExternalHelperFailed = "helper-video-external-helper-failed"
+    case helperVideoExternalHelperTimedOut = "helper-video-external-helper-timed-out"
 }
 
 public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equatable {

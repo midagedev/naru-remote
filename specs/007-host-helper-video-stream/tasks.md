@@ -192,6 +192,9 @@ without unsafe report fields.
   to query the selected external helper's `--video-capability` fixed labels
   before ScreenCaptureKit benchmark runs, mapping helper permission identity to
   precise setup actions without exposing helper paths. **Done.**
+- [x] T029Q [US2] Bound external helper capability and probe cleanup waits so
+  helper hangs become fixed `timedOut` diagnostics instead of blocking
+  preflight or smoke-run cleanup. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
