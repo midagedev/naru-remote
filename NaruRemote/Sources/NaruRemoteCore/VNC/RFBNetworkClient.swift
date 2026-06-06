@@ -279,7 +279,14 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             timeout: timeout
         )
 
-        return try receiveFramebufferUpdate(timeout: timeout)
+        // Incremental requests are allowed to stay unanswered while the
+        // requested area has no changes. Preserve the socket on a zero-byte
+        // read timeout so viewport-region probes can fall back to a full
+        // request without reconnecting.
+        return try receiveFramebufferUpdate(
+            timeout: timeout,
+            allowsIdleTimeout: incremental
+        )
     }
 
     /// Reads one server-sent `FramebufferUpdate` without first sending
