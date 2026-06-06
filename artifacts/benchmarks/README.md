@@ -321,6 +321,14 @@ thermal, or sustained-session behavior. Keep the device unlocked and on
 the home screen. Pass signing as a command-line build setting rather than
 committing a personal team ID to `project.yml`.
 
+Current physical-device preflight artifact:
+`artifacts/benchmarks/2026-06-07-physical-device-preflight-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh physical-device-preflight` before the
+long physical UI gates. It reports only fixed labels for device selection,
+signing identity, development team, Xcode account, provisioning, and build-check
+status. The device-selection check is intentionally iPhone-only, so a connected
+iPad does not satisfy the T030/T031 gate.
+
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
 export NARU_PHYSICAL_E2E_PASSWORD

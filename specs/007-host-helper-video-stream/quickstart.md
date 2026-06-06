@@ -88,6 +88,7 @@ scripts/run-naru-live-benchmark.sh helper-synthetic-probe
 scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
 scripts/run-naru-live-benchmark.sh screen-recording-setup
+scripts/run-naru-live-benchmark.sh physical-device-preflight
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
@@ -112,6 +113,16 @@ capability again. It emits only fixed setup/status labels. In automation, set
 `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip` to verify the JSON shape
 without opening System Settings. After granting Screen Recording to
 `NaruHelperDev`, relaunch the helper and rerun `helper-readiness-sweep`.
+`physical-device-preflight` checks whether a physical iPhone can be selected
+for the T030/T031 gate and whether Xcode signing/provisioning can build the app.
+Physical iPads and other non-iPhone devices are not accepted for this gate.
+It emits only fixed labels such as `connected`, `ios-development-team-missing`,
+`xcode-account-missing`, and `ios-provisioning-profile-missing`; it must not
+print device names, device IDs, provisioning profile names, bundle identifiers,
+raw xcodebuild logs, live VNC credentials, or helper paths. Set
+`NARU_PHYSICAL_IOS_DEVICE_ID` only when multiple physical iPhones are connected,
+and set `NARU_XCODE_DEVELOPMENT_TEAM` locally or through `launchctl` when
+testing a specific signing team.
 
 ## Implemented Helper Video Encoder Prototype
 
