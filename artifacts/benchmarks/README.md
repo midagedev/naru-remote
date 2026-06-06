@@ -158,10 +158,12 @@ development helper reports `swiftPMBuildArtifact` plus
 stable helper executable or app bundle rather than the transient SwiftPM build
 artifact.
 Current stable dev helper app wrapper artifact:
-`artifacts/benchmarks/2026-06-06-stable-dev-helper-app-wrapper-summary.md`.
-The development wrapper now reports `appBundle` plus `grantAppBundle`, passes
-the external synthetic encoded helper-video smoke, and leaves ScreenCaptureKit
-blocked only on the helper app bundle's missing Screen Recording approval.
+`artifacts/benchmarks/2026-06-07-helper-dev-app-signing-summary.md`.
+The development wrapper now prefers a single local Apple Development signing
+identity when available, reports only a fixed signing label, reports
+`appBundle` plus `grantAppBundle`, passes the external synthetic encoded
+helper-video smoke, and leaves ScreenCaptureKit blocked only on the helper app
+bundle's missing Screen Recording approval.
 Current external helper capability preflight artifact:
 `artifacts/benchmarks/2026-06-07-external-helper-capability-preflight-summary.md`.
 Schema v5 runs the selected helper's safe `--video-capability` before
