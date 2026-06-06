@@ -4283,3 +4283,60 @@ fallback request on the same socket instead of reconnecting.
   artifacts. This does not yet promote region requests to a production default;
   the v54 live benchmark and physical iPhone gate still need to prove sustained
   usability under the same traffic contract.
+
+## D98 — Poor-network traffic candidates need benchmark-local conditioning
+
+References:
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- D96 traffic-pressure promotion metric.
+- D97 incremental request idle-timeout recovery.
+
+**Decision**: bump `VNCLiveBenchmark` to schema v55 and add
+`--network-condition none|wan-latency|constrained-cellular`. Non-`none`
+profiles start a benchmark-only local TCP proxy between the benchmark client and
+the configured VNC endpoint. The proxy applies fixed one-way delay, chunking,
+and optional throughput limiting to both directions, and reports only the fixed
+profile label.
+
+**Why**:
+- Localhost VNC runs are too optimistic for the user's stated goal: bad Wi-Fi
+  and cellular links need slower first-byte wait, lower throughput, and more
+  backpressure before a traffic-saving request-region candidate can be trusted.
+- OS-wide network conditioning is useful manually, but it is too blunt for this
+  repo's repeatable benchmark artifacts because it affects the whole machine
+  and can leak unrelated environmental state into the run. A local proxy
+  isolates conditioning to the VNC socket used by the benchmark.
+- TigerVNC exposes bandwidth-related controls such as preferred encoding,
+  compression level, quality level, and low-color behavior. Naru needs the same
+  evidence loop before changing defaults: compare traffic candidates under a
+  fixed poor-network profile rather than on a perfect loopback path only.
+
+**Implementation rule**:
+- The report emits `networkCondition` as a fixed enum label only. It does not
+  emit proxy port, upstream host, byte counters, payloads, dimensions,
+  coordinates, pixels, raw TCP/RFB errors, command output, or credentials.
+- `wan-latency` applies fixed latency without a throughput cap. It is for
+  first-byte-wait sensitivity.
+- `constrained-cellular` applies higher latency, smaller chunks, and a fixed
+  throughput cap. It is for request-region and pacing comparisons under a
+  bandwidth-constrained session.
+- Packet loss is intentionally out of scope for this PR because arbitrary TCP
+  drops can turn the benchmark into connection-break testing rather than
+  sustained VNC usability testing.
+
+**Evidence**:
+- Profile tests cover stable labels, chunk sizing, no-condition behavior, and
+  per-chunk latency/throughput delay calculation.
+- Proxy tests start a local echo server and prove bytes round-trip through the
+  conditioned endpoint. They also prove `none` does not start a proxy.
+- A short redacted live schema v55 `wan-latency` smoke over
+  `viewport-phone-portrait` completed 12/12 request/response samples without a
+  failure label, reported `networkCondition: wan-latency`, kept
+  `requestRegionAreaPermille` at 364, and showed first-byte wait dominating the
+  conditioned p95 tail.
+
+**Interpretation**:
+- Future traffic PRs should include at least one short conditioned live run
+  before promoting any request-region, encoding, pacing, or pixel-format change.
+  The conditioned run can be short, but it must show whether area savings still
+  preserve usable-run count, hit-rate, p95 tail, and failure-label profile.

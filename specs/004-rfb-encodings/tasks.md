@@ -1018,6 +1018,14 @@ iPhone) and ships as its own PR.
   `FakeRFBServer` request scripts before comparing live traffic candidates.
   Owns: `RFBNetworkClient`, `VNCLiveBenchmark`, fake-server tests, README,
   research note. **Done.**
+- **T430** Degraded-network benchmark harness: add a benchmark-only local TCP
+  conditioning proxy behind `VNCLiveBenchmark --network-condition
+  none|wan-latency|constrained-cellular`, bump reports to schema v55 with only
+  the fixed condition label, and keep proxy ports/upstream hosts/byte counters
+  out of reports. Prove chunk/delay profiles and proxy forwarding with tests
+  before using the harness for poor-network request-region comparisons. Owns:
+  benchmark kit profile/proxy, CLI/report/help, tests, README, research note,
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
