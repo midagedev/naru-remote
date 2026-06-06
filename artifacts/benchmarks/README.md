@@ -111,6 +111,13 @@ Current external helper ScreenCaptureKit permission delegation artifact:
 Schema v4 preflight now reports `delegatedToHelper` for external-helper
 ScreenCaptureKit probes so the helper process, not `VNCLiveBenchmark`, owns the
 macOS Screen Recording permission result.
+Current helper Screen Recording permission identity artifact:
+`artifacts/benchmarks/2026-06-06-helper-screen-recording-permission-identity-summary.md`.
+Helper CLI schema v2 adds fixed `permissionIdentity` labels; the current
+development helper reports `swiftPMBuildArtifact` plus
+`useStableHelperExecutable`, so the next live helper-video work should grant a
+stable helper executable or app bundle rather than the transient SwiftPM build
+artifact.
 Current physical glance candidate follow-up:
 `artifacts/benchmarks/2026-06-06-physical-glance-candidate-gate-summary.md`.
 It adds the low-traffic RGB565 stream labels and startup glance scale label to
