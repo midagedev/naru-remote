@@ -180,13 +180,17 @@ public enum HelperVideoAuthProof {
         messageType: HelperVideoMessageType,
         profileFingerprint: String?
     ) -> Data {
-        let fields = [
+        [
             String(naruHelperVideoStreamSchemaVersion),
             requestID.uuidString.lowercased(),
             messageType.rawValue,
             profileFingerprint ?? ""
-        ]
-        return Data(fields.joined(separator: "\n").utf8)
+        ].reduce(into: Data()) { data, field in
+            let fieldData = Data(field.utf8)
+            var length = UInt32(fieldData.count).bigEndian
+            data.append(Data(bytes: &length, count: MemoryLayout<UInt32>.size))
+            data.append(fieldData)
+        }
     }
 
     private static func constantTimeEqual(_ lhs: String, _ rhs: String) -> Bool {
