@@ -178,6 +178,13 @@ PR grouping suggestion: each `Phase` below is a natural PR boundary. Phase 2 + 3
 - [ ] T048 [Cross] Update `ROADMAP.md` Phase 9 keyboard sub-track from "promoted to ship-blocker / pending" to "implemented" once T042–T046 close. Update Ship Readiness P0 list.
 - [ ] T049 [Cross] Update `PRODUCT_SPEC.md` §6.3.6 if implementation reality changed any user-visible flow described in the spec (e.g., final modifier-button visual semantics, final special-keys page contents, exact warning-dialog wording).
 - [x] T050 [Cross] Physical iPhone input-lane correction: split app-level key dispatch from pointer dispatch so slow buttonless trackpad-move writes cannot head-of-line block Direct keys or Compose quick keys; pointer timeout narrows to the pointer lane. Covered by delayed-trackpad-move and timed-out-pointer regressions in `DirectKeystrokeModeTests`. **Done.**
+- [x] T051 [Cross] Physical iPhone focused-IME correction: treat focused
+  Compose text as a UIKit-owned local transaction and stop automatic
+  model-mirroring while the editor is first responder; force the latest draft
+  into the app model only at explicit boundaries (focus loss, Send, Direct-mode
+  entry). Add a combined frame-pressure + delayed-trackpad-move Direct-key
+  regression so streamed frames, panning, and typing are exercised together.
+  **Done.**
 
 **Checkpoint**: All XCUITest cases pass on iPhone 17 Pro simulator. Both manual physical-device tests recorded as PASS. ROADMAP and PRODUCT_SPEC reflect shipped behavior.
 

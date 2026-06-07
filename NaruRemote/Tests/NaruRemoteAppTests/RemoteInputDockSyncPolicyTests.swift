@@ -150,6 +150,46 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testDefersFocusedCommittedComposeTextPropagationUntilExplicitBoundary() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느",
+                isDirectModeActive: false,
+                hasMarkedText: false,
+                isComposeFieldFocused: true
+            ),
+            "A just-committed Korean syllable should remain owned by UITextView while the editor is focused."
+        )
+    }
+
+    func testForcePropagatesFocusedComposeTextAtExplicitBoundary() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느",
+                isDirectModeActive: false,
+                hasMarkedText: false,
+                isComposeFieldFocused: true,
+                force: true
+            ),
+            "Focus loss, Send, and Direct-mode entry are explicit boundaries that persist the local draft."
+        )
+    }
+
+    func testForceStillSkipsDuplicateComposeTextPropagation() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
+                newValue: "입력느낌",
+                lastPropagatedText: "입력느낌",
+                isDirectModeActive: false,
+                hasMarkedText: false,
+                isComposeFieldFocused: true,
+                force: true
+            )
+        )
+    }
+
     func testSkipsDuplicateLocalComposeTextPropagation() {
         XCTAssertFalse(
             RemoteInputDockView.shouldPropagateLocalComposeTextToModel(
