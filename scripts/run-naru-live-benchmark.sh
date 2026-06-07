@@ -26,6 +26,8 @@ Modes:
   remote-desktop-10fps-transport-cadence-drilldown Compare request-response vs ContinuousUpdates under the 10fps VNC gate.
   remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   remote-desktop-readiness-summary-self-test Fast regression for readiness gate summary labels.
+  screen-recording-watch Request helper Screen Recording, open Settings, and poll safe capability.
+  screen-recording-watch-self-test Fast regression for screen-recording-watch labels.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
@@ -49,6 +51,8 @@ Launchctl variables used when present:
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
   NARU_HELPER_DEV_APP_ROOT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
+  NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS
+  NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS
 
 The script never prints environment values. It passes through the benchmark's
 privacy-safe JSON/report output.
@@ -2530,10 +2534,18 @@ physical_preflight() {
   printf '  "provisioningProfileStatus": "%s",\n' "$provisioning_profile_status"
   printf '  "buildCheckStatus": "%s",\n' "$build_check_status"
   printf '  "issueCodes": '
-  json_string_array "${issue_codes[@]}"
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "setupActionLabels": '
-  json_string_array "${setup_actions[@]}"
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
   printf '\n}\n'
 }
 
@@ -2694,6 +2706,203 @@ print_helper_dev_app_setup_report() {
   printf '    "only fixed install/signing/env status labels, helper capability JSON, fixed issue codes, and setup actions are emitted"\n'
   printf '  ]\n'
   printf '}\n'
+}
+
+screen_recording_watch_max_polls() {
+  local raw="${NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS:-45}"
+  if [[ "$raw" =~ ^[0-9]+$ ]] && ((raw >= 1 && raw <= 300)); then
+    printf '%s' "$raw"
+  else
+    printf '45'
+  fi
+}
+
+screen_recording_watch_interval_seconds() {
+  local raw="${NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS:-2}"
+  if [[ "$raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf '%s' "$raw"
+  else
+    printf '2'
+  fi
+}
+
+screen_recording_capability_is_granted() {
+  local capability_json="$1"
+  local permission
+  local availability
+  permission="$(json_value_or_unknown "$capability_json" '.screenRecordingPermission')"
+  availability="$(json_value_or_unknown "$capability_json" '.availability')"
+  [[ "$permission" == "granted" || "$availability" == "available" ]]
+}
+
+print_screen_recording_watch_report() {
+  local helper_executable="${NARU_HELPER_EXECUTABLE:-}"
+  local max_polls
+  local interval_seconds
+  max_polls="$(screen_recording_watch_max_polls)"
+  interval_seconds="$(screen_recording_watch_interval_seconds)"
+
+  local capability_before
+  local permission_request
+  local settings_open_status
+  capability_before="$(
+    json_step_or_fixed_failure \
+      helperCapabilityBefore \
+      benchmarkStep.helperCapabilityBefore.failed \
+      "$helper_executable" --video-capability
+  )"
+  permission_request="$(
+    json_step_or_fixed_failure \
+      helperPermissionRequest \
+      benchmarkStep.helperPermissionRequest.failed \
+      "$helper_executable" --video-request-screen-recording-permission
+  )"
+  settings_open_status="$(open_screen_recording_settings_status)"
+
+  local final_capability="$capability_before"
+  local watch_status="timedOut"
+  local polls_attempted=0
+  local poll
+  for ((poll = 1; poll <= max_polls; poll++)); do
+    polls_attempted="$poll"
+    final_capability="$(
+      json_step_or_fixed_failure \
+        helperCapabilityPoll \
+        benchmarkStep.helperCapabilityPoll.failed \
+        "$helper_executable" --video-capability
+    )"
+    if screen_recording_capability_is_granted "$final_capability"; then
+      watch_status="granted"
+      break
+    fi
+    if ((poll < max_polls)); then
+      sleep "$interval_seconds"
+    fi
+  done
+
+  local final_permission_status
+  local final_availability
+  local final_step_status
+  final_permission_status="$(json_value_or_unknown "$final_capability" '.screenRecordingPermission')"
+  final_availability="$(json_value_or_unknown "$final_capability" '.availability')"
+  final_step_status="$(json_value_or_unknown "$final_capability" '.status')"
+
+  local issue_codes=()
+  local setup_actions=()
+  if [[ "$watch_status" == "granted" ]]; then
+    append_unique setup_actions "rerun-helper-readiness-sweep"
+    append_unique setup_actions "run-true-helper-video-live-capture-benchmark"
+  elif [[ "$final_step_status" == "failed" ]]; then
+    watch_status="failed"
+    append_unique issue_codes "helper-video-capability-failed"
+    append_unique setup_actions "inspect-helper-video-capability"
+  else
+    append_unique issue_codes "helper-video-permission-missing"
+    append_unique setup_actions "grant-helper-video-app-screen-recording-permission"
+    append_unique setup_actions "rerun-screen-recording-watch"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "screen-recording-watch",\n'
+  printf '  "watchStatus": '
+  json_string "$watch_status"
+  printf ',\n'
+  printf '  "maxPolls": %s,\n' "$max_polls"
+  printf '  "pollIntervalSeconds": '
+  json_string "$interval_seconds"
+  printf ',\n'
+  printf '  "pollsAttempted": %s,\n' "$polls_attempted"
+  printf '  "settingsOpenStatus": '
+  json_string "$settings_open_status"
+  printf ',\n'
+  printf '  "capabilityBefore": %s,\n' "$capability_before"
+  printf '  "permissionRequest": %s,\n' "$permission_request"
+  printf '  "finalCapability": %s,\n' "$final_capability"
+  printf '  "finalPermissionStatus": '
+  json_string "$final_permission_status"
+  printf ',\n'
+  printf '  "finalAvailability": '
+  json_string "$final_availability"
+  printf ',\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "screen-recording-watch emits fixed status, issue, and action labels plus helper safe capability JSON only",\n'
+  printf '    "helper executable paths, endpoints, credentials, raw OS errors, pixels, dimensions, byte counts, and exact helper timings are not emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
+screen_recording_watch_self_test() {
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-screen-recording-watch-test.XXXXXX")"
+  local fake_helper="$tmpdir/fake-helper"
+  local state_file="$tmpdir/state"
+  cat >"$fake_helper" <<'FAKE_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  --video-capability)
+    count="$(cat "$NARU_FAKE_HELPER_STATE" 2>/dev/null || printf '0')"
+    count=$((count + 1))
+    printf '%s' "$count" >"$NARU_FAKE_HELPER_STATE"
+    if ((count >= 3)); then
+      printf '{"schemaVersion":2,"availability":"available","screenRecordingPermission":"granted","permissionIdentity":{"processKind":"appBundle","grantHint":"grantAppBundle"}}\n'
+    else
+      printf '{"schemaVersion":2,"availability":"permissionMissing","screenRecordingPermission":"missing","permissionIdentity":{"processKind":"appBundle","grantHint":"grantAppBundle"},"safeFailureCode":"helperVideo.permissionMissing"}\n'
+    fi
+    ;;
+  --video-request-screen-recording-permission)
+    printf '{"schemaVersion":2,"status":"notGranted","permissionIdentity":{"processKind":"appBundle","grantHint":"grantAppBundle"}}\n'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+FAKE_HELPER
+  chmod +x "$fake_helper"
+
+  local report
+  report="$(
+    NARU_HELPER_EXECUTABLE="$fake_helper" \
+    NARU_FAKE_HELPER_STATE="$state_file" \
+    NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip \
+    NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS=4 \
+    NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS=0 \
+    print_screen_recording_watch_report
+  )"
+  rm -rf "$tmpdir"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$report"
+    return
+  fi
+
+  jq -e '
+    .schemaVersion == 1 and
+    .mode == "screen-recording-watch" and
+    .watchStatus == "granted" and
+    .finalPermissionStatus == "granted" and
+    .finalAvailability == "available" and
+    .pollsAttempted == 2 and
+    (.setupActionLabels | index("rerun-helper-readiness-sweep")) and
+    (.setupActionLabels | index("run-true-helper-video-live-capture-benchmark")) and
+    (.issueCodes | length == 0)
+  ' <<<"$report" >/dev/null
+  printf '%s\n' "$report"
 }
 
 print_helper_readiness_sweep_report() {
@@ -3278,6 +3487,15 @@ case "$mode" in
     printf ',\n'
     printf '  "nextAction": "rerun-helper-readiness-sweep"\n'
     printf '}\n'
+    ;;
+  screen-recording-watch)
+    reject_extra_args
+    import_helper_env
+    print_screen_recording_watch_report
+    ;;
+  screen-recording-watch-self-test)
+    reject_extra_args
+    screen_recording_watch_self_test
     ;;
   helper-capability)
     reject_extra_args
