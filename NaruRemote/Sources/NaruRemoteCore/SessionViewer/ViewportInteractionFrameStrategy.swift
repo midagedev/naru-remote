@@ -4,8 +4,9 @@ import Foundation
 /// framebuffer frames while a local viewport gesture owns the screen.
 public enum ViewportInteractionFrameStrategy: String, Equatable, Sendable {
     /// Direct pinch/pan/deceleration should feel like local photo
-    /// navigation: keep the visible movement on the compositor path and
-    /// publish only the latest deferred remote frame when the gesture settles.
+    /// navigation: keep the visible movement on the compositor path,
+    /// defer heavyweight remote frame publication, but still sample the
+    /// viewport transform so view-aware traffic follows the visible region.
     case deferUntilSettled
 
     /// Trackpad cursor-follow may need bounded live dirty-rect updates so
@@ -16,7 +17,8 @@ public enum ViewportInteractionFrameStrategy: String, Equatable, Sendable {
         self == .liveRemoteFrames
     }
 
-    public var prefersLiveViewportStatePublication: Bool {
-        self == .liveRemoteFrames
-    }
+    /// View-aware traffic should follow the visible viewport for every
+    /// interaction strategy, even when heavyweight framebuffer publication
+    /// is deferred until the gesture settles.
+    public var publishesLiveViewportStateForViewAwareTraffic: Bool { true }
 }

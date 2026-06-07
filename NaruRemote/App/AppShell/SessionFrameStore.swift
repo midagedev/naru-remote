@@ -27,13 +27,15 @@ public struct SessionFrameState: Equatable, Sendable {
 
 public enum SessionFrameDeliveryPriority: Equatable, Sendable {
     case visual
-    case interactiveInput
+    case viewportNavigation
+    case textInput
 }
 
 @MainActor
 public final class SessionFrameStore: ObservableObject {
     static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
-    static let interactiveInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
+    static let viewportNavigationFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
+    static let textInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(120)
 
     public private(set) var state: SessionFrameState
 
@@ -92,7 +94,7 @@ public final class SessionFrameStore: ObservableObject {
             frameDeliveryTask?.cancel()
             frameDeliveryTask = nil
             flushPendingFrameDelivery()
-        case .interactiveInput:
+        case .viewportNavigation, .textInput:
             reschedulePendingSteadyFrameDelivery()
         }
     }
@@ -165,8 +167,10 @@ public final class SessionFrameStore: ObservableObject {
         switch deliveryPriority {
         case .visual:
             return Self.steadyFrameDeliveryCoalescingDelay
-        case .interactiveInput:
-            return Self.interactiveInputFrameDeliveryCoalescingDelay
+        case .viewportNavigation:
+            return Self.viewportNavigationFrameDeliveryCoalescingDelay
+        case .textInput:
+            return Self.textInputFrameDeliveryCoalescingDelay
         }
     }
 

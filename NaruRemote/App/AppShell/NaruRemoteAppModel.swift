@@ -4085,9 +4085,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         } else {
             frameDeliveryInteractionReasons.remove(reason)
         }
-        frameStore.setDeliveryPriority(
-            frameDeliveryInteractionReasons.isEmpty ? .visual : .interactiveInput
-        )
+        frameStore.setDeliveryPriority(frameDeliveryPriority(for: frameDeliveryInteractionReasons))
+    }
+
+    private func frameDeliveryPriority(
+        for reasons: Set<FrameDeliveryInteractionReason>
+    ) -> SessionFrameDeliveryPriority {
+        if reasons.contains(.composeFocus) {
+            return .textInput
+        }
+        if reasons.contains(.viewportGesture) || reasons.contains(.transientInteraction) {
+            return .viewportNavigation
+        }
+        return .visual
     }
 
     public func recordOutboundInputEvent(

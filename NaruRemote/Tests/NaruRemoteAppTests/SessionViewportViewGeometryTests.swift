@@ -158,10 +158,10 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertTrue(SessionViewportView.trackpadDragOwnsViewportInteraction(transform: transform))
     }
 
-    func testViewportStatePublishPolicyOnlyGoesLiveForLiveRemoteFrames() {
+    func testViewportStatePublishPolicyUsesDisplayLinkForViewAwareTraffic() {
         XCTAssertEqual(
             SessionViewportView.viewportStatePublishPolicy(for: .deferUntilSettled),
-            .gestureEnd
+            .liveDisplayLink
         )
         XCTAssertEqual(
             SessionViewportView.viewportStatePublishPolicy(for: .liveRemoteFrames),

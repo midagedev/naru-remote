@@ -59,11 +59,11 @@ final class ViewportGestureRedrawThrottleTests: XCTestCase {
         )
     }
 
-    func testLiveRemoteFrameStrategyAlsoPrefersLiveViewportStatePublication() {
+    func testViewportStrategiesPublishLiveViewportStateForViewAwareTraffic() {
         XCTAssertFalse(ViewportInteractionFrameStrategy.deferUntilSettled.allowsLiveFramebufferPublication)
-        XCTAssertFalse(ViewportInteractionFrameStrategy.deferUntilSettled.prefersLiveViewportStatePublication)
+        XCTAssertTrue(ViewportInteractionFrameStrategy.deferUntilSettled.publishesLiveViewportStateForViewAwareTraffic)
         XCTAssertTrue(ViewportInteractionFrameStrategy.liveRemoteFrames.allowsLiveFramebufferPublication)
-        XCTAssertTrue(ViewportInteractionFrameStrategy.liveRemoteFrames.prefersLiveViewportStatePublication)
+        XCTAssertTrue(ViewportInteractionFrameStrategy.liveRemoteFrames.publishesLiveViewportStateForViewAwareTraffic)
     }
 
     func testStrictGestureModeDefersEveryFrameUntilGestureEnd() {

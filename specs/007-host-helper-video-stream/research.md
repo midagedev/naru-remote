@@ -1989,3 +1989,70 @@ tokens, credentials, exact per-frame timings, raw OS errors, Compose text,
 keysyms, marked text, or clipboard contents. Benchmark artifacts may carry only
 fixed readiness labels and aggregate/bucketed timing fields already covered by
 the live benchmark contract.
+
+## D52 - Make input and viewport navigation explicit service levels
+
+**Decision**: Split live frame delivery into three local service levels:
+`visual`, `viewportNavigation`, and `textInput`. Steady viewing keeps the
+display-cadence frame-event side channel. Viewport/trackpad navigation keeps
+remote frame events coalesced to a navigation-friendly cadence while the
+visible transform stays on the UIKit/Core Animation hot path. Focused Compose
+uses a stronger text-input cadence so UIKit IME remains the highest priority
+when frame bursts, helper status changes, and send-status updates arrive.
+
+Direct pinch/pan and deceleration now also publish viewport transform state at
+display-link cadence. Heavy framebuffer publication can still defer during the
+gesture, but the app model's viewport-aware request region follows the visible
+screen instead of waiting for gesture end. Zoomed trackpad mode increases
+cursor/pan coupling so the actual remote cursor and local viewport move
+together rather than cursor first, viewport later.
+
+**Rationale**:
+- Physical iPhone feedback still reported a half-beat pan delay and focused
+  Compose that could accept one Korean character and then feel frozen. The old
+  frame-delivery model had a single `interactiveInput` bucket, which made IME,
+  direct keys, pointer bursts, and viewport gestures compete under one
+  compromise cadence.
+- Text input is the product's primary differentiator; it must win over live
+  visual smoothness when the two contend. A lower text-input frame-event rate is
+  preferable to recreating or starving the focused `UITextView` while the user
+  is composing marked text.
+- View-aware VNC traffic only helps if the request region follows the local
+  viewport while the user is moving it. Publishing the transform at display-link
+  cadence gives the request loop fresh region information without moving the
+  visible pan/zoom work out of the compositor path.
+- Trackpad mode should show the real server cursor shape when available and
+  keep cursor-follow pan physically attached while zoomed. A stronger pan
+  coupling preserves finger-paced visible cursor travel while reducing the
+  laggy "cursor outruns the screen" feel.
+
+**Evidence**:
+- `SessionFrameStoreTests/testDeliveryCoalescingSeparatesNavigationAndTextInputCadence`
+  proves visual, viewport navigation, and text-input frame-event cadences are
+  distinct.
+- `SessionFrameDeliveryPriorityModelTests/testComposeFocusTakesPriorityOverViewportGestureCadence`
+  proves Compose focus wins over viewport/transient interaction priority until
+  focus leaves.
+- `SessionViewportViewGeometryTests/testViewportStatePublishPolicyUsesDisplayLinkForViewAwareTraffic`
+  proves both viewport strategies publish state live for request-region
+  tracking.
+- `PointerGestureResolverTests/testZoomedTrackpadPanCouplingKeepsViewportAttachedAwayFromEdge`
+  and
+  `testZoomedTrackpadCentralSamplesPanSmoothlyWithoutChangingVisibleCursorPace`
+  prove zoomed trackpad pan follows the pointer while visible cursor travel
+  remains finger-paced.
+- `TrackpadModeModelTests/testTrackpadDragUsesZoomedTransformAndReturnsAttachedAutoPan`
+  proves the stronger coupling reaches the app-model dispatch path and sends
+  the actual cursor coordinate.
+- `NaruRemoteUITests/ComposeInputResponsivenessUITests` passes the Korean
+  second-syllable UI regression in profile-detail, active compact, stale
+  confirmation clear, cursor-storm, and framebuffer-flood plus cursor-storm
+  fixtures.
+- `swift test` passes with 1238 tests executed and 14 benchmark/device-gated
+  skips after the service-level split.
+
+**Privacy rule**: Service-level diagnostics and tests may use only fixed
+cadence labels, aggregate counters, and synthetic cursor/text values. They must
+not export live Compose drafts, marked text, keysyms, pointer coordinates,
+frame pixels, dimensions, byte counts, endpoints, credentials, raw OS errors,
+or exact per-event timings.

@@ -186,7 +186,7 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad movement should begin panning before the cursor reaches the edge"
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 782, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 808, y: 500)
         ])
     }
 
@@ -203,12 +203,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -80,
+            -145,
             accuracy: 1e-6,
-            "Zoomed trackpad movement should pan with the cursor without dragging the background too aggressively."
+            "Zoomed trackpad movement should pan with the cursor so the screen follows the actual pointer."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 665, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 698, y: 500)
         ])
     }
 
@@ -252,11 +252,11 @@ final class PointerGestureResolverTests: XCTestCase {
             "Zoomed trackpad pan should begin once the cursor approaches the viewport edge."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 782, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 808, y: 500)
         ])
     }
 
-    func testZoomedTrackpadPanCouplingStaysSubtleAwayFromEdge() {
+    func testZoomedTrackpadPanCouplingKeepsViewportAttachedAwayFromEdge() {
         let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
         let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))
         let cursor = TrackpadCursor(position: CGPoint(x: 500, y: 500), isVisible: true)
@@ -270,12 +270,12 @@ final class PointerGestureResolverTests: XCTestCase {
 
         XCTAssertEqual(
             outcome.transform.panOffset.width,
-            -57.6,
+            -104.4,
             accuracy: 1e-6,
-            "Central zoomed trackpad motion should follow the cursor without making the viewport feel over-dragged."
+            "Central zoomed trackpad motion should move the viewport with the cursor instead of lagging behind it."
         )
         XCTAssertEqual(outcome.commands, [
-            RFBPointerCommand(buttonMask: 0x00, x: 619, y: 500)
+            RFBPointerCommand(buttonMask: 0x00, x: 642, y: 500)
         ])
     }
 
@@ -297,9 +297,9 @@ final class PointerGestureResolverTests: XCTestCase {
 
             XCTAssertEqual(
                 outcome.transform.panOffset.width - beforePan,
-                -5.12,
+                -9.28,
                 accuracy: 1e-6,
-                "Central zoomed trackpad pan should advance by a predictable per-sample step."
+                "Central zoomed trackpad pan should advance with each cursor sample instead of trailing the gesture."
             )
             XCTAssertEqual(
                 afterCursorViewPoint.x - beforeCursorViewPoint.x,

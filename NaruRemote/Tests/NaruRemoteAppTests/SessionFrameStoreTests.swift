@@ -12,7 +12,7 @@ final class SessionFrameStoreTests: XCTestCase {
         )
     }
 
-    func testInteractiveInputDeliveryCoalescingUsesInputFriendlyCadence() {
+    func testDeliveryCoalescingSeparatesNavigationAndTextInputCadence() {
         let store = SessionFrameStore()
 
         XCTAssertEqual(
@@ -20,11 +20,18 @@ final class SessionFrameStoreTests: XCTestCase {
             .milliseconds(16)
         )
 
-        store.setDeliveryPriority(.interactiveInput)
+        store.setDeliveryPriority(.viewportNavigation)
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
             .milliseconds(50)
+        )
+
+        store.setDeliveryPriority(.textInput)
+
+        XCTAssertEqual(
+            store.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(120)
         )
     }
 
@@ -140,7 +147,7 @@ final class SessionFrameStoreTests: XCTestCase {
         withExtendedLifetime(frameCancellable) {}
     }
 
-    func testLeavingInteractiveInputFlushesLatestPendingFrameImmediately() {
+    func testLeavingInputOrNavigationPriorityFlushesLatestPendingFrameImmediately() {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
         let frameCancellable = store.framePublisher.sink { state in
@@ -160,7 +167,7 @@ final class SessionFrameStoreTests: XCTestCase {
         store.flushPendingFrameDeliveryForTesting()
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
 
-        store.setDeliveryPriority(.interactiveInput)
+        store.setDeliveryPriority(.viewportNavigation)
         store.publish(
             framebuffer: RFBRawFramebuffer(
                 width: 2,
@@ -195,7 +202,7 @@ final class SessionFrameStoreTests: XCTestCase {
         withExtendedLifetime(frameCancellable) {}
     }
 
-    func testEnteringInteractiveInputReschedulesPendingSteadyFrameToInputCadence() {
+    func testEnteringTextInputReschedulesPendingSteadyFrameToIMEFriendlyCadence() {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
         let frameCancellable = store.framePublisher.sink { state in
@@ -230,12 +237,12 @@ final class SessionFrameStoreTests: XCTestCase {
             .milliseconds(16)
         )
 
-        store.setDeliveryPriority(.interactiveInput)
+        store.setDeliveryPriority(.textInput)
 
         XCTAssertEqual(
             store.pendingFrameDeliveryCoalescingDelayForTesting,
-            .milliseconds(50),
-            "Entering interactive input should move already pending steady frames to the input-friendly cadence."
+            .milliseconds(120),
+            "Entering text input should move already pending steady frames to the IME-friendly cadence."
         )
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
 
