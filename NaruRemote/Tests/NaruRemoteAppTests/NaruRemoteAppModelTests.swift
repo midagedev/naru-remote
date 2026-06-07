@@ -3692,6 +3692,66 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testHelperVideoCallbacksAfterInactiveSessionDoNotMutateVisualOrProfileState() throws {
+        let inactiveStates: [(String, RemoteSessionState)] = [
+            ("failed", .failed),
+            ("closed", .closed)
+        ]
+
+        for (label, inactiveState) in inactiveStates {
+            let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+            let session = RemoteSession(
+                profileID: profile.id,
+                state: inactiveState,
+                lastFrameAt: Date(timeIntervalSince1970: 100)
+            )
+            let model = NaruRemoteAppModel(
+                snapshot: NaruRemoteAppSnapshot(
+                    profiles: [profile],
+                    selectedProfileID: profile.id,
+                    session: session,
+                    helperVideoProfileState: [
+                        profile.id: HelperVideoProfileState(
+                            isEnabled: true,
+                            pairingFingerprint: "sha256:helper-video",
+                            availability: .available,
+                            lastCheckedBucket: .recent
+                        )
+                    ]
+                )
+            )
+
+            model.updateHelperVideoStreamHealth(
+                HelperVideoStreamHealth(
+                    state: .stalled,
+                    sustainedUpdateBand: .stalled,
+                    fallbackCountBucket: .one
+                ),
+                sessionID: session.id,
+                profileID: profile.id
+            )
+            model.setHelperVideoProfileState(
+                HelperVideoProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper-video",
+                    availability: .failed,
+                    lastFailureCode: .streamStalled,
+                    lastCheckedBucket: .recent
+                ),
+                for: profile.id,
+                sessionID: session.id
+            )
+
+            let snapshot = model.snapshot
+            XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer, label)
+            XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .idle, label)
+            XCTAssertNil(snapshot.helperVideoStreamDescriptor, label)
+            XCTAssertNil(snapshot.helperVideoVisualSelectionFailureReason, label)
+            XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available, label)
+            XCTAssertNil(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, label)
+        }
+    }
+
     func testModelStartsPiPWatchWhenActiveFrameExists() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(

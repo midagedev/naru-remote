@@ -1244,10 +1244,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard selectedProfileID == activeSession.profileID else {
             return .profileMismatch
         }
-        switch activeSession.state {
-        case .connecting, .authenticating, .active, .degraded, .reconnecting(_, _):
-            break
-        case .failed, .closed:
+        guard activeSession.state.acceptsSessionScopedMediaCallbacks else {
             return .sessionInactive
         }
         guard let activeProfile = profiles.first(where: { $0.id == activeSession.profileID }) else {
@@ -1422,11 +1419,17 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?
     ) -> Bool {
-        if let sessionID, session?.id != sessionID {
-            return false
+        if let sessionID {
+            guard let currentSession = session,
+                  currentSession.id == sessionID,
+                  currentSession.state.acceptsSessionScopedMediaCallbacks
+            else {
+                return false
+            }
         }
         if let profileID {
-            guard session?.profileID == profileID,
+            guard let currentSession = session,
+                  currentSession.profileID == profileID,
                   selectedProfileID == profileID
             else {
                 return false

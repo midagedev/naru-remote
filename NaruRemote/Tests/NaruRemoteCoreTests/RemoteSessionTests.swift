@@ -24,4 +24,25 @@ final class RemoteSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .failed)
         XCTAssertEqual(session.lastError, "VNC handshake failed")
     }
+
+    func testMediaCallbacksAreAcceptedOnlyWhileSessionLifecycleIsActive() {
+        let acceptedStates: [RemoteSessionState] = [
+            .connecting,
+            .authenticating,
+            .active,
+            .degraded,
+            .reconnecting(attempt: 1, of: 3)
+        ]
+        let inactiveStates: [RemoteSessionState] = [
+            .failed,
+            .closed
+        ]
+
+        for state in acceptedStates {
+            XCTAssertTrue(state.acceptsSessionScopedMediaCallbacks, state.identifier)
+        }
+        for state in inactiveStates {
+            XCTAssertFalse(state.acceptsSessionScopedMediaCallbacks, state.identifier)
+        }
+    }
 }
