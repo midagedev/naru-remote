@@ -1297,3 +1297,62 @@ status labels and fixed setup actions only. It must not emit physical device
 names, identifiers, serials, raw Xcode logs, provisioning identifiers, host
 identity, credentials, pixels, byte counts, exact helper timings, draft text, or
 IME state.
+
+## D39 - Summarize physical, helper, and VNC gates in one readiness object
+
+**Decision**: Upgrade `remote-desktop-10fps-readiness` to schema `2` and add a
+top-level `physicalDevicePreflight` plus a derived
+`readinessGateSummary`. The summary separates wrapper command status from the
+inner 10fps product verdict and reports the physical iPhone gate, helper-video
+gate, VNC 10fps gate, primary blocked labels, and the recommended next action
+in one privacy-safe object. The top-level readiness envelope is schema `2`; the
+nested derived summary keeps schema `1` and includes
+`parentReadinessSchemaVersion=2` to make the version boundary explicit.
+
+**Rationale**:
+- The reproduced live state has three independent blockers: the physical iPhone
+  is unavailable, helper-video synthetic transport passes while true
+  ScreenCaptureKit capture is permission-blocked, and the VNC 10fps product
+  verdict still fails even when the wrapper command succeeds.
+- Without a derived summary, a reviewer has to inspect nested helper and VNC
+  benchmark reports to notice that `vnc10fpsProbe.status=passed` means the
+  benchmark executed, not that the product goal passed.
+- The best architecture remains the dual-transport plan: VNC stays connected
+  for control/input/fallback, while helper H.264 video is the primary
+  smoothness candidate after Screen Recording and physical iPhone gates pass.
+- Apple ScreenCaptureKit and VideoToolbox point toward a helper-side capture
+  and low-latency H.264 pipeline, while TigerVNC's own viewer documents
+  adaptive encoding/pixel-format behavior and pointer rate limiting. That
+  supports benchmark-backed profile selection rather than another blind VNC
+  default flip.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test | jq empty`
+  passes and proves the summary classifies physical unavailable, helper
+  permission missing, and VNC product failure together.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness > /tmp/naru-readiness-v2.json`
+  emits schema `2` JSON that validates with `jq empty`.
+- Current live `readinessGateSummary`: `overallGateState=blockedByPhysicalIPhone`,
+  blocked labels `physical-iphone-gate-blocked`,
+  `helper-video-screen-capture-gate-blocked`, and
+  `vnc-10fps-product-gate-failed`.
+- Current VNC gate: wrapper status `passed`, product verdict `fail`,
+  `1.99` content FPS, `502` ms average update, `621` ms p95 update,
+  `618` ms first-byte wait p95, `0` ms payload-read p95, and `2` ms
+  client-processing p95.
+
+**References**:
+- Apple ScreenCaptureKit `SCStreamConfiguration.queueDepth`:
+  https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/queuedepth
+- Apple VideoToolbox low-latency encoding:
+  https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing
+- TigerVNC viewer options and adaptive selection:
+  https://tigervnc.org/doc/vncviewer.html
+
+**Privacy rule**: the readiness summary may emit fixed status/action labels,
+fixed issue labels, aggregate FPS/update timing summaries, and aggregate
+permission/capability labels only. It must not emit host identity,
+credentials, helper executable paths, physical device identifiers, endpoints,
+framebuffer dimensions, coordinates, pixels, byte counts, raw command output,
+exact helper timings, Compose text, marked text, or IME state.
