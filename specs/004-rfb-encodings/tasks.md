@@ -1454,6 +1454,15 @@ iPhone) and ships as its own PR.
   pixels, byte counts, stimulus command text, draft text, marked text, or IME
   state. Owns: benchmark target, launchctl runner, tests, spec, quickstart,
   research note, benchmark artifact. **Done.**
+- **T466** Frame-application backlog backpressure: when the bounded
+  MainActor frame-application queue has to coalesce/drop stale visual work,
+  feed that safe aggregate pressure signal into the existing adaptive
+  power-saver pacing state so the receive/decode loop cools down instead of
+  continuing to pull frames while UI input is already behind. This keeps video
+  work and interaction work more isolated after real VNC connection start,
+  without logging frame contents, dimensions, coordinates, byte counts, raw
+  timings, or user input. Owns: app stream pressure state, app frame loop,
+  focused app-model tests, benchmark/research artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
