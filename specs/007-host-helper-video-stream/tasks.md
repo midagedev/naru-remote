@@ -419,6 +419,12 @@ without unsafe report fields.
   priority across transient lease expiry. This reduces frame-event contention
   with UIKit input and local viewport navigation while helper-video Screen
   Recording and physical iPhone gates are still blocked. **Done.**
+- [x] T031R [US1] Gate session-scoped helper-video callbacks on the current
+  session lifecycle state so late stream health/profile updates for failed or
+  closed sessions cannot mutate the active visual transport, helper-video
+  health, or profile availability. This gives the video path an explicit
+  lifecycle boundary from UI/input state while reproducing the stale-callback
+  failure as an app-model regression test. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

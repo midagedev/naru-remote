@@ -37,6 +37,19 @@ public enum RemoteSessionState: Codable, Equatable, Sendable {
         }
     }
 
+    /// True while asynchronous media pipelines may still mutate
+    /// session-owned visual/input state for this session. Once a session has
+    /// failed or closed, late network/video callbacks must be treated as stale
+    /// even if their session ID still matches.
+    public var acceptsSessionScopedMediaCallbacks: Bool {
+        switch self {
+        case .connecting, .authenticating, .active, .degraded, .reconnecting:
+            return true
+        case .failed, .closed:
+            return false
+        }
+    }
+
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
