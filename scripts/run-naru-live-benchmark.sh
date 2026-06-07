@@ -3099,7 +3099,7 @@ print_helper_video_live_gate_summary() {
         else "unknown"
         end;
       def recommended_action:
-        if watch_status != "granted" then "grant-helper-video-app-screen-recording-permission"
+        if watch_status != "granted" then "run-screen-recording-watch"
         elif synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif screen_verdict != "pass" then "rerun-helper-screen-probe"
@@ -3324,7 +3324,7 @@ JSON
 
   if jq -e '
     .overallGateState == "blockedByScreenRecordingPermission" and
-    .recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
+    .recommendedPrimaryAction == "run-screen-recording-watch" and
     (.primaryBlockedGateLabels | index("screen-recording-permission-gate-blocked")) and
     (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     (.setupActionLabels | index("add-xcode-account")) and
@@ -3535,7 +3535,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
         else "vnc10fpsReady"
         end;
       def recommended_action:
-        if helper_screen_verdict != "pass" then "grant-helper-video-app-screen-recording-permission"
+        if helper_screen_verdict != "pass" then "run-screen-recording-watch"
         elif helper_synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif helper_sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif vnc_product_verdict != "pass" then "run-true-helper-video-live-capture-benchmark"
@@ -3701,7 +3701,7 @@ JSON
     .readinessGateSummary.schemaVersion == 1 and
     .readinessGateSummary.parentReadinessSchemaVersion == 2 and
     .readinessGateSummary.overallGateState == "blockedByHelperScreenCapture" and
-    .readinessGateSummary.recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
+    .readinessGateSummary.recommendedPrimaryAction == "run-screen-recording-watch" and
     (.readinessGateSummary.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     (.readinessGateSummary.primaryBlockedGateLabels | index("helper-video-screen-capture-gate-blocked")) and
     (.readinessGateSummary.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and

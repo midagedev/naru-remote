@@ -15,7 +15,7 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
             stimulusMode: .externalCommand
         )
 
-        XCTAssertEqual(report.schemaVersion, 6)
+        XCTAssertEqual(report.schemaVersion, 7)
         XCTAssertEqual(report.hostStatus, .configured)
         XCTAssertEqual(report.portStatus, .configured)
         XCTAssertEqual(report.credentialStatus, .environment)
@@ -189,7 +189,10 @@ final class BenchmarkLiveEnvironmentPreflightTests: XCTestCase {
         XCTAssertEqual(report.helperVideoExternalCapability.status, .permissionMissing)
         XCTAssertFalse(report.canRunLiveBenchmark)
         XCTAssertEqual(report.issueCodes, [.helperVideoPermissionMissing])
-        XCTAssertEqual(report.setupActionLabels, [.grantHelperVideoAppScreenRecordingPermission])
+        XCTAssertEqual(
+            report.setupActionLabels,
+            [.runScreenRecordingWatch, .grantHelperVideoAppScreenRecordingPermission]
+        )
     }
 
     func testExternalHelperScreenCaptureKitPermissionMissingForSwiftPMArtifactRoutesToStableHelperAction() {
