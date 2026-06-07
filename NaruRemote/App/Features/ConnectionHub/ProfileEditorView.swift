@@ -6,13 +6,16 @@ import SwiftUI
 public struct ProfileEditorCredentialUpdate: Equatable, Sendable {
     public var vncPassword: String?
     public var helperPairingSecret: String?
+    public var helperVideoPairingSecret: String?
 
     public init(
         vncPassword: String? = nil,
-        helperPairingSecret: String? = nil
+        helperPairingSecret: String? = nil,
+        helperVideoPairingSecret: String? = nil
     ) {
         self.vncPassword = vncPassword
         self.helperPairingSecret = helperPairingSecret
+        self.helperVideoPairingSecret = helperVideoPairingSecret
     }
 }
 
@@ -22,10 +25,12 @@ public struct ProfileEditorView: View {
     @State private var formState: ProfileEditorFormState
     @State private var password: String
     @State private var helperPairingSecret: String
+    @State private var helperVideoPairingSecret: String
     @State private var hostKind: ConnectionProfile.HostKind
     @State private var allowsPiPWatch: Bool
     @State private var replacePassword: Bool
     @State private var replaceHelperPairingSecret: Bool
+    @State private var replaceHelperVideoPairingSecret: Bool
     @State private var validationMessage: String?
 
     /// Bumped on every Save tap so the field-level captions appear
@@ -51,6 +56,7 @@ public struct ProfileEditorView: View {
     private let editingProfile: ConnectionProfile?
     private let hasExistingCredential: Bool
     private let hasExistingHelperPairingSecret: Bool
+    private let hasExistingHelperVideoPairingSecret: Bool
     private let onSave: (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     /// Reachability-check runner injected by the SwiftUI wiring.  In
     /// production the shell passes
@@ -67,6 +73,7 @@ public struct ProfileEditorView: View {
         case helperHost
         case helperPort
         case helperPairingSecret
+        case helperVideoPairingSecret
     }
 
     /// Add-mode initializer — fields start empty and the password
@@ -78,11 +85,13 @@ public struct ProfileEditorView: View {
         self.editingProfile = nil
         self.hasExistingCredential = false
         self.hasExistingHelperPairingSecret = false
+        self.hasExistingHelperVideoPairingSecret = false
         self.onSave = onSave
         self.onTest = onTest
         _formState = State(initialValue: ProfileEditorFormState())
         _password = State(initialValue: "")
         _helperPairingSecret = State(initialValue: "")
+        _helperVideoPairingSecret = State(initialValue: "")
         _hostKind = State(initialValue: .magicDNS)
         _allowsPiPWatch = State(initialValue: true)
         // In add mode the toggle is irrelevant; treat it as "on" so
@@ -90,6 +99,7 @@ public struct ProfileEditorView: View {
         // existing add-mode rule.
         _replacePassword = State(initialValue: true)
         _replaceHelperPairingSecret = State(initialValue: true)
+        _replaceHelperVideoPairingSecret = State(initialValue: true)
     }
 
     /// Edit-mode initializer — fields are pre-filled from the
@@ -112,6 +122,7 @@ public struct ProfileEditorView: View {
         self.editingProfile = profile
         self.hasExistingCredential = hasExistingCredential
         self.hasExistingHelperPairingSecret = profile.helperTextBridge?.pairingSecretRef != nil
+        self.hasExistingHelperVideoPairingSecret = profile.helperVideo?.pairingSecretRef != nil
         self.onSave = onSave
         self.onTest = onTest
         let helperConfig = profile.helperTextBridge
@@ -121,10 +132,12 @@ public struct ProfileEditorView: View {
             port: String(profile.port),
             helperTextBridgeEnabled: helperConfig?.isEnabled ?? false,
             helperHost: helperConfig?.host ?? "",
-            helperPort: String(helperConfig?.port ?? naruHelperTextBridgeDefaultPort)
+            helperPort: String(helperConfig?.port ?? naruHelperTextBridgeDefaultPort),
+            helperVideoEnabled: profile.helperVideo?.isEnabled ?? false
         ))
         _password = State(initialValue: "")
         _helperPairingSecret = State(initialValue: "")
+        _helperVideoPairingSecret = State(initialValue: "")
         _hostKind = State(initialValue: profile.hostKind)
         _allowsPiPWatch = State(initialValue: profile.allowsPiPWatch)
         // Default off when there is an existing credential — the
@@ -134,6 +147,7 @@ public struct ProfileEditorView: View {
         // password box.
         _replacePassword = State(initialValue: !hasExistingCredential)
         _replaceHelperPairingSecret = State(initialValue: profile.helperTextBridge?.pairingSecretRef == nil)
+        _replaceHelperVideoPairingSecret = State(initialValue: profile.helperVideo?.pairingSecretRef == nil)
     }
 
     public var body: some View {
@@ -233,6 +247,29 @@ public struct ProfileEditorView: View {
                                 .accessibilityIdentifier("naru.profile.editor.helper.token")
                         } else {
                             Text("Saved helper token kept")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Section("Helper video") {
+                    Toggle("Enable helper video", isOn: $formState.helperVideoEnabled)
+                        .accessibilityIdentifier("naru.profile.editor.helperVideo.enabled")
+
+                    if formState.helperVideoEnabled {
+                        if isEditing && hasExistingHelperVideoPairingSecret {
+                            Toggle("Replace helper video token", isOn: $replaceHelperVideoPairingSecret)
+                                .accessibilityIdentifier("naru.profile.editor.helperVideo.replaceToken")
+                        }
+
+                        if shouldShowHelperVideoPairingSecretField {
+                            SecureField(helperVideoPairingSecretPlaceholder, text: $helperVideoPairingSecret)
+                                .focused($focusedField, equals: .helperVideoPairingSecret)
+                                .textContentType(.oneTimeCode)
+                                .accessibilityIdentifier("naru.profile.editor.helperVideo.token")
+                        } else {
+                            Text("Saved helper video token kept")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -371,6 +408,19 @@ public struct ProfileEditorView: View {
         return replaceHelperPairingSecret
     }
 
+    private var shouldShowHelperVideoPairingSecretField: Bool {
+        guard formState.helperVideoEnabled else {
+            return false
+        }
+        if !isEditing {
+            return true
+        }
+        if !hasExistingHelperVideoPairingSecret {
+            return true
+        }
+        return replaceHelperVideoPairingSecret
+    }
+
     private var passwordPlaceholder: String {
         if isEditing && hasExistingCredential && replacePassword {
             return "New VNC password (empty to clear)"
@@ -383,6 +433,13 @@ public struct ProfileEditorView: View {
             return "New helper token"
         }
         return "Helper token"
+    }
+
+    private var helperVideoPairingSecretPlaceholder: String {
+        if isEditing && hasExistingHelperVideoPairingSecret && replaceHelperVideoPairingSecret {
+            return "New helper video token"
+        }
+        return "Helper video token"
     }
 
     /// The Test affordance only requires a non-empty host and a
@@ -486,6 +543,61 @@ public struct ProfileEditorView: View {
         )
     }
 
+    private func resolveHelperVideo(
+        profileID: ConnectionProfile.ID,
+        existingConfiguration: HelperVideoConnectionConfiguration?
+    ) throws -> (
+        configuration: HelperVideoConnectionConfiguration?,
+        pairingSecretUpdate: String?
+    ) {
+        if !formState.helperVideoEnabled {
+            guard let existingConfiguration else {
+                return (configuration: nil, pairingSecretUpdate: nil)
+            }
+            return (
+                configuration: HelperVideoConnectionConfiguration(
+                    isEnabled: false,
+                    isRevoked: false,
+                    pairingSecretRef: existingConfiguration.pairingSecretRef,
+                    pairingFingerprint: existingConfiguration.pairingFingerprint
+                ),
+                pairingSecretUpdate: nil
+            )
+        }
+
+        let trimmedSecret = helperVideoPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secretRef: String
+        let secretUpdate: String?
+        let fingerprint: String?
+
+        if isEditing && hasExistingHelperVideoPairingSecret && !replaceHelperVideoPairingSecret {
+            guard let existingRef = existingConfiguration?.pairingSecretRef else {
+                throw ProfileEditorValidationError.helperVideoTokenRequired
+            }
+            secretRef = existingRef
+            secretUpdate = nil
+            fingerprint = existingConfiguration?.pairingFingerprint
+        } else {
+            guard !trimmedSecret.isEmpty else {
+                throw ProfileEditorValidationError.helperVideoTokenRequired
+            }
+            secretRef = existingConfiguration?.pairingSecretRef
+                ?? Self.helperVideoPairingSecretReference(for: profileID)
+            secretUpdate = trimmedSecret
+            fingerprint = Self.pairingFingerprint(for: trimmedSecret)
+        }
+
+        return (
+            configuration: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                isRevoked: false,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: fingerprint
+            ),
+            pairingSecretUpdate: secretUpdate
+        )
+    }
+
     private func save() {
         saveAttemptCount += 1
         guard formState.isValid, let portValue = formState.parsedPort else {
@@ -501,6 +613,10 @@ public struct ProfileEditorView: View {
                 let helper = try resolveHelperTextBridge(
                     profileID: editingProfile.id,
                     existingConfiguration: editingProfile.helperTextBridge
+                )
+                let helperVideo = try resolveHelperVideo(
+                    profileID: editingProfile.id,
+                    existingConfiguration: editingProfile.helperVideo
                 )
 
                 if hasExistingCredential && !replacePassword {
@@ -531,13 +647,15 @@ public struct ProfileEditorView: View {
                     lastDiagnosticSummary: editingProfile.lastDiagnosticSummary,
                     hostKind: hostKind,
                     allowsPiPWatch: allowsPiPWatch,
-                    helperTextBridge: helper.configuration
+                    helperTextBridge: helper.configuration,
+                    helperVideo: helperVideo.configuration
                 )
                 onSave(
                     profile,
                     ProfileEditorCredentialUpdate(
                         vncPassword: resolvedPassword,
-                        helperPairingSecret: helper.pairingSecretUpdate
+                        helperPairingSecret: helper.pairingSecretUpdate,
+                        helperVideoPairingSecret: helperVideo.pairingSecretUpdate
                     )
                 )
                 dismiss()
@@ -549,6 +667,10 @@ public struct ProfileEditorView: View {
                 profileID: profileID,
                 existingConfiguration: nil
             )
+            let helperVideo = try resolveHelperVideo(
+                profileID: profileID,
+                existingConfiguration: nil
+            )
             let profile = try ConnectionProfile(
                 id: profileID,
                 displayName: formState.displayName,
@@ -557,13 +679,15 @@ public struct ProfileEditorView: View {
                 credentialRef: trimmedPassword.isEmpty ? nil : "vnc-password:\(profileID.uuidString)",
                 hostKind: hostKind,
                 allowsPiPWatch: allowsPiPWatch,
-                helperTextBridge: helper.configuration
+                helperTextBridge: helper.configuration,
+                helperVideo: helperVideo.configuration
             )
             onSave(
                 profile,
                 ProfileEditorCredentialUpdate(
                     vncPassword: trimmedPassword.isEmpty ? nil : trimmedPassword,
-                    helperPairingSecret: helper.pairingSecretUpdate
+                    helperPairingSecret: helper.pairingSecretUpdate,
+                    helperVideoPairingSecret: helperVideo.pairingSecretUpdate
                 )
             )
             dismiss()
@@ -576,6 +700,10 @@ public struct ProfileEditorView: View {
         "helper-token:\(profileID.uuidString)"
     }
 
+    private static func helperVideoPairingSecretReference(for profileID: ConnectionProfile.ID) -> String {
+        "helper-video-token:\(profileID.uuidString)"
+    }
+
     private static func pairingFingerprint(for secret: String) -> String {
         let digest = SHA256.hash(data: Data(secret.utf8))
         return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
@@ -585,6 +713,7 @@ public struct ProfileEditorView: View {
 private enum ProfileEditorValidationError: LocalizedError {
     case invalidHelperPort
     case helperTokenRequired
+    case helperVideoTokenRequired
 
     var errorDescription: String? {
         switch self {
@@ -592,6 +721,8 @@ private enum ProfileEditorValidationError: LocalizedError {
             "Helper port must be between 1 and 65535."
         case .helperTokenRequired:
             "Helper token is required when helper text bridge is enabled."
+        case .helperVideoTokenRequired:
+            "Helper video token is required when helper video is enabled."
         }
     }
 }

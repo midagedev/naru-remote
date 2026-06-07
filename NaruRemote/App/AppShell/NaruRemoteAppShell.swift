@@ -17,6 +17,11 @@ public struct NaruRemoteAppShell: View {
     /// that used to depend on it was removed when onboarding was
     /// reduced to a single empty-state CTA — spec FR-015).
     @State private var composeFieldFocused = false
+    /// Session id whose full-screen live layout has already been entered.
+    /// If the first frame arrives during a UIKit IME transaction, defer the
+    /// parent layout swap until focus leaves so the UITextView is not torn
+    /// down under the keyboard.
+    @State private var liveSessionLayoutSessionID: RemoteSession.ID?
     /// Build version label used in the diagnostic share-text header.
     /// The iOS app entry passes
     /// `Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")`;
@@ -91,6 +96,9 @@ public struct NaruRemoteAppShell: View {
         // derived purely from `profiles.isEmpty` — no persisted
         // dismissal flag.
         let isEmptyHome = snapshot.profiles.isEmpty
+        let currentSessionID = snapshot.session?.id
+        let usesLiveSessionLayout = isLiveSession
+            && (!composeFieldFocused || liveSessionLayoutSessionID == currentSessionID)
         let showsConnectionGrid = !isEmptyHome
             && !isLiveSession
             && !showsSelectedProfileDetail
@@ -148,7 +156,7 @@ public struct NaruRemoteAppShell: View {
                         onAddProfile: { showsProfileEditor = true }
                     )
                     .navigationBarBackButtonHidden(true)
-                } else if isLiveSession {
+                } else if usesLiveSessionLayout {
                     sessionViewport(fillsAvailableHeight: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .naruLiveSessionChromeHidden()
@@ -185,7 +193,7 @@ public struct NaruRemoteAppShell: View {
 
                         if let statusLine = RemoteInputDockStatusLineState(
                             snapshot: snapshot,
-                            isLiveSession: isLiveSession,
+                            isLiveSession: usesLiveSessionLayout,
                             isComposeFieldFocused: composeFieldFocused
                         ) {
                             RemoteInputDockStatusLine(text: statusLine.text)
@@ -194,7 +202,7 @@ public struct NaruRemoteAppShell: View {
                         RemoteInputDockEquatableHost(
                             state: RemoteInputDockRenderState(
                                 snapshot: snapshot,
-                                isLiveSession: isLiveSession,
+                                isLiveSession: usesLiveSessionLayout,
                                 isComposeFieldFocused: composeFieldFocused
                             ),
                             onSend: { model.sendComposedText($0) },
@@ -214,12 +222,35 @@ public struct NaruRemoteAppShell: View {
                             onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
                             onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
                             onComposeFocusChange: { focused in
+                                let focusedSessionID = model.snapshot.session?.id
+                                if focused,
+                                   isLiveSession,
+                                   let focusedSessionID {
+                                    liveSessionLayoutSessionID = focusedSessionID
+                                }
                                 composeFieldFocused = focused
+                                if !focused,
+                                   isLiveSession,
+                                   let focusedSessionID {
+                                    liveSessionLayoutSessionID = focusedSessionID
+                                }
                                 model.setComposeInputEditingActive(focused)
                             }
                         )
                         .equatable()
                     }
+                }
+            }
+            .onChange(of: currentSessionID) { _, newSessionID in
+                if liveSessionLayoutSessionID != newSessionID {
+                    liveSessionLayoutSessionID = nil
+                }
+            }
+            .onChange(of: isLiveSession) { _, isLive in
+                if !isLive {
+                    liveSessionLayoutSessionID = nil
+                } else if !composeFieldFocused, let currentSessionID {
+                    liveSessionLayoutSessionID = currentSessionID
                 }
             }
             // UX punch-list #107: the HUD badge collided with the
@@ -232,6 +263,17 @@ public struct NaruRemoteAppShell: View {
             // future revision lets the dock collapse, re-add an HUD
             // fallback gated on `dockBadgeIsVisible == false`.
             .background(NaruColors.canvas)
+            .overlay(alignment: .topLeading) {
+                if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
+                   snapshot.session?.hasReceivedFrame == true {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("First frame received")
+                        .accessibilityIdentifier("naru.test.session.firstFrameReceived")
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView(
@@ -247,7 +289,8 @@ public struct NaruRemoteAppShell: View {
                         await model.addProfile(
                             profile,
                             password: credentials.vncPassword,
-                            helperPairingSecret: credentials.helperPairingSecret
+                            helperPairingSecret: credentials.helperPairingSecret,
+                            helperVideoPairingSecret: credentials.helperVideoPairingSecret
                         )
                     }
                 }
@@ -269,7 +312,8 @@ public struct NaruRemoteAppShell: View {
                         await model.editProfile(
                             profile,
                             password: credentials.vncPassword,
-                            helperPairingSecret: credentials.helperPairingSecret
+                            helperPairingSecret: credentials.helperPairingSecret,
+                            helperVideoPairingSecret: credentials.helperVideoPairingSecret
                         )
                     }
                 }

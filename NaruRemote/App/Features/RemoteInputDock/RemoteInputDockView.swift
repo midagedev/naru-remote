@@ -538,7 +538,6 @@ public struct RemoteInputDockView: View {
 
     private func focusComposeEditor() {
         #if os(iOS) && canImport(UIKit)
-        updateComposeFocus(true)
         composeCommitController.focus()
         #endif
     }
