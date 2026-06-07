@@ -6104,6 +6104,55 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D141 Resolve CoreDevice IDs Before Physical iPhone Build Gates
+
+References:
+- `artifacts/benchmarks/2026-06-08-physical-device-id-resolution-summary.md`
+- T476 physical device id resolution preflight.
+
+**Decision**: physical-device preflight now accepts either an xcodebuild device
+UDID or the CoreDevice identifier shown by `xcrun devicectl list devices` in
+`NARU_PHYSICAL_IOS_DEVICE_ID`. When the environment value matches a CoreDevice
+identifier, the runner maps it through devicectl JSON to
+`hardwareProperties.udid` before invoking `xcodebuild -destination
+platform=iOS,id=...`. The exported report adds only the fixed label
+`deviceIDResolutionStatus` with values such as
+`environmentCoreDeviceIdentifierMapped`, `environmentXcodebuildUDID`, `auto`,
+or `environmentUnresolved`. `environmentUnresolved` is intentionally
+best-effort: the runner still passes the caller-provided id to xcodebuild
+because devicectl may be unavailable or incomplete while the id is valid for
+xcodebuild.
+
+**Why**:
+- During physical-device setup, `devicectl list devices` displayed a connected
+  iPhone with a CoreDevice identifier that differs from the xcodebuild
+  destination id. Supplying that visible identifier directly to xcodebuild
+  produced an avoidable "device not found" failure.
+- The physical iPhone loop is now the gating path for real Compose, zoom/pan,
+  thermal, and sustained stream feedback. The preflight should resolve
+  identifier ambiguity before reporting signing or provisioning blockers.
+- Fixed resolution labels are enough for debugging the gate state; raw device
+  identifiers and serials do not belong in benchmark JSON.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh physical-device-id-resolution-self-test`
+  passes.
+- Running `physical-device-preflight` with the visible CoreDevice identifier
+  reports `deviceDiscoveryStatus=connected`,
+  `deviceSelectionSource=environment`, and
+  `deviceIDResolutionStatus=environmentCoreDeviceIdentifierMapped`.
+- The current local residual blocker is signing setup, not device discovery:
+  `xcodeAccountStatus=missing`, `provisioningProfileStatus=missing`, and
+  `buildCheckStatus=failed`.
+
+**Privacy rule**: physical-device preflight may emit only fixed status,
+failure, and setup-action labels. It must not print or export physical device
+identifiers, serial numbers, host identity, credentials, ports, executable
+paths, command lines, raw xcodebuild logs, raw OS errors, draft text, marked
+text, IME state, keysyms, pointer coordinates, pixels, dimensions, byte counts,
+or raw timings.
+
 ### D136 Add A Remote Desktop 10fps Transport Cadence Drilldown
 
 References:

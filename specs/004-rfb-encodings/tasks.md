@@ -1586,6 +1586,16 @@ iPhone) and ships as its own PR.
   byte counts, raw timings, or physical device IDs. Owns: RemoteInputDock
   UIKit bridge, focused sync policy tests, UI-test evidence, and benchmark
   artifact. **Done.**
+- **T476** Physical device id resolution preflight: accept either the
+  xcodebuild device UDID or the CoreDevice identifier shown by `devicectl` for
+  `NARU_PHYSICAL_IOS_DEVICE_ID`, map CoreDevice identifiers to the xcodebuild
+  UDID before running the build check, and report only a fixed
+  `deviceIDResolutionStatus` label. This keeps physical iPhone gates
+  reproducible without printing device identifiers, serials, host identity,
+  credentials, ports, raw xcodebuild logs, command lines, draft text, marked
+  text, IME state, keysyms, pointer coordinates, pixels, dimensions, byte
+  counts, or raw timings. Owns: launchctl runner, self-test, research note, and
+  benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

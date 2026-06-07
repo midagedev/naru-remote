@@ -38,6 +38,7 @@ Modes:
   bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
   physical-team-inference-self-test Safe local regression for team inference labels.
+  physical-device-id-resolution-self-test Safe local regression for physical device id mapping labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
   request-screen-recording Run the selected helper's explicit permission request.
@@ -2202,7 +2203,7 @@ physical_unavailable_iphone_id_is_known() {
         [
           .result.devices[]?
           | select(
-            ((.hardwareProperties.udid // .identifier // "") == $device_id)
+            ((.hardwareProperties.udid // "") == $device_id or (.identifier // "") == $device_id)
             and (
               (.connectionProperties.tunnelState // "available") == "unavailable"
               or (.deviceProperties.ddiServicesAvailable // true) == false
@@ -2240,15 +2241,65 @@ physical_iphone_ids() {
   physical_iphone_ids_from_xctrace
 }
 
+physical_iphone_xcodebuild_id_from_devicectl_identifier() {
+  local requested_id="$1"
+  if [[ -z "$requested_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local resolved_id=""
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    resolved_id="$(
+      jq -r --arg requested_id "$requested_id" '
+        .result.devices[]?
+        | select(
+            ((.hardwareProperties.udid // "") == $requested_id)
+            or ((.identifier // "") == $requested_id)
+          )
+        | select((.connectionProperties.tunnelState // "available") != "unavailable")
+        | select((.deviceProperties.ddiServicesAvailable // true) != false)
+        | .hardwareProperties.udid // empty
+      ' "$output_file" | sed -n '/./{p;q;}'
+    )"
+  fi
+  rm -f "$output_file"
+  [[ -n "$resolved_id" ]] || return 1
+  printf '%s' "$resolved_id"
+}
+
 discover_physical_ios_device_id() {
+  PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="unknown"
+  PHYSICAL_DISCOVERED_IOS_DEVICE_ID=""
   if [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
+    local mapped_device_id
+    mapped_device_id="$(physical_iphone_xcodebuild_id_from_devicectl_identifier "$NARU_PHYSICAL_IOS_DEVICE_ID" || true)"
+    if [[ -n "$mapped_device_id" ]]; then
+      PHYSICAL_DISCOVERED_IOS_DEVICE_ID="$mapped_device_id"
+      printf '%s' "$mapped_device_id"
+      if [[ "$mapped_device_id" == "$NARU_PHYSICAL_IOS_DEVICE_ID" ]]; then
+        PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="environmentXcodebuildUDID"
+      else
+        PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="environmentCoreDeviceIdentifierMapped"
+      fi
+      return
+    fi
+    PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="environmentUnresolved"
+    # Best effort: devicectl may be unavailable or incomplete while the
+    # caller-provided id is still usable by xcodebuild.
+    PHYSICAL_DISCOVERED_IOS_DEVICE_ID="$NARU_PHYSICAL_IOS_DEVICE_ID"
     printf '%s' "$NARU_PHYSICAL_IOS_DEVICE_ID"
     return
   fi
 
   local ids
   ids="$(physical_iphone_ids || true)"
-  printf '%s\n' "$ids" | sed -n '/./{p;q;}'
+  PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="auto"
+  PHYSICAL_DISCOVERED_IOS_DEVICE_ID="$(printf '%s\n' "$ids" | sed -n '/./{p;q;}')"
+  printf '%s' "$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
 }
 
 physical_ios_device_id_is_iphone() {
@@ -2395,6 +2446,65 @@ physical_team_inference_self_test() {
   printf '{"schemaVersion":1,"mode":"physical-team-inference-self-test","status":"passed"}\n'
 }
 
+physical_device_id_resolution_self_test() {
+  reject_extra_args
+
+  local saved_device_id="${NARU_PHYSICAL_IOS_DEVICE_ID:-}"
+  local failure_code=""
+
+  physical_iphone_xcodebuild_id_from_devicectl_identifier() {
+    case "$1" in
+      CORE-DEVICE-ID) printf 'XCODEBUILD-UDID' ;;
+      XCODEBUILD-UDID) printf 'XCODEBUILD-UDID' ;;
+      *) return 1 ;;
+    esac
+  }
+  physical_iphone_ids() {
+    printf 'AUTO-XCODEBUILD-UDID\n'
+  }
+
+  export NARU_PHYSICAL_IOS_DEVICE_ID="CORE-DEVICE-ID"
+  PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="unknown"
+  discover_physical_ios_device_id >/dev/null
+  if [[ "$PHYSICAL_DISCOVERED_IOS_DEVICE_ID" != "XCODEBUILD-UDID" ||
+        "$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS" != "environmentCoreDeviceIdentifierMapped" ]]; then
+    failure_code="physicalDeviceIDResolution.coreDeviceMapping"
+  fi
+
+  export NARU_PHYSICAL_IOS_DEVICE_ID="XCODEBUILD-UDID"
+  PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="unknown"
+  discover_physical_ios_device_id >/dev/null
+  if [[ -z "$failure_code" &&
+        ( "$PHYSICAL_DISCOVERED_IOS_DEVICE_ID" != "XCODEBUILD-UDID" ||
+          "$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS" != "environmentXcodebuildUDID" ) ]]; then
+    failure_code="physicalDeviceIDResolution.xcodebuildDirect"
+  fi
+
+  unset NARU_PHYSICAL_IOS_DEVICE_ID
+  PHYSICAL_DEVICE_ID_RESOLUTION_STATUS="unknown"
+  discover_physical_ios_device_id >/dev/null
+  if [[ -z "$failure_code" &&
+        ( "$PHYSICAL_DISCOVERED_IOS_DEVICE_ID" != "AUTO-XCODEBUILD-UDID" ||
+          "$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS" != "auto" ) ]]; then
+    failure_code="physicalDeviceIDResolution.auto"
+  fi
+
+  if [[ -n "$saved_device_id" ]]; then
+    export NARU_PHYSICAL_IOS_DEVICE_ID="$saved_device_id"
+  else
+    unset NARU_PHYSICAL_IOS_DEVICE_ID
+  fi
+
+  if [[ -n "$failure_code" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-device-id-resolution-self-test","status":"failed","safeFailureCode":'
+    json_string "$failure_code"
+    printf '}\n'
+    exit 1
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-device-id-resolution-self-test","status":"passed"}\n'
+}
+
 physical_preflight_build_status() {
   local device_id="$1"
   local output_file="$2"
@@ -2430,13 +2540,16 @@ physical_preflight() {
   local unavailable_device_count
   local signing_identity_status
   local development_team_status
+  local device_id_resolution_status
   local build_check_status
   local provisioning_profile_status="unknown"
   local xcode_account_status="unknown"
 
   device_count="$(physical_iphone_device_count)"
   unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
-  device_id="$(discover_physical_ios_device_id)"
+  discover_physical_ios_device_id >/dev/null
+  device_id="$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
+  device_id_resolution_status="$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS"
   if [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
     device_selection_source="environment"
   elif [[ -n "$device_id" ]]; then
@@ -2530,6 +2643,7 @@ physical_preflight() {
   printf '  "mode": "physical-device-preflight",\n'
   printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
   printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
+  printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
   printf '  "codeSigningIdentityStatus": "%s",\n' "$signing_identity_status"
   printf '  "developmentTeamStatus": "%s",\n' "$development_team_status"
   printf '  "xcodeAccountStatus": "%s",\n' "$xcode_account_status"
@@ -3789,6 +3903,9 @@ case "$mode" in
     ;;
   physical-team-inference-self-test)
     physical_team_inference_self_test
+    ;;
+  physical-device-id-resolution-self-test)
+    physical_device_id_resolution_self_test
     ;;
   screen-recording-setup)
     reject_extra_args
