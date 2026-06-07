@@ -126,26 +126,24 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
                         pixelBuffer: first
                     )
 
-                    let replayedPixelBuffers = AsyncThrowingStream<CVPixelBuffer, any Error> {
-                        replayContinuation in
-                        let replayProducer = Task.detached(priority: .userInitiated) {
-                            do {
-                                nonisolated(unsafe) let transferableFirst = firstBox.pixelBuffer
-                                replayContinuation.yield(transferableFirst)
-                                while let next = try await iteratorBox.next() {
-                                    try Task.checkCancellation()
-                                    nonisolated(unsafe) let transferableNext = next
-                                    replayContinuation.yield(transferableNext)
-                                }
-                                replayContinuation.finish()
-                            } catch is CancellationError {
-                                replayContinuation.finish()
-                            } catch {
-                                replayContinuation.finish(throwing: error)
-                            }
+                    let replayedPixelBuffers: AsyncThrowingStream<CVPixelBuffer, any Error>
+                    if frameCount > 0 {
+                        replayedPixelBuffers = AsyncThrowingStream { replayContinuation in
+                            Self.startReplay(
+                                firstBox: firstBox,
+                                iteratorBox: iteratorBox,
+                                replayContinuation: replayContinuation
+                            )
                         }
-                        replayContinuation.onTermination = { _ in
-                            replayProducer.cancel()
+                    } else {
+                        replayedPixelBuffers = AsyncThrowingStream(
+                            bufferingPolicy: .bufferingNewest(1)
+                        ) { replayContinuation in
+                            Self.startReplay(
+                                firstBox: firstBox,
+                                iteratorBox: iteratorBox,
+                                replayContinuation: replayContinuation
+                            )
                         }
                     }
 
@@ -175,6 +173,32 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
             continuation.onTermination = { _ in
                 producer.cancel()
             }
+        }
+    }
+
+    private static func startReplay(
+        firstBox: LiveNaruHelperVideoScreenCaptureKitPixelBufferBox,
+        iteratorBox: LiveNaruHelperVideoScreenCaptureKitPixelBufferIteratorBox,
+        replayContinuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
+    ) {
+        let replayProducer = Task.detached(priority: .userInitiated) {
+            do {
+                nonisolated(unsafe) let transferableFirst = firstBox.pixelBuffer
+                replayContinuation.yield(transferableFirst)
+                while let next = try await iteratorBox.next() {
+                    try Task.checkCancellation()
+                    nonisolated(unsafe) let transferableNext = next
+                    replayContinuation.yield(transferableNext)
+                }
+                replayContinuation.finish()
+            } catch is CancellationError {
+                replayContinuation.finish()
+            } catch {
+                replayContinuation.finish(throwing: error)
+            }
+        }
+        replayContinuation.onTermination = { _ in
+            replayProducer.cancel()
         }
     }
 }

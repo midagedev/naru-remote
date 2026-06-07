@@ -78,9 +78,11 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
                 }
 
                 do {
-                    let frames = try pipeline.frameStream(forStartStreamFrame: header + payload)
+                    let openedStream = try pipeline.openFrameStream(
+                        forStartStreamFrame: header + payload
+                    )
                     Task.detached(priority: .userInitiated) {
-                        await send(frames, on: connection)
+                        await send(openedStream, on: connection)
                     }
                 } catch {
                     connection.cancel()
@@ -90,13 +92,25 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
     }
 
     private static func send(
-        _ frames: AsyncThrowingStream<Data, any Error>,
+        _ openedStream: NaruHelperVideoOpenedFrameStream,
         on connection: NWConnection
     ) async {
         do {
-            for try await frame in frames {
+            try await sendFrame(openedStream.responseFrame, on: connection)
+            guard openedStream.isAccepted else {
+                await complete(connection)
+                return
+            }
+
+            let accessUnitStream = try openedStream.makeAccessUnitStream()
+            var emittedAccessUnit = false
+            for try await accessUnit in accessUnitStream {
                 try Task.checkCancellation()
-                try await sendFrame(frame, on: connection)
+                emittedAccessUnit = true
+                try await sendFrame(openedStream.frame(for: accessUnit), on: connection)
+            }
+            if !emittedAccessUnit {
+                try await sendFrame(openedStream.stalledFrameForEmptyStream(), on: connection)
             }
             await complete(connection)
         } catch {

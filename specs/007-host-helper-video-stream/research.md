@@ -1868,3 +1868,62 @@ source/codec/readiness labels and aggregate counts only. They must not include
 display IDs, dimensions, pixel contents, byte counts, frame payloads, helper
 paths, endpoints, tokens, hostnames, exact timings, raw OS errors, Compose text,
 keysyms, or clipboard contents.
+
+## D50 - Backpressure helper-video at the sender and prefer fresh frames
+
+**Decision**: Treat sender-side backpressure as part of the helper-video
+transport contract, not an optimization detail. The helper pipeline now exposes
+an opened stream shape with a safe `startStream` response frame and a lazy
+access-unit stream factory. The TCP server sends the start response first,
+starts the access-unit source only for accepted streams, awaits each
+`NWConnection.send` completion before consuming the next access unit, and makes
+continuous raw synthetic/ScreenCaptureKit pixel-buffer streams use newest-one
+buffering under pressure while encoded H.264 access units preserve ordering.
+
+**Rationale**:
+- Physical feedback showed the product failure as low FPS, heat, delayed
+  gestures, and Compose freezes, not merely as missing frames. A source that
+  captures and encodes faster than the network can send turns bad connectivity
+  into local CPU/GPU/encoder pressure and stale-frame latency.
+- Remote desktop smoothness on a phone values fresh screen state and input
+  responsiveness more than preserving every intermediate framebuffer. When the
+  connection is slow, dropping old raw pixel buffers before encode is cheaper
+  and more useful than encoding a backlog the user will never want to see.
+- H.264 access units are not safe to drop with generic newest-one buffering:
+  parameter sets and keyframes carry decoder state. Coalescing therefore belongs
+  at the raw pixel-buffer boundary, before encode, and only for continuous live
+  streams rather than deterministic finite smoke batches.
+- Sending the safe start response before opening capture/encode work lets the
+  app learn auth/capability state without waiting for a heavy source startup
+  and prevents rejected starts from touching screen-capture work.
+- Awaiting `NWConnection.send` per access unit ties source consumption to the
+  actual outbound connection. This complements, rather than replaces, later
+  adaptive bitrate/frame-rate work.
+
+**Evidence**:
+- `NaruHelperVideoStreamFramePipelineTests/testOpenFrameStreamDefersAccessUnitSourceUntilStreamStarts`
+  proves opening a helper-video start response does not touch the access-unit
+  source until the stream is explicitly started.
+- `NaruHelperVideoStreamFramePipelineTests/testOpenRejectedFrameStreamNeverStartsAccessUnitSource`
+  proves auth-failed starts do not open capture/encoder sources.
+- `NaruHelperVideoStreamNetworkServiceTests` proves the TCP server/client path
+  still emits start responses, access units, sustained idle-timeout events, safe
+  stalls, and auth rejection after the backpressure split.
+- `swift test --filter HelperVideo` passes with 134 tests, 4 skips, and no
+  failures after the split.
+- The opt-in helper-video app-runner benchmark passes the network-backed
+  synthetic helper-video bootstrap and skips the ScreenCaptureKit app bootstrap
+  only because Screen Recording permission is not granted to the benchmark host.
+- `scripts/run-naru-live-benchmark.sh helper-sustained-synthetic-probe`
+  reports helper-video `verdict=pass`, `streamState=healthy`,
+  `sustainedUpdateBand=smooth`, and `readinessState=readyForPhysicalGate`.
+- `scripts/run-naru-live-benchmark.sh helper-readiness-sweep` reports synthetic
+  and sustained synthetic helper-video `pass`, while the true ScreenCaptureKit
+  probe remains `permissionBlocked` with recommended action
+  `grant-helper-video-app-screen-recording-permission`.
+
+**Privacy rule**: Backpressure diagnostics and tests may include only fixed
+source, stream, health, readiness, and pass/fail labels plus aggregate counts.
+They must not export helper endpoints, credentials, pairing material, frame
+payloads, pixels, display dimensions, byte counts, exact per-frame timings, raw
+TCP/OS errors, Compose text, keysyms, marked text, or clipboard contents.

@@ -93,6 +93,12 @@ Use `--video-frame-count N` only for bounded benchmark or smoke runs; `0` and
 client stream timeout is an idle timeout refreshed by each helper-video event,
 so a slow but still-producing stream should not be treated as failed merely
 because total session time exceeded the initial timeout value.
+The helper sender frames the authenticated start response before it opens the
+capture/encoder access-unit stream, then awaits each TCP send completion before
+consuming the next access unit. Continuous raw synthetic and ScreenCaptureKit
+pixel-buffer streams coalesce to the newest frame under pressure, while encoded
+H.264 access units keep their order so parameter sets and keyframes are not
+dropped.
 
 `--video-capability` emits only fixed catalog labels such as
 `permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.
@@ -297,8 +303,10 @@ swift test --filter HelperVideoH264SampleBufferRendererTests/testHelperPipelineA
 The helper-side pipeline accepts an authenticated `startStream` frame, emits a
 safe `startStream` response, then emits length-prefixed `videoAccessUnit`
 frames with binary payload outside JSON. If an accepted stream has no access
-units, it emits a safe `streamStalled` frame for VNC fallback. It is still a
-testable frame pipeline, not a live ScreenCaptureKit/VideoToolbox sender.
+units, it emits a safe `streamStalled` frame for VNC fallback. The
+`openFrameStream` path defers access-unit source startup until the caller is
+ready to send access units, so rejected/auth-failed starts do not touch capture
+or encoder work.
 
 ## Implemented Helper Video TCP Harness
 
@@ -307,12 +315,11 @@ swift test --filter NaruHelperVideoStreamNetworkService
 swift test --filter NaruHelperVideoListenRuntimeTests
 ```
 
-The prototype TCP harness connects the helper-side frame pipeline to an
-`NWListener` and a finite `HelperVideoStreamNetworkClient` batch reader. It is
-for local integration and benchmark bring-up: it sends authenticated
-`startStream` requests, receives safe start responses, drains access-unit or
-stall frames, and closes the connection after the finite batch. It is not yet
-the long-lived live ScreenCaptureKit/VideoToolbox sender.
+The TCP harness connects the helper-side frame pipeline to an `NWListener` and
+supports both finite smoke reads and long-lived event streams. It sends an
+authenticated `startStream` request, receives a safe start response, drains
+access-unit or stall frames, and applies server-side send backpressure so the
+source cannot race far ahead of the network connection.
 
 ## Implemented Helper Video Listen Entrypoint
 
