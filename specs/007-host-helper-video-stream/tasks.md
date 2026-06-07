@@ -290,6 +290,13 @@ without unsafe report fields.
   triaged as UI-executor stalls versus network/decode/input queue pressure
   without exporting exact timings, endpoints, framebuffer data, coordinates,
   keysyms, or text. **Done.**
+- [x] T031A [US2] Add an opt-in
+  `helper-screen-app-bootstrap-benchmark` launchctl runner and benchmark smoke
+  that routes finite ScreenCaptureKit access units through helper TCP framing,
+  app-model helper-video bootstrap, and the H.264 sample-buffer factory while
+  emitting only fixed JSON labels. Current local run reports `skipped` because
+  the benchmark host still needs Screen Recording/capture setup, so this is a
+  readiness gate for T031 rather than T031 completion. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

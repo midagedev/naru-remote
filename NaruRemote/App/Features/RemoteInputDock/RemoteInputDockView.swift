@@ -15,12 +15,15 @@ public struct RemoteInputDockView: View {
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
     nonisolated static let composeSendStabilizationSnapshotCount = 30
     nonisolated static let composeSendStabilizationDelayNanoseconds: UInt64 = 16_000_000
+    nonisolated static let composeTextPropagationDebounceNanoseconds: UInt64 = 120_000_000
 
     @State private var text: String
     @State private var lastAppliedInitialText: String
     @State private var lastPropagatedComposeText: String
+    @State private var pendingComposeTextPropagation: PendingComposeTextPropagation?
+    @State private var composeTextPropagationSequence = 0
     #if os(iOS) && canImport(UIKit)
-    @StateObject private var composeCommitController = ComposeTextCommitController()
+    @State private var composeCommitController = ComposeTextCommitController()
     @State private var isPreparingComposeSend = false
     @State private var composeSendNeedsMarkedCommitStabilization = false
     #endif
@@ -114,6 +117,7 @@ public struct RemoteInputDockView: View {
             guard shouldApplyExternalComposeText(newValue) else {
                 return
             }
+            cancelPendingComposeTextPropagation()
             lastAppliedInitialText = newValue
             guard text != newValue else {
                 return
@@ -122,7 +126,10 @@ public struct RemoteInputDockView: View {
             text = newValue
         }
         .onChange(of: text) { _, newValue in
-            propagateComposeTextToModelIfNeeded(newValue)
+            scheduleComposeTextPropagationIfNeeded(newValue)
+        }
+        .task(id: pendingComposeTextPropagation) {
+            await runPendingComposeTextPropagation()
         }
         .onChange(of: composeFieldFocused) { _, newValue in
             // Only meaningful when Compose is the visible mode —
@@ -138,9 +145,13 @@ public struct RemoteInputDockView: View {
             // explicitly clear the focus signal so the app shell
             // can restore the full checklist.
             if isDirect {
+                cancelPendingComposeTextPropagation()
                 composeFieldFocused = false
                 onComposeFocusChange(false)
             }
+        }
+        .onDisappear {
+            cancelPendingComposeTextPropagation()
         }
         // FR-009 — first-entry warning dialog attached at the dock
         // level so the alert chrome sits over the dock and feels
@@ -477,6 +488,9 @@ public struct RemoteInputDockView: View {
 
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
+        if !focused {
+            flushComposeTextToModelIfNeeded(currentComposeTextSnapshot())
+        }
     }
 
     private var isComposeSendDisabled: Bool {
@@ -513,7 +527,7 @@ public struct RemoteInputDockView: View {
         if text != committedText {
             text = committedText
         }
-        propagateComposeTextToModelIfNeeded(committedText)
+        scheduleComposeTextPropagationIfNeeded(committedText)
     }
 
     private func focusComposeEditor() {
@@ -532,7 +546,7 @@ public struct RemoteInputDockView: View {
         if immediateText != text {
             text = immediateText
         }
-        propagateComposeTextToModelIfNeeded(immediateText)
+        flushComposeTextToModelIfNeeded(immediateText)
         Task { @MainActor in
             let plan = Self.composeSendPreparationPlan(
                 hadMarkedTextBeforeSend: hadMarkedTextBeforeSend,
@@ -555,7 +569,7 @@ public struct RemoteInputDockView: View {
             if finalText != text {
                 text = finalText
             }
-            propagateComposeTextToModelIfNeeded(finalText)
+            flushComposeTextToModelIfNeeded(finalText)
             onComposeSendPreparation(preparationReport)
             composeSendNeedsMarkedCommitStabilization = false
             isPreparingComposeSend = false
@@ -634,12 +648,57 @@ public struct RemoteInputDockView: View {
         )
     }
 
-    private func propagateComposeTextToModelIfNeeded(_ newValue: String) {
+    private func currentComposeTextSnapshot() -> String {
+        #if os(iOS) && canImport(UIKit)
+        composeCommitController.readCurrentText(fallback: text)
+        #else
+        text
+        #endif
+    }
+
+    private func scheduleComposeTextPropagationIfNeeded(_ newValue: String) {
+        guard shouldPropagateLocalComposeTextToModel(newValue) else {
+            return
+        }
+        // Keep UIKit's IME loop local; AppModel only sees the latest idle snapshot.
+        composeTextPropagationSequence &+= 1
+        pendingComposeTextPropagation = PendingComposeTextPropagation(
+            sequence: composeTextPropagationSequence,
+            text: newValue
+        )
+    }
+
+    private func runPendingComposeTextPropagation() async {
+        guard let pendingComposeTextPropagation else {
+            return
+        }
+        do {
+            try await Task.sleep(nanoseconds: Self.composeTextPropagationDebounceNanoseconds)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else {
+            return
+        }
+        flushComposeTextToModelIfNeeded(pendingComposeTextPropagation.text)
+    }
+
+    private func flushComposeTextToModelIfNeeded(_ newValue: String) {
+        cancelPendingComposeTextPropagation()
         guard shouldPropagateLocalComposeTextToModel(newValue) else {
             return
         }
         lastPropagatedComposeText = newValue
         onTextChange(newValue)
+    }
+
+    private func cancelPendingComposeTextPropagation() {
+        pendingComposeTextPropagation = nil
+    }
+
+    private struct PendingComposeTextPropagation: Equatable {
+        let sequence: Int
+        let text: String
     }
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
@@ -916,13 +975,13 @@ private struct ComposeTextEditingView: View {
 
 #if os(iOS) && canImport(UIKit)
 @MainActor
-final class ComposeTextCommitController: ObservableObject {
+final class ComposeTextCommitController {
     private weak var textView: UITextView?
-    @Published private(set) var currentText: String = ""
+    private(set) var currentText: String = ""
 
     func attach(_ textView: UITextView) {
         self.textView = textView
-        currentText = textView.text ?? ""
+        updateCurrentTextSnapshot(textView.text ?? "")
     }
 
     func focus() {
@@ -930,7 +989,11 @@ final class ComposeTextCommitController: ObservableObject {
     }
 
     func updateCurrentText(from textView: UITextView) {
-        currentText = textView.text ?? ""
+        updateCurrentTextSnapshot(textView.text ?? "")
+    }
+
+    internal func updateCurrentTextSnapshot(_ text: String) {
+        currentText = text
     }
 
     var hasMarkedText: Bool {

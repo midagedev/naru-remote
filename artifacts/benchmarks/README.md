@@ -294,6 +294,14 @@ privacy-safe JSON object. The current live run confirms that VNC is still a
 p95 update, `receivePath` primary constraint), while external synthetic
 helper-video passes and true ScreenCaptureKit helper-video remains blocked by
 missing Screen Recording permission for the helper app bundle.
+Current helper ScreenCaptureKit app-bootstrap benchmark artifact:
+`artifacts/benchmarks/2026-06-07-helper-screen-app-bootstrap-benchmark-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+to run the opt-in ScreenCaptureKit access-unit path through helper TCP framing,
+app-model helper-video bootstrap, and the H.264 sample-buffer factory while
+emitting only fixed JSON labels. The first local run returns `skipped` with
+`screen-capturekit-app-bootstrap-skipped`, so it proves the gate is runnable
+but not yet that true ScreenCaptureKit frames pass the app decode path.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps

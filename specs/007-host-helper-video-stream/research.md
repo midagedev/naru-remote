@@ -1222,3 +1222,40 @@ responsiveness sample count plus average/max delay buckets in
   same wake delay with less concurrency risk.
 - Infer UI freezes only from app-frame apply timing: rejected because frame
   publication can be healthy while gesture/keyboard scheduling is still starved.
+
+## D37 - Gate ScreenCaptureKit app bootstrap separately from VNC readiness
+
+**Decision**: Add a fixed
+`helper-screen-app-bootstrap-benchmark` runner that exercises finite
+ScreenCaptureKit access units through helper TCP framing, app-model
+helper-video bootstrap, and the H.264 sample-buffer factory without requiring a
+live VNC target or printing raw XCTest output.
+
+**Rationale**:
+- `remote-desktop-10fps-readiness` already proves the VNC 10fps gate and
+  helper probe readiness, but it does not prove that captured helper access
+  units can pass through the app model visual-transport bootstrap and sample
+  buffer creation path.
+- The app-runner XCTest path already proves synthetic helper access units
+  through the app bootstrap. Extending it to ScreenCaptureKit keeps the
+  remaining T031 risk focused on capture permission/setup and real device
+  playback, not on app-model wiring.
+- The runner converts XCTest pass/skip/fail into fixed JSON labels so
+  permission or capture setup blockers can be collected without exporting
+  frame content, dimensions, endpoints, helper paths, raw logs, byte counts, or
+  exact timings.
+
+**Evidence**:
+- `swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke`
+  compiles and skips by default when opt-in benchmark env is absent.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  emits schema `1` JSON and validates with `jq empty`.
+- The first local run reports `status=skipped` with fixed
+  `screen-capturekit-app-bootstrap-skipped`, which means the benchmark host
+  still needs Screen Recording/capture setup before this can become T031 pass
+  evidence.
+
+**Privacy rule**: the runner must emit only fixed mode/source/path/status
+labels, fixed issue/action labels, and small configured counts. It must not
+emit raw XCTest output, frame payloads, pixels, dimensions, endpoints, helper
+paths, device IDs, credentials, byte counts, raw OS errors, or exact timings.
