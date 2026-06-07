@@ -4506,12 +4506,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await waitForHelperInsertRequests(helper, count: 1)
 
         XCTAssertEqual(helper.insertedTexts, ["status"])
+        XCTAssertEqual(helper.requests.first?.strategyPreferences, [.nativeInsert])
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
         XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .ascii)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
 
         model.updateComposeDraftText("한글과 English 😊")
@@ -4529,12 +4531,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await waitForHelperInsertRequests(helper, count: 2)
 
         XCTAssertEqual(helper.insertedTexts, ["status", "한글과 English 😊"])
+        XCTAssertEqual(helper.requests.last?.strategyPreferences, [.nativeInsert])
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
         XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
     }
 
@@ -4630,9 +4634,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(helper.requests.count, 1)
         XCTAssertEqual(helper.requests.first?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(helper.requests.first?.payloadSizeBucket, .small)
+        XCTAssertEqual(helper.requests.first?.strategyPreferences, [.nativeInsert])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
         XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .notAttempted)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
@@ -4653,6 +4659,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(report.input?.latestInjectionPath, TextInjectionPath.helperTextBridge.rawValue)
         XCTAssertEqual(report.input?.latestInjectionStatus, TextInjectionStatus.sent.rawValue)
+        XCTAssertEqual(report.input?.latestInjectionHelperStrategy, HelperTextInsertStrategy.nativeInsert.rawValue)
         XCTAssertEqual(
             report.input?.composeDraftPayloadEncoding,
             TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
@@ -4680,11 +4687,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
                     availability: .reachable,
                     permissionState: NaruHelperPermissionState(
                         accessibility: "granted",
+                        accessibilityValueInsert: "granted",
+                        unicodeKeyboardEvent: "granted",
                         inputMonitoring: "notRequired",
                         pasteboardFallback: "available",
                         activeUserSession: "available"
                     ),
-                    supportedStrategies: [.pasteboardPasteWithRestore]
+                    supportedStrategies: [.nativeInsert, .pasteboardPasteWithRestore]
                 )
             },
             insertHandler: { request in
@@ -4692,7 +4701,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 return NaruHelperInsertTextResponse(
                     requestID: request.requestID,
                     status: .sent,
-                    strategyUsed: .pasteboardPasteWithRestore
+                    strategyUsed: .nativeInsert
                 )
             }
         )
@@ -4737,8 +4746,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(recorder.insertedTexts, ["한글과 English 😊"])
         XCTAssertEqual(recorder.requests.first?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(recorder.requests.first?.strategyPreference, [.nativeInsert])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .reachable)
         XCTAssertEqual(

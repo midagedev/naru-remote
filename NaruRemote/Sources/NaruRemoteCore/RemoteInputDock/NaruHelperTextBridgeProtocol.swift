@@ -94,7 +94,7 @@ public struct NaruHelperInsertTextRequest: Codable, Equatable, Sendable {
         requestID: UUID,
         payloadEncoding: TextInjectionPayloadEncoding,
         payloadSizeBucket: HelperTextPayloadSizeBucket,
-        strategyPreference: [HelperTextInsertStrategy] = [.nativeInsert, .pasteboardPasteWithRestore],
+        strategyPreference: [HelperTextInsertStrategy] = [.nativeInsert],
         text: String
     ) {
         self.schemaVersion = schemaVersion

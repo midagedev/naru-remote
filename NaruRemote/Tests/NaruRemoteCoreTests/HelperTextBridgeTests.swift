@@ -32,6 +32,7 @@ final class HelperTextBridgeTests: XCTestCase {
         let json = String(decoding: data, as: UTF8.self)
 
         XCTAssertTrue(json.contains(requestID.uuidString.uppercased()) || json.contains(requestID.uuidString.lowercased()))
+        XCTAssertEqual(metadata.strategyPreferences, [.nativeInsert])
         XCTAssertFalse(json.contains("text"))
         XCTAssertFalse(json.contains("한글"))
         XCTAssertFalse(json.contains("emoji"))
