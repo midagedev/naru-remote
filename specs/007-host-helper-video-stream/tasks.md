@@ -425,6 +425,15 @@ without unsafe report fields.
   health, or profile availability. This gives the video path an explicit
   lifecycle boundary from UI/input state while reproducing the stale-callback
   failure as an app-model regression test. **Done.**
+- [x] T031S [US2] Rerun the product-level 10fps readiness gate after the
+  focused Compose hot-path fix and stale helper-video lifecycle guard. Current
+  live evidence still shows VNC failing the 10fps product gate from
+  first-byte-wait-dominated receive cadence while helper-video synthetic and
+  sustained synthetic H.264 pass. True ScreenCaptureKit helper-video remains
+  blocked by macOS Screen Recording permission for the helper app bundle; the
+  next required action is grant permission, quit/relaunch helper, rerun
+  `screen-recording-watch`, then run the true helper-video live capture gate.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
