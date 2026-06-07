@@ -332,6 +332,9 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             // advisory. Keep the UITextView identity stable even when a
             // previous send status is cleared or a later send status arrives;
             // otherwise Korean/CJK IME can lose its next-key input chain.
+            // This intentionally ignores status text, helper text, layout
+            // style, quick-key visibility, and modifier-state changes until
+            // focus leaves; those belong to sibling chrome, not the hot editor.
             return true
         }
 

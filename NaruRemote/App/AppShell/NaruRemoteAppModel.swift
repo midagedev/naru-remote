@@ -1569,6 +1569,9 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         var profileToSave = profile
         if profileToSave.helperVideo == nil {
+            // The current profile editor does not own helper-video
+            // disable/revoke controls. Preserve that opt-in unless a dedicated
+            // helper-video path changes it.
             profileToSave.helperVideo = existingProfile.helperVideo
         }
 
