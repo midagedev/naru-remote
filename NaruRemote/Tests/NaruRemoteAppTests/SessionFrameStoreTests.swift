@@ -12,7 +12,7 @@ final class SessionFrameStoreTests: XCTestCase {
         )
     }
 
-    func testInputEditingDeliveryCoalescingUsesKeyboardFriendlyCadence() {
+    func testInteractiveInputDeliveryCoalescingUsesInputFriendlyCadence() {
         let store = SessionFrameStore()
 
         XCTAssertEqual(
@@ -20,7 +20,7 @@ final class SessionFrameStoreTests: XCTestCase {
             .milliseconds(16)
         )
 
-        store.setDeliveryPriority(.inputEditing)
+        store.setDeliveryPriority(.interactiveInput)
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
@@ -140,7 +140,7 @@ final class SessionFrameStoreTests: XCTestCase {
         withExtendedLifetime(frameCancellable) {}
     }
 
-    func testLeavingInputEditingFlushesLatestPendingFrameImmediately() {
+    func testLeavingInteractiveInputFlushesLatestPendingFrameImmediately() {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
         let frameCancellable = store.framePublisher.sink { state in
@@ -160,7 +160,7 @@ final class SessionFrameStoreTests: XCTestCase {
         store.flushPendingFrameDeliveryForTesting()
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
 
-        store.setDeliveryPriority(.inputEditing)
+        store.setDeliveryPriority(.interactiveInput)
         store.publish(
             framebuffer: RFBRawFramebuffer(
                 width: 2,
@@ -189,13 +189,13 @@ final class SessionFrameStoreTests: XCTestCase {
         XCTAssertEqual(
             frameEvents.map(\.framebuffer?.pixels.first?.red),
             [1, 3],
-            "Leaving Compose focus should flush the newest pending frame without replaying stale video frames."
+            "Leaving interactive input should flush the newest pending frame without replaying stale video frames."
         )
 
         withExtendedLifetime(frameCancellable) {}
     }
 
-    func testEnteringInputEditingReschedulesPendingSteadyFrameToKeyboardCadence() {
+    func testEnteringInteractiveInputReschedulesPendingSteadyFrameToInputCadence() {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
         let frameCancellable = store.framePublisher.sink { state in
@@ -230,12 +230,12 @@ final class SessionFrameStoreTests: XCTestCase {
             .milliseconds(16)
         )
 
-        store.setDeliveryPriority(.inputEditing)
+        store.setDeliveryPriority(.interactiveInput)
 
         XCTAssertEqual(
             store.pendingFrameDeliveryCoalescingDelayForTesting,
             .milliseconds(50),
-            "Entering Compose focus should move already pending steady frames to the input-friendly cadence."
+            "Entering interactive input should move already pending steady frames to the input-friendly cadence."
         )
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
 
