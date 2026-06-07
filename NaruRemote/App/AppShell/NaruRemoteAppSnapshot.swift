@@ -540,7 +540,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         latestFrameCapturedAt = frame.capturedAt
         recordReceiveTiming(frame.timing)
-        recordAppFrameApplyTiming(appFrameApplyMilliseconds)
+        recordAppFrameApplyTimingSample(appFrameApplyMilliseconds)
         actualEncodingMix = actualEncodingMix.adding(frame.encodingMix)
 
         if frame.transportIdleTimedOut {
@@ -583,7 +583,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     }
 
     public mutating func recordAppFrameApplyTiming(milliseconds: Int) {
-        recordAppFrameApplyTiming(milliseconds)
+        recordAppFrameApplyTimingSample(milliseconds)
     }
 
     mutating func recordPacingDecision(_ decision: SessionStreamPacingDecision) {
@@ -687,7 +687,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
     }
 
-    private mutating func recordAppFrameApplyTiming(_ milliseconds: Int?) {
+    private mutating func recordAppFrameApplyTimingSample(_ milliseconds: Int?) {
         guard let milliseconds else {
             return
         }
