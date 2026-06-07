@@ -3,6 +3,146 @@ import NaruHelperKit
 import NaruRemoteCore
 
 final class NaruHelperPasteboardTextInserterTests: XCTestCase {
+    func testUnicodeEventChunkerPreservesSurrogatePairsAtChunkBoundaries() throws {
+        let chunks = try XCTUnwrap(NaruHelperUnicodeEventChunker.chunks(
+            for: "ab😊cd",
+            maxUTF16UnitsPerEvent: 3,
+            maxUTF16UnitsPerRequest: 64
+        ))
+
+        XCTAssertEqual(chunks.map(\.count), [2, 3, 1])
+        XCTAssertEqual(String(decoding: chunks.flatMap { $0 }, as: UTF16.self), "ab😊cd")
+        for chunk in chunks {
+            XCTAssertFalse(isHighSurrogate(chunk.last))
+            XCTAssertFalse(isLowSurrogate(chunk.first))
+        }
+    }
+
+    func testUnicodeEventChunkerRejectsOversizedRequest() throws {
+        let chunks = NaruHelperUnicodeEventChunker.chunks(
+            for: "abcdef",
+            maxUTF16UnitsPerEvent: 3,
+            maxUTF16UnitsPerRequest: 5
+        )
+
+        XCTAssertNil(chunks)
+    }
+
+    func testNativeInsertRunsBeforePasteboardFallbackAndDoesNotTouchPasteboard() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard")
+        let poster = FakePasteCommandPoster()
+        let native = FakeNativeTextInserter()
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster,
+            nativeTextInserter: native
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.requestID, request.requestID)
+        XCTAssertEqual(response.status, .sent)
+        XCTAssertEqual(response.strategyUsed, .nativeInsert)
+        XCTAssertEqual(response.safeFailureCode, .none)
+        XCTAssertEqual(native.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(pasteboard.stagedStrings, [])
+        XCTAssertEqual(pasteboard.restoreCount, 0)
+        XCTAssertEqual(poster.postCount, 0)
+        XCTAssertEqual(pasteboard.currentString, "previous clipboard")
+    }
+
+    func testNativeInsertFailureFallsBackToPasteboardWhenRequested() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard")
+        let poster = FakePasteCommandPoster()
+        let native = FakeNativeTextInserter(error: .focusUnavailable)
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster,
+            nativeTextInserter: native
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .sent)
+        XCTAssertEqual(response.strategyUsed, .pasteboardPasteWithRestore)
+        XCTAssertEqual(response.safeFailureCode, .none)
+        XCTAssertEqual(native.insertedTexts, [])
+        XCTAssertEqual(pasteboard.stagedStrings, ["한글과 English 😊"])
+        XCTAssertEqual(pasteboard.currentString, "previous clipboard")
+        XCTAssertEqual(poster.postCount, 1)
+    }
+
+    func testNativeInserterChainUsesSecondNativeStrategyBeforePasteboardFallback() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard")
+        let poster = FakePasteCommandPoster()
+        let firstNative = FakeNativeTextInserter(error: .focusUnavailable)
+        let secondNative = FakeNativeTextInserter()
+        let nativeChain = NaruHelperNativeTextInserterChain([firstNative, secondNative])
+        let request = try makeRequest(text: "한글과 English 😊")
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster,
+            nativeTextInserter: nativeChain
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .sent)
+        XCTAssertEqual(response.strategyUsed, .nativeInsert)
+        XCTAssertEqual(secondNative.insertedTexts, ["한글과 English 😊"])
+        XCTAssertEqual(pasteboard.stagedStrings, [])
+        XCTAssertEqual(poster.postCount, 0)
+        XCTAssertEqual(pasteboard.currentString, "previous clipboard")
+    }
+
+    func testNativeOnlyRequestReportsNativeFailureWithoutTouchingPasteboard() throws {
+        let pasteboard = FakePasteboard(initialString: "previous clipboard")
+        let poster = FakePasteCommandPoster()
+        let native = FakeNativeTextInserter(error: .focusUnavailable)
+        let request = try makeRequest(
+            text: "한글과 English 😊",
+            strategyPreference: [.nativeInsert]
+        )
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster,
+            nativeTextInserter: native
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.strategyUsed, .nativeInsert)
+        XCTAssertEqual(response.safeFailureCode, .focusUnavailable)
+        XCTAssertEqual(pasteboard.stagedStrings, [])
+        XCTAssertEqual(pasteboard.restoreCount, 0)
+        XCTAssertEqual(poster.postCount, 0)
+        XCTAssertEqual(pasteboard.currentString, "previous clipboard")
+    }
+
+    func testNativeOnlyRequestFailsWhenNativeInserterIsUnavailable() throws {
+        let pasteboard = FakePasteboard(initialString: nil)
+        let poster = FakePasteCommandPoster()
+        let request = try makeRequest(
+            text: "한글과 English 😊",
+            strategyPreference: [.nativeInsert]
+        )
+        let inserter = NaruHelperPasteboardTextInserter(
+            pasteboard: pasteboard,
+            pasteCommandPoster: poster
+        )
+
+        let response = inserter.insertText(request: request)
+
+        XCTAssertEqual(response.status, .failed)
+        XCTAssertEqual(response.strategyUsed, .nativeInsert)
+        XCTAssertEqual(response.safeFailureCode, .insertRejected)
+        XCTAssertEqual(pasteboard.stagedStrings, [])
+        XCTAssertEqual(poster.postCount, 0)
+    }
+
     func testPasteboardFallbackStagesTextPostsPasteAndRestoresPreviousText() throws {
         let pasteboard = FakePasteboard(initialString: "previous clipboard")
         let poster = FakePasteCommandPoster()
@@ -145,27 +285,6 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
         XCTAssertEqual(poster.postCount, 1)
     }
 
-    func testNativeOnlyRequestFailsUntilNativeInsertIsImplemented() throws {
-        let pasteboard = FakePasteboard(initialString: nil)
-        let poster = FakePasteCommandPoster()
-        let request = try makeRequest(
-            text: "한글과 English 😊",
-            strategyPreference: [.nativeInsert]
-        )
-        let inserter = NaruHelperPasteboardTextInserter(
-            pasteboard: pasteboard,
-            pasteCommandPoster: poster
-        )
-
-        let response = inserter.insertText(request: request)
-
-        XCTAssertEqual(response.status, .failed)
-        XCTAssertEqual(response.strategyUsed, .unsupported)
-        XCTAssertEqual(response.safeFailureCode, .insertRejected)
-        XCTAssertEqual(pasteboard.stagedStrings, [])
-        XCTAssertEqual(poster.postCount, 0)
-    }
-
     private func makeRequest(
         text: String,
         strategyPreference: [HelperTextInsertStrategy] = [.nativeInsert, .pasteboardPasteWithRestore]
@@ -177,6 +296,37 @@ final class NaruHelperPasteboardTextInserterTests: XCTestCase {
             strategyPreference: strategyPreference,
             text: text
         )
+    }
+}
+
+private func isHighSurrogate(_ value: UInt16?) -> Bool {
+    guard let value else { return false }
+    return (0xD800...0xDBFF).contains(value)
+}
+
+private func isLowSurrogate(_ value: UInt16?) -> Bool {
+    guard let value else { return false }
+    return (0xDC00...0xDFFF).contains(value)
+}
+
+private final class FakeNativeTextInserter: NaruHelperNativeTextInserting {
+    private(set) var insertedTexts: [String] = []
+    var canInsertTextDirectly: Bool
+    private let error: NaruHelperNativeTextInsertOperationError?
+
+    init(
+        canInsertTextDirectly: Bool = true,
+        error: NaruHelperNativeTextInsertOperationError? = nil
+    ) {
+        self.canInsertTextDirectly = canInsertTextDirectly
+        self.error = error
+    }
+
+    func insertTextDirectly(_ text: String) throws {
+        if let error {
+            throw error
+        }
+        insertedTexts.append(text)
     }
 }
 

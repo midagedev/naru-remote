@@ -62,26 +62,19 @@ private enum NaruHelperCLI {
 
     private static func capabilityResponse() -> NaruHelperCapabilityResponse {
         #if os(macOS)
+        let nativeInserter = MacNativeTextInserter.live()
         let poster = MacPasteCommandPoster()
-        let availability: HelperTextBridgeAvailability = poster.canPostPasteCommand
-            ? .reachable
-            : .permissionMissing
-        let accessibility = poster.canPostPasteCommand ? "granted" : "missing"
-        #else
-        let availability: HelperTextBridgeAvailability = .versionUnsupported
-        let accessibility = "unsupported"
-        #endif
-
-        return NaruHelperCapabilityResponse(
-            availability: availability,
-            permissionState: NaruHelperPermissionState(
-                accessibility: accessibility,
-                inputMonitoring: "notRequired",
-                pasteboardFallback: "available",
-                activeUserSession: "available"
-            ),
-            supportedStrategies: [.pasteboardPasteWithRestore]
+        return NaruHelperTextBridgeCapabilityProbe.response(
+            canInsertNatively: nativeInserter.canInsertTextDirectly,
+            canFallbackToPasteboard: poster.canPostPasteCommand
         )
+        #else
+        return NaruHelperTextBridgeCapabilityProbe.response(
+            platformSupported: false,
+            canInsertNatively: false,
+            canFallbackToPasteboard: false
+        )
+        #endif
     }
 
     private static func insert(
@@ -90,7 +83,8 @@ private enum NaruHelperCLI {
         #if os(macOS)
         let inserter = NaruHelperPasteboardTextInserter(
             pasteboard: MacGeneralPasteboard(),
-            pasteCommandPoster: MacPasteCommandPoster()
+            pasteCommandPoster: MacPasteCommandPoster(),
+            nativeTextInserter: MacNativeTextInserter.live()
         )
         return inserter.insertText(request: request)
         #else

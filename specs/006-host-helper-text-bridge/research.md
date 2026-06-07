@@ -128,3 +128,51 @@ app honors them, and only then helper-local pasteboard paste with restore.
 - Use raw VNC key events for every character: rejected because Direct mode is
   not a multilingual composition path and remote IME state is not reliably
   controlled by the iPhone app.
+
+## D7 - Native helper insertion should be capability-gated and fallback-aware
+
+**Decision**: The first helper-native implementation should attempt
+Accessibility direct value insertion, then a bounded Unicode `CGEvent` insert,
+before changing the Mac general pasteboard. The helper advertises
+`nativeInsert` only when at least one non-pasteboard native strategy has the
+required permission/capability, and it advertises `pasteboardPasteWithRestore`
+separately when event posting for Command-V is available.
+
+**Rationale**:
+- The iPhone app already sends final Compose text to the helper only after an
+  explicit Send action, so the Mac-side helper can safely try a focused-element
+  insertion without logging or persisting raw text.
+- `AXUIElementSetAttributeValue` with `kAXValueAttribute` can update supported
+  editable accessibility elements. The implementation bounds the replacement
+  to the current `kAXSelectedTextRangeAttribute` so it does not replace an
+  entire document unless the focused app explicitly reports that selection.
+- Many target apps, especially terminal emulators and web views, may reject
+  direct Accessibility value mutation. In that case, the helper tries bounded
+  Unicode event insertion before using the existing pasteboard-restore strategy.
+- Unicode event insertion is capped per event and per request, so a very large
+  Compose payload cannot become an unbounded event-posting loop.
+- Capability reporting must not overclaim: a helper with paste-event
+  permission but no Accessibility trust is still reachable for fallback, but it
+  is not a true `nativeInsert` endpoint.
+
+**Sources**:
+- Apple AXUIElementSetAttributeValue: https://developer.apple.com/documentation/applicationservices/1460434-axuielementsetattributevalue
+- Apple kAXValueAttribute: https://developer.apple.com/documentation/applicationservices/kaxvalueattribute
+- Apple CGEventKeyboardSetUnicodeString: https://developer.apple.com/documentation/coregraphics/cgevent/keyboardsetunicodestring%28stringlength%3Aunicodestring%3A%29
+- Apple NSPasteboard: https://developer.apple.com/documentation/AppKit/NSPasteboard
+
+**Verification**:
+- `NaruHelperPasteboardTextInserterTests/testNativeInsertRunsBeforePasteboardFallbackAndDoesNotTouchPasteboard`
+  proves native success leaves the general pasteboard untouched.
+- `NaruHelperPasteboardTextInserterTests/testNativeInsertFailureFallsBackToPasteboardWhenRequested`
+  proves direct-insert rejection can still use the restore fallback.
+- `NaruHelperPasteboardTextInserterTests/testNativeInserterChainUsesSecondNativeStrategyBeforePasteboardFallback`
+  proves a second native strategy can succeed before pasteboard fallback.
+- `NaruHelperTextBridgeCapabilityProbeTests/testNativeAndPasteboardCapabilityAdvertisesNativeFirst`
+  and `testPasteboardOnlyCapabilityDoesNotOverclaimNativeInsert` prove the
+  fixed capability catalog stays honest.
+
+**Residual risk**:
+- Physical iPhone + Mac verification is still required. Accessibility direct
+  value insertion is app-dependent, and terminal/AI CLI targets may require the
+  pasteboard-restore fallback or a future bounded Unicode event strategy.

@@ -95,6 +95,11 @@ description: "Tasks: Host Helper Text Bridge"
   UTF-8-required Compose when Extended Clipboard UTF-8 is unconfirmed. Keep the
   draft, report the helper/confirmed-clipboard requirement with fixed safe copy,
   and preserve ASCII/Latin-1 VNC paste as best-effort. **Done.**
+- [x] T034A [US1] Make the macOS helper text inserter native-first: try
+  focused Accessibility value insertion and bounded Unicode events when
+  available, advertise `nativeInsert` only when permission/capability allows
+  it, and fall back to pasteboard-restore only when requested. Verify with
+  helper unit tests. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
