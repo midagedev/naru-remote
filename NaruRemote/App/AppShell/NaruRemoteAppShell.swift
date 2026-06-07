@@ -214,6 +214,7 @@ public struct NaruRemoteAppShell: View {
                             onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
                             onComposeFocusChange: { focused in
                                 composeFieldFocused = focused
+                                model.setComposeInputEditingActive(focused)
                             }
                         )
                         .equatable()

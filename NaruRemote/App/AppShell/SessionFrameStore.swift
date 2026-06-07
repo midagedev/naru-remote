@@ -25,9 +25,15 @@ public struct SessionFrameState: Equatable, Sendable {
     }
 }
 
+public enum SessionFrameDeliveryPriority: Equatable, Sendable {
+    case visual
+    case inputEditing
+}
+
 @MainActor
 public final class SessionFrameStore: ObservableObject {
     static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
+    static let inputEditingFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
 
     public private(set) var state: SessionFrameState
 
@@ -38,6 +44,7 @@ public final class SessionFrameStore: ObservableObject {
     @Published public private(set) var presentationRevision: Int
 
     private let frameSubject = PassthroughSubject<SessionFrameState, Never>()
+    private var deliveryPriority: SessionFrameDeliveryPriority = .visual
     private var pendingFrameDelivery: SessionFrameState?
     private var frameDeliveryTask: Task<Void, Never>?
 
@@ -70,6 +77,24 @@ public final class SessionFrameStore: ObservableObject {
         state.serverCursor
     }
 
+    public func setDeliveryPriority(_ priority: SessionFrameDeliveryPriority) {
+        guard deliveryPriority != priority else {
+            return
+        }
+
+        deliveryPriority = priority
+        guard priority == .visual else {
+            return
+        }
+
+        // Leaving text input should make the latest remote frame visible
+        // immediately instead of waiting for the longer keyboard-friendly
+        // coalescing window to expire.
+        frameDeliveryTask?.cancel()
+        frameDeliveryTask = nil
+        flushPendingFrameDelivery()
+    }
+
     public func publish(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]?,
@@ -92,7 +117,7 @@ public final class SessionFrameStore: ObservableObject {
             next,
             coalescingDelay: requiresPresentationRefresh
                 ? nil
-                : Self.steadyFrameDeliveryCoalescingDelay
+                : currentSteadyFrameDeliveryCoalescingDelay
         )
         publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
@@ -108,7 +133,7 @@ public final class SessionFrameStore: ObservableObject {
             state,
             coalescingDelay: requiresPresentationRefresh
                 ? nil
-                : Self.steadyFrameDeliveryCoalescingDelay
+                : currentSteadyFrameDeliveryCoalescingDelay
         )
         publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
@@ -128,6 +153,15 @@ public final class SessionFrameStore: ObservableObject {
         frameDeliveryTask?.cancel()
         frameDeliveryTask = nil
         flushPendingFrameDelivery()
+    }
+
+    var currentSteadyFrameDeliveryCoalescingDelay: Duration {
+        switch deliveryPriority {
+        case .visual:
+            return Self.steadyFrameDeliveryCoalescingDelay
+        case .inputEditing:
+            return Self.inputEditingFrameDeliveryCoalescingDelay
+        }
     }
 
     private func scheduleFrameDelivery(

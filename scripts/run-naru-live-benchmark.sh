@@ -2670,6 +2670,7 @@ print_helper_dev_app_setup_report() {
     if [[ "$permission_status" != "granted" ]]; then
       append_unique issue_codes "helper-video-permission-missing"
       append_unique setup_actions "grant-helper-video-app-screen-recording-permission"
+      append_unique setup_actions "quit-and-relaunch-helper-after-permission-change"
       append_unique setup_actions "rerun-helper-readiness-sweep"
     fi
   fi
@@ -2783,9 +2784,13 @@ print_screen_recording_watch_report() {
   local final_permission_status
   local final_availability
   local final_step_status
+  local permission_process_kind
+  local permission_grant_hint
   final_permission_status="$(json_value_or_unknown "$final_capability" '.screenRecordingPermission')"
   final_availability="$(json_value_or_unknown "$final_capability" '.availability')"
   final_step_status="$(json_value_or_unknown "$final_capability" '.status')"
+  permission_process_kind="$(json_value_or_unknown "$final_capability" '.permissionIdentity.processKind')"
+  permission_grant_hint="$(json_value_or_unknown "$final_capability" '.permissionIdentity.grantHint')"
 
   local issue_codes=()
   local setup_actions=()
@@ -2799,6 +2804,7 @@ print_screen_recording_watch_report() {
   else
     append_unique issue_codes "helper-video-permission-missing"
     append_unique setup_actions "grant-helper-video-app-screen-recording-permission"
+    append_unique setup_actions "quit-and-relaunch-helper-after-permission-change"
     append_unique setup_actions "rerun-screen-recording-watch"
   fi
 
@@ -2825,6 +2831,13 @@ print_screen_recording_watch_report() {
   printf '  "finalAvailability": '
   json_string "$final_availability"
   printf ',\n'
+  printf '  "permissionProcessKind": '
+  json_string "$permission_process_kind"
+  printf ',\n'
+  printf '  "permissionGrantHint": '
+  json_string "$permission_grant_hint"
+  printf ',\n'
+  printf '  "postPermissionChangeRequiresRelaunch": true,\n'
   printf '  "issueCodes": '
   if ((${#issue_codes[@]})); then
     json_string_array "${issue_codes[@]}"
@@ -2897,6 +2910,9 @@ FAKE_HELPER
     .watchStatus == "granted" and
     .finalPermissionStatus == "granted" and
     .finalAvailability == "available" and
+    .permissionProcessKind == "appBundle" and
+    .permissionGrantHint == "grantAppBundle" and
+    .postPermissionChangeRequiresRelaunch == true and
     .pollsAttempted == 2 and
     (.setupActionLabels | index("rerun-helper-readiness-sweep")) and
     (.setupActionLabels | index("run-true-helper-video-live-capture-benchmark")) and

@@ -4031,6 +4031,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionStreamStats.recordViewportRedrawDiagnostics(diagnostics)
     }
 
+    public func setComposeInputEditingActive(_ isActive: Bool) {
+        frameStore.setDeliveryPriority(isActive ? .inputEditing : .visual)
+    }
+
     public func recordOutboundInputEvent(
         queueDelayMilliseconds: Int,
         operationMilliseconds: Int,

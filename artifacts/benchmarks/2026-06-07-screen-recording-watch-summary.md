@@ -47,7 +47,15 @@ Short non-interactive local run:
 - `issueCodes`: `helper-video-permission-missing`
 - `setupActionLabels`:
   `grant-helper-video-app-screen-recording-permission`,
+  `quit-and-relaunch-helper-after-permission-change`,
   `rerun-screen-recording-watch`
+
+The report now also lifts the helper permission identity to top-level safe
+labels:
+
+- `permissionProcessKind`: `appBundle`
+- `permissionGrantHint`: `grantAppBundle`
+- `postPermissionChangeRequiresRelaunch`: `true`
 
 The self-test uses a fake helper that flips from `permissionMissing` to
 `granted`. It verifies that the same runner emits:
@@ -66,6 +74,12 @@ helper app bundle, but the live loop is now less brittle. After the user grants
 Screen Recording, the watch command can detect the transition and tell the next
 operator to rerun helper readiness and then run the true helper-video live
 capture benchmark.
+
+Apple's ScreenCaptureKit sample also documents the same operational boundary:
+the first run prompts for Screen Recording, and after granting permission the
+app needs to be restarted before capture is enabled. The watch mode therefore
+reports a fixed relaunch action instead of implying that TCC can be solved
+purely from the benchmark process.
 
 This does not attempt to grant macOS TCC permission programmatically. The
 permission boundary remains user-controlled.
