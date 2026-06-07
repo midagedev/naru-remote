@@ -5474,7 +5474,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("final"))
     }
 
-    func testEditingComposeDraftDuringSendPreventsStalePasteFromOverwritingNewText() async throws {
+    func testEditingComposeDraftDuringSendCancelsStalePasteCommand() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(
             width: 1440,
@@ -5501,14 +5501,28 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.clipboardPayloads, ["첫 문장"])
 
         model.updateComposeDraftText("새로 쓰는 문장")
-        try await waitForPasteCommands(connector, count: 1)
+        for _ in 0..<80 {
+            let attempt = model.snapshot.latestInjectionAttempt
+            if attempt?.draftID == sendingDraftID,
+               attempt?.status == .failed,
+               attempt?.finishedAt != nil {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
 
         XCTAssertNotEqual(model.snapshot.composeDraft?.id, sendingDraftID)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "새로 쓰는 문장")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .ready)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.draftID, sendingDraftID)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
-        XCTAssertEqual(connector.pasteCommands, [.controlV])
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text send cancelled because the compose draft changed."
+        )
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
     }
 
     func testModelCancelsComposedPasteWhenSessionDisconnectsDuringSettleDelay() async throws {
