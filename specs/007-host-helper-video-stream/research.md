@@ -1957,6 +1957,11 @@ anchoring, diagnostics, reconnect, and fallback.
   foreground primary, SwiftUI direct-touch and trackpad overlays must stay
   enabled even on Metal-capable devices because the Metal recognizers are not
   the active visual surface.
+- Pointer input should depend on the active remote coordinate space, not on the
+  presence of local framebuffer pixels. VNC `ServerInit` provides that
+  coordinate space before the first framebuffer update arrives, allowing
+  helper-video primary to stay interactive during the slow-VNC-first-frame
+  window.
 
 **Evidence**:
 - `artifacts/benchmarks/2026-06-07-helper-video-primary-readiness-summary.md`
@@ -1969,6 +1974,9 @@ anchoring, diagnostics, reconnect, and fallback.
 - `SessionViewportViewGeometryTests/testHelperVideoPrimaryForcesSwiftUIInputOverlaysEvenWhenMetalIsAvailable`
   proves helper-video primary keeps SwiftUI direct/trackpad input overlays live
   even when Metal is available.
+- `NaruRemoteAppModelTests/testPointerInputCanUseServerInitCoordinateSpaceBeforeFirstFramebuffer`
+  proves tap input can emit RFB pointer events after VNC `ServerInit` and
+  before the first VNC framebuffer is published.
 
 **Sources**:
 - Apple ScreenCaptureKit: https://developer.apple.com/documentation/screencapturekit

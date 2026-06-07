@@ -439,6 +439,7 @@ private struct SessionViewportFrameBridge: View {
             subtitle: snapshot.subtitle,
             session: snapshot.session,
             framebuffer: frameState.framebuffer,
+            inputCoordinateSpace: snapshot.inputCoordinateSpace,
             frameStore: frameStore,
             frameDirtyRectangles: frameState.dirtyRectangles,
             frameChangedPixelCount: frameState.changedPixelCount,

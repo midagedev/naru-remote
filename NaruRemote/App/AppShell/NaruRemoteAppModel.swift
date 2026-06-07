@@ -451,6 +451,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var latestComposeSendPreparation: ComposeSendPreparationReport?
     @Published public private(set) var pipWatchSession: PiPWatchSession?
     public private(set) var latestFramebuffer: RFBRawFramebuffer?
+    public private(set) var inputCoordinateSpace: RemoteFramebufferCoordinateSpace?
     /// Damage rectangles paired with `latestFramebuffer`.  Populated
     /// whenever a streaming frame arrives from a damage-tracking pump
     /// source (`RFBFramePumpFrame.dirtyRectangles`); cleared on
@@ -781,6 +782,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestInjectionAttempt = snapshot.latestInjectionAttempt
         self.pipWatchSession = snapshot.pipWatchSession
         self.latestFramebuffer = snapshot.latestFramebuffer
+        self.inputCoordinateSpace = snapshot.inputCoordinateSpace
         self.latestFrameDirtyRectangles = snapshot.latestFrameDirtyRectangles
         self.latestFrameChangedPixelCount = snapshot.latestFrameChangedPixelCount
         self.sessionStreamStats = snapshot.sessionStreamStats
@@ -1127,6 +1129,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             latestInjectionAttempt: latestInjectionAttempt,
             pipWatchSession: pipWatchSession,
             latestFramebuffer: latestFramebuffer,
+            inputCoordinateSpace: inputCoordinateSpace,
             latestFrameDirtyRectangles: latestFrameDirtyRectangles,
             latestFrameChangedPixelCount: latestFrameChangedPixelCount,
             sessionStreamStats: sessionStreamStats,
@@ -3326,6 +3329,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
+                setInputCoordinateSpace(from: connectionResult.serverInit)
                 let keyEventClient = connector as? (any RFBKeyEventClient)
                 activeKeyEventClient = keyEventClient
                 keystrokeEmitter = keyEventClient.map { KeystrokeEmitter(client: $0) }
@@ -3476,7 +3480,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
 
-                await self.bindActiveStreamingClients(streamingClient)
+                await self.bindActiveStreamingClients(streamingClient, serverInit: serverInit)
                 if shouldRenegotiateConfiguredSustainedEncodings {
                     await self.renegotiateConfiguredSustainedEncodingsIfNeeded(
                         transportControl: streamingClient as? any RFBTransportControlClient,
@@ -3621,11 +3625,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
-    private func bindActiveStreamingClients(_ streamingClient: any RFBStreamingClient) {
+    private func bindActiveStreamingClients(_ streamingClient: any RFBStreamingClient, serverInit: RFBServerInit) {
         activeTextClient = streamingClient
         activePointerClient = streamingClient
         activeKeyEventClient = streamingClient
         keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
+        setInputCoordinateSpace(from: serverInit)
         lastEmittedDragCoord = nil
     }
 
@@ -3685,6 +3690,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         serverCursor: RFBServerCursor?
     ) {
         latestFramebuffer = framebuffer
+        setInputCoordinateSpace(width: framebuffer.width, height: framebuffer.height)
         latestFrameDirtyRectangles = dirtyRectangles
         latestFrameChangedPixelCount = changedPixelCount.map { max($0, 0) }
         if let serverCursor {
@@ -3705,10 +3711,33 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func clearSessionFrame() {
         latestFramebuffer = nil
+        inputCoordinateSpace = nil
         latestFrameDirtyRectangles = nil
         latestFrameChangedPixelCount = nil
         latestServerCursor = nil
         frameStore.clear()
+    }
+
+    private func setInputCoordinateSpace(from serverInit: RFBServerInit) {
+        setInputCoordinateSpace(width: serverInit.width, height: serverInit.height)
+    }
+
+    private func setInputCoordinateSpace(width: Int, height: Int) {
+        inputCoordinateSpace = RemoteFramebufferCoordinateSpace(width: width, height: height)
+    }
+
+    private func currentInputCoordinateSpace() -> RemoteFramebufferCoordinateSpace? {
+        if let inputCoordinateSpace {
+            return inputCoordinateSpace
+        }
+        if let latestFramebuffer,
+           let coordinateSpace = RemoteFramebufferCoordinateSpace(
+            width: latestFramebuffer.width,
+            height: latestFramebuffer.height
+           ) {
+            return coordinateSpace
+        }
+        return nil
     }
 
     private func recordSessionStreamStatsAndPacingDecision(
@@ -4618,6 +4647,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         activeTextClient = nil
         activePointerClient = nil
+        inputCoordinateSpace = nil
         activeKeyEventClient = nil
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
@@ -5075,6 +5105,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// no frame has arrived yet.  Used to center the trackpad cursor on a
     /// mode switch and to clamp relative cursor moves.
     private var currentFramebufferSize: CGSize {
+        if let inputCoordinateSpace {
+            return inputCoordinateSpace.size
+        }
         guard let framebuffer = latestFramebuffer else {
             return CGSize(width: 1280, height: 720)
         }
@@ -5102,7 +5135,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Resolve a trackpad-mode gesture sampled from the viewport view
     /// into a moved cursor and any RFB pointer commands, then
     /// dispatch the commands on the wire.  No-op when there is no live
-    /// framebuffer or pointer client.  Viewport auto-pan remains LOCAL
+    /// pointer client or remote coordinate space.  Viewport auto-pan remains LOCAL
     /// (constitution §I), while trackpad cursor movement reaches the
     /// remote OS as coalesced buttonless pointer moves. Constitution
     /// §IV: the cursor position / deltas are consumed here and never
@@ -6749,6 +6782,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     self.cancelPointerInputEventQueue()
                     self.activePointerClient = nil
+                    self.inputCoordinateSpace = nil
                     self.lastEmittedDragCoord = nil
                 }
             }
@@ -6871,7 +6905,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// touch the remote framebuffer.
     ///
     /// No-op cases (silent, returns without side effects):
-    ///   - no `latestFramebuffer` (no first frame yet)
+    ///   - no active remote coordinate space (VNC ServerInit/frame size)
     ///   - no streaming pointer client (legacy first-frame connector)
     ///   - the tap falls in the letterbox/pillarbox bands
     ///   - the view or framebuffer reports a degenerate (zero/negative)
@@ -6882,7 +6916,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// infer remote screen contents, so they stay confined to the
     /// outgoing `PointerEvent` bytes.
     public func sendTapAt(viewPoint: CGPoint, viewSize: CGSize) {
-        guard let framebuffer = latestFramebuffer,
+        guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -6891,8 +6925,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }
@@ -6922,7 +6956,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// coordinates are NOT logged anywhere persistent and the
     /// diagnostic safe-detail catalog is unaffected.
     public func sendRightClickAt(viewPoint: CGPoint, viewSize: CGSize) {
-        guard let framebuffer = latestFramebuffer,
+        guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -6931,8 +6965,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }
@@ -6983,7 +7017,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         deltaY: CGFloat,
         threshold: CGFloat = scrollTickThreshold
     ) {
-        guard let framebuffer = latestFramebuffer,
+        guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -6992,8 +7026,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }
@@ -7045,12 +7079,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// No-op cases (silent, returns without side effects):
     ///   - `explicitlyDisconnected` is set (the user has torn the
     ///     session down — drag must not resurrect any wire activity)
-    ///   - no `latestFramebuffer` (no first frame yet)
+    ///   - no active remote coordinate space (VNC ServerInit/frame size)
     ///   - no streaming pointer client
     ///   - the drag start falls in the letterbox/pillarbox bands
     public func sendPointerDownAt(viewPoint: CGPoint, viewSize: CGSize) async {
         guard !explicitlyDisconnected,
-              let framebuffer = latestFramebuffer,
+              let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -7059,8 +7093,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }
@@ -7095,7 +7129,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Mirrors `sendPointerDownAt(...)` for the same no-op preconditions.
     public func sendPointerMoveTo(viewPoint: CGPoint, viewSize: CGSize) async {
         guard !explicitlyDisconnected,
-              let framebuffer = latestFramebuffer,
+              let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -7104,8 +7138,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }
@@ -7138,7 +7172,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Mirrors `sendPointerDownAt(...)` for the same no-op preconditions.
     public func sendPointerUpAt(viewPoint: CGPoint, viewSize: CGSize) async {
         guard !explicitlyDisconnected,
-              let framebuffer = latestFramebuffer,
+              let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
             return
@@ -7147,8 +7181,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let mapped = Self.framebufferCoordinate(
             forViewPoint: viewPoint,
             viewSize: viewSize,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height
+            framebufferWidth: coordinateSpace.width,
+            framebufferHeight: coordinateSpace.height
         ) else {
             return
         }

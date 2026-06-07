@@ -26,6 +26,7 @@ public struct SessionViewportView: View {
     private let subtitle: String
     private let session: RemoteSession?
     private let framebuffer: RFBRawFramebuffer?
+    private let inputCoordinateSpace: RemoteFramebufferCoordinateSpace?
     private let frameStore: SessionFrameStore?
     private let frameDirtyRectangles: [RFBFrameDamageRect]?
     private let frameChangedPixelCount: Int?
@@ -181,6 +182,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        inputCoordinateSpace: RemoteFramebufferCoordinateSpace? = nil,
         frameStore: SessionFrameStore? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         frameChangedPixelCount: Int? = nil,
@@ -233,6 +235,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.inputCoordinateSpace = inputCoordinateSpace
         self.frameStore = frameStore
         self.frameDirtyRectangles = frameDirtyRectangles
         self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
@@ -280,6 +283,7 @@ public struct SessionViewportView: View {
         subtitle: String,
         session: RemoteSession?,
         framebuffer: RFBRawFramebuffer? = nil,
+        inputCoordinateSpace: RemoteFramebufferCoordinateSpace? = nil,
         frameStore: SessionFrameStore? = nil,
         frameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         frameChangedPixelCount: Int? = nil,
@@ -330,6 +334,7 @@ public struct SessionViewportView: View {
         self.subtitle = subtitle
         self.session = session
         self.framebuffer = framebuffer
+        self.inputCoordinateSpace = inputCoordinateSpace
         self.frameStore = frameStore
         self.frameDirtyRectangles = frameDirtyRectangles
         self.frameChangedPixelCount = frameChangedPixelCount.map { max($0, 0) }
@@ -983,6 +988,16 @@ public struct SessionViewportView: View {
     /// reports cumulative translation, so we diff against the previous
     /// value).
     private func trackpadGestureSurface(framebuffer: RFBRawFramebuffer) -> some View {
+        trackpadGestureSurface(
+            coordinateSpace: coordinateSpace(for: framebuffer),
+            framebuffer: framebuffer
+        )
+    }
+
+    private func trackpadGestureSurface(
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?
+    ) -> some View {
         GeometryReader { proxy in
             let size = proxy.size
             Color.clear
@@ -998,6 +1013,7 @@ public struct SessionViewportView: View {
                             trackpadDragPrevious = value.translation
                             dispatchTrackpadGesture(
                                 .dragChanged(viewPoint: value.location, translation: delta),
+                                coordinateSpace: coordinateSpace,
                                 framebuffer: framebuffer,
                                 viewSize: size
                             )
@@ -1009,6 +1025,7 @@ public struct SessionViewportView: View {
                             if movedFar {
                                 dispatchTrackpadGesture(
                                     .dragEnded(viewPoint: value.location),
+                                    coordinateSpace: coordinateSpace,
                                     framebuffer: framebuffer,
                                     viewSize: size
                                 )
@@ -1017,6 +1034,7 @@ public struct SessionViewportView: View {
                                 // a tap → click at the cursor (003 FR-008).
                                 dispatchTrackpadGesture(
                                     .tap(viewPoint: value.location),
+                                    coordinateSpace: coordinateSpace,
                                     framebuffer: framebuffer,
                                     viewSize: size
                                 )
@@ -1027,7 +1045,7 @@ public struct SessionViewportView: View {
         .accessibilityIdentifier("naru.session.trackpadSurface")
     }
 
-    private func directTouchGestureSurface(framebuffer: RFBRawFramebuffer) -> some View {
+    private func directTouchGestureSurface() -> some View {
         GeometryReader { proxy in
             let size = proxy.size
             Color.clear
@@ -1066,12 +1084,18 @@ public struct SessionViewportView: View {
 
     private func dispatchTrackpadGesture(
         _ gesture: PointerGesture,
-        framebuffer: RFBRawFramebuffer,
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?,
         viewSize: CGSize
     ) {
-        let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        let transform = currentViewportTransform(coordinateSpace: coordinateSpace, viewSize: viewSize)
         let updatedTransform = onTrackpadGesture?(gesture, transform, trackpadCursor)?.transform ?? transform
-        applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
+        applyViewportTransform(
+            updatedTransform,
+            coordinateSpace: coordinateSpace,
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
     }
 
     private func applyViewportTransform(
@@ -1079,9 +1103,25 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) {
+        applyViewportTransform(
+            transform,
+            coordinateSpace: coordinateSpace(for: framebuffer),
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
+    }
+
+    private func applyViewportTransform(
+        _ transform: ViewportTransform,
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?,
+        viewSize: CGSize
+    ) {
         zoomScale = transform.zoomScale
         panOffset = transform.panOffset
-        syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+        if let framebuffer {
+            syncPiPViewport(framebuffer: framebuffer, viewSize: viewSize)
+        }
         onViewportTransformChange?(transform)
     }
 
@@ -1101,11 +1141,16 @@ public struct SessionViewportView: View {
 
     @ViewBuilder
     private func syntheticCursorOverlay(framebuffer: RFBRawFramebuffer) -> some View {
+        syntheticCursorOverlay(coordinateSpace: coordinateSpace(for: framebuffer))
+    }
+
+    @ViewBuilder
+    private func syntheticCursorOverlay(coordinateSpace: RemoteFramebufferCoordinateSpace) -> some View {
         GeometryReader { proxy in
             let point = Self.cursorViewPoint(
                 framebufferPosition: trackpadCursor.position,
-                framebufferWidth: framebuffer.width,
-                framebufferHeight: framebuffer.height,
+                framebufferWidth: coordinateSpace.width,
+                framebufferHeight: coordinateSpace.height,
                 containerSize: proxy.size,
                 zoomScale: zoomScale,
                 panOffset: panOffset,
@@ -1189,7 +1234,7 @@ public struct SessionViewportView: View {
                         pointerControlMode: pointerControlMode,
                         metalFramebufferInputSupported: Self.metalFramebufferInputSupported
                     ) {
-                        directTouchGestureSurface(framebuffer: framebuffer)
+                        directTouchGestureSurface()
                     }
                 }
                 // Trackpad gesture surface — a transparent layer that
@@ -1340,6 +1385,11 @@ public struct SessionViewportView: View {
                 accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
                 accessibilityLabel: "Remote helper video"
             )
+            .overlay {
+                if let inputCoordinateSpace {
+                    helperVideoInputOverlay(coordinateSpace: inputCoordinateSpace)
+                }
+            }
             .overlay(alignment: .bottom) {
                 Text("Preparing control channel")
                     .font(.caption.weight(.medium))
@@ -1349,6 +1399,7 @@ public struct SessionViewportView: View {
                     .background(Color.black.opacity(0.38))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(10)
+                    .allowsHitTesting(false)
             }
         } else {
             VStack(spacing: 8) {
@@ -1359,6 +1410,28 @@ public struct SessionViewportView: View {
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.white.opacity(0.85))
             }
+        }
+    }
+
+    @ViewBuilder
+    private func helperVideoInputOverlay(coordinateSpace: RemoteFramebufferCoordinateSpace) -> some View {
+        if Self.usesSwiftUITrackpadInputOverlay(
+            isPiPWatching: isPiPWatching,
+            usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+            pointerControlMode: pointerControlMode,
+            metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+        ) {
+            trackpadGestureSurface(coordinateSpace: coordinateSpace, framebuffer: nil)
+                .overlay {
+                    syntheticCursorOverlay(coordinateSpace: coordinateSpace)
+                }
+        } else if Self.usesSwiftUIDirectTouchInputOverlay(
+            isPiPWatching: isPiPWatching,
+            usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+            pointerControlMode: pointerControlMode,
+            metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+        ) {
+            directTouchGestureSurface()
         }
     }
     #else
@@ -1481,11 +1554,15 @@ public struct SessionViewportView: View {
     /// container a sliver or a wall.  Falls back to 4:3 — a neutral
     /// monitor shape — for the pre-first-frame placeholder.
     private var containerAspectRatio: CGFloat {
-        guard let framebuffer, framebuffer.width > 0, framebuffer.height > 0 else {
-            return 4.0 / 3.0
+        if let framebuffer, framebuffer.width > 0, framebuffer.height > 0 {
+            let ratio = CGFloat(framebuffer.width) / CGFloat(framebuffer.height)
+            return min(max(ratio, 0.5), 2.5)
         }
-        let ratio = CGFloat(framebuffer.width) / CGFloat(framebuffer.height)
-        return min(max(ratio, 0.5), 2.5)
+        if let inputCoordinateSpace {
+            let ratio = inputCoordinateSpace.aspectRatio
+            return min(max(ratio, 0.5), 2.5)
+        }
+        return 4.0 / 3.0
     }
 
     static func aspectFitSize(aspectRatio: CGFloat, containerSize: CGSize) -> CGSize {
@@ -1652,13 +1729,25 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) -> ViewportTransform {
+        currentViewportTransform(coordinateSpace: coordinateSpace(for: framebuffer), viewSize: viewSize)
+    }
+
+    private func currentViewportTransform(
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        viewSize: CGSize
+    ) -> ViewportTransform {
         ViewportTransform(
-            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            framebufferSize: coordinateSpace.size,
             viewSize: viewSize,
             zoomScale: zoomScale,
             panOffset: panOffset,
             maxZoomScale: Self.maxZoomScale
         )
+    }
+
+    private func coordinateSpace(for framebuffer: RFBRawFramebuffer) -> RemoteFramebufferCoordinateSpace {
+        RemoteFramebufferCoordinateSpace(width: framebuffer.width, height: framebuffer.height)
+            ?? RemoteFramebufferCoordinateSpace(width: 1, height: 1)!
     }
 
     private func applyZoomScale(

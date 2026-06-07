@@ -3268,6 +3268,68 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.disconnect()
     }
 
+    func testPointerInputCanUseServerInitCoordinateSpaceBeforeFirstFramebuffer() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 4,
+            height: 2,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = FakeStreamingConnector(
+            width: 4,
+            height: 2,
+            name: "Desk",
+            framebuffer: framebuffer,
+            frameUpdateDelay: 1.0
+        )
+        let helperVideoResult = Self.helperVideoStartResult(
+            descriptor: HelperVideoStreamDescriptor(codecProfile: .high),
+            accessUnits: [
+                Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { _, _, _, _, _ in
+                helperVideoResult
+            },
+            helperVideoRendererFactory: {
+                AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+            }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForInputCoordinateSpace(model)
+
+        XCTAssertNil(
+            model.snapshot.latestFramebuffer,
+            "This assertion keeps the regression focused on the pre-first-frame input window."
+        )
+
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 4, height: 2))
+        try await waitForPointerEvents(connector, count: 2)
+
+        XCTAssertNil(model.snapshot.latestFramebuffer)
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.x), [1, 1])
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.y), [0, 0])
+        model.disconnect()
+    }
+
     func testHelperVideoBootstrapPrefersContinuousOpenStreamAfterVNCFirstFrame() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
@@ -6104,6 +6166,21 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         XCTAssertNotNil(model.snapshot.latestFramebuffer, file: file, line: line)
+    }
+
+    private func waitForInputCoordinateSpace(
+        _ model: NaruRemoteAppModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.inputCoordinateSpace != nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotNil(model.snapshot.inputCoordinateSpace, file: file, line: line)
     }
 
     private func waitForPointerEvents(

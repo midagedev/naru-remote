@@ -404,11 +404,13 @@ without unsafe report fields.
   helper-video in parallel with VNC connect instead of waiting for the first VNC
   framebuffer, allow helper visual selection while the session is connecting,
   share a model-owned helper-video `AVSampleBufferDisplayLayer` with the
-  foreground viewport, and force SwiftUI direct/trackpad overlays when the
-  sample-buffer layer is primary. Covered by slow-VNC-first-frame app-model and
-  helper-primary overlay policy tests. Current live readiness still needs
-  macOS Screen Recording permission before true ScreenCaptureKit helper-video
-  can clear T031. **Done.**
+  foreground viewport, force SwiftUI direct/trackpad overlays when the
+  sample-buffer layer is primary, and route pointer input through VNC
+  `ServerInit` coordinate space before the first VNC framebuffer is published.
+  Covered by slow-VNC-first-frame app-model, pre-first-frame pointer input, and
+  helper-primary overlay policy tests. Current live readiness still needs macOS
+  Screen Recording permission before true ScreenCaptureKit helper-video can
+  clear T031. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
