@@ -195,6 +195,13 @@ Current external helper timeout preflight artifact:
 `artifacts/benchmarks/2026-06-07-external-helper-timeout-preflight-summary.md`.
 Schema v6 bounds the external helper capability wait and emits fixed
 `timedOut` labels instead of letting setup diagnostics block.
+Current helper Screen Recording watch action artifact:
+`artifacts/benchmarks/2026-06-08-helper-screen-recording-watch-action-summary.md`.
+Schema v7 makes app-bundle Screen Recording permission failures route first to
+`run-screen-recording-watch`, then to
+`grant-helper-video-app-screen-recording-permission`, so the setup loop can
+request permission, open Settings, poll the helper capability, and rerun
+readiness without guessing the next command.
 Current helper-video probe-only artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-probe-only-summary.md`.
 `VNCLiveBenchmark --helper-video-probe-only` runs helper-video probes without
@@ -767,9 +774,10 @@ do not include hidden frame contents, hidden frame timings, raw errors, host
 identity, dimensions, coordinates, pixels, byte counts, raw FPS, draft text,
 marked text, or IME state in artifacts.
 `--environment-preflight` is a separate benchmark setup check. It emits schema
-v6 readiness labels before connecting or prompting for a password, including
+v7 readiness labels before connecting or prompting for a password, including
 fixed `setupActionLabels` such as `set-naru-live-mac-host`,
 `set-naru-live-stimulus-command`,
+`run-screen-recording-watch`,
 `grant-helper-video-app-screen-recording-permission`,
 `inspect-helper-video-capability`, and `run-live-gate`. It is
 meant to explain why a live profile gate could not be attempted without
@@ -1231,10 +1239,11 @@ The remote desktop readiness gate artifact is
 The focused Compose/helper readiness ordering artifact is
 `2026-06-07-focused-compose-and-helper-readiness-order-summary.md`; it records
 the current live run after correcting action priority. The dashboard now reports
-`blockedByHelperScreenCapture` and recommends
-`grant-helper-video-app-screen-recording-permission` before physical iPhone
-preflight, because true helper-video capture cannot be benchmarked until
-Screen Recording is granted. The same pass records VNC still failing the
+`blockedByHelperScreenCapture`; the latest helper Screen Recording watch action
+pass now makes top-level preflight/readiness summaries recommend
+`run-screen-recording-watch` before the manual grant label, because true
+helper-video capture cannot be benchmarked until Screen Recording is granted.
+The same pass records VNC still failing the
 10fps product gate at 1.98 content FPS, 505 ms average update, 628 ms p95
 update, and 619 ms first-byte wait p95, while payload-read and
 client-processing p95 remain near zero. Treat this as reproduced evidence that

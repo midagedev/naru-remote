@@ -6,7 +6,7 @@ import CoreGraphics
 #endif
 
 public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -256,7 +256,7 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         }
         if helperVideoScreenCapturePermissionStatus == .missing {
             actions.append(
-                setupActionForMissingHelperVideoPermission(
+                contentsOf: setupActionsForMissingHelperVideoPermission(
                     externalHelperCapability: helperVideoExternalCapability
                 )
             )
@@ -276,17 +276,20 @@ public struct BenchmarkLiveEnvironmentPreflightReport: Codable, Equatable {
         return actions
     }
 
-    private static func setupActionForMissingHelperVideoPermission(
+    private static func setupActionsForMissingHelperVideoPermission(
         externalHelperCapability:
             BenchmarkLiveEnvironmentPreflightHelperVideoExternalCapability
-    ) -> BenchmarkLiveEnvironmentPreflightSetupAction {
+    ) -> [BenchmarkLiveEnvironmentPreflightSetupAction] {
         switch externalHelperCapability.permissionIdentity?.grantHint {
         case .grantAppBundle:
-            return .grantHelperVideoAppScreenRecordingPermission
+            return [
+                .runScreenRecordingWatch,
+                .grantHelperVideoAppScreenRecordingPermission
+            ]
         case .useStableHelperExecutable:
-            return .installStableHelperVideoExecutable
+            return [.installStableHelperVideoExecutable]
         case .grantCurrentHelperExecutable, .unsupported, .unknown, nil:
-            return .requestHelperVideoScreenRecordingPermission
+            return [.requestHelperVideoScreenRecordingPermission]
         }
     }
 
@@ -630,6 +633,7 @@ public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equat
         "request-helper-video-screen-recording-permission"
     case grantHelperVideoAppScreenRecordingPermission =
         "grant-helper-video-app-screen-recording-permission"
+    case runScreenRecordingWatch = "run-screen-recording-watch"
     case installStableHelperVideoExecutable = "install-stable-helper-video-executable"
     case configureHelperVideoExecutable = "configure-helper-video-executable"
     case inspectHelperVideoCapability = "inspect-helper-video-capability"
