@@ -809,11 +809,9 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
 
-    /// `app.buttons["Checks"]` matches by accessibilityIdentifier
-    /// first, but an ancestor in the SwiftUI tree clobbers per-button
-    /// identifiers with `naru.app.detail` (same finding as the
-    /// existing `DirectKeystrokeKeyboardScreenshotsUITests`).  Match
-    /// by accessibility label predicate instead.
+    /// Match by accessibility label so the audit stays anchored to
+    /// visible UI copy rather than SwiftUI container identifier
+    /// reshuffling.
     private func findChecksButton(in app: XCUIApplication) -> XCUIElement {
         let predicate = NSPredicate(format: "label == 'Checks'")
         return app.buttons.matching(predicate).firstMatch

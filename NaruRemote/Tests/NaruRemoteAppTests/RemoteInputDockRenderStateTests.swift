@@ -171,7 +171,7 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             ),
             "Send status is model chrome; while UIKit owns Korean/CJK Compose focus, it must not repaint the editor host."
         )
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             RemoteInputDockRenderState(
                 snapshot: baseSnapshot,
                 isLiveSession: true,
@@ -182,7 +182,20 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 isLiveSession: true,
                 isComposeFieldFocused: false
             ),
-            "Once Compose focus leaves, send status should repaint normally."
+            "Live-session send status is sibling chrome; it must not repaint the UITextView host even when Compose is not focused."
+        )
+        XCTAssertNotEqual(
+            RemoteInputDockStatusLineState(
+                snapshot: baseSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            RemoteInputDockStatusLineState(
+                snapshot: statusSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            "The sibling status line still reflects send status without invalidating the input host."
         )
     }
 
@@ -262,17 +275,19 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             composeDraft: ComposeDraft(sessionID: session.id, text: "입")
         )
 
-        let statusLine = FocusedComposeStatusLineState(
+        let statusLine = RemoteInputDockStatusLineState(
             snapshot: statusSnapshot,
+            isLiveSession: true,
             isComposeFieldFocused: true
         )
-        let editingLine = FocusedComposeStatusLineState(
+        let editingLine = RemoteInputDockStatusLineState(
             snapshot: editingSnapshot,
+            isLiveSession: true,
             isComposeFieldFocused: true
         )
 
-        XCTAssertEqual(statusLine?.text, FocusedComposeStatusLineState.focusedStatusText)
-        XCTAssertEqual(editingLine?.text, FocusedComposeStatusLineState.focusedStatusText)
+        XCTAssertEqual(statusLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
+        XCTAssertEqual(editingLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
         XCTAssertEqual(
             statusLine,
             editingLine,
@@ -283,11 +298,13 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             editingLine,
             "The focused status sibling must remain mounted after the first syllable clears stale send chrome; removing it can collapse the keyboard safe-area layout under UIKit IME."
         )
-        XCTAssertNil(
-            FocusedComposeStatusLineState(
+        XCTAssertEqual(
+            RemoteInputDockStatusLineState(
                 snapshot: editingSnapshot,
+                isLiveSession: true,
                 isComposeFieldFocused: false
-            )
+            )?.text,
+            editingSnapshot.inputHelperStatusText
         )
     }
 
@@ -325,12 +342,14 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            FocusedComposeStatusLineState(
+            RemoteInputDockStatusLineState(
                 snapshot: baseSnapshot,
+                isLiveSession: true,
                 isComposeFieldFocused: true
             ),
-            FocusedComposeStatusLineState(
+            RemoteInputDockStatusLineState(
                 snapshot: noisySnapshot,
+                isLiveSession: true,
                 isComposeFieldFocused: true
             ),
             "Focused Compose's sibling chrome must not relayout when helper/send status changes under an active IME transaction."

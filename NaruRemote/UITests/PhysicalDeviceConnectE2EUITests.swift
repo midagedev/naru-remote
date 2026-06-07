@@ -294,7 +294,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             return
         }
 
-        let editor = app.descendants(matching: .any)["naru.input.editor"].firstMatch
+        let editor = composeEditor(in: app)
         guard editor.waitForExistence(timeout: 2), editor.isHittable else {
             return
         }
@@ -306,6 +306,21 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         if send.waitForExistence(timeout: 2), send.isEnabled {
             send.tap()
         }
+    }
+
+    private func composeEditor(in app: XCUIApplication) -> XCUIElement {
+        let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
+        let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
+        if lifecycleEditor.exists {
+            return lifecycleEditor
+        }
+
+        let identified = app.descendants(matching: .any)["naru.input.editor"].firstMatch
+        if identified.exists {
+            return identified
+        }
+
+        return app.textViews["Remote input text"]
     }
 
     private func revealControlsIfNeeded(in app: XCUIApplication) {

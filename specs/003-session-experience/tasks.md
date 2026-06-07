@@ -124,6 +124,19 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   framebuffer/cursor subset. Covered by `RemoteInputDockRenderStateTests` and
   `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm`.
   **Done.**
+- [x] T015bh [B] Interaction architecture correction: move active-session
+  send/helper status out of the equatable Compose editor host, remove
+  non-leaf SwiftUI accessibility identifiers that clobbered the real
+  `UITextView`/button identifiers, and add a lifecycle-probed iPhone XCUITest
+  proving the same focused `UITextView` instance (`make=1`, stable token,
+  first responder) survives trackpad cursor pressure, full-frame framebuffer
+  flood, and app-model chrome churn while entering multi-step Korean text.
+  Covered by `RemoteInputDockRenderStateTests`,
+  `RemoteInputDockSyncPolicyTests`,
+  `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeKeepsEditorInstanceDuringFullInteractionStorm`,
+  `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm`,
+  and `DirectKeystrokeFR010UITests/testDockBadgeAppearsOnDirectAndDisappearsOnCompose`.
+  **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

@@ -8,10 +8,9 @@ import XCTest
 /// The vision-judge step verifies the three states are clearly
 /// visually distinct on iPhone 17 Pro / iOS 26.2.
 ///
-/// Note 1: an ancestor in the SwiftUI tree clobbers the per-button
-/// `accessibilityIdentifier` with `naru.app.detail` (same finding as
-/// `DirectKeystrokeKeyboardScreenshotsUITests`), so we drive the
-/// test through `accessibilityLabel` ("Control modifier, idle" etc).
+/// Note 1: drive through user-facing `accessibilityLabel`
+/// ("Control modifier, idle" etc.) so screenshot capture remains
+/// independent from SwiftUI container identifier reshuffling.
 ///
 /// Note 2: XCUITest's synthesised taps land ~600 ms apart, well
 /// outside the production 400 ms double-tap lock window.  For the
@@ -128,12 +127,8 @@ final class DirectKeystrokeStickyModifierScreenshotsUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Locate the Control modifier button by its
-    /// `accessibilityLabel` of the form "Control modifier, <state>".
-    /// Using label rather than identifier because an ancestor in
-    /// the SwiftUI tree clobbers the per-button identifier with
-    /// `naru.app.detail` (`DirectKeystrokeKeyboardScreenshotsUITests`
-    /// hit the same).
+    /// Locate the Control modifier button by its user-facing
+    /// accessibility label of the form "Control modifier, <state>".
     private func controlButtonInState(app: XCUIApplication, _ state: String) -> XCUIElement {
         app.buttons["Control modifier, \(state)"]
     }

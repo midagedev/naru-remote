@@ -183,11 +183,12 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        if let focusedStatusLine = FocusedComposeStatusLineState(
+                        if let statusLine = RemoteInputDockStatusLineState(
                             snapshot: snapshot,
+                            isLiveSession: isLiveSession,
                             isComposeFieldFocused: composeFieldFocused
                         ) {
-                            FocusedComposeStatusLine(text: focusedStatusLine.text)
+                            RemoteInputDockStatusLine(text: statusLine.text)
                         }
 
                         RemoteInputDockEquatableHost(
@@ -231,7 +232,6 @@ public struct NaruRemoteAppShell: View {
             // future revision lets the dock collapse, re-add an HUD
             // fallback gated on `dockBadgeIsVisible == false`.
             .background(NaruColors.canvas)
-            .accessibilityIdentifier("naru.app.detail")
         }
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView(
@@ -300,13 +300,12 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         isComposeFieldFocused: Bool = false
     ) {
         self.directKeystrokeMode = snapshot.directKeystrokeMode
-        let isFocusedCompose = isComposeFieldFocused && !snapshot.directKeystrokeMode.isActive
         self.initialText = snapshot.composeDraft?.text ?? ""
-        self.statusText = isFocusedCompose ? "Ready to compose locally" : snapshot.inputStatusText
-        self.helperStatusText = isFocusedCompose ? nil : snapshot.inputHelperStatusText
+        self.statusText = isLiveSession ? "" : snapshot.inputStatusText
+        self.helperStatusText = isLiveSession ? nil : snapshot.inputHelperStatusText
         self.stickyModifierState = snapshot.stickyModifierState
         self.layoutStyle = isLiveSession ? .compactAccessory : .standard
-        self.showsCompactStatusText = isFocusedCompose ? false : snapshot.latestInjectionAttempt != nil
+        self.showsCompactStatusText = isLiveSession ? false : snapshot.latestInjectionAttempt != nil
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
     }
@@ -323,13 +322,11 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             && !lhs.directKeystrokeMode.isActive
             && !rhs.directKeystrokeMode.isActive
         if freezeModelMirroredComposeFields {
-            // While UIKit owns IME focus, every model-mirrored field is
-            // advisory. Keep the UITextView identity stable even when a
-            // previous send status is cleared or a later send status arrives;
-            // otherwise Korean/CJK IME can lose its next-key input chain.
-            // This intentionally ignores status text, helper text, layout
-            // style, quick-key visibility, and modifier-state changes until
-            // focus leaves; those belong to sibling chrome, not the hot editor.
+            // While UIKit owns IME focus, model-mirrored compose text is
+            // advisory. Status/helper chrome is now rendered by a sibling
+            // line, so the input host can keep the UITextView bridge stable
+            // even when previous send state, helper state, or frame liveness
+            // changes under the active keyboard.
             return true
         }
 
@@ -347,29 +344,44 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     }
 }
 
-struct FocusedComposeStatusLineState: Equatable, Sendable {
+struct RemoteInputDockStatusLineState: Equatable, Sendable {
     var text: String
 
     static let focusedStatusText = "Ready to compose locally"
 
     init?(
         snapshot: NaruRemoteAppSnapshot,
+        isLiveSession: Bool,
         isComposeFieldFocused: Bool
     ) {
-        guard isComposeFieldFocused, !snapshot.directKeystrokeMode.isActive else {
+        guard isLiveSession, !snapshot.directKeystrokeMode.isActive else {
             return nil
         }
 
-        // Focused Compose is a UIKit-owned transaction. Keep this sibling
-        // line mounted for the whole focus lifetime so clearing a stale
-        // send result, helper status, or stream quality update cannot collapse
-        // or relayout the safe-area inset above the active system keyboard.
-        // Dynamic send/helper state resumes once focus leaves.
-        self.text = Self.focusedStatusText
+        if isComposeFieldFocused {
+            // Focused Compose is a UIKit-owned transaction. Keep status
+            // chrome outside the equatable input host so clearing a stale
+            // send result, helper status, or stream quality update cannot
+            // repaint the active UITextView bridge.
+            self.text = Self.focusedStatusText
+            return
+        }
+
+        let statusText = snapshot.inputStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if snapshot.latestInjectionAttempt != nil, !statusText.isEmpty {
+            self.text = statusText
+            return
+        }
+
+        let helperStatusText = snapshot.inputHelperStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let helperStatusText, !helperStatusText.isEmpty else {
+            return nil
+        }
+        self.text = helperStatusText
     }
 }
 
-private struct FocusedComposeStatusLine: View {
+private struct RemoteInputDockStatusLine: View {
     let text: String
 
     var body: some View {

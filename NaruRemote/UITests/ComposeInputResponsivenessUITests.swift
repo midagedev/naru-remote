@@ -138,7 +138,58 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    func testFocusedActiveSessionComposeKeepsEditorInstanceDuringFullInteractionStorm() {
+        let app = launchAppWithActiveSessionConfirmationUnavailableFixture(
+            trackpadCursorStorm: true,
+            framebufferFlood: true,
+            modelPublishStorm: true,
+            exposeComposeLifecycle: true
+        )
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        let focusedProbe = waitForLifecycleProbe(in: app) { probe in
+            probe.isFirstResponder && probe.makeCount == 1
+        }
+        let token = focusedProbe.instanceToken
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+        let afterFirstInput = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.textChangeCount >= 1
+                && probe.isFirstResponder
+        }
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+        let afterSecondInput = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.textChangeCount >= afterFirstInput.textChangeCount
+                && probe.isFirstResponder
+        }
+
+        XCTAssertEqual(afterSecondInput.instanceToken, token)
+        XCTAssertEqual(afterSecondInput.makeCount, 1)
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "The active UITextView instance must stay first responder while frame/cursor/model storms continue."
+        )
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
+        let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
+        let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
+        if lifecycleEditor.exists {
+            return lifecycleEditor
+        }
         let identified = app.descendants(matching: .any)["naru.input.editor"].firstMatch
         if identified.exists {
             return identified
@@ -167,6 +218,35 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    private func waitForLifecycleProbe(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 4,
+        matching predicate: (ComposeLifecycleProbe) -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> ComposeLifecycleProbe {
+        let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
+        let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
+        guard lifecycleEditor.waitForExistence(timeout: timeout) else {
+            let visibleTree = String(app.debugDescription.prefix(8_000))
+            XCTFail("Lifecycle probe editor is missing. accessibilityTree=\(visibleTree)", file: file, line: line)
+            return .empty
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = ComposeLifecycleProbe(raw: lifecycleEditor.identifier)
+        while Date() < deadline {
+            latest = ComposeLifecycleProbe(raw: lifecycleEditor.identifier)
+            if let latest, predicate(latest) {
+                return latest
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail("Lifecycle probe did not reach expected state. latest=\(lifecycleEditor.identifier)", file: file, line: line)
+        return latest ?? ComposeLifecycleProbe.empty
+    }
+
     private func launchAppWithSampleProfile() -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
@@ -193,7 +273,8 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
     private func launchAppWithActiveSessionConfirmationUnavailableFixture(
         trackpadCursorStorm: Bool = false,
         framebufferFlood: Bool = false,
-        modelPublishStorm: Bool = false
+        modelPublishStorm: Bool = false,
+        exposeComposeLifecycle: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-compose-confirmation-unavailable"
@@ -206,6 +287,9 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         }
         if modelPublishStorm {
             app.launchEnvironment["NARU_TEST_MODEL_PUBLISH_STORM"] = "1"
+        }
+        if exposeComposeLifecycle {
+            app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
         }
         app.launch()
         return app
@@ -228,6 +312,65 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         let host: String
         let port = 5900
         let hostKind = "magicDNS"
+    }
+
+    private struct ComposeLifecycleProbe {
+        var instanceToken: String
+        var makeCount: Int
+        var updateCount: Int
+        var textChangeCount: Int
+        var focusEventCount: Int
+        var isFirstResponder: Bool
+
+        static let empty = ComposeLifecycleProbe(
+            instanceToken: "",
+            makeCount: 0,
+            updateCount: 0,
+            textChangeCount: 0,
+            focusEventCount: 0,
+            isFirstResponder: false
+        )
+
+        init?(raw: String) {
+            let payload = raw.replacingOccurrences(of: "naru.input.editor;", with: "")
+            let fields = payload
+                .split(separator: ";")
+                .reduce(into: [String: String]()) { result, field in
+                    let parts = field.split(separator: "=", maxSplits: 1)
+                    guard parts.count == 2 else { return }
+                    result[String(parts[0])] = String(parts[1])
+                }
+            guard let token = fields["token"],
+                  let make = fields["make"].flatMap(Int.init),
+                  let update = fields["update"].flatMap(Int.init),
+                  let change = fields["change"].flatMap(Int.init),
+                  let focus = fields["focus"].flatMap(Int.init)
+            else {
+                return nil
+            }
+            self.instanceToken = token
+            self.makeCount = make
+            self.updateCount = update
+            self.textChangeCount = change
+            self.focusEventCount = focus
+            self.isFirstResponder = fields["firstResponder"] == "true"
+        }
+
+        private init(
+            instanceToken: String,
+            makeCount: Int,
+            updateCount: Int,
+            textChangeCount: Int,
+            focusEventCount: Int,
+            isFirstResponder: Bool
+        ) {
+            self.instanceToken = instanceToken
+            self.makeCount = makeCount
+            self.updateCount = updateCount
+            self.textChangeCount = textChangeCount
+            self.focusEventCount = focusEventCount
+            self.isFirstResponder = isFirstResponder
+        }
     }
 
     private func writeSeedProfiles(_ profiles: [SeedProfile], to fileURL: URL) throws {

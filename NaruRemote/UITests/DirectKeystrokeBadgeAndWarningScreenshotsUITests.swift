@@ -58,13 +58,10 @@ final class DirectKeystrokeBadgeAndWarningScreenshotsUITests: XCTestCase {
         )
 
         // Punch-list #107 retired the HUD badge — only the dock
-        // badge remains.  An ancestor in the SwiftUI tree clobbers
-        // per-element `accessibilityIdentifier` with
-        // `naru.app.detail` (same finding as the existing
-        // `DirectKeystrokeKeyboardScreenshotsUITests` /
-        // `DirectKeystrokeStickyModifierScreenshotsUITests`), so we
-        // count by label.  At least one match → dock badge
-        // rendered.  SwiftUI can expose either the wrapped
+        // badge remains.  Count by label so the screenshot gate
+        // follows the user-facing contract instead of SwiftUI
+        // container identifier details.  At least one match → dock
+        // badge rendered.  SwiftUI can expose either the wrapped
         // accessibility label or the inner visible Text, so mirror
         // the FR-010 assertion test's dual-query helper.
         let badgeLabel = NSPredicate(

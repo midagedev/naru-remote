@@ -112,7 +112,6 @@ public struct RemoteInputDockView: View {
                 compactAccessoryBody
             }
         }
-        .accessibilityIdentifier("naru.input.dock")
         .onChange(of: initialText) { _, newValue in
             guard shouldApplyExternalComposeText(newValue) else {
                 return
@@ -1012,6 +1011,26 @@ private struct ComposeTextEditingView: View {
 }
 
 #if os(iOS) && canImport(UIKit)
+private struct ComposeEditorLifecycleProbe: Equatable, Sendable {
+    var instanceToken: String
+    var makeCount: Int
+    var updateCount: Int
+    var textChangeCount: Int
+    var focusEventCount: Int
+    var isFirstResponder: Bool
+
+    var accessibilityValue: String {
+        [
+            "token=\(instanceToken)",
+            "make=\(makeCount)",
+            "update=\(updateCount)",
+            "change=\(textChangeCount)",
+            "focus=\(focusEventCount)",
+            "firstResponder=\(isFirstResponder ? "true" : "false")"
+        ].joined(separator: ";")
+    }
+}
+
 @MainActor
 final class ComposeTextCommitController {
     private weak var textView: UITextView?
@@ -1125,21 +1144,22 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.accessibilityLabel = "Remote input text"
-        textView.accessibilityIdentifier = "naru.input.editor"
         textView.isAccessibilityElement = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         context.coordinator.attach(textView)
+        context.coordinator.reportLifecycle(textView)
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.recordUpdate()
         textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.backgroundColor = .clear
         textView.accessibilityLabel = "Remote input text"
-        textView.accessibilityIdentifier = "naru.input.editor"
         textView.isAccessibilityElement = true
+        context.coordinator.applyAccessibilityIdentifier(to: textView)
 
         // Do not overwrite UIKit's in-flight marked text. Korean/CJK
         // composition keeps intermediate state inside UITextView; setting
@@ -1149,6 +1169,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             textView: textView
         ) {
             context.coordinator.parent.commitController.updateCurrentText(from: textView)
+            context.coordinator.reportLifecycle(textView)
             return
         }
 
@@ -1157,12 +1178,18 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             context.coordinator.parent.commitController.updateCurrentText(from: textView)
         }
         context.coordinator.markBindingTextApplied(text)
+        context.coordinator.reportLifecycle(textView)
     }
 
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MultilingualComposeTextView
         private weak var textView: UITextView?
+        private let instanceToken = UUID().uuidString
+        private var makeCount = 0
+        private var updateCount = 0
+        private var textChangeCount = 0
+        private var focusEventCount = 0
         private var previouslyHadMarkedText = false
         private var lastCommittedTextNotification: String?
         private var lastAppliedBindingText = ""
@@ -1175,12 +1202,22 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         func attach(_ textView: UITextView) {
             self.textView = textView
             parent.commitController.attach(textView)
+            makeCount += 1
             previouslyHadMarkedText = textView.markedTextRange != nil
             lastCommittedTextNotification = textView.text ?? ""
             lastAppliedBindingText = parent.text
         }
 
+        func recordUpdate() {
+            updateCount += 1
+        }
+
+        func applyAccessibilityIdentifier(to textView: UITextView) {
+            textView.accessibilityIdentifier = accessibilityIdentifier
+        }
+
         func textViewDidChange(_ textView: UITextView) {
+            textChangeCount += 1
             reportFocus(textView.isFirstResponder)
             parent.commitController.updateCurrentText(from: textView)
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
@@ -1193,6 +1230,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 parent.text = resolvedText
             }
             notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
+            reportLifecycle(textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1211,14 +1249,17 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 parent.text = resolvedText
             }
             notifyIfMarkedTextCommitted(textView, resolvedText: resolvedText)
+            reportLifecycle(textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             reportFocus(true)
+            reportLifecycle(textView)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
             reportFocus(false)
+            reportLifecycle(textView)
         }
 
         func shouldDeferBindingWrite(
@@ -1263,7 +1304,36 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 return
             }
             lastReportedFocus = focused
+            focusEventCount += 1
             parent.onFocusChange(focused)
+        }
+
+        fileprivate func reportLifecycle(_ textView: UITextView) {
+            applyAccessibilityIdentifier(to: textView)
+        }
+
+        private var accessibilityIdentifier: String {
+            guard Self.exposesLifecycleIdentifier else {
+                return "naru.input.editor"
+            }
+            let probe = ComposeEditorLifecycleProbe(
+                instanceToken: instanceToken,
+                makeCount: makeCount,
+                updateCount: updateCount,
+                textChangeCount: textChangeCount,
+                focusEventCount: focusEventCount,
+                isFirstResponder: textView?.isFirstResponder ?? false
+            )
+            return "naru.input.editor;\(probe.accessibilityValue)"
+        }
+
+        private static var exposesLifecycleIdentifier: Bool {
+            guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"],
+                  !raw.isEmpty
+            else {
+                return false
+            }
+            return raw != "0" && raw.lowercased() != "false"
         }
     }
 }
