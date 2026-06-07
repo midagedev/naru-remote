@@ -36,10 +36,16 @@ public final class SessionFrameStore: ObservableObject {
     @Published public private(set) var presentationRevision: Int
 
     private let frameSubject = PassthroughSubject<SessionFrameState, Never>()
+    private var pendingFrameDelivery: SessionFrameState?
+    private var frameDeliveryTask: Task<Void, Never>?
 
     public init(state: SessionFrameState = SessionFrameState()) {
         self.state = state
         self.presentationRevision = 0
+    }
+
+    deinit {
+        frameDeliveryTask?.cancel()
     }
 
     public var framePublisher: AnyPublisher<SessionFrameState, Never> {
@@ -76,22 +82,49 @@ public final class SessionFrameStore: ObservableObject {
             serverCursor: serverCursor ?? state.serverCursor
         )
         state = next
-        frameSubject.send(next)
+        scheduleFrameDelivery(next)
         publishPresentationChangeIfNeeded(previous: previous, next: next)
     }
 
     public func publishServerCursor(_ serverCursor: RFBServerCursor) {
         let previous = state
         state.serverCursor = serverCursor
-        frameSubject.send(state)
+        scheduleFrameDelivery(state)
         publishPresentationChangeIfNeeded(previous: previous, next: state)
     }
 
     public func clear() {
         let previous = state
         state = SessionFrameState()
-        frameSubject.send(state)
+        scheduleFrameDelivery(state)
         publishPresentationChangeIfNeeded(previous: previous, next: state)
+    }
+
+    func flushPendingFrameDeliveryForTesting() {
+        frameDeliveryTask?.cancel()
+        frameDeliveryTask = nil
+        flushPendingFrameDelivery()
+    }
+
+    private func scheduleFrameDelivery(_ next: SessionFrameState) {
+        pendingFrameDelivery = next
+        guard frameDeliveryTask == nil else {
+            return
+        }
+
+        frameDeliveryTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.flushPendingFrameDelivery()
+        }
+    }
+
+    private func flushPendingFrameDelivery() {
+        frameDeliveryTask = nil
+        guard let next = pendingFrameDelivery else {
+            return
+        }
+        pendingFrameDelivery = nil
+        frameSubject.send(next)
     }
 
     private func publishPresentationChangeIfNeeded(

@@ -27,6 +27,7 @@ final class SessionFrameStoreTests: XCTestCase {
             serverCursor: nil
         )
 
+        store.flushPendingFrameDeliveryForTesting()
         XCTAssertEqual(frameEvents.count, 1)
         XCTAssertEqual(store.presentationRevision, 1)
         XCTAssertGreaterThanOrEqual(presentationPublishCount, 1)
@@ -45,6 +46,7 @@ final class SessionFrameStoreTests: XCTestCase {
             serverCursor: nil
         )
 
+        store.flushPendingFrameDeliveryForTesting()
         XCTAssertEqual(frameEvents.count, 2)
         XCTAssertEqual(store.presentationRevision, revisionBaseline)
         XCTAssertEqual(
@@ -64,10 +66,54 @@ final class SessionFrameStoreTests: XCTestCase {
             serverCursor: nil
         )
 
+        store.flushPendingFrameDeliveryForTesting()
         XCTAssertEqual(frameEvents.count, 3)
         XCTAssertEqual(store.presentationRevision, revisionBaseline + 1)
         XCTAssertGreaterThan(presentationPublishCount, presentationBaseline)
 
         withExtendedLifetime((presentationCancellable, frameCancellable)) {}
+    }
+
+    func testFrameEventsDeliverAsynchronouslyAndCoalesceToLatestFrame() {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        let first = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let second = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+
+        store.publish(
+            framebuffer: first,
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.publish(
+            framebuffer: second,
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+
+        XCTAssertEqual(store.framebuffer, second)
+        XCTAssertTrue(frameEvents.isEmpty)
+
+        store.flushPendingFrameDeliveryForTesting()
+
+        XCTAssertEqual(frameEvents.map(\.framebuffer), [second])
+        XCTAssertEqual(frameEvents.first?.dirtyRectangles, [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)])
+        XCTAssertEqual(frameEvents.first?.changedPixelCount, 1)
+
+        withExtendedLifetime(frameCancellable) {}
     }
 }
