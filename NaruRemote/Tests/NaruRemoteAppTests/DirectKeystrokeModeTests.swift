@@ -245,6 +245,90 @@ final class DirectKeystrokeModeTests: XCTestCase {
         )
     }
 
+    func testButtonlessTrackpadMoveUsesBestEffortPointerPathWhenAvailable() async throws {
+        // Stronger live-device fix: a plain trackpad cursor-follow
+        // move should not wait for Network.framework contentProcessed
+        // at all when the active client offers the best-effort
+        // capability. Clicks, drags, scroll, and keys stay on the
+        // reliable path; this covers only the lossy/latest-value move.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = BestEffortKeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            pointerEventDelay: .seconds(10)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(250)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 20, y: 20),
+                translation: CGSize(width: 20, height: 20)
+            ),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+
+        try await waitForPointerEvents(connector, count: 1, timeout: 1)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+
+        let event = try XCTUnwrap(connector.recordedPointerEvents.first)
+        XCTAssertEqual(event.mask, RFBPointerCommand.released)
+        XCTAssertEqual(event.x, 60)
+        XCTAssertEqual(event.y, 50)
+    }
+
+    func testTrackpadClickDoesNotUseBestEffortPointerPath() async throws {
+        // A click includes a button-down and a button-up. The release
+        // is not lossy cursor-follow state, so the whole pair must stay
+        // on the reliable pointer lane.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = BestEffortKeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .tap(viewPoint: CGPoint(x: 5, y: 5)),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+
+        try await waitForPointerEvents(connector, count: 2, timeout: 1)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 0)
+        XCTAssertEqual(connector.recordedPointerEvents.map { $0.mask }, [
+            RFBPointerCommand.leftButton,
+            RFBPointerCommand.released
+        ])
+    }
+
     func testTimedOutKeyEmissionReleasesOutboundQueueForLaterPointerInput() async throws {
         // Regression for the "one key, then everything feels frozen"
         // class of failures: a stalled key client must not park the
@@ -748,7 +832,7 @@ private enum RecordedInputEvent: Equatable {
     case pointer(mask: UInt8, x: UInt16, y: UInt16)
 }
 
-private final class KeyCapturingStreamingConnector: RFBStreamingClient {
+private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sendable {
     private struct Recording {
         var framebuffers: [RFBRawFramebuffer]
         var recordedKeyEventsList: [(keysym: UInt32, isDown: Bool)] = []
@@ -859,6 +943,10 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
         if let pointerEventDelay {
             try await Task.sleep(for: pointerEventDelay)
         }
+        recordPointerEvent(buttonMask: buttonMask, x: x, y: y)
+    }
+
+    fileprivate func recordPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) {
         recording.withLock { state in
             state.recordedPointerEventsList.append((buttonMask, x, y))
             state.recordedInputEventsList.append(.pointer(mask: buttonMask, x: x, y: y))
@@ -879,5 +967,22 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
             state.recordedKeyEventsList.append((keysym, isDown))
             state.recordedInputEventsList.append(.key(keysym: keysym, isDown: isDown))
         }
+    }
+}
+
+private final class BestEffortKeyCapturingStreamingConnector:
+    KeyCapturingStreamingConnector,
+    RFBBestEffortPointerEventClient,
+    @unchecked Sendable
+{
+    private let bestEffortCount = OSAllocatedUnfairLock(initialState: 0)
+
+    var recordedBestEffortPointerEventCount: Int {
+        bestEffortCount.withLock { $0 }
+    }
+
+    func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws {
+        bestEffortCount.withLock { $0 += 1 }
+        recordPointerEvent(buttonMask: buttonMask, x: x, y: y)
     }
 }

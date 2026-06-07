@@ -20,6 +20,10 @@ final class BenchmarkFailureLabelTests: XCTestCase {
             BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.continuousUpdatesNotConfirmed),
             "continuous-updates-not-confirmed"
         )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(for: RFBNetworkClientError.unsupportedBestEffortPointerMask),
+            "unsupported-best-effort-pointer-mask"
+        )
     }
 
     func testDecodeAndZlibLabelsStayCatalogOnly() {

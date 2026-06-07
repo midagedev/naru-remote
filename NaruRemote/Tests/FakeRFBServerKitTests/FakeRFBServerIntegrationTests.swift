@@ -125,6 +125,42 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         ])
     }
 
+    func testProductionRFBNetworkClientSendsBestEffortPointerMoveAfterInteractiveHandshake() throws {
+        let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
+        let recorder = FakeRFBClientMessageRecorder()
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthHandshake,
+            clientMessageRecorder: recorder
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthFirstFrame(host: "127.0.0.1", port: port)
+
+        let bestEffortClient: RFBBestEffortPointerEventClient = client
+        try bestEffortClient.sendBestEffortPointerEvent(buttonMask: 0x00, x: 13, y: 21)
+
+        let events = try recorder.waitForPointerEvents(1)
+        XCTAssertEqual(events, [
+            FakeRFBPointerEvent(buttonMask: 0x00, x: 13, y: 21)
+        ])
+    }
+
+    func testBestEffortPointerMoveRejectsPressedButtonMasks() throws {
+        let client = RFBNetworkClient()
+
+        XCTAssertThrowsError(
+            try client.sendBestEffortPointerEvent(buttonMask: 0x01, x: 13, y: 21)
+        ) { error in
+            XCTAssertEqual(
+                error as? RFBNetworkClientError,
+                .unsupportedBestEffortPointerMask
+            )
+        }
+    }
+
     func testProductionRFBNetworkClientSendsRightClickAndScrollDownAfterHandshake() async throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let recorder = FakeRFBClientMessageRecorder()

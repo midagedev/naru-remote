@@ -14,7 +14,7 @@ import Dispatch
 // `clientPixelFormatPreference`, `activeConnection`) is
 // guarded by `lock` —
 // every read and every write goes through `lock.withRFBClientLock`.
-public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, @unchecked Sendable {
+public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTextClient, RFBBestEffortPointerEventClient, @unchecked Sendable {
     private static let minimumNoAuthFirstFrameTranscriptByteCount = 62
 
     private let initialEncodingPreference: RFBEncodingPreference
@@ -651,6 +651,24 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    /// Sends a lossy/latest-value `PointerEvent` without blocking the caller on
+    /// Network.framework content processing. Intended only for coalesced
+    /// buttonless cursor moves; callers keep clicks, drags, scroll, and key
+    /// events on the reliable `sendPointerEvent` / `sendKeyEvent` paths.
+    ///
+    /// Per constitution §IV, coordinates and payload bytes are not logged.
+    public func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws {
+        guard buttonMask == 0x00 else {
+            throw RFBNetworkClientError.unsupportedBestEffortPointerMask
+        }
+        guard let connection = currentActiveConnection() else {
+            throw RFBNetworkClientError.notConnected
+        }
+        connection.writeBestEffort(
+            RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y)
+        )
+    }
+
     /// Sends a single `KeyEvent` (RFC 6143 §7.5.4, message type 4)
     /// on the active connection. The keysym comes from the caller
     /// already as an X11 keysym integer — character / hardware
@@ -1149,6 +1167,7 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
     case unsupportedFramebufferEncoding(Int32)
     case notConnected
     case continuousUpdatesNotConfirmed
+    case unsupportedBestEffortPointerMask
 
     public var errorDescription: String? {
         switch self {
@@ -1178,6 +1197,8 @@ public enum RFBNetworkClientError: Error, Equatable, LocalizedError {
             return "No active RFB connection is available."
         case .continuousUpdatesNotConfirmed:
             return "RFB server has not confirmed ContinuousUpdates support."
+        case .unsupportedBestEffortPointerMask:
+            return "Best-effort pointer writes only support buttonless cursor moves."
         }
     }
 }
@@ -1197,7 +1218,8 @@ private extension RFBNetworkClientError {
              .unsupportedSecurityTypes,
              .unsupportedFramebufferEncoding,
              .notConnected,
-             .continuousUpdatesNotConfirmed:
+             .continuousUpdatesNotConfirmed,
+             .unsupportedBestEffortPointerMask:
             return false
         }
     }
@@ -1392,6 +1414,18 @@ private final class RFBNetworkConnection: Sendable {
             cancel()
             throw error
         }
+    }
+
+    func writeBestEffort(_ data: Data) {
+        guard !data.isEmpty else {
+            return
+        }
+
+        connection.send(content: data, completion: .contentProcessed { [self] error in
+            if error != nil {
+                cancel()
+            }
+        })
     }
 
     func cancel() {

@@ -1562,6 +1562,7 @@ public enum DiagnosticFailureCodeCatalog {
         "rfb.securityFailed",
         "rfb.truncatedServerCutText",
         "rfb.unexpectedMessageType",
+        "rfb.unsupportedBestEffortPointerMask",
         "rfb.unsupportedFramebufferEncoding",
         "rfb.unsupportedSecurityTypes"
     ]

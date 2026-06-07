@@ -2520,7 +2520,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         case .readTimedOut,
              .incompleteTranscript,
              .unsupportedFramebufferEncoding,
-             .continuousUpdatesNotConfirmed:
+             .continuousUpdatesNotConfirmed,
+             .unsupportedBestEffortPointerMask:
             return .rfbHandshake
         case .authenticationRequired, .unsupportedSecurityTypes:
             return .authentication
@@ -2965,6 +2966,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return "network.notConnected"
             case .continuousUpdatesNotConfirmed:
                 return "rfb.continuousUpdatesNotConfirmed"
+            case .unsupportedBestEffortPointerMask:
+                return "rfb.unsupportedBestEffortPointerMask"
             }
         }
 
@@ -6579,6 +6582,20 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         pointerInputDispatcher.enqueue(
             operation: { [pointerClient, commands] in
+                let useBestEffort = commands.count == 1
+                    && commands[0].buttonMask == RFBPointerCommand.released
+                if useBestEffort,
+                   let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient,
+                   let command = commands.first
+                {
+                    try bestEffortClient.sendBestEffortPointerEvent(
+                        buttonMask: command.buttonMask,
+                        x: command.x,
+                        y: command.y
+                    )
+                    return
+                }
+
                 for command in commands {
                     guard !Task.isCancelled else {
                         return

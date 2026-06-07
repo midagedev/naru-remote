@@ -129,6 +129,39 @@ the fake RFB client promptly on the key lane.
 
 ---
 
+## R-6 — Buttonless trackpad moves are latest-value input
+
+**Decision**: Add an optional `RFBBestEffortPointerEventClient` capability for a
+single buttonless (`0x00`) trackpad cursor-follow `PointerEvent`. When the
+active RFB client supports it, `NaruRemoteAppModel` can send that one command
+without waiting for Network.framework `contentProcessed`; all non-zero button
+masks and all multi-command pointer gestures stay on the reliable
+`RFBPointerEventClient` path.
+
+**Rationale**:
+
+- The observed physical-iPhone symptom is a half-beat or frozen feel when
+  trackpad movement and keyboard input compete with socket backpressure. A
+  stale buttonless move has no semantic value after a newer cursor sample
+  exists, so it is safe to treat it as lossy/latest-value input.
+- Clicks, drags, scroll, and key events are not latest-value state. Their
+  down/up ordering matters, so they remain on the reliable write path with the
+  existing operation timeout.
+- This does not alter RFB protocol semantics: RFC 6143 §7.5.5 still receives a
+  normal absolute-coordinate `PointerEvent`; only local scheduling changes.
+
+**Rejected alternative**: put every pointer event on best-effort writes. This
+would make click release, drag hold, and scroll ordering dependent on socket
+backpressure timing and is therefore too risky for precise remote control.
+
+**Verification**: `DirectKeystrokeModeTests` proves single buttonless trackpad
+moves use the best-effort capability when available while trackpad clicks do
+not. `FakeRFBServerIntegrationTests` proves the production `RFBNetworkClient`
+adopts the capability, writes a buttonless pointer event to a fake server, and
+rejects non-zero button masks.
+
+---
+
 ## Implementation order implied by this research
 
 1. Extend RFB layer first — `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` is already in the codebase from the Compose & Send `pasteCommand` work, so this step adds the new `RFBKeyEventClient` capability protocol, `RFBNetworkClient` adoption (3-line method routing through the existing encoder), and `FakeRFBClientMessageRecorder.keyEvents`. Fully Core, fully unit-testable, no UI yet.

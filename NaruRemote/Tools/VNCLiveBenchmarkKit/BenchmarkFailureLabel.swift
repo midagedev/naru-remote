@@ -42,6 +42,8 @@ public enum BenchmarkFailureLabel {
             return "not-connected"
         case RFBNetworkClientError.continuousUpdatesNotConfirmed:
             return "continuous-updates-not-confirmed"
+        case RFBNetworkClientError.unsupportedBestEffortPointerMask:
+            return "unsupported-best-effort-pointer-mask"
         case RFBProtocolDecoderError.insufficientData:
             return "protocol-insufficient-data"
         case RFBProtocolDecoderError.invalidProtocolVersion:
