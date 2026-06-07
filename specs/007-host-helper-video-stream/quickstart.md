@@ -131,6 +131,8 @@ scripts/run-naru-live-benchmark.sh helper-readiness-sweep
 scripts/run-naru-live-benchmark.sh helper-dev-app-setup
 scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark
 scripts/run-naru-live-benchmark.sh screen-recording-setup
+scripts/run-naru-live-benchmark.sh screen-recording-watch
+scripts/run-naru-live-benchmark.sh screen-recording-watch-self-test
 scripts/run-naru-live-benchmark.sh physical-device-preflight
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
@@ -179,6 +181,16 @@ capability again. It emits only fixed setup/status labels. In automation, set
 `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip` to verify the JSON shape
 without opening System Settings. After granting Screen Recording to
 `NaruHelperDev`, relaunch the helper and rerun `helper-readiness-sweep`.
+`screen-recording-watch` extends that setup flow for the human-in-the-loop
+permission grant. It requests permission, opens Settings unless skipped, then
+polls the helper's safe `--video-capability` labels until Screen Recording is
+reported as granted or the bounded poll budget expires. Use
+`NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS` and
+`NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS` to shorten automation
+runs. A granted watch result routes to `rerun-helper-readiness-sweep` and
+`run-true-helper-video-live-capture-benchmark`; a missing result routes back to
+`grant-helper-video-app-screen-recording-permission` and
+`rerun-screen-recording-watch`.
 `physical-device-preflight` checks whether a physical iPhone can be selected
 for the T030/T031 gate and whether Xcode signing/provisioning can build the app.
 Physical iPads and other non-iPhone devices are not accepted for this gate.

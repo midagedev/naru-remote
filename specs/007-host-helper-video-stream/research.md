@@ -1694,3 +1694,49 @@ aggregate pass/fail state. They must not export live Compose text, marked text,
 clipboard contents, keysyms, helper endpoints, pairing material, host identity,
 credentials, device identifiers, raw VNC/helper errors, pixels, dimensions, or
 byte counts.
+
+## D47 - Watch the Screen Recording grant as a bounded setup gate
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh screen-recording-watch`.
+The mode requests helper Screen Recording permission, opens macOS Screen
+Recording settings unless `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip`,
+then polls the helper's safe `--video-capability` JSON until the helper reports
+`screenRecordingPermission=granted` or `availability=available`, or until the
+bounded poll budget expires. A granted result emits
+`rerun-helper-readiness-sweep` and
+`run-true-helper-video-live-capture-benchmark`; a missing result emits
+`grant-helper-video-app-screen-recording-permission` and
+`rerun-screen-recording-watch`.
+
+**Rationale**:
+- `screen-recording-setup` is intentionally one-shot. That is correct for a
+  deterministic setup report, but it still leaves the operator to grant a macOS
+  permission and remember the next command by hand.
+- The actual Screen Recording grant is a user-controlled TCC boundary, not
+  something the benchmark should bypass. The best automation is therefore a
+  bounded wait loop around fixed safe capability labels.
+- The current helper-video readiness gate is otherwise healthy enough to move
+  to true ScreenCaptureKit live capture as soon as permission flips: synthetic
+  and sustained synthetic helper-video pass, while the ScreenCaptureKit probe
+  reports only `helper-video-permission-missing` plus derived startup/stall
+  labels.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh screen-recording-watch-self-test | jq
+  empty` uses a fake helper that changes from `permissionMissing` to `granted`
+  and verifies the granted next actions.
+- Short non-interactive live run:
+  `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
+  NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS=2
+  NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS=0
+  scripts/run-naru-live-benchmark.sh screen-recording-watch` reports
+  `watchStatus=timedOut`, `finalPermissionStatus=missing`,
+  `finalAvailability=permissionMissing`, and setup actions
+  `grant-helper-video-app-screen-recording-permission` plus
+  `rerun-screen-recording-watch`.
+
+**Privacy rule**: Screen Recording watch reports may include fixed status,
+issue, and setup-action labels, poll budget values, and helper safe capability
+JSON. They must not include helper executable paths, endpoints, credentials,
+raw OS errors, pixels, dimensions, byte counts, exact helper timings, hostnames,
+physical device IDs, Compose text, marked text, keysyms, or clipboard contents.

@@ -365,6 +365,13 @@ without unsafe report fields.
   non-empty payloads; VNC clipboard + paste remains fallback only when helper is
   absent or not known reachable. Covered by focused app-model routing tests.
   **Done.**
+- [x] T031K [US2] Add a bounded `screen-recording-watch` setup runner so the
+  human-in-the-loop macOS Screen Recording grant can be detected without
+  repeatedly hand-running helper capability and readiness commands. The mode
+  requests permission, opens Settings unless skipped, polls safe helper
+  capability JSON, and routes granted results to the true helper-video live
+  benchmark action. Covered by `screen-recording-watch-self-test` and a short
+  live helper run that still reports `permissionMissing`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

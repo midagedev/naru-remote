@@ -221,6 +221,13 @@ helper capability, runs the explicit permission request, opens the macOS Screen
 Recording settings pane, and rechecks capability without printing unsafe
 details. The current setup still requires the user to grant Screen Recording
 to the stable helper app bundle and rerun the readiness sweep.
+Current helper Screen Recording watch artifact:
+`artifacts/benchmarks/2026-06-07-screen-recording-watch-summary.md`.
+The launchctl runner now also has a fixed `screen-recording-watch` mode that
+requests permission, opens Settings unless skipped, polls the helper's safe
+capability labels, and emits either the permission-missing follow-up or the
+`run-true-helper-video-live-capture-benchmark` action after the grant is
+detected.
 Current launchctl startup glance scale sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-sweep-runner-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh glance-scale-sweep` to compare
@@ -1252,6 +1259,12 @@ fixed setup/status JSON. The current setup run proves the helper identity is
 now `appBundle`, synthetic and sustained helper-video still pass, and true
 ScreenCaptureKit helper-video remains blocked only on the fixed
 `grant-helper-video-app-screen-recording-permission` action.
+The Screen Recording watch artifact is
+`2026-06-07-screen-recording-watch-summary.md`; it adds a bounded polling mode
+for the human-in-the-loop Screen Recording grant. The current short live run is
+still `timedOut` with `permissionMissing`, while the self-test proves a granted
+transition routes to `rerun-helper-readiness-sweep` and
+`run-true-helper-video-live-capture-benchmark`.
 The Compose input island artifact is
 `2026-06-07-compose-input-island-summary.md`; it records the active-session
 Korean Compose freeze hypothesis and fix. While the UIKit Compose editor owns
