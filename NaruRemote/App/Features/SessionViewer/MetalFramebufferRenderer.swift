@@ -6,6 +6,102 @@ import Metal
 import MetalKit
 
 public typealias MetalFramebufferUploadTimingHandler = @MainActor @Sendable (_ milliseconds: Int) -> Void
+public typealias MetalFramebufferStagedUploadReadyHandler = @MainActor @Sendable () -> Void
+
+private struct SendableMetalDevice: @unchecked Sendable {
+    let device: MTLDevice
+}
+
+private struct MetalFramebufferStagedUpload: @unchecked Sendable {
+    let width: Int
+    let height: Int
+    let bytesPerRow: Int
+    let buffer: MTLBuffer
+    let dirtyRectangles: [RFBFrameDamageRect]?
+    let changedPixelCount: Int?
+    let preparationMilliseconds: Int
+
+    static func make(
+        device: MTLDevice,
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?
+    ) -> MetalFramebufferStagedUpload? {
+        guard framebuffer.width > 0,
+              framebuffer.height > 0,
+              framebuffer.width <= Int.max / framebuffer.height
+        else {
+            return nil
+        }
+        let pixelCount = framebuffer.width * framebuffer.height
+        guard pixelCount <= Int.max / 4,
+              framebuffer.pixels.count >= pixelCount
+        else {
+            return nil
+        }
+
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        let byteCount = pixelCount * 4
+        let buffer: MTLBuffer?
+        if MemoryLayout<RFBColor>.stride == 4 {
+            buffer = framebuffer.pixels.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return nil
+                }
+                return device.makeBuffer(
+                    bytes: baseAddress,
+                    length: byteCount,
+                    options: .storageModeShared
+                )
+            }
+        } else {
+            var bytes = [UInt8]()
+            bytes.reserveCapacity(byteCount)
+            for pixel in framebuffer.pixels.prefix(pixelCount) {
+                bytes.append(pixel.red)
+                bytes.append(pixel.green)
+                bytes.append(pixel.blue)
+                bytes.append(pixel.alpha)
+            }
+            buffer = bytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return nil
+                }
+                return device.makeBuffer(
+                    bytes: baseAddress,
+                    length: byteCount,
+                    options: .storageModeShared
+                )
+            }
+        }
+        guard let buffer else {
+            return nil
+        }
+
+        return MetalFramebufferStagedUpload(
+            width: framebuffer.width,
+            height: framebuffer.height,
+            bytesPerRow: framebuffer.width * 4,
+            buffer: buffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount.map { max($0, 0) },
+            preparationMilliseconds: Self.elapsedMilliseconds(since: startedAt)
+        )
+    }
+
+    private static func elapsedMilliseconds(since start: UInt64) -> Int {
+        let end = DispatchTime.now().uptimeNanoseconds
+        let elapsedNanoseconds = end >= start ? end - start : 0
+        return max(0, Int((Double(elapsedNanoseconds) / 1_000_000.0).rounded()))
+    }
+}
+
+private struct MetalFramebufferStagingRequest: Sendable {
+    let generation: Int
+    let framebuffer: RFBRawFramebuffer
+    let dirtyRectangles: [RFBFrameDamageRect]?
+    let changedPixelCount: Int?
+}
 
 /// GPU-backed renderer for `RFBRawFramebuffer` pixels.
 ///
@@ -43,6 +139,11 @@ public final class MetalFramebufferRenderer: NSObject {
     private var pendingFramebuffer: RFBRawFramebuffer?
     private var pendingDirtyRectangles: [RFBFrameDamageRect]?
     private var pendingChangedPixelCount: Int?
+    private var pendingStagedUpload: MetalFramebufferStagedUpload?
+    private var latestStagingRequest: MetalFramebufferStagingRequest?
+    private var stagedUploadPreparationTask: Task<Void, Never>?
+    private var stagedUploadGeneration = 0
+    private var stagedUploadWorkerID = 0
     private var viewportZoomScale: CGFloat = 1
     private var viewportPanOffset: CGSize = .zero
     private var viewportMaxZoomScale: CGFloat = defaultMaximumViewportZoomScale
@@ -70,6 +171,7 @@ public final class MetalFramebufferRenderer: NSObject {
     public private(set) var lastUploadMilliseconds: Int?
 
     var uploadTimingHandler: MetalFramebufferUploadTimingHandler?
+    var stagedUploadReadyHandler: MetalFramebufferStagedUploadReadyHandler?
 
     /// Creates a renderer bound to the given device.  Returns `nil`
     /// when the system cannot supply a `MTLCommandQueue` or fails to
@@ -93,6 +195,10 @@ public final class MetalFramebufferRenderer: NSObject {
         super.init()
     }
 
+    deinit {
+        stagedUploadPreparationTask?.cancel()
+    }
+
     /// Stores the next framebuffer.  Texture allocation/upload happens
     /// during `MTKView` draw callbacks so we never block the RFB stream
     /// on GPU work.
@@ -112,6 +218,11 @@ public final class MetalFramebufferRenderer: NSObject {
         pendingFramebuffer = framebuffer
         pendingDirtyRectangles = dirtyRectangles
         pendingChangedPixelCount = changedPixelCount.map { max($0, 0) }
+        scheduleStagedUploadPreparation(
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount
+        )
     }
 
     /// Clears any visible or pending framebuffer state. Used when the
@@ -119,10 +230,12 @@ public final class MetalFramebufferRenderer: NSObject {
     /// the imperative Metal host cannot display stale pixels while SwiftUI
     /// is rebuilding back to the placeholder.
     public func clearFramebuffers() {
+        cancelStagedUploadPreparation()
         texture = nil
         pendingFramebuffer = nil
         pendingDirtyRectangles = nil
         pendingChangedPixelCount = nil
+        pendingStagedUpload = nil
         lastUploadRegionCount = 0
         lastUploadMilliseconds = nil
     }
@@ -172,12 +285,14 @@ public final class MetalFramebufferRenderer: NSObject {
     /// verify texture state without hitting the display pipeline.
     @discardableResult
     public func uploadPendingFramebufferForTesting() -> Bool {
-        applyPendingFramebuffer()
+        cancelStagedUploadPreparation()
+        return applyPendingFramebuffer()
     }
 
     @discardableResult
     public func uploadPendingFramebufferRespectingSuspensionForTesting() -> Bool {
-        applyPendingFramebufferIfAllowed()
+        cancelStagedUploadPreparation()
+        return applyPendingFramebufferIfAllowed()
     }
 
     /// Read-back of texture pixels for unit tests.  The buffer is
@@ -200,6 +315,88 @@ public final class MetalFramebufferRenderer: NSObject {
     }
 
     // MARK: - Private
+
+    private func scheduleStagedUploadPreparation(
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?
+    ) {
+        stagedUploadGeneration += 1
+        latestStagingRequest = MetalFramebufferStagingRequest(
+            generation: stagedUploadGeneration,
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount
+        )
+        pendingStagedUpload = nil
+        guard stagedUploadPreparationTask == nil else {
+            return
+        }
+
+        let device = SendableMetalDevice(device: device)
+        stagedUploadWorkerID += 1
+        let workerID = stagedUploadWorkerID
+        stagedUploadPreparationTask = Task.detached(priority: .userInitiated) { [weak self, device, workerID] in
+            while !Task.isCancelled {
+                guard let request = await MainActor.run(body: { [weak self] in
+                    self?.takeLatestStagingRequest()
+                }) else {
+                    let shouldContinue = await MainActor.run { [weak self] in
+                        guard let self,
+                              self.stagedUploadWorkerID == workerID
+                        else {
+                            return false
+                        }
+                        guard self.latestStagingRequest == nil else {
+                            return true
+                        }
+                        self.stagedUploadPreparationTask = nil
+                        return false
+                    }
+                    if shouldContinue {
+                        continue
+                    }
+                    return
+                }
+
+                guard let stagedUpload = MetalFramebufferStagedUpload.make(
+                    device: device.device,
+                    framebuffer: request.framebuffer,
+                    dirtyRectangles: request.dirtyRectangles,
+                    changedPixelCount: request.changedPixelCount
+                ), !Task.isCancelled else {
+                    continue
+                }
+
+                await MainActor.run { [weak self] in
+                    guard !Task.isCancelled,
+                          let self,
+                          self.stagedUploadWorkerID == workerID,
+                          self.stagedUploadGeneration == request.generation
+                    else {
+                        return
+                    }
+                    self.pendingStagedUpload = stagedUpload
+                    self.stagedUploadReadyHandler?()
+                }
+            }
+        }
+    }
+
+    private func cancelStagedUploadPreparation() {
+        stagedUploadGeneration += 1
+        stagedUploadWorkerID += 1
+        stagedUploadPreparationTask?.cancel()
+        stagedUploadPreparationTask = nil
+        latestStagingRequest = nil
+        pendingStagedUpload = nil
+    }
+
+    private func takeLatestStagingRequest() -> MetalFramebufferStagingRequest? {
+        let request = latestStagingRequest
+        latestStagingRequest = nil
+        return request
+    }
 
     @discardableResult
     fileprivate func applyPendingFramebuffer() -> Bool {
@@ -305,26 +502,33 @@ public final class MetalFramebufferRenderer: NSObject {
         return true
     }
 
-    private func recordSuccessfulUploadTiming(startedAt start: UInt64) {
+    private func recordSuccessfulUploadTiming(
+        startedAt start: UInt64,
+        additionalMilliseconds: Int = 0
+    ) {
         let end = DispatchTime.now().uptimeNanoseconds
         let elapsedNanoseconds = end >= start ? end - start : 0
         let milliseconds = max(
             0,
-            Int((Double(elapsedNanoseconds) / 1_000_000.0).rounded())
+            additionalMilliseconds + Int((Double(elapsedNanoseconds) / 1_000_000.0).rounded())
         )
         lastUploadMilliseconds = milliseconds
         uploadTimingHandler?(milliseconds)
     }
 
     fileprivate func draw(in view: MTKView) {
-        applyPendingFramebufferIfAllowed()
+        guard let drawable = view.currentDrawable,
+              let renderPassDescriptor = view.currentRenderPassDescriptor,
+              let commandBuffer = commandQueue.makeCommandBuffer()
+        else {
+            return
+        }
+        applyPendingStagedUploadIfAllowed(commandBuffer: commandBuffer)
 
         guard let texture,
-              let drawable = view.currentDrawable,
-              let renderPassDescriptor = view.currentRenderPassDescriptor,
-              let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
         else {
+            commandBuffer.commit()
             return
         }
 
@@ -373,6 +577,109 @@ public final class MetalFramebufferRenderer: NSObject {
             pendingFramebufferUploadSuspensionBypassCount -= 1
         }
         return applyPendingFramebuffer()
+    }
+
+    @discardableResult
+    private func applyPendingStagedUploadIfAllowed(commandBuffer: MTLCommandBuffer) -> Bool {
+        if isPendingFramebufferUploadSuspended {
+            guard pendingFramebufferUploadSuspensionBypassCount > 0 else {
+                lastUploadMilliseconds = nil
+                return false
+            }
+            pendingFramebufferUploadSuspensionBypassCount -= 1
+        }
+        return applyPendingStagedUpload(commandBuffer: commandBuffer)
+    }
+
+    @discardableResult
+    private func applyPendingStagedUpload(commandBuffer: MTLCommandBuffer) -> Bool {
+        guard let stagedUpload = pendingStagedUpload else {
+            lastUploadMilliseconds = nil
+            return false
+        }
+        let uploadStart = DispatchTime.now().uptimeNanoseconds
+        pendingStagedUpload = nil
+        pendingFramebuffer = nil
+        pendingDirtyRectangles = nil
+        pendingChangedPixelCount = nil
+        lastUploadRegionCount = 0
+        lastUploadMilliseconds = nil
+
+        let textureWasRecreated: Bool
+        if texture?.width != stagedUpload.width || texture?.height != stagedUpload.height {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .rgba8Unorm,
+                width: stagedUpload.width,
+                height: stagedUpload.height,
+                mipmapped: false
+            )
+            descriptor.usage = [.shaderRead]
+            descriptor.storageMode = .shared
+            guard let newTexture = device.makeTexture(descriptor: descriptor) else {
+                return false
+            }
+            texture = newTexture
+            textureWasRecreated = true
+        } else {
+            textureWasRecreated = false
+        }
+
+        guard let texture,
+              let blitEncoder = commandBuffer.makeBlitCommandEncoder()
+        else {
+            return false
+        }
+
+        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
+            stagedUpload.dirtyRectangles,
+            textureWidth: texture.width,
+            textureHeight: texture.height
+        )
+        let uploadPlan = FramebufferUploadPlan.plan(
+            framebufferWidth: stagedUpload.width,
+            framebufferHeight: stagedUpload.height,
+            dirtyRectangles: validDirtyRectangles,
+            requiresTextureRecreation: textureWasRecreated
+                || texture.width != stagedUpload.width
+                || texture.height != stagedUpload.height,
+            changedPixelCount: stagedUpload.changedPixelCount
+        )
+
+        if uploadPlan.strategy == .partial {
+            for rect in validDirtyRectangles {
+                blitEncoder.copy(
+                    from: stagedUpload.buffer,
+                    sourceOffset: (rect.y * stagedUpload.bytesPerRow) + (rect.x * 4),
+                    sourceBytesPerRow: stagedUpload.bytesPerRow,
+                    sourceBytesPerImage: stagedUpload.bytesPerRow * stagedUpload.height,
+                    sourceSize: MTLSize(width: rect.width, height: rect.height, depth: 1),
+                    to: texture,
+                    destinationSlice: 0,
+                    destinationLevel: 0,
+                    destinationOrigin: MTLOrigin(x: rect.x, y: rect.y, z: 0)
+                )
+                lastUploadRegionCount += 1
+            }
+        } else {
+            blitEncoder.copy(
+                from: stagedUpload.buffer,
+                sourceOffset: 0,
+                sourceBytesPerRow: stagedUpload.bytesPerRow,
+                sourceBytesPerImage: stagedUpload.bytesPerRow * stagedUpload.height,
+                sourceSize: MTLSize(width: stagedUpload.width, height: stagedUpload.height, depth: 1),
+                to: texture,
+                destinationSlice: 0,
+                destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+            )
+            lastUploadRegionCount = 1
+        }
+        blitEncoder.endEncoding()
+        recordSuccessfulUploadTiming(
+            startedAt: uploadStart,
+            additionalMilliseconds: stagedUpload.preparationMilliseconds
+        )
+        return true
     }
 
     static func aspectFitViewport(
