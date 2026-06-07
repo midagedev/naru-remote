@@ -4,21 +4,52 @@ public let naruHelperTextBridgeSchemaVersion = 1
 public let naruHelperTextBridgeDefaultPort = 5974
 
 public struct NaruHelperPermissionState: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case accessibility
+        case accessibilityValueInsert
+        case unicodeKeyboardEvent
+        case inputMonitoring
+        case pasteboardFallback
+        case activeUserSession
+    }
+
     public var accessibility: String
+    public var accessibilityValueInsert: String?
+    public var unicodeKeyboardEvent: String?
     public var inputMonitoring: String
     public var pasteboardFallback: String
     public var activeUserSession: String
 
     public init(
         accessibility: String,
+        accessibilityValueInsert: String? = nil,
+        unicodeKeyboardEvent: String? = nil,
         inputMonitoring: String,
         pasteboardFallback: String,
         activeUserSession: String
     ) {
         self.accessibility = accessibility
+        self.accessibilityValueInsert = accessibilityValueInsert
+        self.unicodeKeyboardEvent = unicodeKeyboardEvent
         self.inputMonitoring = inputMonitoring
         self.pasteboardFallback = pasteboardFallback
         self.activeUserSession = activeUserSession
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.accessibility = try container.decode(String.self, forKey: .accessibility)
+        self.accessibilityValueInsert = try container.decodeIfPresent(
+            String.self,
+            forKey: .accessibilityValueInsert
+        )
+        self.unicodeKeyboardEvent = try container.decodeIfPresent(
+            String.self,
+            forKey: .unicodeKeyboardEvent
+        )
+        self.inputMonitoring = try container.decode(String.self, forKey: .inputMonitoring)
+        self.pasteboardFallback = try container.decode(String.self, forKey: .pasteboardFallback)
+        self.activeUserSession = try container.decode(String.self, forKey: .activeUserSession)
     }
 }
 

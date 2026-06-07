@@ -100,6 +100,10 @@ description: "Tasks: Host Helper Text Bridge"
   available, advertise `nativeInsert` only when permission/capability allows
   it, and fall back to pasteboard-restore only when requested. Verify with
   helper unit tests. **Done.**
+- [x] T034B [US2] Split the helper capability permission catalog so
+  Accessibility value insertion, bounded Unicode event insertion, and
+  pasteboard-restore fallback are reported separately while preserving legacy
+  capability decoding. Verify with helper protocol/capability tests. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct

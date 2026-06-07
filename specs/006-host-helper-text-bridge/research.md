@@ -154,6 +154,11 @@ separately when event posting for Command-V is available.
 - Capability reporting must not overclaim: a helper with paste-event
   permission but no Accessibility trust is still reachable for fallback, but it
   is not a true `nativeInsert` endpoint.
+- Capability reporting also distinguishes `accessibilityValueInsert` from
+  `unicodeKeyboardEvent`. A helper that can post bounded Unicode events but
+  cannot mutate the focused Accessibility value may still advertise
+  `nativeInsert`, while the legacy `accessibility` field remains `"missing"` so
+  diagnostics do not overclaim AX value insertion.
 
 **Sources**:
 - Apple AXUIElementSetAttributeValue: https://developer.apple.com/documentation/applicationservices/1460434-axuielementsetattributevalue
@@ -171,6 +176,12 @@ separately when event posting for Command-V is available.
 - `NaruHelperTextBridgeCapabilityProbeTests/testNativeAndPasteboardCapabilityAdvertisesNativeFirst`
   and `testPasteboardOnlyCapabilityDoesNotOverclaimNativeInsert` prove the
   fixed capability catalog stays honest.
+- `NaruHelperTextBridgeCapabilityProbeTests/testUnicodeEventOnlyCapabilityAdvertisesNativeWithoutOverclaimingAX`
+  proves the helper can advertise native Unicode event insertion without
+  falsely reporting Accessibility value insertion as granted.
+- `NaruHelperTextBridgeProtocolTests/testCapabilityResponseDecodesLegacyPermissionStateWithoutGranularFields`
+  proves older capability responses remain decodable after adding the granular
+  fields.
 
 **Residual risk**:
 - Physical iPhone + Mac verification is still required. Accessibility direct

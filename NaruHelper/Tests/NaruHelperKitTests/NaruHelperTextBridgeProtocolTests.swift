@@ -45,6 +45,8 @@ final class NaruHelperTextBridgeProtocolTests: XCTestCase {
             availability: .permissionMissing,
             permissionState: NaruHelperPermissionState(
                 accessibility: "missing",
+                accessibilityValueInsert: "missing",
+                unicodeKeyboardEvent: "granted",
                 inputMonitoring: "notRequired",
                 pasteboardFallback: "available",
                 activeUserSession: "available"
@@ -60,6 +62,34 @@ final class NaruHelperTextBridgeProtocolTests: XCTestCase {
         XCTAssertEqual(decoded.schemaVersion, naruHelperTextBridgeSchemaVersion)
         XCTAssertEqual(decoded.availability, .permissionMissing)
         XCTAssertEqual(decoded.permissionState.accessibility, "missing")
+        XCTAssertEqual(decoded.permissionState.accessibilityValueInsert, "missing")
+        XCTAssertEqual(decoded.permissionState.unicodeKeyboardEvent, "granted")
+        XCTAssertEqual(decoded.supportedStrategies, [.pasteboardPasteWithRestore])
+    }
+
+    func testCapabilityResponseDecodesLegacyPermissionStateWithoutGranularFields() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "availability": "reachable",
+          "permissionState": {
+            "accessibility": "granted",
+            "inputMonitoring": "notRequired",
+            "pasteboardFallback": "available",
+            "activeUserSession": "available"
+          },
+          "supportedStrategies": ["pasteboardPasteWithRestore"]
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(
+            NaruHelperCapabilityResponse.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(decoded.permissionState.accessibility, "granted")
+        XCTAssertNil(decoded.permissionState.accessibilityValueInsert)
+        XCTAssertNil(decoded.permissionState.unicodeKeyboardEvent)
         XCTAssertEqual(decoded.supportedStrategies, [.pasteboardPasteWithRestore])
     }
 }
