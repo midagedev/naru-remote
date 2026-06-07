@@ -12,7 +12,7 @@ final class NaruHelperNetworkRequestHandlerTests: XCTestCase {
             return NaruHelperInsertTextResponse(
                 requestID: request.requestID,
                 status: .sent,
-                strategyUsed: .pasteboardPasteWithRestore
+                strategyUsed: .nativeInsert
             )
         }
         let server = try NaruHelperNetworkServer(port: port, handler: handler)
@@ -85,7 +85,7 @@ final class NaruHelperNetworkRequestHandlerTests: XCTestCase {
             return NaruHelperInsertTextResponse(
                 requestID: request.requestID,
                 status: .sent,
-                strategyUsed: .pasteboardPasteWithRestore
+                strategyUsed: .nativeInsert
             )
         }
 

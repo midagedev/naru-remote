@@ -148,7 +148,7 @@ public struct HelperTextInsertRequestMetadata: Codable, Equatable, Identifiable,
         sessionID: UUID,
         payloadEncoding: TextInjectionPayloadEncoding,
         payloadSizeBucket: HelperTextPayloadSizeBucket,
-        strategyPreferences: [HelperTextInsertStrategy] = [.nativeInsert, .pasteboardPasteWithRestore]
+        strategyPreferences: [HelperTextInsertStrategy] = [.nativeInsert]
     ) {
         self.id = id
         self.sessionID = sessionID

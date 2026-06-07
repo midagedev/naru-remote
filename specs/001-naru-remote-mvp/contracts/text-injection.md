@@ -36,6 +36,20 @@ The MVP VNC clipboard path should report `unknown` after clipboard set and paste
 command success unless a future adapter can confirm that the focused remote app
 received the text.
 
+## Helper-Native Compose Path
+
+For Mac profiles with a configured and reachable Naru Helper, automatic Compose
+text entry should prefer native text insertion over clipboard mutation. The
+default helper request strategy is:
+
+- `nativeInsert`
+
+`pasteboardPasteWithRestore` remains a helper capability, but it must not be the
+implicit automatic Compose fallback. A UI or diagnostic path that chooses the
+pasteboard fallback must report that fixed strategy value separately from native
+insert so field logs can distinguish real text-event insertion from paste
+shortcut dispatch.
+
 Current automated coverage verifies outgoing legacy `ClientCutText`, Extended
 Clipboard caps/provide negotiation, zlib-wrapped UTF-8 payloads, and paste key
 events against the fake RFB server. It does not yet prove that every real VNC

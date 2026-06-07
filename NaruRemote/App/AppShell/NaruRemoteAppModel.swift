@@ -6437,6 +6437,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
                 attempt.finishedAt = Date()
                 attempt.status = result.status
+                attempt.helperStrategyUsed = result.strategyUsed
                 attempt.safeMessage = message
                 attempt.remoteClipboardRestore = Self.remoteClipboardRestoreStatus(for: result)
                 let nextState = Self.updatedHelperTextBridgeState(
@@ -6638,6 +6639,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
                 attempt.finishedAt = Date()
                 attempt.status = result.status
+                attempt.helperStrategyUsed = result.strategyUsed
                 attempt.safeMessage = message
                 attempt.remoteClipboardRestore = Self.remoteClipboardRestoreStatus(for: result)
                 let nextState = Self.updatedHelperTextBridgeState(

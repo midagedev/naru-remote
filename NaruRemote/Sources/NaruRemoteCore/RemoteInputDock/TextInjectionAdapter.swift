@@ -120,6 +120,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         case payloadEncoding
         case clipboardTransferMode
         case utf8ClipboardSupport
+        case helperStrategyUsed
         case startedAt
         case finishedAt
         case status
@@ -137,6 +138,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
     public var payloadEncoding: TextInjectionPayloadEncoding?
     public var clipboardTransferMode: TextClipboardTransferMode?
     public var utf8ClipboardSupport: RemoteClipboardUTF8Support?
+    public var helperStrategyUsed: HelperTextInsertStrategy?
     public let startedAt: Date
     public var finishedAt: Date?
     public var status: TextInjectionStatus
@@ -154,6 +156,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         payloadEncoding: TextInjectionPayloadEncoding? = nil,
         clipboardTransferMode: TextClipboardTransferMode? = nil,
         utf8ClipboardSupport: RemoteClipboardUTF8Support? = nil,
+        helperStrategyUsed: HelperTextInsertStrategy? = nil,
         startedAt: Date = Date(),
         finishedAt: Date? = nil,
         status: TextInjectionStatus = .unknown,
@@ -170,6 +173,7 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
         self.payloadEncoding = payloadEncoding
         self.clipboardTransferMode = clipboardTransferMode
         self.utf8ClipboardSupport = utf8ClipboardSupport
+        self.helperStrategyUsed = helperStrategyUsed
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.status = status
@@ -198,6 +202,10 @@ public struct TextInjectionAttempt: Codable, Equatable, Identifiable, Sendable {
             utf8ClipboardSupport: try container.decodeIfPresent(
                 RemoteClipboardUTF8Support.self,
                 forKey: .utf8ClipboardSupport
+            ),
+            helperStrategyUsed: try container.decodeIfPresent(
+                HelperTextInsertStrategy.self,
+                forKey: .helperStrategyUsed
             ),
             startedAt: try container.decode(Date.self, forKey: .startedAt),
             finishedAt: try container.decodeIfPresent(Date.self, forKey: .finishedAt),

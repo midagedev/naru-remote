@@ -1219,6 +1219,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case latestInjectionPayloadEncoding
         case latestInjectionClipboardTransferMode
         case latestInjectionUTF8ClipboardSupport
+        case latestInjectionHelperStrategy
         case latestInjectionClipboardSetStatus
         case latestInjectionPasteCommandStatus
         case latestInjectionRemoteClipboardRestore
@@ -1248,6 +1249,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let latestInjectionPayloadEncoding: String?
     public let latestInjectionClipboardTransferMode: String?
     public let latestInjectionUTF8ClipboardSupport: String?
+    public let latestInjectionHelperStrategy: String?
     public let latestInjectionClipboardSetStatus: String?
     public let latestInjectionPasteCommandStatus: String?
     public let latestInjectionRemoteClipboardRestore: String?
@@ -1277,6 +1279,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         latestInjectionPayloadEncoding: String? = nil,
         latestInjectionClipboardTransferMode: String? = nil,
         latestInjectionUTF8ClipboardSupport: String? = nil,
+        latestInjectionHelperStrategy: String? = nil,
         latestInjectionClipboardSetStatus: String? = nil,
         latestInjectionPasteCommandStatus: String? = nil,
         latestInjectionRemoteClipboardRestore: String? = nil,
@@ -1329,6 +1332,9 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         self.latestInjectionUTF8ClipboardSupport = Self.safeUTF8ClipboardSupport(
             latestInjectionUTF8ClipboardSupport
         )
+        self.latestInjectionHelperStrategy = Self.safeHelperTextInsertStrategy(
+            latestInjectionHelperStrategy
+        )
         self.latestInjectionClipboardSetStatus = Self.safeInjectionStepStatus(latestInjectionClipboardSetStatus)
         self.latestInjectionPasteCommandStatus = Self.safeInjectionStepStatus(latestInjectionPasteCommandStatus)
         self.latestInjectionRemoteClipboardRestore = Self.safeRemoteClipboardRestore(
@@ -1376,6 +1382,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionPayloadEncoding: latestInjectionAttempt?.payloadEncoding?.rawValue,
             latestInjectionClipboardTransferMode: latestInjectionAttempt?.clipboardTransferMode?.rawValue,
             latestInjectionUTF8ClipboardSupport: latestInjectionAttempt?.utf8ClipboardSupport?.rawValue,
+            latestInjectionHelperStrategy: latestInjectionAttempt?.helperStrategyUsed?.rawValue,
             latestInjectionClipboardSetStatus: latestInjectionAttempt?.clipboardSetStatus.rawValue,
             latestInjectionPasteCommandStatus: latestInjectionAttempt?.pasteCommandStatus.rawValue,
             latestInjectionRemoteClipboardRestore: latestInjectionAttempt?.remoteClipboardRestore.rawValue,
@@ -1465,6 +1472,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .latestInjectionUTF8ClipboardSupport
             ),
+            latestInjectionHelperStrategy: try container.decodeIfPresent(
+                String.self,
+                forKey: .latestInjectionHelperStrategy
+            ),
             latestInjectionClipboardSetStatus: try container.decodeIfPresent(
                 String.self,
                 forKey: .latestInjectionClipboardSetStatus
@@ -1541,6 +1552,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safeUTF8ClipboardSupport(_ value: String?) -> String? {
         safe(value, allowed: Set(RemoteClipboardUTF8Support.allCases.map(\.rawValue)))
+    }
+
+    private static func safeHelperTextInsertStrategy(_ value: String?) -> String? {
+        safe(value, allowed: Set(HelperTextInsertStrategy.allCases.map(\.rawValue)))
     }
 
     private static func safeInjectionStepStatus(_ value: String?) -> String? {
@@ -2333,7 +2348,7 @@ public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 33
+    public static let currentSchemaVersion = 34
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

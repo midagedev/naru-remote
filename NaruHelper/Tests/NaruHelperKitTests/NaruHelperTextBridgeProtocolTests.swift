@@ -3,6 +3,18 @@ import NaruHelperKit
 import NaruRemoteCore
 
 final class NaruHelperTextBridgeProtocolTests: XCTestCase {
+    func testInsertRequestDefaultsToNativeOnlyComposeStrategy() throws {
+        let requestID = try XCTUnwrap(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+        let request = NaruHelperInsertTextRequest(
+            requestID: requestID,
+            payloadEncoding: .utf8ExtensionRequired,
+            payloadSizeBucket: .small,
+            text: "한글과 English"
+        )
+
+        XCTAssertEqual(request.strategyPreference, [.nativeInsert])
+    }
+
     func testInsertRequestUsesStableContractKeys() throws {
         let requestID = try XCTUnwrap(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
         let request = NaruHelperInsertTextRequest(
