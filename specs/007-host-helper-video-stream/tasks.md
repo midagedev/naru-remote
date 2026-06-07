@@ -467,6 +467,14 @@ without unsafe report fields.
   queued frames coalesce to the newest frame before they can compete with
   UIKit IME, local zoom/pan, or trackpad sampling. After a pacing sleep,
   replace stale dequeued content with the newest pending content frame. **Done.**
+- [x] T031Y [US1] Split helper-video primary visual transport from VNC visual
+  request cadence. When helper-video is the healthy foreground visual path, VNC
+  remains connected for input/control and fallback but samples framebuffer
+  updates at the fixed helper-primary fallback cadence; if helper-video falls
+  back or the stream/session changes, the next VNC request resumes ordinary
+  cadence. Diagnostics now count helper-primary VNC sampling pacing samples.
+  Covered by pacing policy, app-model control-path, fallback-resume, and
+  diagnostic report tests. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

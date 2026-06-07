@@ -656,6 +656,35 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testSessionStreamPacingPolicyUsesHelperVideoPrimaryVNCSamplingFloor() {
+        let interval = StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds
+        let contentDecision = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: 0,
+            thermalState: .nominal,
+            helperVideoPrimaryVNCSamplingInterval: interval
+        )
+
+        XCTAssertEqual(contentDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertFalse(contentDecision.usesThermalPacing)
+        XCTAssertFalse(contentDecision.usesPowerSaverPacing)
+        XCTAssertFalse(contentDecision.usesEmptyBackoffPacing)
+        XCTAssertFalse(contentDecision.usesViewportInteractionPacing)
+        XCTAssertTrue(contentDecision.usesHelperVideoPrimaryVNCSamplingPacing)
+
+        let idleDecision = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .nominal,
+            helperVideoPrimaryVNCSamplingInterval: interval,
+            emptyUpdateStreak: 24
+        )
+
+        XCTAssertEqual(idleDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertFalse(idleDecision.usesEmptyBackoffPacing)
+        XCTAssertTrue(idleDecision.usesHelperVideoPrimaryVNCSamplingPacing)
+    }
+
     func testSessionStreamPacingDecisionClassifiesActiveFloor() {
         let thermal = SessionStreamPacingPolicy.decision(
             for: .contentFrame,
@@ -3399,6 +3428,199 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(calls.first?.requestBody.maxFrameRateBucket, .upTo15)
     }
 
+    func testHelperVideoPrimarySamplesVNCFallbackAndKeepsControlPathActive() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffers = (1...3).map { red in
+            RFBRawFramebuffer(
+                width: 2,
+                height: 1,
+                fill: RFBColor(red: UInt8(red), green: 20, blue: 30)
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: framebuffers,
+            frameUpdateDelay: 0.08
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let pacingGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer },
+            streamPacingSleep: { delay in
+                try await pacingGate.sleep(delay)
+            }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+        try await waitForLatestFramebuffer(model)
+        try await pacingGate.waitForWaitCount(1)
+
+        var delays = await pacingGate.delays
+        let firstDelay = try XCTUnwrap(delays.first)
+        XCTAssertEqual(
+            firstDelay,
+            StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(model.snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 1)
+
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+        XCTAssertEqual(
+            connector.recordedPointerEvents.map(\.mask),
+            [1, 0],
+            "VNC must remain the control plane while helper-video owns the visual plane."
+        )
+
+        await pacingGate.releaseNext()
+        try await pacingGate.waitForWaitCount(2)
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                fallbackCountBucket: .one
+            )
+        )
+        XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
+
+        await pacingGate.releaseNext()
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != framebuffers[2] {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        delays = await pacingGate.delays
+        XCTAssertEqual(delays.count, 2)
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers[2])
+        XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 2)
+    }
+
+    func testHelperVideoFallbackWakesVNCFallbackSamplingSleepEarly() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let fallbackFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 40, green: 20, blue: 30)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, fallbackFramebuffer],
+            frameUpdateDelay: 0.05
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 2, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        let fallbackStartedAt = Date()
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                fallbackCountBucket: .one
+            )
+        )
+
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != fallbackFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(model.snapshot.latestFramebuffer, fallbackFramebuffer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(fallbackStartedAt),
+            StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds,
+            "Fallback must wake the helper-primary VNC sampling sleep instead of waiting for the full cadence slot."
+        )
+    }
+
     func testHelperVideoBootstrapStartsBeforeSlowVNCFirstFrame() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
@@ -5741,6 +5963,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 0.05),
             connectorFactory: { connector }
         )
+        defer {
+            model.disconnect()
+        }
 
         await model.connectSelectedProfile()
         for _ in 0..<50 where model.snapshot.latestFramebuffer != firstFramebuffer {
@@ -5750,7 +5975,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.setViewportInteractionActive(true)
         let requestCountAtGestureStart = connector.frameUpdateRequests.count
-        try await Task.sleep(for: .milliseconds(140))
+        for _ in 0..<120 where connector.frameUpdateRequests.count <= requestCountAtGestureStart {
+            try await Task.sleep(for: .milliseconds(5))
+        }
 
         XCTAssertGreaterThan(
             connector.frameUpdateRequests.count,

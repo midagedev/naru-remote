@@ -3666,13 +3666,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                         isEmptyUpdate: isEmptyUpdate,
                         emptyUpdateStreak: emptyUpdateStreak
                     )
-                    let pacingDelay = pacingDecision.delay
-                    if pacingDelay > 0 {
-                        if let streamPacingSleepOverride = await self.currentStreamPacingSleepOverride() {
-                            try await streamPacingSleepOverride(pacingDelay)
-                        } else {
-                            try await Task.sleep(for: .seconds(pacingDelay))
-                        }
+                    if pacingDecision.delay > 0 {
+                        try await self.sleepForStreamPacing(
+                            pacingDecision,
+                            streamID: streamID,
+                            sessionID: pendingSession.id,
+                            profileID: profile.id
+                        )
                     }
                 }
             } catch is CancellationError {
@@ -3743,8 +3743,46 @@ public final class NaruRemoteAppModel: ObservableObject {
         mainActorResponsivenessMonitorID = nil
     }
 
-    private func currentStreamPacingSleepOverride() -> (@Sendable (TimeInterval) async throws -> Void)? {
-        streamPacingSleepOverride
+    private func sleepForStreamPacing(
+        _ decision: SessionStreamPacingDecision,
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) async throws {
+        let delay = decision.delay
+        if let streamPacingSleepOverride {
+            // Tests own the full sleep interval through this hook; production
+            // helper-video early-wake polling stays on the path below.
+            try await streamPacingSleepOverride(delay)
+            return
+        }
+
+        guard decision.usesHelperVideoPrimaryVNCSamplingPacing else {
+            try await Task.sleep(for: .seconds(delay))
+            return
+        }
+
+        let pollInterval = 0.05
+        let deadline = Date().addingTimeInterval(delay)
+        while true {
+            guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID),
+                  isHelperVideoHealthyPrimaryVisualTransport
+            else {
+                return
+            }
+
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                return
+            }
+            try await Task.sleep(for: .seconds(min(remaining, pollInterval)))
+        }
+    }
+
+    private var isHelperVideoHealthyPrimaryVisualTransport: Bool {
+        visualTransportMode == .helperVideo
+            && helperVideoStreamDescriptor != nil
+            && helperVideoStreamHealth.state == .healthy
     }
 
     private func publishSessionFrame(
@@ -3823,6 +3861,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             || appSettings.streamPowerMode == .powerSaver
             || usesAdaptiveClientPressurePacing
         let usesViewportInteractionPacing = isViewportInteractionActive
+        let helperVideoPrimaryVNCSamplingInterval = isHelperVideoHealthyPrimaryVisualTransport
+            ? StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds
+            : nil
         let viewportInteractionContentFrameInterval = isEmptyUpdate
             ? StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds
             : Self.viewportInteractionContentFrameInterval(
@@ -3841,6 +3882,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 thermalState: thermalState,
                 usesPowerSaverPacing: usesPowerSaverPacing,
                 usesViewportInteractionPacing: usesViewportInteractionPacing,
+                helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
                 emptyUpdateStreak: emptyUpdateStreak
             )
             : SessionStreamPacingPolicy.decision(
@@ -3849,6 +3891,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 thermalState: thermalState,
                 usesPowerSaverPacing: usesPowerSaverPacing,
                 usesViewportInteractionPacing: usesViewportInteractionPacing,
+                helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
                 viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval
             )
         recordSessionStreamPacingDecision(pacingDecision)

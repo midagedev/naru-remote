@@ -21,6 +21,10 @@ public enum StreamPressurePacingDefaults {
     public static let viewportInteractionContentFrameIntervalSeconds: Double = 1.0 / 4.0
     public static let viewportInteractionIdleFrameIntervalSeconds: Double = 0.20
     public static let viewportInteractionRequestPausePollSeconds: Double = 1.0 / 60.0
+    /// When helper-video is the healthy primary visual transport, VNC should
+    /// stay connected for input/control and a fresh fallback frame, but it
+    /// should stop competing with the video path for bandwidth and device heat.
+    public static let helperVideoPrimaryVNCFallbackSamplingIntervalSeconds: Double = 1.0
     public static let verySlowLocalWorkThresholdMilliseconds = 1_000
     public static let severeLaggingLocalWorkThresholdMilliseconds = 80
     public static let consecutiveSevereLaggingContentFrameThreshold = 3
