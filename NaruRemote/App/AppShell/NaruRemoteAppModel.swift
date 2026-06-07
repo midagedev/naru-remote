@@ -3425,7 +3425,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                     emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
-                    await frameApplicationQueue.enqueue(
+                    let droppedFrameApplicationWorkCount = await frameApplicationQueue.enqueue(
                         StreamFrameApplicationWork(
                             frame: frame,
                             serverInit: serverInit,
@@ -3437,6 +3437,9 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
 
                     let previousAppFrameApplyMilliseconds = await self.consumeAsyncAppFrameApplyMilliseconds()
+                    streamPressurePacingState.recordFrameApplicationBacklogDrop(
+                        droppedFrameApplicationWorkCount
+                    )
                     streamPressurePacingState.record(
                         frame: frame,
                         appFrameApplyMilliseconds: previousAppFrameApplyMilliseconds

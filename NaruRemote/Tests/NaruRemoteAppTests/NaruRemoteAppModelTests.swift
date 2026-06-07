@@ -510,6 +510,45 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testSessionStreamPressurePacingStateActivatesAfterFrameApplicationBacklogDrop() {
+        var state = SessionStreamPressurePacingState()
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        state.recordFrameApplicationBacklogDrop(1)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+
+        for _ in 0..<SessionStreamPressurePacingState.verySlowAdaptiveRecoveryUpdateCount {
+            state.record(frame: fastFrame)
+        }
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
+    func testSessionStreamPressurePacingStateUsesLongRecoveryForLargeFrameApplicationBacklogDrop() {
+        var state = SessionStreamPressurePacingState()
+        let fastFrame = pressureTestFrame(
+            totalMilliseconds: 25,
+            networkReadMilliseconds: 10
+        )
+
+        state.recordFrameApplicationBacklogDrop(3)
+        XCTAssertTrue(state.usesAdaptivePowerSaverPacing)
+
+        for _ in 0..<SessionStreamPressurePacingState.verySlowAdaptiveRecoveryUpdateCount {
+            state.record(frame: fastFrame)
+        }
+        XCTAssertTrue(
+            state.usesAdaptivePowerSaverPacing,
+            "A larger frame-application backlog means the UI apply path fell materially behind, so recovery should last longer than the one-spike cooldown."
+        )
+        for _ in 0..<(SessionStreamPressurePacingState.adaptiveRecoveryUpdateCount - SessionStreamPressurePacingState.verySlowAdaptiveRecoveryUpdateCount) {
+            state.record(frame: fastFrame)
+        }
+        XCTAssertFalse(state.usesAdaptivePowerSaverPacing)
+    }
+
     func testSessionStreamPressurePacingStateActivatesAfterSustainedModerateClientProcessing() {
         var state = SessionStreamPressurePacingState()
         let moderateFrame = pressureTestFrame(

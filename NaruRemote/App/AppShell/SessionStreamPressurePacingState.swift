@@ -29,6 +29,17 @@ struct SessionStreamPressurePacingState: Equatable, Sendable {
         adaptiveRecoveryUpdatesRemaining > 0
     }
 
+    mutating func recordFrameApplicationBacklogDrop(_ droppedWorkCount: Int) {
+        guard droppedWorkCount > 0 else {
+            return
+        }
+
+        let recoveryUpdateCount = droppedWorkCount >= 3
+            ? Self.adaptiveRecoveryUpdateCount
+            : Self.verySlowAdaptiveRecoveryUpdateCount
+        activatePowerSaverPacing(recoveryUpdateCount: recoveryUpdateCount)
+    }
+
     mutating func record(
         frame: RFBFramePumpFrame,
         appFrameApplyMilliseconds: Int? = nil
