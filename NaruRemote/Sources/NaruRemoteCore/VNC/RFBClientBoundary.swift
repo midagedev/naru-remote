@@ -128,6 +128,8 @@ public protocol RFBContinuousUpdateCapabilityReporting: Sendable {
 /// constitution §I keeps the multilingual default on the
 /// clipboard/compose-and-send route. Implementations MUST NOT log
 /// the `(x, y)` coordinates anywhere persistent (constitution §IV).
+/// Implementations SHOULD return after enqueueing the event to the
+/// transport so socket back-pressure cannot freeze the app's input lane.
 public protocol RFBPointerEventClient: AnyObject, Sendable {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws
 }
@@ -152,7 +154,9 @@ public protocol RFBBestEffortPointerEventClient: AnyObject, Sendable {
 /// through this single boundary so the wire bytes are identical
 /// (`spec.md` SC-005). Implementations MUST NOT log the keysym
 /// values, modifier state, or any user-facing key content
-/// (constitution §IV; `spec.md` SP-005).
+/// (constitution §IV; `spec.md` SP-005). Implementations SHOULD return
+/// after enqueueing the event to the transport so IME/editor focus stays
+/// responsive even when the socket is under back-pressure.
 public protocol RFBKeyEventClient: AnyObject, Sendable {
     func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws
 }

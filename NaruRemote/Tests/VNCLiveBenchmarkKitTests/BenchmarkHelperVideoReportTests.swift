@@ -196,6 +196,21 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
     }
 
+    func testPermissionMissingOverridesOtherExplicitIssueCodes() {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: .smooth,
+            decodePressure: .low,
+            issueCodes: [.transportFailed, .permissionMissing, .externalHelperTimedOut]
+        )
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertEqual(report.issueCodes, [.permissionMissing])
+        XCTAssertEqual(report.readinessState, .permissionBlocked)
+        XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
+    }
+
     func testSustainedChoppyReportRoutesToSustainedCadenceInspection() {
         let report = BenchmarkHelperVideoReport(
             streamState: .healthy,

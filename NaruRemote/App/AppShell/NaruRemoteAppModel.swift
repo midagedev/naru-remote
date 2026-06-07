@@ -7089,8 +7089,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                         timedOut: timedOut
                     )
                     self.cancelPointerInputEventQueue()
-                    self.activePointerClient = nil
-                    self.inputCoordinateSpace = nil
                     self.lastEmittedDragCoord = nil
                 }
             }

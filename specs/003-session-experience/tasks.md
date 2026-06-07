@@ -147,6 +147,15 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   updates all run. Covered by
   `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeSurvivesHelperVideoHealthStorm`.
   **Done.**
+- [x] T015bj [B] Physical iPhone input-lane correction: reproduce the
+  post-connect gesture freeze where a stalled pointer write permanently disables
+  later pointer input, keep pointer capability/coordinate space alive after
+  lane timeouts, and make production RFB `PointerEvent`/`KeyEvent` writes return
+  after transport enqueue instead of waiting for Network.framework
+  `contentProcessed`. Covered by
+  `DirectKeystrokeModeTests/testTimedOutPointerInputDoesNotPermanentlyDisableLaterPointerInput`,
+  `DirectKeystrokeModeTests`, `TrackpadModeModelTests`, and
+  `PointerEventTapTests`. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

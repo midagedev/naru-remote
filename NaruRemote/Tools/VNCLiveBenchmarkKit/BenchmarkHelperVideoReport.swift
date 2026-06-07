@@ -235,6 +235,10 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
     private static func safeIssueCodes(
         _ values: [BenchmarkHelperVideoIssueCode]
     ) -> [BenchmarkHelperVideoIssueCode] {
+        if values.contains(.permissionMissing) {
+            return [.permissionMissing]
+        }
+
         var seen = Set<String>()
         return values.filter { issue in
             guard seen.insert(issue.rawValue).inserted else {
