@@ -1596,6 +1596,18 @@ iPhone) and ships as its own PR.
   text, IME state, keysyms, pointer coordinates, pixels, dimensions, byte
   counts, or raw timings. Owns: launchctl runner, self-test, research note, and
   benchmark artifact. **Done.**
+- **T477** Focused input chrome coalescing: after simulator Compose tests
+  passed but physical feedback still reported keyboard/input stalls during a
+  real connection, treat focused Compose as a local input transaction whose
+  visible editor must not compete with stream telemetry chrome. Coalesce
+  connection-quality and non-critical helper-video health publishes while the
+  editor is first responder, flush the latest value when focus leaves, and keep
+  functional helper-video fallback immediate. Emit/export no host identity,
+  credentials, command text, draft text, marked text, IME state, keysyms,
+  pointer coordinates, pixels, dimensions, byte counts, raw timings, helper
+  endpoints, pairing material, or physical device IDs. Owns: app-model chrome
+  publish coalescer, focused-input model tests, UI-test evidence, research
+  note, and benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
