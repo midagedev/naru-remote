@@ -79,6 +79,7 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
+            qualityBucket: request.qualityBucket,
             keyFrameInterval: finiteFrameCount,
             encodingMode: .lowLatencyRealtime
         )
@@ -154,6 +155,7 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
                         width: width,
                         height: height,
                         frameRateBucket: request.maxFrameRateBucket,
+                        qualityBucket: request.qualityBucket,
                         keyFrameInterval: keyFrameInterval,
                         encodingMode: .lowLatencyRealtime
                     )
