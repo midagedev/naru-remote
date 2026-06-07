@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct NaruRemoteApplication: App {
     @StateObject private var model = Self.makeModel()
+    @MainActor private static var framebufferFloodTask: Task<Void, Never>?
 
     var body: some Scene {
         WindowGroup {
@@ -126,6 +127,7 @@ struct NaruRemoteApplication: App {
             // unset.
             UXAuditFixtures.applyFixturePostInitMutations(to: model)
             applyTestTrackpadCursorStorm(to: model)
+            applyTestFramebufferFlood(to: model)
         }
         return model
     }
@@ -225,6 +227,67 @@ struct NaruRemoteApplication: App {
                 )
                 try? await Task.sleep(for: .milliseconds(8))
             }
+        }
+    }
+
+    /// XCUITest responsiveness hook — when enabled on an active-session
+    /// fixture, continuously publishes same-size full-frame updates through
+    /// `SessionFrameStore.framePublisher`. This recreates the "live stream is
+    /// already flowing and the phone keyboard stops after the first Korean/CJK
+    /// syllable" pressure without opening a real socket or persisting pixels.
+    @MainActor
+    private static func applyTestFramebufferFlood(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_FRAMEBUFFER_FLOOD"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        guard let framebuffer = model.latestFramebuffer else {
+            return
+        }
+
+        let frames = framebufferFloodFrames(
+            width: framebuffer.width,
+            height: framebuffer.height
+        )
+        guard !frames.isEmpty else {
+            return
+        }
+
+        framebufferFloodTask?.cancel()
+        framebufferFloodTask = Task { @MainActor in
+            defer { framebufferFloodTask = nil }
+            for index in 0..<1_200 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                let frame = frames[index % frames.count]
+                model.frameStore.publish(
+                    framebuffer: frame,
+                    dirtyRectangles: nil,
+                    changedPixelCount: frame.width * frame.height,
+                    serverCursor: nil
+                )
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
+    }
+
+    private static func framebufferFloodFrames(
+        width: Int,
+        height: Int
+    ) -> [RFBRawFramebuffer] {
+        guard width > 0, height > 0 else {
+            return []
+        }
+        let colors = [
+            RFBColor(red: 0x1E, green: 0x2A, blue: 0x38),
+            RFBColor(red: 0x24, green: 0x31, blue: 0x42),
+            RFBColor(red: 0x18, green: 0x3B, blue: 0x3D),
+            RFBColor(red: 0x34, green: 0x2A, blue: 0x3D)
+        ]
+        return colors.map { color in
+            RFBRawFramebuffer(width: width, height: height, fill: color)
         }
     }
 

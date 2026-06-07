@@ -124,6 +124,56 @@ final class SessionFrameStoreTests: XCTestCase {
         withExtendedLifetime(frameCancellable) {}
     }
 
+    func testSteadyFrameFloodCoalescesToLatestFrameAtDisplayCadence() async throws {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 1, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        for red in UInt8(2)...UInt8(40) {
+            store.publish(
+                framebuffer: RFBRawFramebuffer(
+                    width: 2,
+                    height: 2,
+                    fill: RFBColor(red: red, green: 0, blue: 0)
+                ),
+                dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+                changedPixelCount: 1,
+                serverCursor: nil
+            )
+        }
+
+        XCTAssertEqual(
+            frameEvents.map(\.framebuffer?.pixels.first?.red),
+            [1],
+            "A same-size frame flood should not synchronously flush every transient frame into the viewport."
+        )
+
+        try await Task.sleep(for: .milliseconds(35))
+
+        XCTAssertEqual(
+            frameEvents.map(\.framebuffer?.pixels.first?.red),
+            [1, 40],
+            "The display-cadence delivery should keep only the latest pending steady-state frame."
+        )
+
+        withExtendedLifetime(frameCancellable) {}
+    }
+
     func testImmediateClearCancelsPendingSteadyFrameDelay() async {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
