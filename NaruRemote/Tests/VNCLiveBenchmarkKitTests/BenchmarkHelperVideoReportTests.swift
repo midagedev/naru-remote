@@ -156,7 +156,7 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
 
         XCTAssertEqual(report.verdict, .fail)
-        XCTAssertTrue(report.issueCodes.contains(.permissionMissing))
+        XCTAssertEqual(report.issueCodes, [.permissionMissing])
         XCTAssertEqual(report.readinessState, .permissionBlocked)
         XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
         XCTAssertTrue(json.contains("helper-video-permission-missing"))
@@ -175,7 +175,23 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         )
 
         XCTAssertEqual(report.verdict, .fail)
-        XCTAssertTrue(report.issueCodes.contains(.streamDisabled))
+        XCTAssertEqual(report.issueCodes, [.permissionMissing])
+        XCTAssertEqual(report.readinessState, .permissionBlocked)
+        XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
+    }
+
+    func testPermissionMissingDoesNotInventStreamHealthFailures() {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .failed,
+            startupBand: .failed,
+            sustainedUpdateBand: .stalled,
+            decodePressure: .high,
+            fallbackCountBucket: .one,
+            issueCodes: [.permissionMissing]
+        )
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertEqual(report.issueCodes, [.permissionMissing])
         XCTAssertEqual(report.readinessState, .permissionBlocked)
         XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
     }
