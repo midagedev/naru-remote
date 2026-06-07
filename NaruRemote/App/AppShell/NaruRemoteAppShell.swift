@@ -350,6 +350,8 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
 struct FocusedComposeStatusLineState: Equatable, Sendable {
     var text: String
 
+    static let focusedStatusText = "Ready to compose locally"
+
     init?(
         snapshot: NaruRemoteAppSnapshot,
         isComposeFieldFocused: Bool
@@ -360,9 +362,10 @@ struct FocusedComposeStatusLineState: Equatable, Sendable {
 
         // Focused Compose is a UIKit-owned transaction. Keep this sibling
         // line mounted for the whole focus lifetime so clearing a stale
-        // send result after the first Korean/CJK syllable cannot collapse
-        // the safe-area inset above the active system keyboard.
-        self.text = snapshot.inputStatusText
+        // send result, helper status, or stream quality update cannot collapse
+        // or relayout the safe-area inset above the active system keyboard.
+        // Dynamic send/helper state resumes once focus leaves.
+        self.text = Self.focusedStatusText
     }
 }
 

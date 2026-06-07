@@ -109,6 +109,35 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    func testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm() {
+        let app = launchAppWithActiveSessionConfirmationUnavailableFixture(
+            trackpadCursorStorm: true,
+            framebufferFlood: true,
+            modelPublishStorm: true
+        )
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "Model-published chrome pressure must not collapse the focused Compose keyboard after the first Korean/CJK syllable."
+        )
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "Frame flood, cursor storm, and model-published chrome churn must not freeze focused Compose input."
+        )
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
         let identified = app.descendants(matching: .any)["naru.input.editor"].firstMatch
         if identified.exists {
@@ -163,7 +192,8 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
 
     private func launchAppWithActiveSessionConfirmationUnavailableFixture(
         trackpadCursorStorm: Bool = false,
-        framebufferFlood: Bool = false
+        framebufferFlood: Bool = false,
+        modelPublishStorm: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-compose-confirmation-unavailable"
@@ -173,6 +203,9 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         }
         if framebufferFlood {
             app.launchEnvironment["NARU_TEST_FRAMEBUFFER_FLOOD"] = "1"
+        }
+        if modelPublishStorm {
+            app.launchEnvironment["NARU_TEST_MODEL_PUBLISH_STORM"] = "1"
         }
         app.launch()
         return app
