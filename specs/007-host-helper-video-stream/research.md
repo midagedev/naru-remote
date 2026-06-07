@@ -2056,3 +2056,56 @@ cadence labels, aggregate counters, and synthetic cursor/text values. They must
 not export live Compose drafts, marked text, keysyms, pointer coordinates,
 frame pixels, dimensions, byte counts, endpoints, credentials, raw OS errors,
 or exact per-event timings.
+
+## D53 - Chain the helper-video live gate after Screen Recording watch
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh helper-video-live-gate`,
+a single privacy-safe live gate that runs the helper Screen Recording watch,
+then conditionally runs the helper readiness sweep and app bootstrap smoke. If
+the watch reports anything other than `granted`, the helper readiness and app
+bootstrap subreports are fixed `skipped` reports and the summary state is
+`blockedByScreenRecordingPermission`. If the watch reports `granted`, the same
+command continues through helper screen capture readiness and the
+ScreenCaptureKit-to-app-model H.264 decode smoke, then routes a pass to the
+physical iPhone helper-video gate.
+
+**Rationale**:
+- The current 10fps readiness evidence repeatedly shows VNC content FPS around
+  2fps with first-byte wait dominating while helper-video synthetic H.264
+  passes. Smooth sustained iPhone sessions therefore need the true helper-video
+  path to become easy to gate, not another VNC request-cadence loop.
+- Screen Recording is an explicit user-controlled macOS privacy boundary. The
+  gate should request/open/poll that boundary, but it must not attempt to
+  modify TCC state or imply that capture can proceed before the user grants
+  permission.
+- Apple’s ScreenCaptureKit sample states that first use prompts for Screen
+  Recording permission and that the app must be restarted after permission is
+  granted. Apple Support documents that users review and change Screen and
+  System Audio Recording access in Privacy & Security settings. The runner
+  therefore treats “grant, quit/relaunch, rerun” as first-class setup labels
+  rather than hidden operational knowledge.
+- The prior workflow required remembering multiple commands after the
+  permission grant (`screen-recording-watch`, `helper-readiness-sweep`,
+  `helper-screen-app-bootstrap-benchmark`, then physical iPhone). Chaining them
+  behind one gate reduces human latency and makes the next benchmark artifact
+  directly comparable.
+
+**Sources**:
+- Apple ScreenCaptureKit sample, "Capturing screen content in macOS":
+  https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos
+- Apple Support, "Allow apps to use screen and audio recording":
+  https://support.apple.com/guide/mac-help/allow-apps-to-use-screen-and-audio-recording-mchl592e5686/mac
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test` passes
+  the blocked and ready summary cases.
+- A short live run with the current helper app reports
+  `overallGateState=blockedByScreenRecordingPermission`,
+  `watchStatus=timedOut`, `finalPermissionStatus=missing`, and skips the
+  readiness/bootstrap subreports.
+
+**Privacy rule**: Helper-video live gate reports may include only fixed gate
+states, fixed issue/action labels, helper safe capability JSON, and existing
+safe subreports. They must not emit helper executable paths, endpoints,
+credentials, raw OS errors, pixels, dimensions, byte counts, physical device
+identifiers, raw XCTest output, or exact helper timings.

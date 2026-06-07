@@ -151,6 +151,8 @@ scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
 scripts/run-naru-live-benchmark.sh helper-dev-app-setup
 scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark
+scripts/run-naru-live-benchmark.sh helper-video-live-gate
+scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test
 scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh screen-recording-watch
 scripts/run-naru-live-benchmark.sh screen-recording-watch-self-test
@@ -188,6 +190,12 @@ helper-video bootstrap, and the H.264 sample-buffer factory. It emits fixed
 JSON only and hides raw XCTest output. A `skipped` result means the benchmark
 host still needs Screen Recording permission or capture setup before T031 can
 claim true live helper-video app decode evidence.
+`helper-video-live-gate` chains the Screen Recording watch, helper readiness
+sweep, and app bootstrap smoke into one privacy-safe report. If Screen
+Recording is still missing, the readiness and bootstrap subreports are skipped
+instead of spending time on impossible capture work; once the watch reports
+`granted`, the same command proceeds to the helper screen probe and app decode
+smoke and routes a pass to the physical iPhone helper-video gate.
 `helper-dev-app-setup` builds and installs the local `NaruHelperDev` app
 wrapper, sets the launchctl helper executable for future GUI-launched shells,
 runs the explicit Screen Recording permission request, optionally opens macOS
