@@ -2162,3 +2162,44 @@ with an unbounded encoder target.
 **Privacy rule**: Rate-control policy values may be used inside the encoder
 configuration and tests. They must not be added to diagnostic exports, live
 benchmark JSON, helper capability reports, or user-visible connection logs.
+
+## D55 - Choose helper-video start budgets from app power and thermal state
+
+**Decision**: Add an app-side `HelperVideoStartRequestPolicy` before helper
+bootstrap reaches the network runner. Nominal sessions request
+`qualityBucket=readability` and `maxFrameRateBucket=upTo30`. App power saver,
+iOS Low Power Mode, or `fair`/`serious`/`critical` thermal state request
+`qualityBucket=readability` and `maxFrameRateBucket=upTo15`. Thermal
+`unknown` is treated as no elevated pressure signal, so it stays with the
+nominal `upTo30` bucket until the system reports pressure.
+
+**Rationale**:
+- Encoder rate control is necessary but not sufficient. The app must also
+  choose the correct request bucket before the helper opens capture/encode work.
+- Sustained iPhone use should bias toward readability and bounded traffic until
+  physical helper-video evidence proves that higher traffic buckets improve
+  practical work without heat or frame pacing regressions.
+- Existing VNC pacing already reacts to power and thermal pressure. Helper
+  video should share the same product posture rather than staying at the
+  transport default.
+- The request still uses fixed labels already present in the helper-video
+  contract, so diagnostics can keep reporting safe stream metadata without raw
+  traffic counters or device measurements.
+
+**Sources**:
+- Apple VideoToolbox `kVTCompressionPropertyKey_AverageBitRate`:
+  https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_averagebitrate
+- Apple VideoToolbox `kVTCompressionPropertyKey_DataRateLimits`:
+  https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_dataratelimits
+- Apple Energy Efficiency Guide for iOS Apps, "Respond to Low Power Mode":
+  https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/LowPowerMode.html
+
+**Evidence**:
+- `HelperVideoStartRequestPolicy` tests cover nominal `readability/upTo30` and
+  power/thermal `readability/upTo15`.
+- App-model bootstrap tests prove the computed request body is sent to the
+  helper-video start transport.
+
+**Privacy rule**: Helper-video start request policy may use local power and
+thermal state to choose fixed stream labels. It must not export raw thermal
+samples, battery state, bitrate values, byte counts, or exact timings.
