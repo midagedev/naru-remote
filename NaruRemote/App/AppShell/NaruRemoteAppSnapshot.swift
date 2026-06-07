@@ -582,6 +582,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
     }
 
+    public mutating func recordAppFrameApplyTiming(milliseconds: Int) {
+        recordAppFrameApplyTiming(milliseconds)
+    }
+
     mutating func recordPacingDecision(_ decision: SessionStreamPacingDecision) {
         let milliseconds = max(0, Int((decision.delay * 1_000).rounded()))
         streamPacingDelaySampleCount += 1

@@ -328,6 +328,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public private(set) var latestFrameDirtyRectangles: [RFBFrameDamageRect]?
     public private(set) var latestFrameChangedPixelCount: Int?
     public private(set) var sessionStreamStats = SessionStreamStats()
+    private var pendingAsyncAppFrameApplyMilliseconds: Int?
     /// Most recent server-provided cursor shape from the RFB Cursor
     /// pseudo-encoding. Cleared with framebuffer/session state and never
     /// persisted or exported; the view may use it to draw the trackpad
@@ -3315,36 +3316,19 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                     emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
-                    let appFrameApplyStart = Date()
-                    if isEmptyUpdate, let serverCursor = frame.serverCursor {
-                        await self.noteServerCursorUpdate(
-                            serverCursor,
-                            sessionID: pendingSession.id,
-                            profile: profile,
-                            streamID: streamID,
-                            capturedAt: frame.capturedAt
-                        )
-                    } else if isEmptyUpdate {
-                        await self.noteStreamLiveness(
-                            sessionID: pendingSession.id,
-                            profile: profile,
-                            streamID: streamID,
-                            capturedAt: frame.capturedAt
-                        )
-                    } else {
-                        await self.applyStreamFrame(
-                            frame,
-                            serverInit: serverInit,
-                            profile: profile,
-                            sessionID: pendingSession.id,
-                            streamID: streamID
-                        )
-                    }
-                    let appFrameApplyMilliseconds = Self.elapsedMilliseconds(since: appFrameApplyStart)
+                    await self.scheduleStreamFrameApplication(
+                        frame,
+                        serverInit: serverInit,
+                        profile: profile,
+                        sessionID: pendingSession.id,
+                        streamID: streamID,
+                        isEmptyUpdate: isEmptyUpdate
+                    )
 
+                    let previousAppFrameApplyMilliseconds = await self.consumeAsyncAppFrameApplyMilliseconds()
                     streamPressurePacingState.record(
                         frame: frame,
-                        appFrameApplyMilliseconds: appFrameApplyMilliseconds
+                        appFrameApplyMilliseconds: previousAppFrameApplyMilliseconds
                     )
                     let usesAdaptiveClientPressurePacing = streamPressurePacingState
                         .usesAdaptivePowerSaverPacing
@@ -3365,7 +3349,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         configuration: configuration,
                         thermalState: thermalState,
                         usesAdaptiveClientPressurePacing: usesAdaptiveClientPressurePacing,
-                        appFrameApplyMilliseconds: appFrameApplyMilliseconds,
+                        appFrameApplyMilliseconds: nil,
                         isEmptyUpdate: isEmptyUpdate,
                         emptyUpdateStreak: emptyUpdateStreak
                     )
@@ -3676,6 +3660,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func resetSessionStreamStats() {
         sessionStreamStats = SessionStreamStats()
+        pendingAsyncAppFrameApplyMilliseconds = nil
         hasScheduledActiveDiagnosticExportForTesting = false
         activeDiagnosticExportTaskForTesting?.cancel()
         activeDiagnosticExportTaskForTesting = nil
@@ -3709,6 +3694,21 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func recordRendererUploadTiming(milliseconds: Int) {
         sessionStreamStats.recordRendererUploadTiming(milliseconds: milliseconds)
+    }
+
+    private func recordAppFrameApplyTiming(milliseconds: Int) {
+        let clampedMilliseconds = max(milliseconds, 0)
+        sessionStreamStats.recordAppFrameApplyTiming(milliseconds: clampedMilliseconds)
+        pendingAsyncAppFrameApplyMilliseconds = max(
+            pendingAsyncAppFrameApplyMilliseconds ?? 0,
+            clampedMilliseconds
+        )
+    }
+
+    private func consumeAsyncAppFrameApplyMilliseconds() -> Int? {
+        let milliseconds = pendingAsyncAppFrameApplyMilliseconds
+        pendingAsyncAppFrameApplyMilliseconds = nil
+        return milliseconds
     }
 
     public func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
@@ -3849,6 +3849,54 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private var usesViewportAwareInitialRequestRegion: Bool {
         usesViewportAwareRequestRegions
+    }
+
+    private func scheduleStreamFrameApplication(
+        _ frame: RFBFramePumpFrame,
+        serverInit: RFBServerInit,
+        profile: ConnectionProfile,
+        sessionID: RemoteSession.ID,
+        streamID: UUID,
+        isEmptyUpdate: Bool
+    ) {
+        Task { @MainActor [weak self, frame, serverInit, profile, sessionID, streamID, isEmptyUpdate] in
+            guard let self,
+                  self.isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id)
+            else {
+                return
+            }
+
+            let appFrameApplyStart = Date()
+            if isEmptyUpdate, let serverCursor = frame.serverCursor {
+                self.noteServerCursorUpdate(
+                    serverCursor,
+                    sessionID: sessionID,
+                    profile: profile,
+                    streamID: streamID,
+                    capturedAt: frame.capturedAt
+                )
+            } else if isEmptyUpdate {
+                self.noteStreamLiveness(
+                    sessionID: sessionID,
+                    profile: profile,
+                    streamID: streamID,
+                    capturedAt: frame.capturedAt
+                )
+            } else {
+                self.applyStreamFrame(
+                    frame,
+                    serverInit: serverInit,
+                    profile: profile,
+                    sessionID: sessionID,
+                    streamID: streamID
+                )
+            }
+
+            guard self.isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
+                return
+            }
+            self.recordAppFrameApplyTiming(milliseconds: Self.elapsedMilliseconds(since: appFrameApplyStart))
+        }
     }
 
     private func applyStreamFrame(
