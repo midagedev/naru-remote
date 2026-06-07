@@ -18,6 +18,7 @@ Modes:
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
   glance-025-profile-sweep Duration-only 0.25 startup glance app profile sweep.
   glance-025-10fps-duration-probe 10fps target probe for the 0.25 local RGB565 candidate.
+  remote-desktop-10fps-profile-cadence-sweep Compare 10fps VNC profiles for first-byte/server cadence.
   remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
@@ -266,6 +267,26 @@ json_string() {
   escaped="${escaped//$'\r'/\\r}"
   escaped="${escaped//$'\t'/\\t}"
   printf '"%s"' "$escaped"
+}
+
+json_file_is_valid_or_unchecked() {
+  local file="$1"
+  [[ -s "$file" ]] || return 1
+
+  if command -v jq >/dev/null 2>&1; then
+    jq empty "$file" >/dev/null 2>&1
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -m json.tool "$file" >/dev/null 2>&1
+    return
+  fi
+  if command -v plutil >/dev/null 2>&1; then
+    plutil -lint "$file" >/dev/null 2>&1
+    return
+  fi
+
+  return 0
 }
 
 write_bounded_sweep_phase() {
@@ -805,6 +826,179 @@ run_glance_025_10fps_duration_probe() {
       "$progress_file"
   fi
   rm -f "$phase_file" "$progress_file" "$output_file"
+}
+
+json_remote_desktop_10fps_profile_sweep_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"remote-desktop-10fps-profile-cadence-sweep","targetLabel":"iphone-remote-desktop-10fps-v1","scalePermille":250,"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
+json_remote_desktop_10fps_profile_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="$3"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$4")"
+  local profile_ordinal="$5"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"remote-desktop-10fps-profile-cadence-profile","profileLabel":'
+  json_string "$profile_label"
+  printf ',"profileOrdinal":%d,"targetLabel":"iphone-remote-desktop-10fps-v1","scalePermille":250,"status":"failed","safeFailureCode":' "$profile_ordinal"
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}'
+}
+
+json_remote_desktop_10fps_profile_result() {
+  local phase_file="$1"
+  local progress_file="$2"
+  local profile_label
+  profile_label="$(bounded_drilldown_profile_label "$3")"
+  local profile_ordinal="$4"
+  shift 4
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-remote-desktop-10fps-profile-output.XXXXXX")"
+  : >"$progress_file"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout 90 "$@" >"$output_file" 2>/dev/null \
+    && json_file_is_valid_or_unchecked "$output_file"; then
+    printf '{"schemaVersion":1,"mode":"remote-desktop-10fps-profile-cadence-profile","profileLabel":'
+    json_string "$profile_label"
+    printf ',"profileOrdinal":%d,"targetLabel":"iphone-remote-desktop-10fps-v1","scalePermille":250,"status":"passed","report":' "$profile_ordinal"
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_remote_desktop_10fps_profile_failure \
+      benchmarkStep.remoteDesktop10fpsProfileCadenceSweep.timedOut \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  else
+    json_remote_desktop_10fps_profile_failure \
+      benchmarkStep.remoteDesktop10fpsProfileCadenceSweep.failed \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal"
+  fi
+  rm -f "$output_file"
+}
+
+remote_desktop_10fps_profile_args() {
+  local profile_label="$1"
+  local progress_file="$2"
+  REMOTE_DESKTOP_10FPS_PROFILE_ARGS=(
+    --attempts 1
+    --network-condition constrained-cellular
+    --visual-transport vnc
+    --stream-shape-frame-interval 0
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-remote-desktop-10fps-v1
+    --stream-shape-transport request-response
+    --stream-shape-request-pipeline-depth 1
+    --stream-shape-request-region viewport-phone-portrait
+    --stream-shape-first-frame-request visible-glance
+    --stream-shape-first-frame-visible-glance-scale 0.25
+    --stream-shape-profiles "$profile_label"
+    --stream-shape-profile-order fixed
+    --stream-shape-profile-iterations 1
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 0
+    --stream-shape-duration-seconds 12
+    --timeout 30
+    --idle-timeout 5
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+}
+
+run_remote_desktop_10fps_profile_cadence_sweep() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-remote-desktop-10fps-profile-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-remote-desktop-10fps-profile-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_remote_desktop_10fps_profile_sweep_failure \
+        benchmarkStep.remoteDesktop10fpsProfileCadenceSweep.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_remote_desktop_10fps_profile_sweep_failure \
+        benchmarkStep.remoteDesktop10fpsProfileCadenceSweep.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_remote_desktop_10fps_profile_sweep_failure \
+      benchmarkStep.remoteDesktop10fpsProfileCadenceSweep.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local profiles=(
+    local-low-latency-rgb565
+    tight-first-cursor
+    tight-first
+  )
+  local first_profile=1
+  local profile_label
+  local profile_ordinal=0
+  printf '{"schemaVersion":1,"mode":"remote-desktop-10fps-profile-cadence-sweep","status":"completed","targetLabel":"iphone-remote-desktop-10fps-v1","minimumContentFPS":10,"scalePermille":250,"diagnosticPolicyLabels":["same-target-profile-comparison","first-byte-wait-dominance-indicates-server-cadence","payload-client-renderer-low-cost-does-not-justify-profile-promotion"],"profiles":[\n'
+  for profile_label in "${profiles[@]}"; do
+    profile_ordinal=$((profile_ordinal + 1))
+    if ((first_profile)); then
+      first_profile=0
+    else
+      printf ',\n'
+    fi
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    remote_desktop_10fps_profile_args "$profile_label" "$progress_file"
+    json_remote_desktop_10fps_profile_result \
+      "$phase_file" \
+      "$progress_file" \
+      "$profile_label" \
+      "$profile_ordinal" \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${REMOTE_DESKTOP_10FPS_PROFILE_ARGS[@]}"
+  done
+  printf '\n],"nextActionLabels":["inspect-server-transport-cadence-when-first-byte-wait-fails","do-not-promote-profile-without-10fps-pass","compare-true-helper-video-after-screen-recording-permission"]}\n'
+  rm -f "$phase_file" "$progress_file"
 }
 
 json_glance_025_profile_sweep_failure() {
@@ -2041,6 +2235,12 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_glance_025_10fps_duration_probe
+    ;;
+  remote-desktop-10fps-profile-cadence-sweep)
+    reject_extra_args
+    import_live_env
+    cd "$repo_root"
+    run_remote_desktop_10fps_profile_cadence_sweep
     ;;
   remote-desktop-10fps-readiness)
     remote_desktop_10fps_readiness

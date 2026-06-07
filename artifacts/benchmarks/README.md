@@ -248,6 +248,23 @@ update, `627` ms p95 update, `626` ms first-byte wait p95, and a `fail`
 decision with `content-fps-failed`, `average-update-failed`,
 `p95-update-failed`, `first-byte-wait-failed`, and
 `first-frame-payload-read-failed`.
+Current remote desktop 10fps profile cadence sweep:
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-profile-cadence-sweep-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-profile-cadence-sweep`
+to compare `local-low-latency-rgb565`, `tight-first-cursor`, and `tight-first`
+under the exact fixed 10fps VNC gate: constrained-cellular,
+request-response depth 1, viewport-phone-portrait, `visible-glance` scale
+`0.25`, and 12 second duration-only probes. The current live run completed all
+three profile entries and all failed the 10fps target. Successful samples
+remain dominated by receive-path first-byte wait (`629` to `694` ms p95,
+`1000` first-byte wait share) while payload read (`0` ms p95), client
+processing (`3` ms p95), and renderer full upload (`0` permille for received
+content profiles) stay low. This rules out another VNC profile-only promotion
+as the current path to Chrome-Remote-like smoothness; next VNC work should
+inspect server transport cadence/update request timing directly, while product
+smoothness remains focused on true helper-video. The sweep envelope and
+per-profile entries intentionally use distinct fixed `mode` labels so report
+consumers can aggregate the full sweep separately from individual probe rows.
 Current remote desktop 10fps readiness artifact:
 `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-readiness-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` to run

@@ -6281,6 +6281,78 @@ paths, endpoints, command lines, raw stdout/stderr, raw TCP/RFB errors, raw OS
 errors, coordinates, dimensions, pixels, byte counts, stimulus command text,
 draft text, marked text, IME state, or exact helper timings.
 
+### D135 Add A Remote Desktop 10fps Profile Cadence Sweep
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-profile-cadence-sweep-summary.md`
+- D134 remote desktop 10fps target.
+- D133 glance 0.25 app profile sweep runner.
+
+**Decision**: add a fixed launchctl-backed
+`remote-desktop-10fps-profile-cadence-sweep` runner mode that compares the
+current VNC profile candidates under the exact `iphone-remote-desktop-10fps-v1`
+shape instead of the older poor-network traffic target. The sweep holds
+network condition, visual transport, request-response depth, request region,
+first-frame `visible-glance` scale, duration, and practical target fixed while
+comparing `local-low-latency-rgb565`, `tight-first-cursor`, and `tight-first`.
+
+**Why**:
+- D133 and D134 left a possible ambiguity: older profile artifacts could look
+  encouraging under weaker or different targets, while the current product bar
+  requires at least 10 content FPS.
+- The latest live checks showed `tight-first-cursor` no longer reproducing its
+  old near-9fps result under the stricter shape. A named sweep prevents that
+  stale evidence from being used as a default-promotion argument.
+- If payload, client, and renderer timings stay low while first-byte wait is
+  high, the next useful work is server cadence / update-request timing or
+  helper-video, not another profile-only flip.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `remote-desktop-10fps-profile-cadence-sweep`.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-profile-cadence-sweep -- --stream-shape-profiles tight-first`
+  rejects extra arguments with a fixed mode error.
+- A clean live `remote-desktop-10fps-profile-cadence-sweep` run exited `rc=0`
+  and completed all three profile entries.
+- The rerun after adding per-profile JSON validation also exited `rc=0`, and
+  `jq empty` accepted the sweep output.
+- Live result:
+  - `local-low-latency-rgb565`: fail, `receivePath`,
+    `first-frame-payload-read-failed`, `1.89` content FPS, `505` ms average
+    update, `631` ms p95 update, `630` ms first-byte wait p95, `0` ms payload
+    p95, `3` ms client p95, `1000` first-byte wait share, `25/24`
+    received/content samples.
+  - `tight-first-cursor`: fail, `receivePath`, `first-frame-failed`, `1.16`
+    content FPS, `864` ms average update, `5600` ms p95 update, `629` ms
+    first-byte wait p95, `1` ms payload p95, `3` ms client p95, `1000`
+    first-byte wait share.
+  - `tight-first`: fail, `receivePath`, `first-frame-failed`, `1.16` content
+    FPS, `861` ms average update, `5702` ms p95 update, `694` ms first-byte
+    wait p95, `0` ms payload p95, `2` ms client p95, `1000` first-byte wait
+    share, `14/13` received/content samples.
+
+**Interpretation**:
+- Do not promote a new VNC profile as the route to Chrome-Remote-like
+  smoothness. The best current VNC profile is still far below 10fps under the
+  product gate, and the other profiles are worse or fail to establish a usable
+  incremental stream.
+- The common successful-sample pattern is receive-path first-byte wait, not
+  client decode, payload read, or renderer upload pressure.
+- Next VNC work should instrument server transport cadence and update-request
+  timing directly. Product smoothness should continue prioritizing true
+  helper-video ScreenCaptureKit permission and physical iPhone helper-video
+  gates while VNC remains control/input/fallback unless the cadence work shows
+  a step change.
+
+**Privacy rule**: the runner emits only fixed mode/profile/target labels, fixed
+target/transport/request labels, scale permille values, fixed verdict/issue
+labels, aggregate counts, permille ratios, aggregate timings, and existing
+privacy-safe benchmark reports. It must not print or export host identity,
+credentials, ports, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
+text, draft text, marked text, or IME state.
+
 ### D134 Add A Remote Desktop 10fps Target
 
 References:
