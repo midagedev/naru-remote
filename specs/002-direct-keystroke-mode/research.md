@@ -94,6 +94,41 @@
 
 ---
 
+## R-5 — Outbound key events must not share the app-level pointer backlog
+
+**Decision**: Keep Direct-mode and Compose quick-key `KeyEvent` emission on a
+separate app-level outbound lane from pointer/touch traffic. The two lanes may
+ultimately write to the same active RFB socket, but the app model must not make
+keyboard input wait behind bursty buttonless trackpad moves or a timed-out
+pointer operation.
+
+**Rationale**:
+
+- Physical iPhone feedback showed the failure mode that matters most: after
+  entering a session, panning/stream pressure can make the keyboard feel frozen
+  after the first character. A single shared outbound queue preserves strict
+  temporal ordering, but it also lets high-frequency pointer traffic become
+  head-of-line blocking for keys.
+- Direct mode is explicitly for terminal survival keys and low-latency command
+  entry. A delayed cursor move is annoying; a delayed `Esc`, `Tab`, or typed
+  character makes the product unusable for the iPhone terminal/AI-CLI workflow
+  in constitution §VI.
+- Pointer and key lanes still validate the same active session/client identity
+  before writing. On a real socket failure, the stream loop will surface the
+  connection failure; this change only narrows app-level queue cancellation so a
+  pointer timeout does not proactively disable the key emitter.
+
+**Rejected alternative**: keep one shared queue to preserve exact pointer/key
+ordering. This was the prior implementation and is now rejected because it
+optimizes for theoretical cross-input ordering over observed keyboard
+responsiveness.
+
+**Verification**: `DirectKeystrokeModeTests` includes delayed buttonless
+trackpad-move and timed-out-pointer regressions proving Direct keys still reach
+the fake RFB client promptly on the key lane.
+
+---
+
 ## Implementation order implied by this research
 
 1. Extend RFB layer first — `RFBClientMessageEncoder.keyEvent(keysym:isDown:)` is already in the codebase from the Compose & Send `pasteCommand` work, so this step adds the new `RFBKeyEventClient` capability protocol, `RFBNetworkClient` adoption (3-line method routing through the existing encoder), and `FakeRFBClientMessageRecorder.keyEvents`. Fully Core, fully unit-testable, no UI yet.

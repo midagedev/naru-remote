@@ -102,6 +102,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 ### Edge Cases
 
 - **Trackpad cursor at first connect**: cursor starts centered on the framebuffer; it persists across frames within a session and resets on disconnect / profile change.
+- **Trackpad-move backlog while typing**: bursty buttonless trackpad/cursor-move writes must not block Direct-mode key events or Compose quick keys. Pointer and key events may share the same RFB socket, but the app-level outbound queues are independent so a slow cursor-move write cannot make the keyboard feel frozen.
 - **Mode switch mid-gesture**: switching pointer mode cancels any in-flight gesture cleanly; no stray button-up is emitted for a gesture that never sent a button-down.
 - **Pinch + drag simultaneously**: pinch (zoom) and one-finger pan are distinct gestures; a 2-finger gesture is zoom/scroll, a 1-finger gesture is pan (direct) or cursor-move (trackpad). The view never emits a remote scroll while pinching.
 - **Aspect ratio change (DesktopSize) mid-session**: when the server framebuffer dimensions change, the viewport recomputes fit scale and re-clamps the pan offset so the new size is fully framed (the protocol-level DesktopSize negotiation itself is `specs/004`).
@@ -129,6 +130,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **FR-013**: An inline quick-key strip in **Compose** mode MUST offer at least Esc, Tab, and Ctrl-C, emitting the correct `KeyEvent`(s) through the existing `KeystrokeEmitter`, without modifying the compose draft, and only while a session is active.
 - **FR-014**: All view→framebuffer coordinate mapping (fit scale × zoom × pan, plus trackpad cursor position) MUST be a single shared, pure, unit-tested transform used by both pointer modes so the two paths cannot diverge.
 - **FR-015**: While PiP Watch is active, local zoom/pan changes MUST update the PiP video focus without emitting RFB input. The output video dimensions SHOULD remain stable across focus changes to avoid PiP layer churn.
+- **FR-016**: The app MUST isolate app-level outbound pointer and key queues. A stalled or timed-out pointer operation MUST NOT block or permanently disable later Direct-mode key events / Compose quick keys on the same active session. A stalled key operation MUST likewise release its own lane so later keys are retryable.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -173,6 +175,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 | Trackpad drag moves cursor relatively, clamped, buttonless remote pointer move | Unit + Fake RFB | iPhone (simulator) | `swift test` for `TrackpadCursor` move/clamp and recorder `(0x00,x,y)` |
 | Trackpad tap → button-1 at cursor; 2-finger tap → button-3 at cursor | Unit + Fake RFB | iPhone (simulator) | recorder triples for move→tap→2-finger-tap |
 | Trackpad tap-and-a-half → button-1 down/hold/up | Unit + Fake RFB | iPhone (simulator) | recorder down→move(0x01)→up sequence |
+| Trackpad move backlog does not freeze keyboard lane | Unit + Fake RFB | iPhone (simulator) | delayed buttonless pointer move; Direct key records promptly on separate lane |
 | Pointer-mode toggle in one tap; cursor shown only in trackpad | XCUITest | iPhone (simulator) | screenshot of each mode |
 | Status chip reflects each `RemoteSessionState`; quality bucket while active | Unit | iPhone (simulator) | `swift test` for chip mapping + `ConnectionQuality` bucketing |
 | Compose quick keys (Esc / Ctrl-C) emit keysyms, draft untouched | Unit + Fake RFB | iPhone (simulator) | recorder `KeyEvent`s; model draft assertion |

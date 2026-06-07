@@ -84,6 +84,13 @@ synthetic helper-video is smooth, and true ScreenCaptureKit helper-video is
 blocked by the helper app bundle's missing Screen Recording permission. The
 paired app slice surfaces helper-video readiness on connection-grid cards and
 preserves helper-video opt-in when a profile is edited.
+Current remote desktop transport cadence artifact:
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-transport-cadence-drilldown-summary.md`.
+That run adds a fixed request-response versus ContinuousUpdates drilldown under
+the 10fps VNC gate. Request/response reaches about 6 content FPS but still
+fails from first-byte wait, while ContinuousUpdates fails before usable samples
+on the current Mac Screen Sharing target. A paired `screen-recording-setup`
+probe records that the helper app bundle still needs Screen Recording approval.
 Current live routing artifact:
 `artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
 That run uses schema v41's report-level decision to choose

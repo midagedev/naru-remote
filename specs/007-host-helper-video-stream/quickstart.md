@@ -140,6 +140,7 @@ scripts/run-naru-live-benchmark.sh glance-025-profile-sweep
 scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe
 scripts/run-naru-live-benchmark.sh remote-desktop-10fps-profile-cadence-sweep
 scripts/run-naru-live-benchmark.sh remote-desktop-10fps-server-cadence-probe
+scripts/run-naru-live-benchmark.sh remote-desktop-10fps-transport-cadence-drilldown
 scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness
 scripts/run-naru-live-benchmark.sh helper-capability
 scripts/run-naru-live-benchmark.sh request-screen-recording
@@ -223,6 +224,10 @@ promotion claim.
 sustained request region, and first-frame request mode. Use it to decide
 whether first-byte wait is caused by the poor-network proxy, viewport-aware
 requests, visible-glance startup, or server/update cadence.
+`remote-desktop-10fps-transport-cadence-drilldown` holds the same local
+`0.25` visible-glance VNC shape fixed while comparing request/response against
+ContinuousUpdates. Use it before claiming that an RFB transport-mode flip can
+reach the 10fps product bar on the current Mac Screen Sharing target.
 `remote-desktop-10fps-readiness` emits one JSON object that combines the fixed
 10fps VNC probe, helper capability/preflight, external synthetic helper-video,
 and external ScreenCaptureKit helper-video checks. Use it when deciding whether

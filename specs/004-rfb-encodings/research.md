@@ -6104,6 +6104,71 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D136 Add A Remote Desktop 10fps Transport Cadence Drilldown
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-transport-cadence-drilldown-summary.md`
+- D134 remote desktop 10fps target.
+- D135 remote desktop 10fps profile cadence sweep.
+
+**Decision**: add a fixed launchctl-backed
+`remote-desktop-10fps-transport-cadence-drilldown` runner mode that compares
+`request-response` against `continuous-updates` under the exact local
+`iphone-remote-desktop-10fps-v1` shape. The runner holds profile, request
+region, first-frame request mode, startup scale, pipeline depth, network
+condition, target, and duration fixed so only the RFB transport mode changes.
+
+**Why**:
+- RFC 6143 defines RFB framebuffer updates as demand-driven; a client request
+  may wait indefinitely until the requested area changes. The current 10fps
+  artifacts show first-byte wait is the shared successful-sample constraint, so
+  the transport extension must be tested directly before attempting another
+  profile-only promotion.
+- The community rfbproto/TigerVNC extension set registers ContinuousUpdates as
+  the relevant push-style extension, but clients must treat it as unavailable
+  until the server confirms support.
+- If ContinuousUpdates cannot produce usable samples on this target, the
+  product direction should keep VNC as input/control/fallback and prioritize
+  helper-video permission plus true helper-video capture/decode evidence.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `remote-desktop-10fps-transport-cadence-drilldown`.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-transport-cadence-drilldown -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- A clean live `remote-desktop-10fps-transport-cadence-drilldown` run exited
+  `rc=0`, and `jq empty` accepted the output.
+- Live result:
+  - `request-response-baseline`: fail, `receivePath`,
+    `first-byte-wait-failed`, `5.97` content FPS, `7.05` delivered FPS,
+    `132` ms average update, `502` ms p95 update, `502` ms first-byte wait
+    p95, `0` ms payload p95, `2` ms client p95.
+  - `continuous-updates-attempt`: fail, `probe-failed`, `0` content FPS and
+    `0` delivered FPS because the transport failed before usable samples.
+- `screen-recording-setup` still reports helper-video Screen Recording
+  `permissionMissing`, request result `notGranted`, Settings `opened`, and
+  `permissionMissing` after the request.
+
+**Interpretation**:
+- Do not promote ContinuousUpdates as a solution for the current Mac Screen
+  Sharing target.
+- Do not claim VNC has reached Chrome-Remote-like smoothness. The best local
+  request/response evidence in this run is about 6 content FPS, still below
+  the 10fps bar and first-byte-wait dominated.
+- The next product-facing smoothness work should unblock helper-video
+  ScreenCaptureKit permission and run true helper-video capture/decode on a
+  physical iPhone. VNC work remains useful for fallback and diagnostics, but it
+  needs a server cadence step change before default-promotion claims.
+
+**Privacy rule**: the runner emits only fixed mode/candidate/profile/target,
+transport, network, request, setup, verdict, issue, and action labels plus
+aggregate benchmark values. It must not print or export host identity,
+credentials, ports, helper paths, executable paths, command lines, raw
+stdout/stderr, raw TCP/RFB errors, raw OS errors, coordinates, dimensions,
+pixels, byte counts, stimulus command text, draft text, marked text, IME
+state, keysyms, helper endpoints, pairing material, or physical device IDs.
+
 ### D140 Treat Readiness Wrapper Success Separately From VNC Product Verdict
 
 References:

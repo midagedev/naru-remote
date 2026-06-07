@@ -1555,6 +1555,24 @@ iPhone) and ships as its own PR.
   raw timings, command text, draft text, marked text, IME state, keysyms, or
   pointer coordinates. Owns: app shell input render state, focused app tests,
   research note, and benchmark artifact. **Done.**
+- **T474** Remote desktop 10fps transport cadence drilldown: add
+  `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-transport-cadence-drilldown`
+  to compare `request-response` against `continuous-updates` while holding the
+  current 10fps local VNC shape fixed: `local-low-latency-rgb565`, local
+  network condition, viewport-phone-portrait, visible-glance scale `0.25`,
+  request pipeline depth `1`, and `iphone-remote-desktop-10fps-v1`. Reject
+  extra arguments, validate each candidate JSON report when a local validator
+  is available, and record live evidence that request/response still fails from
+  first-byte wait while ContinuousUpdates fails before usable samples on the
+  current Mac Screen Sharing target. Emit/export only fixed mode/candidate,
+  profile, target, transport, network, request, verdict, issue, and action
+  labels plus aggregate benchmark values; do not print/export host identity,
+  credentials, ports, helper paths, executable paths, command lines, raw
+  stdout/stderr, raw TCP/RFB errors, raw OS errors, coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, IME
+  state, keysyms, helper endpoints, pairing material, or physical device IDs.
+  Owns: launchctl runner, quickstart, research note, benchmark artifact, and
+  live evidence. **Done.**
 
 ## Cross-cutting (every increment)
 
