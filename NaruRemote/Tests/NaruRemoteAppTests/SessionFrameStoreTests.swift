@@ -12,6 +12,22 @@ final class SessionFrameStoreTests: XCTestCase {
         )
     }
 
+    func testInputEditingDeliveryCoalescingUsesKeyboardFriendlyCadence() {
+        let store = SessionFrameStore()
+
+        XCTAssertEqual(
+            store.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(16)
+        )
+
+        store.setDeliveryPriority(.inputEditing)
+
+        XCTAssertEqual(
+            store.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(50)
+        )
+    }
+
     func testSameSizeFramesEmitEventsWithoutSwiftUIPresentationRefresh() {
         let store = SessionFrameStore()
         var presentationPublishCount = 0
@@ -120,6 +136,111 @@ final class SessionFrameStoreTests: XCTestCase {
         XCTAssertEqual(frameEvents.map(\.framebuffer), [second])
         XCTAssertEqual(frameEvents.first?.dirtyRectangles, [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)])
         XCTAssertEqual(frameEvents.first?.changedPixelCount, 1)
+
+        withExtendedLifetime(frameCancellable) {}
+    }
+
+    func testLeavingInputEditingFlushesLatestPendingFrameImmediately() {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 1, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.setDeliveryPriority(.inputEditing)
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 2, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 3, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.setDeliveryPriority(.visual)
+
+        XCTAssertEqual(
+            frameEvents.map(\.framebuffer?.pixels.first?.red),
+            [1, 3],
+            "Leaving Compose focus should flush the newest pending frame without replaying stale video frames."
+        )
+
+        withExtendedLifetime(frameCancellable) {}
+    }
+
+    func testEnteringInputEditingReschedulesPendingSteadyFrameToKeyboardCadence() {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 1, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 2, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+        XCTAssertEqual(
+            store.pendingFrameDeliveryCoalescingDelayForTesting,
+            .milliseconds(16)
+        )
+
+        store.setDeliveryPriority(.inputEditing)
+
+        XCTAssertEqual(
+            store.pendingFrameDeliveryCoalescingDelayForTesting,
+            .milliseconds(50),
+            "Entering Compose focus should move already pending steady frames to the input-friendly cadence."
+        )
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1, 2])
 
         withExtendedLifetime(frameCancellable) {}
     }

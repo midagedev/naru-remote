@@ -25,9 +25,15 @@ public struct SessionFrameState: Equatable, Sendable {
     }
 }
 
+public enum SessionFrameDeliveryPriority: Equatable, Sendable {
+    case visual
+    case inputEditing
+}
+
 @MainActor
 public final class SessionFrameStore: ObservableObject {
     static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
+    static let inputEditingFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
 
     public private(set) var state: SessionFrameState
 
@@ -38,7 +44,9 @@ public final class SessionFrameStore: ObservableObject {
     @Published public private(set) var presentationRevision: Int
 
     private let frameSubject = PassthroughSubject<SessionFrameState, Never>()
+    private var deliveryPriority: SessionFrameDeliveryPriority = .visual
     private var pendingFrameDelivery: SessionFrameState?
+    private var pendingFrameDeliveryCoalescingDelay: Duration?
     private var frameDeliveryTask: Task<Void, Never>?
 
     public init(state: SessionFrameState = SessionFrameState()) {
@@ -70,6 +78,25 @@ public final class SessionFrameStore: ObservableObject {
         state.serverCursor
     }
 
+    public func setDeliveryPriority(_ priority: SessionFrameDeliveryPriority) {
+        guard deliveryPriority != priority else {
+            return
+        }
+
+        deliveryPriority = priority
+        switch priority {
+        case .visual:
+            // Leaving text input should make the latest remote frame visible
+            // immediately instead of waiting for the longer keyboard-friendly
+            // coalescing window to expire.
+            frameDeliveryTask?.cancel()
+            frameDeliveryTask = nil
+            flushPendingFrameDelivery()
+        case .inputEditing:
+            reschedulePendingSteadyFrameDelivery()
+        }
+    }
+
     public func publish(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]?,
@@ -92,7 +119,7 @@ public final class SessionFrameStore: ObservableObject {
             next,
             coalescingDelay: requiresPresentationRefresh
                 ? nil
-                : Self.steadyFrameDeliveryCoalescingDelay
+                : currentSteadyFrameDeliveryCoalescingDelay
         )
         publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
@@ -108,7 +135,7 @@ public final class SessionFrameStore: ObservableObject {
             state,
             coalescingDelay: requiresPresentationRefresh
                 ? nil
-                : Self.steadyFrameDeliveryCoalescingDelay
+                : currentSteadyFrameDeliveryCoalescingDelay
         )
         publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
@@ -130,11 +157,25 @@ public final class SessionFrameStore: ObservableObject {
         flushPendingFrameDelivery()
     }
 
+    var pendingFrameDeliveryCoalescingDelayForTesting: Duration? {
+        pendingFrameDeliveryCoalescingDelay
+    }
+
+    var currentSteadyFrameDeliveryCoalescingDelay: Duration {
+        switch deliveryPriority {
+        case .visual:
+            return Self.steadyFrameDeliveryCoalescingDelay
+        case .inputEditing:
+            return Self.inputEditingFrameDeliveryCoalescingDelay
+        }
+    }
+
     private func scheduleFrameDelivery(
         _ next: SessionFrameState,
         coalescingDelay: Duration?
     ) {
         pendingFrameDelivery = next
+        pendingFrameDeliveryCoalescingDelay = coalescingDelay
         if coalescingDelay == nil {
             frameDeliveryTask?.cancel()
             frameDeliveryTask = Task { @MainActor [weak self] in
@@ -161,12 +202,34 @@ public final class SessionFrameStore: ObservableObject {
         }
     }
 
+    private func reschedulePendingSteadyFrameDelivery() {
+        guard pendingFrameDelivery != nil,
+              pendingFrameDeliveryCoalescingDelay != nil else {
+            return
+        }
+
+        pendingFrameDeliveryCoalescingDelay = currentSteadyFrameDeliveryCoalescingDelay
+        frameDeliveryTask?.cancel()
+        guard let delay = pendingFrameDeliveryCoalescingDelay else {
+            return
+        }
+        frameDeliveryTask = Task { @MainActor [weak self, delay] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            self?.flushPendingFrameDelivery()
+        }
+    }
+
     private func flushPendingFrameDelivery() {
         frameDeliveryTask = nil
         guard let next = pendingFrameDelivery else {
             return
         }
         pendingFrameDelivery = nil
+        pendingFrameDeliveryCoalescingDelay = nil
         frameSubject.send(next)
     }
 
