@@ -79,8 +79,8 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         // Saved-profile launch now starts on the connection grid.
         // Opening the card lands on the existing pre-connect detail.
-        // a11y identifier on a SwiftUI Button is sometimes shadowed
-        // by an ancestor (`naru.app.detail`); fall back to label.
+        // Prefer the leaf identifier, then fall back to the visible
+        // label for older SwiftUI accessibility snapshots.
         let connect = app.buttons["naru.session.connect"].exists
             ? app.buttons["naru.session.connect"]
             : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
@@ -121,8 +121,8 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: "definitely-wrong-pw")
         openFirstConnectionCardIfPresent(app: app)
 
-        // a11y identifier on a SwiftUI Button is sometimes shadowed
-        // by an ancestor (`naru.app.detail`); fall back to label.
+        // Prefer the leaf identifier, then fall back to the visible
+        // label for older SwiftUI accessibility snapshots.
         let connect = app.buttons["naru.session.connect"].exists
             ? app.buttons["naru.session.connect"]
             : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch

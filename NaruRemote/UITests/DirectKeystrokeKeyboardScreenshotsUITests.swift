@@ -53,9 +53,9 @@ final class DirectKeystrokeKeyboardScreenshotsUITests: XCTestCase {
 
         try saveFullScreenScreenshot(named: "us1-qwerty.png", from: app)
 
-        // Some ancestor (NavigationSplitView detail column) clobbers
-        // each button's accessibilityIdentifier with "naru.app.detail"
-        // — match the page-toggle by its accessibilityLabel instead.
+        // Match the page-toggle by its accessibility label so the
+        // screenshot gate stays independent from SwiftUI container
+        // identifier reshuffling.
         let pageToggle = app.buttons["Switch keyboard page"]
         XCTAssertTrue(
             pageToggle.waitForExistence(timeout: 2),

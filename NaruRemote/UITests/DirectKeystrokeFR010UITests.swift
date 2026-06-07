@@ -19,10 +19,9 @@ import XCTest
 ///
 /// The badge identifier is `naru.direct.badge.dock` and the
 /// accessibility label is "Direct keystroke mode active, IME
-/// disabled".  In the SwiftUI a11y tree, the per-element identifier
-/// is sometimes clobbered by an ancestor (`naru.app.detail`, same
-/// finding as the existing screenshot tests), so we count by label
-/// matches.  One label match → badge rendered; zero → not rendered.
+/// disabled".  Count by label matches so this behavioral gate is
+/// independent from SwiftUI container identifier reshuffling.  One
+/// label match → badge rendered; zero → not rendered.
 ///
 /// Pure assertion test — no screenshots; the screenshot-evidence
 /// test already lives in `DirectKeystrokeBadgeAndWarningScreenshotsUITests`
