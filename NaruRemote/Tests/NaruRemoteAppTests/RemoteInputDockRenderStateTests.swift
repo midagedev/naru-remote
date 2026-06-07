@@ -356,6 +356,46 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testFocusedInputAccessoryChromeDefersIncomingClipboardBanner() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입")
+        )
+        let review = IncomingClipboardReview(
+            text: "remote copied text",
+            arrivedAt: Date(timeIntervalSince1970: 1),
+            id: UUID(uuidString: "2D7C512B-18C2-4B2B-9F6C-DA5B15E87E3A")!
+        )
+
+        let focusedChrome = RemoteInputAccessoryChromeState(
+            snapshot: snapshot,
+            incomingClipboardReview: review,
+            isLiveSession: true,
+            isComposeFieldFocused: true
+        )
+        let unfocusedChrome = RemoteInputAccessoryChromeState(
+            snapshot: snapshot,
+            incomingClipboardReview: review,
+            isLiveSession: true,
+            isComposeFieldFocused: false
+        )
+
+        XCTAssertNil(
+            focusedChrome.incomingClipboardReview,
+            "Remote clipboard review UI must not appear above the keyboard while UIKit owns Korean/CJK Compose focus."
+        )
+        XCTAssertEqual(focusedChrome.statusLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
+        XCTAssertEqual(
+            unfocusedChrome.incomingClipboardReview,
+            review,
+            "The pending review is not discarded; it becomes visible again after Compose focus leaves."
+        )
+    }
+
     func testInputDockRenderStateChangesWhenComposeQuickKeysBecomeAvailable() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let draftSession = RemoteSession(profileID: profile.id, state: .connecting)

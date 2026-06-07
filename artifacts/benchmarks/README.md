@@ -1295,6 +1295,14 @@ post-send sibling-layout path: when typing the first Korean/CJK syllable clears
 a previous `Remote app confirmation unavailable` result, the focused status
 line stays mounted above the keyboard and the iPhone simulator verifies the
 same active-session editor still accepts the second syllable.
+The active input chrome storm artifact is
+`2026-06-08-active-input-chrome-storm-summary.md`; it adds the missing
+safe-area reproduction by publishing incoming clipboard reviews while Compose
+is focused and frame/cursor/model/helper storms are running. The new test fails
+before the fix because the clipboard banner appears above the keyboard after
+the first Korean syllable. Focused accessory chrome now defers the banner
+without dropping the pending review, and the full Compose responsiveness suite
+passes on the iPhone 17 Pro simulator.
 The trackpad hot-cursor artifact is
 `2026-06-07-trackpad-hot-cursor-summary.md`; it records the phone-portrait /
 wide-desktop resolver reproduction where 6 pt touch samples could degrade to

@@ -231,6 +231,59 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    func testFocusedActiveSessionComposeDefersIncomingClipboardChromeDuringFullStorm() {
+        let app = launchAppWithActiveSessionConfirmationUnavailableFixture(
+            trackpadCursorStorm: true,
+            framebufferFlood: true,
+            modelPublishStorm: true,
+            helperVideoHealthStorm: true,
+            incomingClipboardChromeStorm: true,
+            exposeComposeLifecycle: true
+        )
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+        let incomingClipboardBanner = app.descendants(matching: .any)["naru.input.incomingClipboard.banner"]
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        let focusedProbe = waitForLifecycleProbe(in: app) { probe in
+            probe.isFirstResponder && probe.makeCount == 1
+        }
+        let token = focusedProbe.instanceToken
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+        XCTAssertFalse(
+            incomingClipboardBanner.waitForExistence(timeout: 0.5),
+            "Incoming clipboard review chrome must be deferred while Compose owns first-responder focus; presenting a safe-area banner here can stall Korean/CJK IME after the first syllable."
+        )
+        let afterFirstInput = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.textChangeCount >= 1
+                && probe.isFirstResponder
+        }
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+        let afterSecondInput = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.textChangeCount >= afterFirstInput.textChangeCount
+                && probe.isFirstResponder
+        }
+
+        XCTAssertEqual(afterSecondInput.instanceToken, token)
+        XCTAssertEqual(afterSecondInput.makeCount, 1)
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "Frame/cursor/model/helper/clipboard chrome storms must not remount or freeze the focused Compose editor."
+        )
+    }
+
     func testFocusedConnectingComposeDefersLiveLayoutAfterFirstFrameAndKeepsTyping() {
         let app = launchAppWithConnectingDelayedFirstFrameFixture()
         let editor = composeEditor(in: app)
@@ -368,6 +421,7 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         framebufferFlood: Bool = false,
         modelPublishStorm: Bool = false,
         helperVideoHealthStorm: Bool = false,
+        incomingClipboardChromeStorm: Bool = false,
         exposeComposeLifecycle: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -384,6 +438,9 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         }
         if helperVideoHealthStorm {
             app.launchEnvironment["NARU_TEST_HELPER_VIDEO_HEALTH_STORM"] = "1"
+        }
+        if incomingClipboardChromeStorm {
+            app.launchEnvironment["NARU_TEST_INCOMING_CLIPBOARD_CHROME_STORM"] = "1"
         }
         if exposeComposeLifecycle {
             app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
