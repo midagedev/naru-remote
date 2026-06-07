@@ -172,6 +172,43 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
     }
 
+    func testToolboxSyntheticAccessUnitStreamEmitsFinitePacedFrames() async throws {
+        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
+            frameCount: 4,
+            width: 64,
+            height: 64
+        )
+
+        let stream = try source.accessUnitStream(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo30)
+        )
+        let accessUnits = try await Self.collectAccessUnits(from: stream)
+
+        XCTAssertEqual(accessUnits.map(\.sequence), Array(0..<accessUnits.count))
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 4)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
+        XCTAssertTrue(accessUnits.dropFirst().contains { $0.kind == .keyframe })
+        XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+    }
+
+    func testToolboxSyntheticAccessUnitStreamCanRunUnboundedUntilClientStopsReading() async throws {
+        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
+            frameCount: 0,
+            width: 64,
+            height: 64
+        )
+
+        let stream = try source.accessUnitStream(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo30)
+        )
+        let accessUnits = try await Self.collectAccessUnits(from: stream, limit: 6)
+
+        XCTAssertEqual(accessUnits.map(\.sequence), Array(0..<accessUnits.count))
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 6)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
+        XCTAssertGreaterThanOrEqual(accessUnits.dropFirst().count, 5)
+    }
+
     func testToolboxPixelBufferEncoderRejectsEmptyFrameBatch() throws {
         let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
             width: 64,
@@ -213,6 +250,35 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertEqual(accessUnits[0].kind, .parameterSet)
         XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(7))
         XCTAssertTrue(Self.nalTypes(in: accessUnits[0].binaryPayload).contains(8))
+        XCTAssertTrue(accessUnits.dropFirst().contains { $0.kind == .keyframe })
+        XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+    }
+
+    func testScreenCaptureKitAccessUnitSourceStreamsInjectedPixelBuffers() async throws {
+        let provider = StubScreenCaptureKitPixelBufferProvider(pixelBuffers: [
+            try Self.makePixelBuffer(width: 80, height: 48, frameIndex: 0),
+            try Self.makePixelBuffer(width: 80, height: 48, frameIndex: 1),
+            try Self.makePixelBuffer(width: 80, height: 48, frameIndex: 2)
+        ])
+        let source = NaruHelperVideoScreenCaptureKitAccessUnitSource(
+            frameCount: 3,
+            pixelBufferProvider: provider
+        )
+
+        let stream = try source.accessUnitStream(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        )
+        let accessUnits = try await Self.collectAccessUnits(from: stream)
+
+        XCTAssertEqual(provider.streamRequests, [
+            StubScreenCaptureKitPixelBufferProvider.StreamRequest(
+                frameLimit: 3,
+                frameRateBucket: .upTo15
+            )
+        ])
+        XCTAssertEqual(accessUnits.map(\.sequence), Array(0..<accessUnits.count))
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 3)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
         XCTAssertTrue(accessUnits.dropFirst().contains { $0.kind == .keyframe })
         XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
     }
@@ -268,6 +334,22 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
     }
     #endif
 
+    #if os(macOS) && canImport(VideoToolbox)
+    private static func collectAccessUnits(
+        from stream: AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>,
+        limit: Int? = nil
+    ) async throws -> [NaruHelperVideoAccessUnit] {
+        var accessUnits: [NaruHelperVideoAccessUnit] = []
+        for try await accessUnit in stream {
+            accessUnits.append(accessUnit)
+            if let limit, accessUnits.count >= limit {
+                break
+            }
+        }
+        return accessUnits
+    }
+    #endif
+
     private static func nalTypes(in annexBPayload: Data) -> [UInt8] {
         let bytes = [UInt8](annexBPayload)
         var index = 0
@@ -302,7 +384,7 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
 
 #if os(macOS) && canImport(VideoToolbox) && canImport(ScreenCaptureKit)
 private final class StubScreenCaptureKitPixelBufferProvider:
-    NaruHelperVideoScreenCaptureKitPixelBufferProvider,
+    NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider,
     @unchecked Sendable
 {
     struct Request: Equatable {
@@ -310,9 +392,15 @@ private final class StubScreenCaptureKitPixelBufferProvider:
         var frameRateBucket: HelperVideoFrameRateBucket
     }
 
+    struct StreamRequest: Equatable {
+        var frameLimit: Int?
+        var frameRateBucket: HelperVideoFrameRateBucket
+    }
+
     private let lock = NSLock()
     private let pixelBuffersToReturn: [CVPixelBuffer]
     private var recordedRequests: [Request] = []
+    private var recordedStreamRequests: [StreamRequest] = []
 
     init(pixelBuffers: [CVPixelBuffer]) {
         self.pixelBuffersToReturn = pixelBuffers
@@ -326,6 +414,14 @@ private final class StubScreenCaptureKitPixelBufferProvider:
         return recordedRequests
     }
 
+    var streamRequests: [StreamRequest] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return recordedStreamRequests
+    }
+
     func pixelBuffers(
         frameLimit: Int,
         frameRateBucket: HelperVideoFrameRateBucket
@@ -336,6 +432,28 @@ private final class StubScreenCaptureKitPixelBufferProvider:
         }
         recordedRequests.append(Request(frameLimit: frameLimit, frameRateBucket: frameRateBucket))
         return pixelBuffersToReturn
+    }
+
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
+        lock.lock()
+        recordedStreamRequests.append(StreamRequest(
+            frameLimit: frameLimit,
+            frameRateBucket: frameRateBucket
+        ))
+        let pixelBuffers = pixelBuffersToReturn
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            let limitedPixelBuffers = Array(pixelBuffers.prefix(frameLimit ?? pixelBuffers.count))
+            for pixelBuffer in limitedPixelBuffers {
+                nonisolated(unsafe) let transferablePixelBuffer = pixelBuffer
+                continuation.yield(transferablePixelBuffer)
+            }
+            continuation.finish()
+        }
     }
 }
 #endif

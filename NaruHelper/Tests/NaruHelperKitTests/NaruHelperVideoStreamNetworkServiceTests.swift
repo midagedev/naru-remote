@@ -102,6 +102,50 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         XCTAssertEqual(keyframe.binaryPayload, keyframePayload)
     }
 
+    func testNetworkClientStreamTimeoutIsIdleTimeoutAcrossSustainedEvents() async throws {
+        let accessUnits = (0..<4).map { index in
+            NaruHelperVideoAccessUnit(
+                sequence: index,
+                kind: index == 0 ? .parameterSet : .delta,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, UInt8(0x60 + index)])
+            )
+        }
+        let server = try makeServer(source: AsyncOnlyAccessUnitSource(
+            accessUnits: accessUnits,
+            perAccessUnitDelay: .milliseconds(180)
+        ))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 0.35
+        )
+        var events: [HelperVideoStreamNetworkEvent] = []
+        for try await event in client.streamEvents() {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events.count, accessUnits.count + 1)
+        XCTAssertTrue({
+            if case .startResponse = events[0] {
+                return true
+            }
+            return false
+        }())
+        XCTAssertEqual(events.dropFirst().compactMap { event -> Int? in
+            if case .accessUnit(let accessUnit) = event {
+                return accessUnit.envelope.body.sequence
+            }
+            return nil
+        }, Array(0..<accessUnits.count))
+    }
+
     func testNetworkClientReceivesSafeStallWhenHelperHasNoAccessUnits() async throws {
         let server = try makeServer(accessUnits: [])
         server.start()
@@ -197,6 +241,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
 
 private struct AsyncOnlyAccessUnitSource: NaruHelperVideoAccessUnitSource {
     var accessUnits: [NaruHelperVideoAccessUnit]
+    var perAccessUnitDelay: Duration = .milliseconds(10)
 
     func accessUnits(
         for request: HelperVideoStartStreamRequestBody
@@ -209,10 +254,11 @@ private struct AsyncOnlyAccessUnitSource: NaruHelperVideoAccessUnitSource {
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         AsyncThrowingStream { continuation in
             let accessUnits = accessUnits
+            let perAccessUnitDelay = perAccessUnitDelay
             Task {
                 for accessUnit in accessUnits {
                     continuation.yield(accessUnit)
-                    try? await Task.sleep(for: .milliseconds(10))
+                    try? await Task.sleep(for: perAccessUnitDelay)
                 }
                 continuation.finish()
             }
