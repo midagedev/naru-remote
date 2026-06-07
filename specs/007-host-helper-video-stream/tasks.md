@@ -441,6 +441,14 @@ without unsafe report fields.
   live for view-aware request regions, and increase zoomed trackpad
   cursor-follow pan coupling while preserving finger-paced visible cursor
   travel. **Done.**
+- [x] T031U [US2] Add a `helper-video-live-gate` runner that chains the
+  Screen Recording watch, helper readiness sweep, and app bootstrap smoke into
+  one privacy-safe report. When Screen Recording is still missing, the runner
+  skips impossible helper capture work and reports
+  `blockedByScreenRecordingPermission`; once permission is granted, the same
+  command proceeds toward the true helper-video app decode gate and physical
+  iPhone handoff. Covered by `helper-video-live-gate-self-test` and a short
+  live permission-missing run. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

@@ -16,6 +16,8 @@ Modes:
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   helper-dev-app-setup     Install dev helper app, set launchctl, request Screen Recording.
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
+  helper-video-live-gate Screen Recording watch + true helper-video gate chain.
+  helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -2921,6 +2923,266 @@ FAKE_HELPER
   printf '%s\n' "$report"
 }
 
+print_helper_video_live_gate_summary_failure() {
+  local failure_code="$1"
+  printf '{"schemaVersion":1,"mode":"helper-video-live-gate-summary","overallGateState":"unknown","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"primaryBlockedGateLabels":["helper-video-live-gate-summary-unavailable"],"recommendedPrimaryAction":"inspect-helper-video-live-gate"}'
+}
+
+print_helper_video_live_gate_summary() {
+  local watch_file="$1"
+  local readiness_file="$2"
+  local bootstrap_file="$3"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    print_helper_video_live_gate_summary_failure \
+      benchmarkStep.helperVideoLiveGateSummary.jqUnavailable
+    return
+  fi
+
+  if ! jq -n \
+    --slurpfile watch "$watch_file" \
+    --slurpfile readiness "$readiness_file" \
+    --slurpfile bootstrap "$bootstrap_file" '
+      def first($items): $items[0] // {};
+      def hreport($key):
+        (first($readiness)[$key].visualTransportComparison.helperVideoReports[0] // {});
+      def watch_status: first($watch).watchStatus // "unknown";
+      def final_permission: first($watch).finalPermissionStatus // "unknown";
+      def final_availability: first($watch).finalAvailability // "unknown";
+      def screen_verdict: hreport("screenProbe").verdict // "unknown";
+      def synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
+      def sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
+      def bootstrap_status: first($bootstrap).status // "unknown";
+      def blocked_labels:
+        [
+          if watch_status != "granted" then "screen-recording-permission-gate-blocked" else empty end,
+          if watch_status == "granted" and synthetic_verdict != "pass" then "helper-video-synthetic-gate-blocked" else empty end,
+          if watch_status == "granted" and sustained_verdict != "pass" then "helper-video-sustained-synthetic-gate-blocked" else empty end,
+          if watch_status == "granted" and screen_verdict != "pass" then "helper-video-screen-capture-gate-blocked" else empty end,
+          if watch_status == "granted" and screen_verdict == "pass" and bootstrap_status == "skipped" then "helper-video-app-bootstrap-skipped" else empty end,
+          if watch_status == "granted" and screen_verdict == "pass" and bootstrap_status == "failed" then "helper-video-app-bootstrap-failed" else empty end
+        ];
+      def overall_gate_state:
+        if watch_status != "granted" then "blockedByScreenRecordingPermission"
+        elif synthetic_verdict != "pass" then "blockedByHelperSyntheticTransport"
+        elif sustained_verdict != "pass" then "blockedByHelperSustainedSyntheticTransport"
+        elif screen_verdict != "pass" then "blockedByHelperScreenCapture"
+        elif bootstrap_status == "passed" then "readyForPhysicalIPhoneGate"
+        elif bootstrap_status == "skipped" then "blockedByAppBootstrapPermission"
+        elif bootstrap_status == "failed" then "blockedByAppBootstrapBenchmark"
+        else "unknown"
+        end;
+      def recommended_action:
+        if watch_status != "granted" then "grant-helper-video-app-screen-recording-permission"
+        elif synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
+        elif sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
+        elif screen_verdict != "pass" then "rerun-helper-screen-probe"
+        elif bootstrap_status == "passed" then "run-physical-iphone-helper-video-gate"
+        elif bootstrap_status == "skipped" then "grant-screen-recording-to-benchmark-host"
+        elif bootstrap_status == "failed" then "inspect-screen-capturekit-app-bootstrap-benchmark"
+        else "inspect-helper-video-live-gate"
+        end;
+      {
+        schemaVersion: 1,
+        mode: "helper-video-live-gate-summary",
+        overallGateState: overall_gate_state,
+        primaryBlockedGateLabels: blocked_labels,
+        recommendedPrimaryAction: recommended_action,
+        screenRecordingGate: {
+          watchStatus: watch_status,
+          finalPermissionStatus: final_permission,
+          finalAvailability: final_availability,
+          issueCodes: (first($watch).issueCodes // []),
+          setupActionLabels: (first($watch).setupActionLabels // [])
+        },
+        helperVideoGate: {
+          syntheticVerdict: synthetic_verdict,
+          sustainedSyntheticVerdict: sustained_verdict,
+          screenCaptureVerdict: screen_verdict,
+          screenCaptureReadinessState: (hreport("screenProbe").readinessState // "unknown"),
+          screenCaptureRecommendedAction: (hreport("screenProbe").recommendedAction // "unknown"),
+          screenCaptureIssueCodes: (hreport("screenProbe").issueCodes // [])
+        },
+        appBootstrapGate: {
+          status: bootstrap_status,
+          sourceMode: (first($bootstrap).sourceMode // "unknown"),
+          transportPath: (first($bootstrap).transportPath // "unknown"),
+          decodePath: (first($bootstrap).decodePath // "unknown"),
+          issueCodes: (first($bootstrap).issueCodes // []),
+          setupActionLabels: (first($bootstrap).setupActionLabels // [])
+        },
+        diagnosticDesignLabels: [
+          "screen-recording-watch-precedes-true-helper-video-gates",
+          "permission-missing-skips-expensive-helper-video-gates",
+          "helper-readiness-and-app-bootstrap-share-one-report",
+          "ready-state-routes-to-physical-iphone-gate"
+        ]
+      }
+    ' >/dev/stdout; then
+    print_helper_video_live_gate_summary_failure \
+      benchmarkStep.helperVideoLiveGateSummary.failed
+  fi
+}
+
+print_helper_video_live_gate_skipped_readiness() {
+  printf '{'
+  printf '"schemaVersion":1,'
+  printf '"mode":"helper-readiness-sweep",'
+  printf '"status":"skipped",'
+  printf '"skipReason":"screenRecordingPermissionMissing",'
+  printf '"issueCodes":["helper-video-permission-missing"],'
+  printf '"setupActionLabels":["grant-helper-video-app-screen-recording-permission","rerun-helper-video-live-gate"],'
+  printf '"safety":["readiness sweep skipped before helper capture; no helper paths, endpoints, credentials, pixels, byte counts, dimensions, raw OS errors, or exact timings are emitted"]'
+  printf '}'
+}
+
+print_helper_video_live_gate_skipped_bootstrap() {
+  printf '{'
+  printf '"schemaVersion":1,'
+  printf '"mode":"helper-screen-app-bootstrap-benchmark",'
+  printf '"status":"skipped",'
+  printf '"sourceMode":"screen-capturekit",'
+  printf '"transportPath":"helper-tcp-to-app-model",'
+  printf '"decodePath":"h264-sample-buffer-factory",'
+  printf '"skipReason":"screenRecordingPermissionMissing",'
+  printf '"issueCodes":["helper-video-permission-missing"],'
+  printf '"setupActionLabels":["grant-helper-video-app-screen-recording-permission","rerun-helper-video-live-gate"],'
+  printf '"safety":["app bootstrap skipped before helper capture; no raw xctest output, frame payloads, pixels, dimensions, endpoints, helper paths, device ids, credentials, byte counts, or exact timings are emitted"]'
+  printf '}'
+}
+
+print_helper_video_live_gate_report() {
+  local watch_file
+  local readiness_file
+  local bootstrap_file
+  watch_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-live-watch.XXXXXX")"
+  readiness_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-live-readiness.XXXXXX")"
+  bootstrap_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-live-bootstrap.XXXXXX")"
+
+  json_step_or_fixed_failure \
+    screenRecordingWatch \
+    benchmarkStep.screenRecordingWatch.failed \
+    print_screen_recording_watch_report >"$watch_file"
+
+  local watch_status
+  watch_status="$(json_value_or_unknown "$(cat "$watch_file")" '.watchStatus')"
+  if [[ "$watch_status" == "granted" ]]; then
+    json_step_or_fixed_failure \
+      helperReadinessSweep \
+      benchmarkStep.helperReadinessSweep.failed \
+      print_helper_readiness_sweep_report >"$readiness_file"
+    json_step_or_fixed_failure \
+      helperScreenAppBootstrapBenchmark \
+      benchmarkStep.helperScreenAppBootstrapBenchmark.failed \
+      print_helper_screen_app_bootstrap_benchmark_report >"$bootstrap_file"
+  else
+    print_helper_video_live_gate_skipped_readiness >"$readiness_file"
+    print_helper_video_live_gate_skipped_bootstrap >"$bootstrap_file"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-video-live-gate",\n'
+  printf '  "screenRecordingWatch": '
+  cat "$watch_file"
+  printf ',\n'
+  printf '  "helperReadinessSweep": '
+  cat "$readiness_file"
+  printf ',\n'
+  printf '  "appBootstrapBenchmark": '
+  cat "$bootstrap_file"
+  printf ',\n'
+  printf '  "gateSummary": '
+  print_helper_video_live_gate_summary \
+    "$watch_file" \
+    "$readiness_file" \
+    "$bootstrap_file"
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "helper-video-live-gate emits fixed status, issue, action, and transport labels plus existing safe subreports only",\n'
+  printf '    "helper executable paths, endpoints, credentials, raw OS errors, pixels, dimensions, byte counts, physical device ids, raw xctest output, and exact helper timings are not emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+
+  rm -f "$watch_file" "$readiness_file" "$bootstrap_file"
+}
+
+helper_video_live_gate_self_test() {
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-helper-live-gate-test.XXXXXX")"
+  local watch_blocked="$tmpdir/watch-blocked.json"
+  local watch_ready="$tmpdir/watch-ready.json"
+  local readiness_blocked="$tmpdir/readiness-blocked.json"
+  local readiness_ready="$tmpdir/readiness-ready.json"
+  local bootstrap_blocked="$tmpdir/bootstrap-blocked.json"
+  local bootstrap_ready="$tmpdir/bootstrap-ready.json"
+  local summary_blocked="$tmpdir/summary-blocked.json"
+  local summary_ready="$tmpdir/summary-ready.json"
+
+  cat >"$watch_blocked" <<'JSON'
+{"schemaVersion":1,"mode":"screen-recording-watch","watchStatus":"timedOut","finalPermissionStatus":"missing","finalAvailability":"permissionMissing","issueCodes":["helper-video-permission-missing"],"setupActionLabels":["grant-helper-video-app-screen-recording-permission","rerun-screen-recording-watch"]}
+JSON
+  cat >"$watch_ready" <<'JSON'
+{"schemaVersion":1,"mode":"screen-recording-watch","watchStatus":"granted","finalPermissionStatus":"granted","finalAvailability":"available","issueCodes":[],"setupActionLabels":["rerun-helper-readiness-sweep","run-true-helper-video-live-capture-benchmark"]}
+JSON
+  print_helper_video_live_gate_skipped_readiness >"$readiness_blocked"
+  print_helper_video_live_gate_skipped_bootstrap >"$bootstrap_blocked"
+  cat >"$readiness_ready" <<'JSON'
+{"schemaVersion":1,"mode":"helper-readiness-sweep","syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
+JSON
+  cat >"$bootstrap_ready" <<'JSON'
+{"schemaVersion":1,"mode":"helper-screen-app-bootstrap-benchmark","status":"passed","sourceMode":"screen-capturekit","transportPath":"helper-tcp-to-app-model","decodePath":"h264-sample-buffer-factory","issueCodes":[],"setupActionLabels":[]}
+JSON
+
+  print_helper_video_live_gate_summary \
+    "$watch_blocked" \
+    "$readiness_blocked" \
+    "$bootstrap_blocked" >"$summary_blocked"
+  print_helper_video_live_gate_summary \
+    "$watch_ready" \
+    "$readiness_ready" \
+    "$bootstrap_ready" >"$summary_ready"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"skipped","issueCodes":["jq-unavailable"]}\n'
+    rm -rf "$tmpdir"
+    return
+  fi
+
+  if jq -e '
+    .overallGateState == "blockedByScreenRecordingPermission" and
+    .recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
+    (.primaryBlockedGateLabels | index("screen-recording-permission-gate-blocked")) and
+    .screenRecordingGate.finalPermissionStatus == "missing" and
+    .appBootstrapGate.status == "skipped"
+  ' "$summary_blocked" >/dev/null && jq -e '
+    .overallGateState == "readyForPhysicalIPhoneGate" and
+    .recommendedPrimaryAction == "run-physical-iphone-helper-video-gate" and
+    (.primaryBlockedGateLabels | length == 0) and
+    .screenRecordingGate.finalPermissionStatus == "granted" and
+    .helperVideoGate.screenCaptureVerdict == "pass" and
+    .appBootstrapGate.status == "passed"
+  ' "$summary_ready" >/dev/null; then
+    printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"passed","blockedSummary":'
+    cat "$summary_blocked"
+    printf ',"readySummary":'
+    cat "$summary_ready"
+    printf '}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"failed","blockedSummary":'
+    cat "$summary_blocked"
+    printf ',"readySummary":'
+    cat "$summary_ready"
+    printf '}\n'
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+
+  rm -rf "$tmpdir"
+}
+
 print_helper_readiness_sweep_report() {
   printf '{\n'
   printf '  "schemaVersion": 1,\n'
@@ -3363,6 +3625,16 @@ case "$mode" in
     reject_extra_args
     cd "$repo_root"
     print_helper_screen_app_bootstrap_benchmark_report
+    ;;
+  helper-video-live-gate)
+    reject_extra_args
+    import_helper_env
+    cd "$repo_root"
+    print_helper_video_live_gate_report
+    ;;
+  helper-video-live-gate-self-test)
+    reject_extra_args
+    helper_video_live_gate_self_test
     ;;
   short-live-comparison)
     import_helper_env
