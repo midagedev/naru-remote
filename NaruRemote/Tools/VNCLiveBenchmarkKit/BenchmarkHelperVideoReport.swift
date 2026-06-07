@@ -20,8 +20,30 @@ public enum BenchmarkHelperVideoIssueCode: String, Codable, Equatable, CaseItera
     case transportFailed = "helper-video-transport-failed"
 }
 
+public enum BenchmarkHelperVideoReadinessState: String, Codable, Equatable, CaseIterable, Sendable {
+    case disabled
+    case permissionBlocked
+    case transportBlocked
+    case startupBlocked
+    case sustainedDegraded
+    case decodeBlocked
+    case readyForTrueCaptureGate
+    case readyForPhysicalGate
+}
+
+public enum BenchmarkHelperVideoRecommendedAction: String, Codable, Equatable, CaseIterable, Sendable {
+    case enableHelperVideo = "enable-helper-video"
+    case grantScreenRecordingPermission = "grant-helper-video-app-screen-recording-permission"
+    case inspectHelperVideoTransport = "inspect-helper-video-transport"
+    case inspectHelperVideoStartup = "inspect-helper-video-startup"
+    case inspectHelperVideoSustainedCadence = "inspect-helper-video-sustained-cadence"
+    case inspectHelperVideoDecodePressure = "inspect-helper-video-decode-pressure"
+    case runTrueHelperVideoLiveCaptureBenchmark = "run-true-helper-video-live-capture-benchmark"
+    case runPhysicalIPhoneHelperVideoGate = "run-physical-iphone-helper-video-gate"
+}
+
 public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -42,6 +64,8 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         case fallbackCountBucket
         case verdict
         case issueCodes
+        case readinessState
+        case recommendedAction
     }
 
     public let schemaVersion: Int
@@ -62,6 +86,8 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
     public let fallbackCountBucket: HelperVideoFallbackCountBucket
     public let verdict: BenchmarkStreamShapePracticalVerdict
     public let issueCodes: [BenchmarkHelperVideoIssueCode]
+    public let readinessState: BenchmarkHelperVideoReadinessState
+    public let recommendedAction: BenchmarkHelperVideoRecommendedAction
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -80,7 +106,9 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         sustainedUpdateBand: HelperVideoSustainedUpdateBand = .notMeasured,
         decodePressure: HelperVideoDecodePressure = .notMeasured,
         fallbackCountBucket: HelperVideoFallbackCountBucket = .none,
-        issueCodes: [BenchmarkHelperVideoIssueCode] = []
+        issueCodes: [BenchmarkHelperVideoIssueCode] = [],
+        readinessState: BenchmarkHelperVideoReadinessState? = nil,
+        recommendedAction: BenchmarkHelperVideoRecommendedAction? = nil
     ) {
         self.schemaVersion = max(schemaVersion, Self.currentSchemaVersion)
         self.visualTransport = visualTransport
@@ -114,6 +142,16 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
             streamState: streamState,
             issueCodes: self.issueCodes
         )
+        let derivedReadiness = Self.readinessState(
+            streamState: streamState,
+            startupBand: startupBand,
+            sustainedUpdateBand: sustainedUpdateBand,
+            decodePressure: decodePressure,
+            issueCodes: self.issueCodes
+        )
+        self.readinessState = readinessState ?? derivedReadiness
+        self.recommendedAction = recommendedAction
+            ?? Self.recommendedAction(for: self.readinessState)
     }
 
     public init(
@@ -181,7 +219,15 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
                 forKey: .fallbackCountBucket
             ) ?? .none,
             issueCodes: try container.decodeIfPresent([BenchmarkHelperVideoIssueCode].self, forKey: .issueCodes)
-                ?? []
+                ?? [],
+            readinessState: try container.decodeIfPresent(
+                BenchmarkHelperVideoReadinessState.self,
+                forKey: .readinessState
+            ),
+            recommendedAction: try container.decodeIfPresent(
+                BenchmarkHelperVideoRecommendedAction.self,
+                forKey: .recommendedAction
+            )
         )
     }
 
@@ -248,6 +294,20 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         streamState: HelperVideoStreamState,
         issueCodes: [BenchmarkHelperVideoIssueCode]
     ) -> BenchmarkStreamShapePracticalVerdict {
+        let hardFailures: Set<BenchmarkHelperVideoIssueCode> = [
+            .permissionMissing,
+            .streamUnhealthy,
+            .startupFailed,
+            .sustainedStalled,
+            .decodePressureHigh,
+            .externalHelperUnavailable,
+            .externalHelperTimedOut,
+            .transportFailed
+        ]
+        if issueCodes.contains(where: hardFailures.contains) {
+            return .fail
+        }
+
         switch streamState {
         case .idle, .ended:
             return .disabled
@@ -258,15 +318,67 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         if issueCodes.isEmpty {
             return .pass
         }
-        let failures: Set<BenchmarkHelperVideoIssueCode> = [
-            .streamUnhealthy,
-            .startupFailed,
-            .sustainedStalled,
-            .decodePressureHigh
-        ]
-        if issueCodes.contains(where: failures.contains) {
-            return .fail
-        }
         return .warning
+    }
+
+    private static func readinessState(
+        streamState: HelperVideoStreamState,
+        startupBand: HelperVideoStartupBand,
+        sustainedUpdateBand: HelperVideoSustainedUpdateBand,
+        decodePressure: HelperVideoDecodePressure,
+        issueCodes: [BenchmarkHelperVideoIssueCode]
+    ) -> BenchmarkHelperVideoReadinessState {
+        if issueCodes.contains(.permissionMissing) {
+            return .permissionBlocked
+        }
+        if issueCodes.contains(.externalHelperUnavailable)
+            || issueCodes.contains(.externalHelperTimedOut)
+            || issueCodes.contains(.transportFailed)
+        {
+            return .transportBlocked
+        }
+        if streamState == .idle || streamState == .ended || issueCodes.contains(.streamDisabled) {
+            return .disabled
+        }
+        if startupBand == .failed || issueCodes.contains(.startupFailed) {
+            return .startupBlocked
+        }
+        if decodePressure == .high || issueCodes.contains(.decodePressureHigh) {
+            return .decodeBlocked
+        }
+        if sustainedUpdateBand == .stalled
+            || sustainedUpdateBand == .choppy
+            || issueCodes.contains(.sustainedStalled)
+            || issueCodes.contains(.sustainedChoppy)
+        {
+            return .sustainedDegraded
+        }
+        if streamState == .healthy && issueCodes.isEmpty {
+            return .readyForPhysicalGate
+        }
+        return .readyForTrueCaptureGate
+    }
+
+    private static func recommendedAction(
+        for readinessState: BenchmarkHelperVideoReadinessState
+    ) -> BenchmarkHelperVideoRecommendedAction {
+        switch readinessState {
+        case .disabled:
+            return .enableHelperVideo
+        case .permissionBlocked:
+            return .grantScreenRecordingPermission
+        case .transportBlocked:
+            return .inspectHelperVideoTransport
+        case .startupBlocked:
+            return .inspectHelperVideoStartup
+        case .sustainedDegraded:
+            return .inspectHelperVideoSustainedCadence
+        case .decodeBlocked:
+            return .inspectHelperVideoDecodePressure
+        case .readyForTrueCaptureGate:
+            return .runTrueHelperVideoLiveCaptureBenchmark
+        case .readyForPhysicalGate:
+            return .runPhysicalIPhoneHelperVideoGate
+        }
     }
 }
