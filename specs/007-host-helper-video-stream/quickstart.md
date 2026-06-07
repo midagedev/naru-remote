@@ -43,13 +43,36 @@ swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapFailureKeeps
 ```bash
 swift test --filter RemoteInputDockRenderStateTests
 swift test --filter RemoteInputDockSyncPolicyTests
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests test
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:NaruRemoteUITests/NaruRemoteLaunchUITests test
 ```
 
 `RemoteInputDockRenderStateTests` includes the focused
 `connecting -> active` regression where the first VNC frame would otherwise
 switch the dock from standard to compact layout and expose quick keys under an
 active UIKit Compose editor. Focused Compose must keep the editor identity
-stable; unfocused docks still adopt the live layout.
+stable; unfocused docks still adopt the live layout. It also covers the
+post-send regression where typing over a previous "remote confirmation
+unavailable" status clears `latestInjectionAttempt`; that status clear is now
+detached from the focused editor host so the next Korean IME key can continue.
+`ComposeInputResponsivenessUITests` verifies the simulator accepts a second
+Korean syllable after the first input in both profile-detail and active compact
+layouts.
+
+## Implemented Helper Video Readiness Surface Tests
+
+```bash
+swift test --filter NaruRemoteAppSnapshotTests
+swift test --filter ProfileEditDeleteTests/testEditProfilePreservesExistingHelperVideoConfiguration
+swift test --filter ProfileEditDeleteTests
+swift test --filter HelperVideoStreamSessionRunnerTests
+```
+
+`NaruRemoteAppSnapshotTests` covers connection-grid helper-video readiness
+labels such as `VNC only`, `Helper video`, and `Screen Recording` without
+exporting pairing fingerprints, helper tokens, or hostnames. The profile edit
+test guards the current editor path so editing a saved profile does not
+silently remove the existing helper-video opt-in.
 
 ## Implemented Helper Video Probe
 

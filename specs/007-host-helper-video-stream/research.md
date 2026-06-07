@@ -1508,3 +1508,97 @@ state labels and synthetic text only. They must not emit live draft text,
 marked text, keysyms, pointer coordinates, host identity, credentials,
 framebuffer pixels, dimensions, byte counts, raw timings, raw OS errors, or
 helper endpoints.
+
+## D43 - Surface helper-video readiness before the user enters a session
+
+**Decision**: Connection-grid cards show a compact helper-video readiness badge
+derived from fixed `HelperVideoProfileState` catalog values. Profile edits that
+come from the current editor preserve an existing `helperVideo` configuration
+unless a dedicated helper-video disable/revoke path changes it.
+
+**Rationale**:
+- The current live 10fps gate is not ambiguous: VNC remains below the product
+  target because first-byte wait dominates, synthetic H.264 helper-video is
+  smooth, and true ScreenCaptureKit capture is blocked by the helper app
+  bundle's missing Screen Recording permission.
+- If this state is visible only in benchmark JSON, users can keep trying a
+  VNC visual path that cannot reach the sustained iPhone target in the current
+  environment. The first screen should reveal whether a profile is `VNC only`,
+  `Helper video`, or blocked at `Screen Recording`.
+- The existing profile editor currently owns VNC and helper text fields, but
+  helper video enable/disable/revoke is handled elsewhere. Until a full
+  helper-video editor exists, editing a profile must not silently remove the
+  opt-in smooth visual transport candidate.
+- The badge stays privacy-safe by exposing only fixed labels and accessibility
+  text. It does not expose helper endpoints, tokens, pairing fingerprints,
+  hostnames, frame metadata, dimensions, byte counts, timings, or raw errors.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` reports
+  `overallGateState=blockedByHelperScreenCapture`,
+  `recommendedPrimaryAction=grant-helper-video-app-screen-recording-permission`,
+  synthetic and sustained synthetic helper-video `pass`, ScreenCaptureKit
+  helper-video `helper-video-permission-missing`, and VNC
+  `contentFramesPerSecond=1.83` with `firstByteWaitP95Milliseconds=632`.
+- `swift test --filter NaruRemoteAppSnapshotTests` verifies grid readiness
+  labels and that labels/accessibility text do not include pairing
+  fingerprints, helper token references, or hostnames.
+- `swift test --filter
+  ProfileEditDeleteTests/testEditProfilePreservesExistingHelperVideoConfiguration`
+  verifies profile edits preserve the existing helper-video configuration and
+  readiness state.
+
+**Privacy rule**: helper-video readiness UI may show only fixed labels,
+catalog-derived state, and setup action concepts. It must not show helper
+endpoints, helper executable paths, pairing secrets, pairing fingerprints,
+hostnames, physical device identifiers, provisioning details, pixels,
+dimensions, byte counts, coordinates, exact per-frame timings, raw OS errors,
+Compose text, clipboard contents, or access-unit payloads.
+
+## D44 - Keep post-send status changes out of the focused Compose editor host
+
+**Decision**: Treat every model-mirrored field as advisory while UIKit owns
+Compose focus, including send-result status. The focused dock now strips
+status/helper text out of the `RemoteInputDockEquatableHost` state and shows
+actionable status in a sibling `FocusedComposeStatusLine`, so status can update
+without invalidating the `UITextView` bridge.
+
+**Rationale**:
+- The latest user repro was not just first-frame layout churn. After a send
+  result such as "remote app confirmation unavailable" is visible, typing the
+  next Korean syllable calls `updateComposeDraftText`, which clears
+  `latestInjectionAttempt`. The old render-state equality treated that status
+  clear as a focused dock repaint, which can disturb the IME chain right after
+  the first syllable commits.
+- Status visibility is useful, but it is not allowed to share identity with the
+  hot input editor. Splitting it into a sibling view preserves feedback while
+  making the editor host immune to send-status arrival, status clear, helper
+  text changes, VNC frame arrival, quick-key availability, and compact-layout
+  transitions.
+- This follows the same architecture as frame-store isolation: high-cadence or
+  asynchronous remote/session state must not become a reason to recreate local
+  input infrastructure.
+
+**Evidence**:
+- Before the fix,
+  `swift test --filter RemoteInputDockRenderStateTests/testFocusedInputDockRenderStateDefersStatusClearAfterTypingOverPreviousSendResult`
+  failed because `statusText` changed from confirmation-unavailable to ready
+  and `showsCompactStatusText` changed from true to false while Compose focus
+  was active.
+- After the fix, `swift test --filter RemoteInputDockRenderStateTests` and
+  `swift test --filter RemoteInputDockSyncPolicyTests` pass.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2'
+  -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests test`
+  passes both the active compact and profile-detail Korean second-syllable
+  flows.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2'
+  -only-testing:NaruRemoteUITests/NaruRemoteLaunchUITests test` passes after
+  updating stale launch expectations to the current grid-first/empty-home UI.
+
+**Privacy rule**: focused status isolation tests may use fixed UI labels and
+synthetic Korean text only. They must not export live Compose drafts, marked
+text, clipboard contents, keysyms, pointer coordinates, host identity,
+credentials, frame pixels, dimensions, byte counts, exact timings, raw OS
+errors, helper endpoints, or device identifiers.

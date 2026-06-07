@@ -76,6 +76,14 @@ Current baseline artifact:
 That run keeps renderer upload as a regression guard but moves the next large
 optimization unit toward live profile gates and physical iPhone
 hand-feel/thermal verification.
+Current helper-video readiness surface artifact:
+`artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
+That run records the current `remote-desktop-10fps-readiness` state:
+VNC remains below the 10fps product gate because first-byte wait dominates,
+synthetic helper-video is smooth, and true ScreenCaptureKit helper-video is
+blocked by the helper app bundle's missing Screen Recording permission. The
+paired app slice surfaces helper-video readiness on connection-grid cards and
+preserves helper-video opt-in when a profile is edited.
 Current live routing artifact:
 `artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
 That run uses schema v41's report-level decision to choose

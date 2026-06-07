@@ -1210,10 +1210,157 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                 hostKind: profile.hostKind,
                 preview: profilePreviews[profile.id],
                 reachability: profileReachability[profile.id] ?? .unknown,
+                helperVideoReadiness: Self.helperVideoReadiness(
+                    for: profile,
+                    state: helperVideoProfileState[profile.id]
+                ),
                 verdict: lastDiagnosticVerdict[profile.id] ?? .unknown,
                 isSelected: selectedProfile?.id == profile.id
             )
         }
+    }
+
+    private static func helperVideoReadiness(
+        for profile: ConnectionProfile,
+        state explicitState: HelperVideoProfileState?
+    ) -> ConnectionGridHelperVideoReadiness {
+        let state = explicitState ?? initialHelperVideoReadinessState(for: profile)
+        guard let state else {
+            return ConnectionGridHelperVideoReadiness(
+                status: .vncOnly,
+                label: "VNC only",
+                accessibilityLabel: "helper video not configured, VNC visual fallback"
+            )
+        }
+
+        if profile.hostKind == .advancedManualPublicEndpoint {
+            return ConnectionGridHelperVideoReadiness(
+                status: .blocked,
+                label: "Private only",
+                accessibilityLabel: "helper video blocked for public host profiles"
+            )
+        }
+
+        switch state.availability {
+        case .notConfigured:
+            return ConnectionGridHelperVideoReadiness(
+                status: .needsSetup,
+                label: "Video setup",
+                accessibilityLabel: "helper video needs pairing setup"
+            )
+        case .disabled:
+            return ConnectionGridHelperVideoReadiness(
+                status: .disabled,
+                label: "Video off",
+                accessibilityLabel: "helper video disabled for this profile"
+            )
+        case .checking:
+            return ConnectionGridHelperVideoReadiness(
+                status: .checking,
+                label: "Checking video",
+                accessibilityLabel: "checking helper video readiness"
+            )
+        case .available:
+            return ConnectionGridHelperVideoReadiness(
+                status: .ready,
+                label: "Helper video",
+                accessibilityLabel: "helper video ready"
+            )
+        case .permissionMissing:
+            return ConnectionGridHelperVideoReadiness(
+                status: .needsPermission,
+                label: "Screen Recording",
+                accessibilityLabel: "helper video needs Mac Screen Recording permission"
+            )
+        case .codecUnsupported:
+            return ConnectionGridHelperVideoReadiness(
+                status: .blocked,
+                label: "Codec blocked",
+                accessibilityLabel: "helper video codec unsupported"
+            )
+        case .revoked:
+            return ConnectionGridHelperVideoReadiness(
+                status: .revoked,
+                label: "Video revoked",
+                accessibilityLabel: "helper video pairing revoked"
+            )
+        case .unreachable:
+            return ConnectionGridHelperVideoReadiness(
+                status: .blocked,
+                label: "Helper offline",
+                accessibilityLabel: "helper video helper unreachable"
+            )
+        case .failed:
+            if state.lastFailureCode == .fallbackToVNC {
+                return ConnectionGridHelperVideoReadiness(
+                    status: .vncFallback,
+                    label: "VNC fallback",
+                    accessibilityLabel: "helper video fell back to VNC"
+                )
+            }
+            return ConnectionGridHelperVideoReadiness(
+                status: .blocked,
+                label: "Video failed",
+                accessibilityLabel: "helper video failed"
+            )
+        case .privateNetworkRequired:
+            return ConnectionGridHelperVideoReadiness(
+                status: .blocked,
+                label: "Private only",
+                accessibilityLabel: "helper video requires a private host profile"
+            )
+        }
+    }
+
+    private static func initialHelperVideoReadinessState(
+        for profile: ConnectionProfile
+    ) -> HelperVideoProfileState? {
+        guard let configuration = profile.helperVideo else {
+            return nil
+        }
+        guard !configuration.isRevoked else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: nil,
+                availability: .revoked,
+                lastFailureCode: .revoked,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard profile.hostKind != .advancedManualPublicEndpoint else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .privateNetworkRequired,
+                lastFailureCode: .privateNetworkRequired,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard configuration.isEnabled else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .disabled,
+                lastFailureCode: .disabled,
+                lastCheckedBucket: .recent
+            )
+        }
+        guard configuration.pairingSecretRef != nil else {
+            return HelperVideoProfileState(
+                isEnabled: false,
+                pairingFingerprint: configuration.pairingFingerprint,
+                availability: .notConfigured,
+                lastFailureCode: .notConfigured,
+                lastCheckedBucket: .never
+            )
+        }
+        return HelperVideoProfileState(
+            isEnabled: true,
+            pairingFingerprint: configuration.pairingFingerprint,
+            availability: .checking,
+            lastFailureCode: nil,
+            lastCheckedBucket: .never
+        )
     }
 }
 
@@ -1224,6 +1371,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let hostKind: ConnectionProfile.HostKind
     public let preview: ProfilePreviewThumbnail?
     public let reachability: ProfileReachabilityState
+    public let helperVideoReadiness: ConnectionGridHelperVideoReadiness
     public let verdict: DiagnosticVerdict
     public let isSelected: Bool
 
@@ -1234,6 +1382,11 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         hostKind: ConnectionProfile.HostKind,
         preview: ProfilePreviewThumbnail? = nil,
         reachability: ProfileReachabilityState = .unknown,
+        helperVideoReadiness: ConnectionGridHelperVideoReadiness = ConnectionGridHelperVideoReadiness(
+            status: .vncOnly,
+            label: "VNC only",
+            accessibilityLabel: "helper video not configured, VNC visual fallback"
+        ),
         verdict: DiagnosticVerdict,
         isSelected: Bool
     ) {
@@ -1243,8 +1396,37 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         self.hostKind = hostKind
         self.preview = preview
         self.reachability = reachability
+        self.helperVideoReadiness = helperVideoReadiness
         self.verdict = verdict
         self.isSelected = isSelected
+    }
+}
+
+public struct ConnectionGridHelperVideoReadiness: Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
+        case vncOnly
+        case checking
+        case ready
+        case needsSetup
+        case needsPermission
+        case disabled
+        case revoked
+        case blocked
+        case vncFallback
+    }
+
+    public let status: Status
+    public let label: String
+    public let accessibilityLabel: String
+
+    public init(
+        status: Status,
+        label: String,
+        accessibilityLabel: String
+    ) {
+        self.status = status
+        self.label = label
+        self.accessibilityLabel = accessibilityLabel
     }
 }
 
