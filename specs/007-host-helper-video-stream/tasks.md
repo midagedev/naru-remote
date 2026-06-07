@@ -393,6 +393,13 @@ without unsafe report fields.
   positive `--video-frame-count`, and the client treats stream timeout as an
   idle timeout refreshed by each event. Covered by encoder, ScreenCaptureKit
   injected-stream, helper network, and listen-runtime tests. **Done.**
+- [x] T031O [US1] Make the helper-video sender backpressure-aware by opening
+  access-unit sources only after an accepted start response is framed, sending
+  the start response before capture/encode stream startup on the TCP path,
+  awaiting each `NWConnection.send` before consuming the next access unit, and
+  coalescing continuous raw synthetic/ScreenCaptureKit pixel-buffer streams to
+  newest-one under pressure while preserving encoded access-unit order. Covered
+  by helper frame-pipeline and network-service tests. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

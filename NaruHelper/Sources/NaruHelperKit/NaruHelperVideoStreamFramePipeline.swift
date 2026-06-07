@@ -68,6 +68,61 @@ public struct NaruHelperVideoStaticAccessUnitSource: NaruHelperVideoAccessUnitSo
     }
 }
 
+public struct NaruHelperVideoOpenedFrameStream: Sendable {
+    public let responseFrame: Data
+    public let isAccepted: Bool
+
+    private let request: HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>
+    private let emptyStreamHealth: HelperVideoStreamHealth
+    private let accessUnitStreamFactory:
+        @Sendable () throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+
+    init(
+        responseFrame: Data,
+        isAccepted: Bool,
+        request: HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>,
+        emptyStreamHealth: HelperVideoStreamHealth,
+        accessUnitStreamFactory:
+            @escaping @Sendable () throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+    ) {
+        self.responseFrame = responseFrame
+        self.isAccepted = isAccepted
+        self.request = request
+        self.emptyStreamHealth = emptyStreamHealth
+        self.accessUnitStreamFactory = accessUnitStreamFactory
+    }
+
+    public func makeAccessUnitStream()
+        throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+    {
+        try accessUnitStreamFactory()
+    }
+
+    public func frame(for accessUnit: NaruHelperVideoAccessUnit) throws -> Data {
+        try HelperVideoWireCodec.frameAccessUnit(
+            accessUnit.envelope(
+                requestID: request.requestID,
+                profileFingerprint: request.profileFingerprint
+            ),
+            binaryPayload: accessUnit.binaryPayload
+        )
+    }
+
+    public func stalledFrameForEmptyStream() throws -> Data {
+        let envelope = HelperVideoWireEnvelope(
+            requestID: request.requestID,
+            messageType: .streamStalled,
+            profileFingerprint: request.profileFingerprint,
+            authProof: nil,
+            body: HelperVideoStreamStallBody(
+                reason: .noAccessUnit,
+                health: emptyStreamHealth
+            )
+        )
+        return try HelperVideoWireCodec.frame(envelope)
+    }
+}
+
 public struct NaruHelperVideoStreamFramePipeline: Sendable {
     private let requestHandler: NaruHelperVideoTransportRequestHandler
     private let accessUnitSource: any NaruHelperVideoAccessUnitSource
@@ -125,49 +180,29 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
     public func frameStream(
         forStartStreamFrame frame: Data
     ) throws -> AsyncThrowingStream<Data, any Error> {
-        let decoded = try HelperVideoWireCodec.decodeFrame(
-            HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>.self,
-            from: frame
-        )
-        let request = decoded.envelope
-        let response = requestHandler.handleStartStreamRequest(request)
-        let responseFrame = try HelperVideoWireCodec.frame(response)
-
-        guard response.body.result == .accepted else {
+        let openedStream = try openFrameStream(forStartStreamFrame: frame)
+        guard openedStream.isAccepted else {
             return AsyncThrowingStream { continuation in
-                continuation.yield(responseFrame)
+                continuation.yield(openedStream.responseFrame)
                 continuation.finish()
             }
         }
 
-        let accessUnitStream = try accessUnitSource.accessUnitStream(for: request.body)
-        let emptyStreamHealth = emptyStreamHealth
         return AsyncThrowingStream { continuation in
-            continuation.yield(responseFrame)
+            continuation.yield(openedStream.responseFrame)
 
             let producer = Task {
                 var emittedAccessUnit = false
                 do {
+                    let accessUnitStream = try openedStream.makeAccessUnitStream()
                     for try await accessUnit in accessUnitStream {
                         try Task.checkCancellation()
-                        let accessUnitFrame = try HelperVideoWireCodec.frameAccessUnit(
-                            accessUnit.envelope(
-                                requestID: request.requestID,
-                                profileFingerprint: request.profileFingerprint
-                            ),
-                            binaryPayload: accessUnit.binaryPayload
-                        )
                         emittedAccessUnit = true
-                        continuation.yield(accessUnitFrame)
+                        continuation.yield(try openedStream.frame(for: accessUnit))
                     }
 
                     if !emittedAccessUnit {
-                        continuation.yield(
-                            try Self.stalledFrame(
-                                for: request,
-                                health: emptyStreamHealth
-                            )
-                        )
+                        continuation.yield(try openedStream.stalledFrameForEmptyStream())
                     }
                     continuation.finish()
                 } catch {
@@ -179,6 +214,28 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
                 producer.cancel()
             }
         }
+    }
+
+    public func openFrameStream(
+        forStartStreamFrame frame: Data
+    ) throws -> NaruHelperVideoOpenedFrameStream {
+        let decoded = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>.self,
+            from: frame
+        )
+        let request = decoded.envelope
+        let response = requestHandler.handleStartStreamRequest(request)
+        let responseFrame = try HelperVideoWireCodec.frame(response)
+
+        return NaruHelperVideoOpenedFrameStream(
+            responseFrame: responseFrame,
+            isAccepted: response.body.result == .accepted,
+            request: request,
+            emptyStreamHealth: emptyStreamHealth,
+            accessUnitStreamFactory: { [accessUnitSource] in
+                try accessUnitSource.accessUnitStream(for: request.body)
+            }
+        )
     }
 
     private func stalledFrame(
@@ -197,20 +254,4 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
         return try HelperVideoWireCodec.frame(envelope)
     }
 
-    private static func stalledFrame(
-        for request: HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>,
-        health: HelperVideoStreamHealth
-    ) throws -> Data {
-        let envelope = HelperVideoWireEnvelope(
-            requestID: request.requestID,
-            messageType: .streamStalled,
-            profileFingerprint: request.profileFingerprint,
-            authProof: nil,
-            body: HelperVideoStreamStallBody(
-                reason: .noAccessUnit,
-                health: health
-            )
-        )
-        return try HelperVideoWireCodec.frame(envelope)
-    }
 }

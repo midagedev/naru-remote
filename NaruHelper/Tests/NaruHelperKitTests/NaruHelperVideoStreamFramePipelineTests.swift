@@ -77,6 +77,7 @@ final class NaruHelperVideoStreamFramePipelineTests: XCTestCase {
 
         XCTAssertEqual(frames.count, 1)
         XCTAssertEqual(source.callCount, 0)
+        XCTAssertEqual(source.streamCallCount, 0)
         let response = try HelperVideoWireCodec.decodeFrame(
             HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
             from: frames[0]
@@ -84,6 +85,64 @@ final class NaruHelperVideoStreamFramePipelineTests: XCTestCase {
         XCTAssertEqual(response.body.result, .rejected)
         XCTAssertEqual(response.body.safeFailureCode, .authFailed)
         try assertSafeJSONPayload(in: frames[0])
+    }
+
+    func testOpenFrameStreamDefersAccessUnitSourceUntilStreamStarts() throws {
+        let request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
+        let source = RecordingAccessUnitSource(accessUnits: [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+            )
+        ])
+        let pipeline = makePipeline(accessUnitSource: source)
+
+        let openedStream = try pipeline.openFrameStream(
+            forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+        )
+
+        XCTAssertTrue(openedStream.isAccepted)
+        XCTAssertEqual(source.callCount, 0)
+        XCTAssertEqual(source.streamCallCount, 0)
+        let response = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
+            from: openedStream.responseFrame
+        ).envelope
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(response.requestID, request.requestID)
+
+        _ = try openedStream.makeAccessUnitStream()
+
+        XCTAssertEqual(source.callCount, 0)
+        XCTAssertEqual(source.streamCallCount, 1)
+    }
+
+    func testOpenRejectedFrameStreamNeverStartsAccessUnitSource() throws {
+        var request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
+        request.authProof = "hmac-sha256:invalid"
+        let source = RecordingAccessUnitSource(accessUnits: [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+            )
+        ])
+        let pipeline = makePipeline(accessUnitSource: source)
+
+        let openedStream = try pipeline.openFrameStream(
+            forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+        )
+
+        XCTAssertFalse(openedStream.isAccepted)
+        XCTAssertEqual(source.callCount, 0)
+        XCTAssertEqual(source.streamCallCount, 0)
+        let response = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
+            from: openedStream.responseFrame
+        ).envelope
+        XCTAssertEqual(response.body.result, .rejected)
+        XCTAssertEqual(response.body.safeFailureCode, .authFailed)
     }
 
     func testAcceptedStartWithNoAccessUnitsEmitsSafeStallFrame() throws {
@@ -225,9 +284,14 @@ private final class RecordingAccessUnitSource: NaruHelperVideoAccessUnitSource, 
     private let lock = NSLock()
     private let accessUnits: [NaruHelperVideoAccessUnit]
     private var count = 0
+    private var streamCount = 0
 
     var callCount: Int {
         lock.withLock { count }
+    }
+
+    var streamCallCount: Int {
+        lock.withLock { streamCount }
     }
 
     init(accessUnits: [NaruHelperVideoAccessUnit]) {
@@ -241,6 +305,21 @@ private final class RecordingAccessUnitSource: NaruHelperVideoAccessUnitSource, 
             count += 1
         }
         return accessUnits
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        lock.withLock {
+            streamCount += 1
+        }
+        let accessUnits = accessUnits
+        return AsyncThrowingStream { continuation in
+            for accessUnit in accessUnits {
+                continuation.yield(accessUnit)
+            }
+            continuation.finish()
+        }
     }
 }
 

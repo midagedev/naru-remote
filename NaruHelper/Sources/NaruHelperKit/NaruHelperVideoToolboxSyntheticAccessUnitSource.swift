@@ -405,35 +405,63 @@ private extension NaruHelperVideoToolboxSyntheticAccessUnitSource {
             throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.invalidFrameSize
         }
 
-        return AsyncThrowingStream { continuation in
-            let producer = Task.detached(priority: .userInitiated) {
-                var frameIndex = 0
-                do {
-                    while frameLimit.map({ frameIndex < $0 }) ?? true {
-                        try Task.checkCancellation()
-                        continuation.yield(
-                            try Self.makePixelBuffer(
-                                width: width,
-                                height: height,
-                                frameIndex: frameIndex
-                            )
-                        )
-                        frameIndex += 1
-                        try await Task.sleep(
-                            for: frameRateBucket.syntheticFrameIntervalDuration
-                        )
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
+        if frameLimit == nil {
+            return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+                Self.startSyntheticPixelBufferProducer(
+                    continuation: continuation,
+                    frameLimit: frameLimit,
+                    frameRateBucket: frameRateBucket,
+                    width: width,
+                    height: height
+                )
             }
+        }
 
-            continuation.onTermination = { _ in
-                producer.cancel()
+        return AsyncThrowingStream { continuation in
+            Self.startSyntheticPixelBufferProducer(
+                continuation: continuation,
+                frameLimit: frameLimit,
+                frameRateBucket: frameRateBucket,
+                width: width,
+                height: height
+            )
+        }
+    }
+
+    static func startSyntheticPixelBufferProducer(
+        continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation,
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        width: Int32,
+        height: Int32
+    ) {
+        let producer = Task.detached(priority: .userInitiated) {
+            var frameIndex = 0
+            do {
+                while frameLimit.map({ frameIndex < $0 }) ?? true {
+                    try Task.checkCancellation()
+                    continuation.yield(
+                        try Self.makePixelBuffer(
+                            width: width,
+                            height: height,
+                            frameIndex: frameIndex
+                        )
+                    )
+                    frameIndex += 1
+                    try await Task.sleep(
+                        for: frameRateBucket.syntheticFrameIntervalDuration
+                    )
+                }
+                continuation.finish()
+            } catch is CancellationError {
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
             }
+        }
+
+        continuation.onTermination = { _ in
+            producer.cancel()
         }
     }
 
