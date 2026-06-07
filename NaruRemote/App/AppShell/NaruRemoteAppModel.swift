@@ -5009,7 +5009,12 @@ public final class NaruRemoteAppModel: ObservableObject {
             framebufferSize: framebufferSize,
             viewSize: viewSize
         )
-        _ = handleTrackpadGesture(gesture, transform: transform, session: session)
+        _ = handleTrackpadGesture(
+            gesture,
+            transform: transform,
+            session: session,
+            cursor: resolvedTrackpadCursor
+        )
     }
 
     /// Zoom-aware variant used by the SwiftUI viewport.  The view owns
@@ -5020,22 +5025,29 @@ public final class NaruRemoteAppModel: ObservableObject {
     @discardableResult
     public func handleTrackpadGesture(
         _ gesture: PointerGesture,
-        transform: ViewportTransform
+        transform: ViewportTransform,
+        cursor: TrackpadCursor? = nil
     ) -> SessionViewportTrackpadGestureResult? {
         guard let session else {
             return nil
         }
-        return handleTrackpadGesture(gesture, transform: transform, session: session)
+        return handleTrackpadGesture(
+            gesture,
+            transform: transform,
+            session: session,
+            cursor: cursor ?? resolvedTrackpadCursor
+        )
     }
 
     @discardableResult
     private func handleTrackpadGesture(
         _ gesture: PointerGesture,
         transform: ViewportTransform,
-        session: RemoteSession
+        session: RemoteSession,
+        cursor: TrackpadCursor
     ) -> SessionViewportTrackpadGestureResult {
         let resolver = PointerGestureResolver(mode: .trackpad)
-        let outcome = resolver.resolve(gesture, transform: transform, cursor: resolvedTrackpadCursor)
+        let outcome = resolver.resolve(gesture, transform: transform, cursor: cursor)
         let result = SessionViewportTrackpadGestureResult(
             transform: outcome.transform,
             cursor: outcome.cursor

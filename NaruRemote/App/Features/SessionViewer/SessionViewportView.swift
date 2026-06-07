@@ -58,7 +58,11 @@ public struct SessionViewportView: View {
     /// returned result carries local-only auto-pan state plus the
     /// immediate cursor that keeps the Metal hot path visually in sync
     /// while zoomed (spec 003 FR-011).
-    private let onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)?
+    private let onTrackpadGesture: ((
+        PointerGesture,
+        ViewportTransform,
+        TrackpadCursor
+    ) -> SessionViewportTrackpadGestureResult?)?
     /// Publishes the local viewport transform to the app model so the
     /// stream request loop can make memory-only region decisions.
     private let onViewportTransformChange: ((ViewportTransform) -> Void)?
@@ -193,7 +197,11 @@ public struct SessionViewportView: View {
         onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
-        onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
+        onTrackpadGesture: ((
+            PointerGesture,
+            ViewportTransform,
+            TrackpadCursor
+        ) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
         onViewportInteractionChange: ((
@@ -283,7 +291,11 @@ public struct SessionViewportView: View {
         onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
-        onTrackpadGesture: ((PointerGesture, ViewportTransform) -> SessionViewportTrackpadGestureResult?)? = nil,
+        onTrackpadGesture: ((
+            PointerGesture,
+            ViewportTransform,
+            TrackpadCursor
+        ) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
         onViewportInteractionChange: ((
@@ -1009,7 +1021,7 @@ public struct SessionViewportView: View {
         viewSize: CGSize
     ) {
         let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
-        let updatedTransform = onTrackpadGesture?(gesture, transform)?.transform ?? transform
+        let updatedTransform = onTrackpadGesture?(gesture, transform, trackpadCursor)?.transform ?? transform
         applyViewportTransform(updatedTransform, framebuffer: framebuffer, viewSize: viewSize)
     }
 
@@ -1294,12 +1306,12 @@ public struct SessionViewportView: View {
                 pointerControlMode: pointerControlMode,
                 trackpadCursor: trackpadCursor,
                 serverCursor: serverCursor,
-                onTrackpadGesture: { gesture, transform in
+                onTrackpadGesture: { gesture, transform, cursor in
                     // The Metal host applies returned auto-pan immediately and
                     // mirrors viewport state after the gesture settles.
                     // Updating SwiftUI state on every pointer sample makes
                     // physical iPhone drags fight the fast UIKit path.
-                    onTrackpadGesture?(gesture, transform)
+                    onTrackpadGesture?(gesture, transform, cursor)
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
