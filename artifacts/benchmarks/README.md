@@ -1236,3 +1236,11 @@ changes so debounced app-model mirrors and live frame churn do not invalidate
 the `UITextView` bridge. Send-result status still repaints while focused. The
 new active-session compact Compose XCUITest types `입` then `력` against the
 live-session dock and passes on the iPhone 17 Pro simulator.
+The trackpad hot-cursor artifact is
+`2026-06-07-trackpad-hot-cursor-summary.md`; it records the phone-portrait /
+wide-desktop resolver reproduction where 6 pt touch samples could degrade to
+about 2.1 pt of visible cursor travel near the follow zone. The fix makes the
+Metal host pass its local hot cursor into the model resolver path, keeps the
+published SwiftUI cursor as a mirror, and caps zoomed edge-follow reveal below
+half the touch delta so the real cursor remains visibly finger-paced while the
+viewport pans.

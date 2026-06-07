@@ -416,8 +416,8 @@ private struct SessionViewportFrameBridge: View {
             onFramebufferPointerUp: { point, size in
                 Task { await model.sendPointerUpAt(viewPoint: point, viewSize: size) }
             },
-            onTrackpadGesture: { gesture, transform in
-                model.handleTrackpadGesture(gesture, transform: transform)
+            onTrackpadGesture: { gesture, transform, cursor in
+                model.handleTrackpadGesture(gesture, transform: transform, cursor: cursor)
             },
             onViewportTransformChange: { transform in
                 model.updateViewportTransform(transform)

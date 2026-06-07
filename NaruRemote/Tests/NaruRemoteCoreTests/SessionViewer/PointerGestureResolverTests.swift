@@ -313,6 +313,48 @@ final class PointerGestureResolverTests: XCTestCase {
         }
     }
 
+    func testZoomedTrackpadWideDesktopPortraitSamplesStayFingerPaced() {
+        let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
+        var currentTransform = ViewportTransform(
+            framebufferSize: CGSize(width: 1920, height: 1080),
+            viewSize: CGSize(width: 390, height: 520),
+            zoomScale: 2.4,
+            panOffset: .zero
+        )
+        var currentCursor = TrackpadCursor(position: CGPoint(x: 960, y: 540), isVisible: true)
+        let touchDelta = CGSize(width: 6, height: 0)
+
+        for _ in 0..<30 {
+            let beforeCursorViewPoint = currentTransform.viewPoint(fromFramebufferPoint: currentCursor.position)
+            let outcome = resolver.resolve(
+                .dragChanged(viewPoint: .zero, translation: touchDelta),
+                transform: currentTransform,
+                cursor: currentCursor
+            )
+            let afterCursorViewPoint = outcome.transform.viewPoint(fromFramebufferPoint: outcome.cursor.position)
+            let visibleCursorTravel = afterCursorViewPoint.x - beforeCursorViewPoint.x
+
+            XCTAssertGreaterThan(
+                visibleCursorTravel,
+                0,
+                "Phone portrait trackpad samples must never make the visible cursor move backward."
+            )
+            XCTAssertGreaterThanOrEqual(
+                visibleCursorTravel,
+                touchDelta.width * 0.5,
+                "Crop-fill/wide-desktop trackpad motion should remain finger-paced instead of feeling a frame behind."
+            )
+            XCTAssertLessThanOrEqual(
+                visibleCursorTravel,
+                touchDelta.width + 0.75,
+                "Viewport follow-pan should not make the cursor outrun the finger."
+            )
+
+            currentTransform = outcome.transform
+            currentCursor = outcome.cursor
+        }
+    }
+
     func testTrackpadAutoPanKeepsUpNearViewportEdge() {
         let resolver = PointerGestureResolver(mode: .trackpad, autoPanMargin: 48)
         let zoomed = transform().zoomed(to: 2, about: CGPoint(x: 500, y: 500))

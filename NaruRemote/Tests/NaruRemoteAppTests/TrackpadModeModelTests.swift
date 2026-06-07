@@ -274,6 +274,79 @@ final class TrackpadModeModelTests: XCTestCase {
         }
     }
 
+    func testTrackpadDragContinuesFromHotCursorBeforePublishedCursorFlush() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        let publishedStart = model.trackpadCursor.position
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+        let hotCursor = TrackpadCursor(position: CGPoint(x: 150, y: 50), isVisible: true)
+
+        let result = try XCTUnwrap(
+            model.handleTrackpadGesture(
+                .dragChanged(
+                    viewPoint: CGPoint(x: 160, y: 50),
+                    translation: CGSize(width: 10, height: 0)
+                ),
+                transform: transform,
+                cursor: hotCursor
+            )
+        )
+
+        XCTAssertEqual(model.trackpadCursor.position, publishedStart)
+        XCTAssertEqual(result.cursor.position.x, 160, accuracy: 1e-6)
+        XCTAssertEqual(result.cursor.position.y, 50, accuracy: 1e-6)
+
+        try await waitForPointerEvents(connector, count: 1)
+        let event = try XCTUnwrap(connector.recordedPointerEvents.first)
+        XCTAssertEqual(event.mask, 0x00)
+        XCTAssertEqual(event.x, 160)
+        XCTAssertEqual(event.y, 50)
+    }
+
+    func testTrackpadTapUsesHotCursorForClickBeforePublishedCursorFlush() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+        let hotCursor = TrackpadCursor(position: CGPoint(x: 150, y: 70), isVisible: true)
+
+        let result = try XCTUnwrap(
+            model.handleTrackpadGesture(
+                .tap(viewPoint: CGPoint(x: 5, y: 5)),
+                transform: transform,
+                cursor: hotCursor
+            )
+        )
+
+        XCTAssertEqual(result.cursor.position.x, 150, accuracy: 1e-6)
+        XCTAssertEqual(result.cursor.position.y, 70, accuracy: 1e-6)
+        try await waitForPointerEvents(connector, count: 2)
+
+        let events = connector.recordedPointerEvents
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].mask, 0x01)
+        XCTAssertEqual(events[0].x, 150)
+        XCTAssertEqual(events[0].y, 70)
+        XCTAssertEqual(events[1].mask, 0x00)
+        XCTAssertEqual(events[1].x, 150)
+        XCTAssertEqual(events[1].y, 70)
+    }
+
     private func waitForPointerEvents(
         _ connector: TrackpadPointerCapturingConnector,
         count: Int,

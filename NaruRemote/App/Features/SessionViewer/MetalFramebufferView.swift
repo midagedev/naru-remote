@@ -81,7 +81,8 @@ public typealias MetalFramebufferViewportTransformHandler = @MainActor @Sendable
 /// trip catches up.
 public typealias MetalFramebufferTrackpadGestureHandler = @MainActor @Sendable (
     _ gesture: PointerGesture,
-    _ transform: ViewportTransform
+    _ transform: ViewportTransform,
+    _ cursor: TrackpadCursor
 ) -> SessionViewportTrackpadGestureResult?
 
 /// Closure invoked when the user starts or finishes a local viewport
@@ -1661,7 +1662,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             panOffset: currentPanOffset,
             maxZoomScale: Self.maxZoomScale
         )
-        guard let result = trackpadGestureHandler(gesture, transform) else {
+        guard let result = trackpadGestureHandler(gesture, transform, currentTrackpadCursor) else {
             return nil
         }
 
