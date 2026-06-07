@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct NaruRemoteApplication: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = Self.makeModel()
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
@@ -17,6 +18,12 @@ struct NaruRemoteApplication: App {
             )
                 .accessibilityIdentifier("naru.app.shell")
                 .preferredColorScheme(Self.testOverrideColorScheme())
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase != .active else {
+                        return
+                    }
+                    Self.cancelTestStormTasks()
+                }
         }
     }
 
@@ -291,6 +298,14 @@ struct NaruRemoteApplication: App {
         return colors.map { color in
             RFBRawFramebuffer(width: width, height: height, fill: color)
         }
+    }
+
+    @MainActor
+    private static func cancelTestStormTasks() {
+        framebufferFloodTask?.cancel()
+        framebufferFloodTask = nil
+        modelPublishStormTask?.cancel()
+        modelPublishStormTask = nil
     }
 
     /// XCUITest responsiveness hook — when enabled on an active-session

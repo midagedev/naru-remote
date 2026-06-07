@@ -39,6 +39,8 @@ The app now has a dedicated XCUITest-only model publish storm hook:
 - Active-session fixture only
 - Mutates connection-quality chrome every 6 ms for 900 samples
 - Runs together with the existing trackpad cursor storm and framebuffer flood
+- Cancels stored storm tasks when the test scene leaves the active phase so
+  fixture pressure cannot leak into a later UI scenario in a reused app process
 
 `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm`
 starts an active session, focuses compact Compose, types two Korean input
