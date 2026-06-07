@@ -518,6 +518,22 @@ and the external helper process reports `permissionMissing` from its own
 - Blocking external-helper capture on the benchmark process permission would
   keep live helper-video benchmarking broken even after the helper process has
   Screen Recording permission.
+- The helper runtime already preflights Screen Recording before touching
+  `SCShareableContent`, so delegating the check preserves the privacy boundary
+  while testing the real process that will capture frames.
+
+**Sources**:
+- Apple `CGPreflightScreenCaptureAccess`:
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
+- Apple ScreenCaptureKit:
+  https://developer.apple.com/documentation/screencapturekit
+
+**Alternatives considered**:
+- Keep benchmark-process preflight for external-helper mode: rejected because
+  it can false-block a correctly permissioned helper process.
+- Request Screen Recording permission from `VNCLiveBenchmark`: rejected because
+  benchmark runs should not show permission UI and should not request capture
+  permission for the wrong process identity.
 
 ## D17 - Apply input-aware pacing before VNC request/decode work
 
@@ -564,22 +580,6 @@ viewport gestures keep the existing viewport-aware full/partial frame policy.
 - Treat all interactions as viewport gestures: rejected because Compose focus
   needs the strongest protection, while direct pointer/key activity benefits
   from a faster remote-echo cadence.
-- The helper runtime already preflights Screen Recording before touching
-  `SCShareableContent`, so delegating the check preserves the privacy boundary
-  while testing the real process that will capture frames.
-
-**Sources**:
-- Apple `CGPreflightScreenCaptureAccess`:
-  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess%28%29
-- Apple ScreenCaptureKit:
-  https://developer.apple.com/documentation/screencapturekit
-
-**Alternatives considered**:
-- Keep benchmark-process preflight for external-helper mode: rejected because
-  it can false-block a correctly permissioned helper process.
-- Request Screen Recording permission from `VNCLiveBenchmark`: rejected because
-  benchmark runs should not show permission UI and should not request capture
-  permission for the wrong process identity.
 
 ## D17 - Report helper Screen Recording permission identity as fixed labels
 
@@ -2390,3 +2390,41 @@ permission, physical-readiness, issue-code, and setup-action labels. It must not
 export raw device IDs, device names, account names, provisioning profile names,
 raw xcodebuild logs, helper executable paths, endpoints, credentials, pixels,
 byte counts, exact timings, or raw OS errors.
+
+## D59 - Drop helper-video delta frames under display-layer backpressure
+
+**Decision**: Let the app-side helper-video renderer report display backpressure
+before CoreMedia sample-buffer preparation. When the foreground display layer is
+not ready for more media data, the app drops only H.264 delta access units;
+parameter sets and keyframes still pass through so decoder configuration and
+visible recovery are preserved. A run that drops deltas remains a healthy
+helper-video stream, but reports `sustainedUpdateBand=usable` and
+`decodePressure=medium` instead of the ideal `smooth/low` labels.
+
+**Rationale**:
+- Sustained iPhone usability values the newest visible desktop state over
+  faithfully replaying stale inter frames. Replaying every delta after the
+  display queue falls behind increases heat, memory pressure, and perceived
+  latency.
+- Apple exposes `AVSampleBufferDisplayLayer.isReadyForMoreMediaData` so clients
+  that can supply sample buffers faster than the renderer consumes them can hold
+  back buffers based on internal queue occupancy. Using that signal avoids
+  building a parallel hidden queue in Naru Remote.
+- Dropping only deltas is a safe first app-side companion to the sender-side
+  backpressure from D50. Parameter sets are needed for decoder format state, and
+  keyframes are needed for recovery after dropped inter-frame history.
+- The diagnostic surface stays fixed-label only. We do not export frame
+  payloads, dimensions, byte counts, exact timings, endpoints, or cursor/text
+  content.
+
+**Sources**:
+- Apple `AVSampleBufferDisplayLayer.isReadyForMoreMediaData`:
+  https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer/1387317-isreadyformoremediadata
+
+**Alternatives considered**:
+- Queue every access unit in app memory: rejected because it preserves visual
+  history at the cost of exactly the delayed, hot, low-FPS behavior the product
+  is trying to avoid.
+- Drop keyframes too when the display layer is full: rejected because recovery
+  would depend on waiting for another keyframe and could make transient
+  backpressure look like a stall.

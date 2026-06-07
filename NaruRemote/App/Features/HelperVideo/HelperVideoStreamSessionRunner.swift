@@ -11,6 +11,13 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     func flush() async
 }
 
+@MainActor
+public protocol HelperVideoAccessUnitRenderBackpressureReporting: AnyObject {
+    func shouldDropAccessUnitForBackpressure(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) -> Bool
+}
+
 // @unchecked Sendable justified: the wrapped renderer remains main-actor
 // isolated for every operation. The non-MainActor runner may hold and pass this
 // box across tasks, but the box exposes no nonisolated access to the renderer.
@@ -30,6 +37,16 @@ private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
     }
 
     @MainActor
+    func shouldDropAccessUnitForBackpressure(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) -> Bool {
+        guard let backpressureReporter = renderer as? any HelperVideoAccessUnitRenderBackpressureReporting else {
+            return false
+        }
+        return backpressureReporter.shouldDropAccessUnitForBackpressure(decoded)
+    }
+
+    @MainActor
     func flush() async {
         await renderer.flush()
     }
@@ -40,6 +57,7 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
     public var selectedVisualTransport: Bool
     public var receivedAccessUnitCount: Int
     public var displayableFrameCount: Int
+    public var droppedAccessUnitCount: Int
     public var fallbackFailureCode: HelperVideoFailureCode?
     public var finalHealth: HelperVideoStreamHealth
 
@@ -48,6 +66,7 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
         selectedVisualTransport: Bool,
         receivedAccessUnitCount: Int,
         displayableFrameCount: Int,
+        droppedAccessUnitCount: Int = 0,
         fallbackFailureCode: HelperVideoFailureCode? = nil,
         finalHealth: HelperVideoStreamHealth
     ) {
@@ -55,9 +74,16 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
         self.selectedVisualTransport = selectedVisualTransport
         self.receivedAccessUnitCount = max(receivedAccessUnitCount, 0)
         self.displayableFrameCount = max(displayableFrameCount, 0)
+        self.droppedAccessUnitCount = max(droppedAccessUnitCount, 0)
         self.fallbackFailureCode = fallbackFailureCode
         self.finalHealth = finalHealth
     }
+}
+
+private enum HelperVideoAccessUnitRenderResult: Equatable, Sendable {
+    case notDisplayable
+    case displayable
+    case droppedForBackpressure
 }
 
 // @unchecked Sendable justified: the runner stores immutable configuration
@@ -178,7 +204,9 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         var selectedVisualTransport = false
         var receivedAccessUnitCount = 0
         var displayableFrameCount = 0
+        var droppedAccessUnitCount = 0
         var didPublishHealthy = false
+        var didPublishBackpressureHealth = false
 
         do {
             for try await event in events {
@@ -219,6 +247,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                             selectedVisualTransport: false,
                             receivedAccessUnitCount: receivedAccessUnitCount,
                             displayableFrameCount: 0,
+                            droppedAccessUnitCount: droppedAccessUnitCount,
                             fallbackFailureCode: .fallbackToVNC,
                             finalHealth: await helperVideoStreamHealth(model: model)
                         )
@@ -231,18 +260,23 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                         continue
                     }
                     do {
-                        if try await renderer.enqueueDisplayableAccessUnit(accessUnit) {
+                        switch try await renderAccessUnit(accessUnit) {
+                        case .droppedForBackpressure:
+                            droppedAccessUnitCount += 1
+                            if didPublishHealthy && !didPublishBackpressureHealth {
+                                didPublishBackpressureHealth = true
+                                await model.updateHelperVideoStreamHealth(
+                                    healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
+                                    sessionID: sessionID,
+                                    profileID: profileID
+                                )
+                            }
+                        case .displayable:
                             displayableFrameCount += 1
                             if !didPublishHealthy {
                                 didPublishHealthy = true
-                                let healthy = HelperVideoStreamHealth(
-                                    state: .healthy,
-                                    startupBand: .fast,
-                                    sustainedUpdateBand: .smooth,
-                                    decodePressure: .low
-                                )
                                 await model.updateHelperVideoStreamHealth(
-                                    healthy,
+                                    healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
                                     sessionID: sessionID,
                                     profileID: profileID
                                 )
@@ -252,6 +286,8 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                                     model: model
                                 )
                             }
+                        case .notDisplayable:
+                            break
                         }
                     } catch {
                         await renderer.flush()
@@ -272,6 +308,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                             selectedVisualTransport: selectedVisualTransport,
                             receivedAccessUnitCount: receivedAccessUnitCount,
                             displayableFrameCount: displayableFrameCount,
+                            droppedAccessUnitCount: droppedAccessUnitCount,
                             fallbackFailureCode: .decoderRejected,
                             finalHealth: await helperVideoStreamHealth(model: model)
                         )
@@ -300,6 +337,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                         selectedVisualTransport: selectedVisualTransport,
                         receivedAccessUnitCount: receivedAccessUnitCount,
                         displayableFrameCount: displayableFrameCount,
+                        droppedAccessUnitCount: droppedAccessUnitCount,
                         fallbackFailureCode: .streamStalled,
                         finalHealth: await helperVideoStreamHealth(model: model)
                     )
@@ -333,6 +371,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 selectedVisualTransport: selectedVisualTransport,
                 receivedAccessUnitCount: receivedAccessUnitCount,
                 displayableFrameCount: displayableFrameCount,
+                droppedAccessUnitCount: droppedAccessUnitCount,
                 fallbackFailureCode: failureCode,
                 finalHealth: await helperVideoStreamHealth(model: model)
             )
@@ -344,6 +383,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 selectedVisualTransport: selectedVisualTransport,
                 receivedAccessUnitCount: receivedAccessUnitCount,
                 displayableFrameCount: displayableFrameCount,
+                droppedAccessUnitCount: droppedAccessUnitCount,
                 finalHealth: await helperVideoStreamHealth(model: model)
             )
         }
@@ -411,11 +451,17 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
 
         await renderer.flush()
         var displayableFrameCount = 0
+        var droppedAccessUnitCount = 0
 
         for accessUnit in result.accessUnits {
             do {
-                if try await renderer.enqueueDisplayableAccessUnit(accessUnit) {
+                switch try await renderAccessUnit(accessUnit) {
+                case .droppedForBackpressure:
+                    droppedAccessUnitCount += 1
+                case .displayable:
                     displayableFrameCount += 1
+                case .notDisplayable:
+                    break
                 }
             } catch {
                 await renderer.flush()
@@ -436,6 +482,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                     selectedVisualTransport: true,
                     receivedAccessUnitCount: result.accessUnits.count,
                     displayableFrameCount: displayableFrameCount,
+                    droppedAccessUnitCount: droppedAccessUnitCount,
                     fallbackFailureCode: .decoderRejected,
                     finalHealth: await helperVideoStreamHealth(model: model)
                 )
@@ -461,6 +508,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 selectedVisualTransport: true,
                 receivedAccessUnitCount: result.accessUnits.count,
                 displayableFrameCount: displayableFrameCount,
+                droppedAccessUnitCount: droppedAccessUnitCount,
                 fallbackFailureCode: .streamStalled,
                 finalHealth: await helperVideoStreamHealth(model: model)
             )
@@ -485,19 +533,14 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 selectedVisualTransport: true,
                 receivedAccessUnitCount: result.accessUnits.count,
                 displayableFrameCount: 0,
+                droppedAccessUnitCount: droppedAccessUnitCount,
                 fallbackFailureCode: .streamStalled,
                 finalHealth: await helperVideoStreamHealth(model: model)
             )
         }
 
-        let healthy = HelperVideoStreamHealth(
-            state: .healthy,
-            startupBand: .fast,
-            sustainedUpdateBand: .smooth,
-            decodePressure: .low
-        )
         await model.updateHelperVideoStreamHealth(
-            healthy,
+            healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
             sessionID: sessionID,
             profileID: profileID
         )
@@ -512,8 +555,20 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
             selectedVisualTransport: true,
             receivedAccessUnitCount: result.accessUnits.count,
             displayableFrameCount: displayableFrameCount,
+            droppedAccessUnitCount: droppedAccessUnitCount,
             finalHealth: await helperVideoStreamHealth(model: model)
         )
+    }
+
+    private func renderAccessUnit(
+        _ accessUnit: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) async throws -> HelperVideoAccessUnitRenderResult {
+        if await renderer.shouldDropAccessUnitForBackpressure(accessUnit) {
+            return .droppedForBackpressure
+        }
+        return try await renderer.enqueueDisplayableAccessUnit(accessUnit)
+            ? .displayable
+            : .notDisplayable
     }
 
     private func ignoreStaleResult(
@@ -601,6 +656,15 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
 
     private func helperVideoStreamHealth(model: NaruRemoteAppModel) async -> HelperVideoStreamHealth {
         await model.snapshot.helperVideoStreamHealth
+    }
+
+    private func healthyHealth(droppedAccessUnitCount: Int) -> HelperVideoStreamHealth {
+        HelperVideoStreamHealth(
+            state: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: droppedAccessUnitCount > 0 ? .usable : .smooth,
+            decodePressure: droppedAccessUnitCount > 0 ? .medium : .low
+        )
     }
 
     private func availability(for failureCode: HelperVideoFailureCode) -> HelperVideoAvailability {

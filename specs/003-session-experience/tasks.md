@@ -137,6 +137,16 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm`,
   and `DirectKeystrokeFR010UITests/testDockBadgeAppearsOnDirectAndDisappearsOnCompose`.
   **Done.**
+- [x] T015bi [B] Interaction architecture gate: extend the focused Compose
+  full-interaction storm with helper-video health churn so the simulator
+  reproduces the class where a live visual transport starts publishing
+  renderer/status pressure while the iOS IME owns the compact `UITextView`.
+  The gate keeps the same editor instance (`make=1`, stable token, first
+  responder) alive through two Korean input steps while framebuffer flood,
+  trackpad cursor pressure, app-model chrome churn, and helper-video health
+  updates all run. Covered by
+  `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeSurvivesHelperVideoHealthStorm`.
+  **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

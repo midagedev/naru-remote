@@ -86,6 +86,84 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertEqual(renderer.enqueuedSequences, [0, 1, 2, 3])
     }
 
+    func testEventStreamDropsBackpressuredDeltaAccessUnitsButPreservesKeyframes() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(
+            displayableSequences: [1, 4],
+            backpressuredSequences: [2, 3, 4]
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(accessUnits: [
+                    Self.accessUnit(sequence: 0, kind: .parameterSet),
+                    Self.accessUnit(sequence: 1, kind: .keyframe),
+                    Self.accessUnit(sequence: 2, kind: .delta),
+                    Self.accessUnit(sequence: 3, kind: .delta),
+                    Self.accessUnit(sequence: 4, kind: .keyframe)
+                ])
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertTrue(outcome.startAccepted)
+        XCTAssertTrue(outcome.selectedVisualTransport)
+        XCTAssertEqual(outcome.receivedAccessUnitCount, 5)
+        XCTAssertEqual(outcome.displayableFrameCount, 2)
+        XCTAssertEqual(outcome.droppedAccessUnitCount, 2)
+        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertEqual(snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .healthy)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.sustainedUpdateBand, .usable)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.decodePressure, .medium)
+        XCTAssertEqual(renderer.backpressureQuerySequences, [0, 1, 2, 3, 4])
+        XCTAssertEqual(renderer.enqueuedSequences, [0, 1, 4])
+    }
+
+    func testFiniteStartDropsBackpressuredDeltaAccessUnitsBeforePreparingSampleBuffers() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(
+            displayableSequences: [1, 4],
+            backpressuredSequences: [2, 3]
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            startStream: { _, _ in
+                Self.startResult(accessUnits: [
+                    Self.accessUnit(sequence: 0, kind: .parameterSet),
+                    Self.accessUnit(sequence: 1, kind: .keyframe),
+                    Self.accessUnit(sequence: 2, kind: .delta),
+                    Self.accessUnit(sequence: 3, kind: .delta),
+                    Self.accessUnit(sequence: 4, kind: .keyframe)
+                ])
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+
+        XCTAssertEqual(outcome.receivedAccessUnitCount, 5)
+        XCTAssertEqual(outcome.displayableFrameCount, 2)
+        XCTAssertEqual(outcome.droppedAccessUnitCount, 2)
+        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertEqual(model.snapshot.helperVideoStreamHealth.sustainedUpdateBand, .usable)
+        XCTAssertEqual(model.snapshot.helperVideoStreamHealth.decodePressure, .medium)
+        XCTAssertEqual(renderer.enqueuedSequences, [0, 1, 4])
+    }
+
     func testAsyncRendererPreparationYieldsMainActorDuringAccessUnitEnqueue() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
@@ -446,19 +524,31 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
 }
 
 @MainActor
-private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRendering {
+private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRendering, HelperVideoAccessUnitRenderBackpressureReporting {
     private let displayableSequences: Set<Int>
     private let throwingSequences: Set<Int>
+    private let backpressuredSequences: Set<Int>
 
     private(set) var enqueuedSequences: [Int] = []
+    private(set) var backpressureQuerySequences: [Int] = []
     private(set) var flushCount = 0
 
     init(
         displayableSequences: Set<Int> = [],
-        throwingSequences: Set<Int> = []
+        throwingSequences: Set<Int> = [],
+        backpressuredSequences: Set<Int> = []
     ) {
         self.displayableSequences = displayableSequences
         self.throwingSequences = throwingSequences
+        self.backpressuredSequences = backpressuredSequences
+    }
+
+    func shouldDropAccessUnitForBackpressure(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) -> Bool {
+        let body = decoded.envelope.body
+        backpressureQuerySequences.append(body.sequence)
+        return body.kind == .delta && backpressuredSequences.contains(body.sequence)
     }
 
     func enqueueDisplayableAccessUnit(

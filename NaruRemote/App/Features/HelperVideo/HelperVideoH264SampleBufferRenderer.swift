@@ -378,4 +378,14 @@ extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRendering {
         try await enqueue(decoded) != nil
     }
 }
+
+extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRenderBackpressureReporting {
+    @MainActor
+    public func shouldDropAccessUnitForBackpressure(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) -> Bool {
+        decoded.envelope.body.kind == .delta
+            && !displayLayer.isReadyForMoreMediaData
+    }
+}
 #endif
