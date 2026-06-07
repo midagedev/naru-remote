@@ -475,6 +475,13 @@ without unsafe report fields.
   cadence. Diagnostics now count helper-primary VNC sampling pacing samples.
   Covered by pacing policy, app-model control-path, fallback-resume, and
   diagnostic report tests. **Done.**
+- [x] T031Z [US2] Make `helper-video-live-gate` collect physical iPhone
+  preflight even when Screen Recording permission blocks true helper capture.
+  The summary now reports helper permission and physical signing/provisioning
+  blockers together, with fixed setup action labels, so Screen Recording and
+  Xcode account/profile setup can be resolved in parallel before the next true
+  helper-video physical run. Covered by live-gate self-test and a current live
+  permission-missing run. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
