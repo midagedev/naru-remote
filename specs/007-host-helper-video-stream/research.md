@@ -1259,3 +1259,41 @@ live VNC target or printing raw XCTest output.
 labels, fixed issue/action labels, and small configured counts. It must not
 emit raw XCTest output, frame payloads, pixels, dimensions, endpoints, helper
 paths, device IDs, credentials, byte counts, raw OS errors, or exact timings.
+
+## D38 - Treat unavailable physical iPhones as discovery blockers
+
+**Decision**: Tighten `physical-device-preflight` discovery so known but
+unavailable physical iPhones are reported as `deviceDiscoveryStatus=unavailable`
+and skip the build check instead of being treated as connected devices that
+later fail with a generic physical build error.
+
+**Rationale**:
+- The physical iPhone gate is the promotion boundary for T030/T031. If a paired
+  but unavailable iPhone is classified as connected, the runner spends time in
+  an Xcode build that cannot prove product behavior and collapses the actionable
+  setup issue into `physical-ios-build-failed`.
+- `devicectl` can list an iPhone while its tunnel is unavailable or developer
+  disk services are not available. `xctrace` can also list the same device
+  under `Devices Offline`. Those states require unlock/cable/network/developer
+  mode remediation before any sustained-session evidence is meaningful.
+- Skipping the build in this state keeps the artifact privacy-safe and more
+  actionable: no raw device identifiers, names, logs, or provisioning details
+  are emitted.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh physical-device-preflight` now reports
+  `deviceDiscoveryStatus=unavailable`, `buildCheckStatus=skipped`,
+  `physical-iphone-device-unavailable`, and
+  `unlock-connect-and-enable-developer-mode` in the current local state.
+- `scripts/run-naru-live-benchmark.sh physical-team-inference-self-test`
+  still passes.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` still
+  confirms the VNC path fails the 10fps product bar at about 2 content FPS with
+  first-byte wait dominating, so helper-video permission plus physical iPhone
+  readiness remain the next promotion gates.
+
+**Privacy rule**: physical-device preflight must emit fixed discovery/build
+status labels and fixed setup actions only. It must not emit physical device
+names, identifiers, serials, raw Xcode logs, provisioning identifiers, host
+identity, credentials, pixels, byte counts, exact helper timings, draft text, or
+IME state.

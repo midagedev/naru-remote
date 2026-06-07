@@ -290,6 +290,12 @@ without unsafe report fields.
   triaged as UI-executor stalls versus network/decode/input queue pressure
   without exporting exact timings, endpoints, framebuffer data, coordinates,
   keysyms, or text. **Done.**
+- [x] T030D [US1] Tighten `physical-device-preflight` so a known but unavailable
+  physical iPhone is reported as a discovery blocker and the build check is
+  skipped, instead of collapsing the setup issue into a generic physical build
+  failure. Current local run reports `physical-iphone-device-unavailable`,
+  which routes the next manual action to unlock/connect/developer-mode setup
+  before T030/T031 evidence collection. **Done.**
 - [x] T031A [US2] Add an opt-in
   `helper-screen-app-bootstrap-benchmark` launchctl runner and benchmark smoke
   that routes finite ScreenCaptureKit access units through helper TCP framing,

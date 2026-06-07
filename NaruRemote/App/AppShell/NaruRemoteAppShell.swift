@@ -182,18 +182,14 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        RemoteInputDockView(
-                            initialText: snapshot.composeDraft?.text ?? "",
-                            statusText: snapshot.inputStatusText,
-                            helperStatusText: snapshot.inputHelperStatusText,
+                        RemoteInputDockEquatableHost(
+                            state: RemoteInputDockRenderState(
+                                snapshot: snapshot,
+                                isLiveSession: isLiveSession
+                            ),
                             onSend: { model.sendComposedText($0) },
                             onTextChange: { model.updateComposeDraftText($0) },
                             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
-                            directKeystrokeMode: snapshot.directKeystrokeMode,
-                            stickyModifierState: snapshot.stickyModifierState,
-                            layoutStyle: isLiveSession ? .compactAccessory : .standard,
-                            showsCompactStatusText: snapshot.latestInjectionAttempt != nil,
-                            showsComposeQuickKeys: snapshot.session?.state == .active,
                             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
                             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
                             onHardwareKey: { keysym, modifiers, isDown in
@@ -211,6 +207,7 @@ public struct NaruRemoteAppShell: View {
                                 composeFieldFocused = focused
                             }
                         )
+                        .equatable()
                     }
                 }
             }
@@ -272,6 +269,67 @@ public struct NaruRemoteAppShell: View {
             await model.loadStoredProfiles()
             await model.loadStoredSettings()
         }
+    }
+}
+
+struct RemoteInputDockRenderState: Equatable, Sendable {
+    var initialText: String
+    var statusText: String
+    var helperStatusText: String?
+    var directKeystrokeMode: DirectKeystrokeMode
+    var stickyModifierState: StickyModifierState
+    var layoutStyle: RemoteInputDockLayoutStyle
+    var showsCompactStatusText: Bool
+    var showsComposeQuickKeys: Bool
+
+    init(snapshot: NaruRemoteAppSnapshot, isLiveSession: Bool) {
+        self.initialText = snapshot.composeDraft?.text ?? ""
+        self.statusText = snapshot.inputStatusText
+        self.helperStatusText = snapshot.inputHelperStatusText
+        self.directKeystrokeMode = snapshot.directKeystrokeMode
+        self.stickyModifierState = snapshot.stickyModifierState
+        self.layoutStyle = isLiveSession ? .compactAccessory : .standard
+        self.showsCompactStatusText = snapshot.latestInjectionAttempt != nil
+        self.showsComposeQuickKeys = snapshot.session?.state == .active
+    }
+}
+
+private struct RemoteInputDockEquatableHost: View, Equatable {
+    var state: RemoteInputDockRenderState
+    var onSend: (String) -> Void
+    var onTextChange: (String) -> Void
+    var onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
+    var onToggleDirectMode: () -> Void
+    var onTapDirectKey: (DirectKey) -> Void
+    var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
+    var onComposeQuickKey: (ComposeQuickKey) -> Void
+    var onDismissDirectModeWarning: () -> Void
+    var onComposeFocusChange: (Bool) -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.state == rhs.state
+    }
+
+    var body: some View {
+        RemoteInputDockView(
+            initialText: state.initialText,
+            statusText: state.statusText,
+            helperStatusText: state.helperStatusText,
+            onSend: onSend,
+            onTextChange: onTextChange,
+            onComposeSendPreparation: onComposeSendPreparation,
+            directKeystrokeMode: state.directKeystrokeMode,
+            stickyModifierState: state.stickyModifierState,
+            layoutStyle: state.layoutStyle,
+            showsCompactStatusText: state.showsCompactStatusText,
+            showsComposeQuickKeys: state.showsComposeQuickKeys,
+            onToggleDirectMode: onToggleDirectMode,
+            onTapDirectKey: onTapDirectKey,
+            onHardwareKey: onHardwareKey,
+            onComposeQuickKey: onComposeQuickKey,
+            onDismissDirectModeWarning: onDismissDirectModeWarning,
+            onComposeFocusChange: onComposeFocusChange
+        )
     }
 }
 

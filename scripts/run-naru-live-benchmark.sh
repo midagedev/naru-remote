@@ -1953,11 +1953,75 @@ physical_iphone_ids_from_devicectl() {
   if xcrun devicectl list devices \
     --filter "hardwareProperties.deviceType == 'iPhone'" \
     --json-output "$output_file" >/dev/null 2>&1; then
-    jq -r '.result.devices[]? | .hardwareProperties.udid // .identifier // empty' "$output_file"
+    jq -r '
+      .result.devices[]?
+      | select((.connectionProperties.tunnelState // "available") != "unavailable")
+      | select((.deviceProperties.ddiServicesAvailable // true) != false)
+      | .hardwareProperties.udid // .identifier // empty
+    ' "$output_file"
     status=$?
   fi
   rm -f "$output_file"
   return "$status"
+}
+
+physical_unavailable_iphone_count_from_devicectl() {
+  if ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf '0'
+    return
+  fi
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    jq -r '
+      [
+        .result.devices[]?
+        | select(
+          (.connectionProperties.tunnelState // "available") == "unavailable"
+          or (.deviceProperties.ddiServicesAvailable // true) == false
+        )
+      ]
+      | length
+    ' "$output_file"
+  else
+    printf '0'
+  fi
+  rm -f "$output_file"
+}
+
+physical_unavailable_iphone_id_is_known() {
+  local device_id="$1"
+  if [[ -z "$device_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local match_count="0"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    match_count="$(
+      jq -r --arg device_id "$device_id" '
+        [
+          .result.devices[]?
+          | select(
+            ((.hardwareProperties.udid // .identifier // "") == $device_id)
+            and (
+              (.connectionProperties.tunnelState // "available") == "unavailable"
+              or (.deviceProperties.ddiServicesAvailable // true) == false
+            )
+          )
+        ]
+        | length
+      ' "$output_file"
+    )"
+  fi
+  rm -f "$output_file"
+  [[ "$match_count" != "0" ]]
 }
 
 physical_iphone_ids_from_xctrace() {
@@ -1966,7 +2030,12 @@ physical_iphone_ids_from_xctrace() {
   fi
 
   xcrun xctrace list devices 2>/dev/null |
-    awk '/^== Devices ==/{in_devices=1; next} /^== Simulators ==/{in_devices=0} in_devices' |
+    awk '
+      /^== Devices ==/{in_devices=1; next}
+      /^== Devices Offline ==/{in_devices=0}
+      /^== Simulators ==/{in_devices=0}
+      in_devices
+    ' |
     grep -i 'iPhone' |
     sed -n 's/.*(\([0-9][0-9.]*\)) (\([0-9A-Fa-f-]\{24,\}\)).*/\2/p'
 }
@@ -2165,6 +2234,7 @@ physical_preflight() {
   local device_id
   local device_status
   local device_selection_source
+  local unavailable_device_count
   local signing_identity_status
   local development_team_status
   local build_check_status
@@ -2172,6 +2242,7 @@ physical_preflight() {
   local xcode_account_status="unknown"
 
   device_count="$(physical_iphone_device_count)"
+  unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
   device_id="$(discover_physical_ios_device_id)"
   if [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
     device_selection_source="environment"
@@ -2181,7 +2252,15 @@ physical_preflight() {
     device_selection_source="none"
   fi
 
-  if [[ -z "$device_id" ]]; then
+  if [[ -z "$device_id" && "$unavailable_device_count" != "0" ]]; then
+    device_status="unavailable"
+    append_unique issue_codes "physical-iphone-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]] && physical_unavailable_iphone_id_is_known "$device_id"; then
+    device_status="unavailable"
+    append_unique issue_codes "physical-iphone-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -z "$device_id" ]]; then
     device_status="missing"
     append_unique issue_codes "physical-iphone-device-missing"
     append_unique setup_actions "connect-and-trust-physical-iphone"
@@ -2217,7 +2296,7 @@ physical_preflight() {
     fi
   fi
 
-  if [[ -z "$device_id" || "$device_status" == "multiple" || "$device_status" == "wrongDeviceType" ]]; then
+  if [[ -z "$device_id" || "$device_status" == "multiple" || "$device_status" == "wrongDeviceType" || "$device_status" == "unavailable" ]]; then
     build_check_status="skipped"
   else
     local output_file

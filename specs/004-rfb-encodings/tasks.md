@@ -1543,6 +1543,18 @@ iPhone) and ships as its own PR.
   draft text, marked text, IME state, keystroke content, or exact helper
   timings. Owns: launchctl runner, README, research note, benchmark artifact,
   and live evidence. **Done.**
+- **T473** Input-dock render isolation gate: after physical feedback still
+  reported Compose keyboard freezing after a real VNC connection, separate the
+  visible input-dock render state from unrelated stream telemetry and
+  framebuffer churn. Add an Equatable host above `RemoteInputDockView` so
+  repeated stream stats, framebuffer metadata, and renderer pressure do not
+  push fresh updates into the UIKit `UITextView` bridge while local IME input is
+  active; keep real input state changes, Direct-mode state, send status, and
+  Compose quick-key availability invalidating the dock. Emit/export no host
+  identity, credentials, request coordinates, dimensions, pixels, byte counts,
+  raw timings, command text, draft text, marked text, IME state, keysyms, or
+  pointer coordinates. Owns: app shell input render state, focused app tests,
+  research note, and benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
