@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import NaruRemoteCore
 
 public enum SessionStreamThermalState: String, Equatable, Sendable {
@@ -896,6 +897,27 @@ public enum VisualTransportMode: String, Codable, Equatable, CaseIterable, Senda
     case helperVideo
 }
 
+public struct RemoteFramebufferCoordinateSpace: Codable, Equatable, Sendable {
+    public var width: Int
+    public var height: Int
+
+    public init?(width: Int, height: Int) {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+        self.width = width
+        self.height = height
+    }
+
+    public var size: CGSize {
+        CGSize(width: width, height: height)
+    }
+
+    public var aspectRatio: CGFloat {
+        CGFloat(width) / CGFloat(height)
+    }
+}
+
 public enum HelperVideoVisualSelectionFailureReason: String, Codable, Equatable, CaseIterable, Sendable {
     case noActiveSession
     case profileMismatch
@@ -915,6 +937,11 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     public var latestInjectionAttempt: TextInjectionAttempt?
     public var pipWatchSession: PiPWatchSession?
     public var latestFramebuffer: RFBRawFramebuffer?
+    /// Active remote coordinate space for pointer input. This may be known
+    /// from VNC `ServerInit` before the first framebuffer pixels arrive, so
+    /// helper-video primary can accept input while VNC is still waiting on its
+    /// first frame. Memory-only and never exported.
+    public var inputCoordinateSpace: RemoteFramebufferCoordinateSpace?
     /// Damage rectangles for `latestFramebuffer`, when the most recent
     /// frame came from a damage-tracking source.  `nil` means the
     /// renderer should treat the framebuffer as a full-frame upload —
@@ -988,6 +1015,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         latestInjectionAttempt: TextInjectionAttempt? = nil,
         pipWatchSession: PiPWatchSession? = nil,
         latestFramebuffer: RFBRawFramebuffer? = nil,
+        inputCoordinateSpace: RemoteFramebufferCoordinateSpace? = nil,
         latestFrameDirtyRectangles: [RFBFrameDamageRect]? = nil,
         latestFrameChangedPixelCount: Int? = nil,
         sessionStreamStats: SessionStreamStats = SessionStreamStats(),
@@ -1012,6 +1040,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.latestInjectionAttempt = latestInjectionAttempt
         self.pipWatchSession = pipWatchSession
         self.latestFramebuffer = latestFramebuffer
+        self.inputCoordinateSpace = inputCoordinateSpace
         self.latestFrameDirtyRectangles = latestFrameDirtyRectangles
         self.latestFrameChangedPixelCount = latestFrameChangedPixelCount.map { max($0, 0) }
         self.sessionStreamStats = sessionStreamStats

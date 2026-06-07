@@ -1927,3 +1927,65 @@ source, stream, health, readiness, and pass/fail labels plus aggregate counts.
 They must not export helper endpoints, credentials, pairing material, frame
 payloads, pixels, display dimensions, byte counts, exact per-frame timings, raw
 TCP/OS errors, Compose text, keysyms, marked text, or clipboard contents.
+
+## D51 - Promote helper-video to the foreground visual path before VNC first frame
+
+**Decision**: Start helper-video in parallel with the VNC session as soon as a
+fresh session ID and stored credentials are available, and make the foreground
+viewport attach the same `AVSampleBufferDisplayLayer` that the helper-video
+H.264 renderer enqueues into. VNC remains active for control/input, coordinate
+anchoring, diagnostics, reconnect, and fallback.
+
+**Rationale**:
+- The live `remote-desktop-10fps-readiness` run on 2026-06-07 reproduced the
+  product failure clearly: VNC delivered about 1.99 content FPS with
+  `p95UpdateMilliseconds=632`, `firstByteWaitP95Milliseconds=624`, and
+  `primaryConstraint=receivePath`. Client processing p95 was only 14 ms, so the
+  current blocker is not the local Metal upload or ZRLE tile-apply path.
+- The same run showed external synthetic and sustained synthetic helper-video
+  passing with healthy/smooth/readiness labels. True ScreenCaptureKit remains
+  blocked only by macOS Screen Recording permission.
+- Starting helper-video only after the first VNC framebuffer makes the slow VNC
+  receive path gate the experience even when the helper-video path is the
+  intended smooth visual transport.
+- Apple positions ScreenCaptureKit as the high-performance Mac screen capture
+  API and VideoToolbox realtime H.264 as the platform low-latency encoder path.
+  That matches a foreground video layer for pixels and a separate VNC lane for
+  input/control.
+- A model-owned helper-video layer host prevents SwiftUI rebuilds from
+  detaching the layer that receives H.264 sample buffers. When helper-video is
+  foreground primary, SwiftUI direct-touch and trackpad overlays must stay
+  enabled even on Metal-capable devices because the Metal recognizers are not
+  the active visual surface.
+- Pointer input should depend on the active remote coordinate space, not on the
+  presence of local framebuffer pixels. VNC `ServerInit` provides that
+  coordinate space before the first framebuffer update arrives, allowing
+  helper-video primary to stay interactive during the slow-VNC-first-frame
+  window.
+
+**Evidence**:
+- `artifacts/benchmarks/2026-06-07-helper-video-primary-readiness-summary.md`
+  records the `remote-desktop-10fps-readiness` live run: `blockedByHelperScreenCapture`,
+  synthetic/sustained helper-video pass, ScreenCaptureKit permission missing,
+  and VNC 10fps product failure at about 1.99 content FPS.
+- `NaruRemoteAppModelTests/testHelperVideoBootstrapStartsBeforeSlowVNCFirstFrame`
+  reproduces a delayed VNC first frame and proves helper-video bootstrap starts
+  and selects helper visual transport before any VNC framebuffer is published.
+- `SessionViewportViewGeometryTests/testHelperVideoPrimaryForcesSwiftUIInputOverlaysEvenWhenMetalIsAvailable`
+  proves helper-video primary keeps SwiftUI direct/trackpad input overlays live
+  even when Metal is available.
+- `NaruRemoteAppModelTests/testPointerInputCanUseServerInitCoordinateSpaceBeforeFirstFramebuffer`
+  proves tap input can emit RFB pointer events after VNC `ServerInit` and
+  before the first VNC framebuffer is published.
+
+**Sources**:
+- Apple ScreenCaptureKit: https://developer.apple.com/documentation/screencapturekit
+- Apple `kVTCompressionPropertyKey_RealTime`: https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_realtime
+- Apple Encoding video for low-latency conferencing: https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing
+
+**Privacy rule**: The foreground helper-video decision still must not export
+display dimensions, pixels, access-unit payloads, byte counts, endpoints,
+tokens, credentials, exact per-frame timings, raw OS errors, Compose text,
+keysyms, marked text, or clipboard contents. Benchmark artifacts may carry only
+fixed readiness labels and aggregate/bucketed timing fields already covered by
+the live benchmark contract.

@@ -14,29 +14,43 @@ import AVFoundation
 /// User interaction is disabled — PiP Watch is watch-only by
 /// constitution principle I.  See `ROADMAP.md` Phase 6.
 public struct PiPSampleBufferDisplayLayerView: UIViewRepresentable {
-    private let layerHost: PiPLayerHost
+    private let sampleBufferLayer: AVSampleBufferDisplayLayer
     private let accessibilityIdentifier: String
+    private let accessibilityLabel: String
 
     public init(
         layerHost: PiPLayerHost,
         accessibilityIdentifier: String = "naru.session.pipDisplayLayer"
     ) {
-        self.layerHost = layerHost
+        self.init(
+            layer: layerHost.layer,
+            accessibilityIdentifier: accessibilityIdentifier,
+            accessibilityLabel: "Remote framebuffer in Picture-in-Picture display layer"
+        )
+    }
+
+    public init(
+        layer: AVSampleBufferDisplayLayer,
+        accessibilityIdentifier: String = "naru.session.sampleBufferDisplayLayer",
+        accessibilityLabel: String = "Remote video display layer"
+    ) {
+        self.sampleBufferLayer = layer
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = accessibilityLabel
     }
 
     public func makeUIView(context: Context) -> PiPSampleBufferDisplayLayerHostingView {
-        let view = PiPSampleBufferDisplayLayerHostingView(layer: layerHost.layer)
+        let view = PiPSampleBufferDisplayLayerHostingView(layer: sampleBufferLayer)
         view.isUserInteractionEnabled = false
         view.accessibilityIdentifier = accessibilityIdentifier
         view.isAccessibilityElement = true
-        view.accessibilityLabel = "Remote framebuffer in Picture-in-Picture display layer"
+        view.accessibilityLabel = accessibilityLabel
         view.backgroundColor = .black
         return view
     }
 
     public func updateUIView(_ uiView: PiPSampleBufferDisplayLayerHostingView, context: Context) {
-        uiView.attach(layer: layerHost.layer)
+        uiView.attach(layer: sampleBufferLayer)
         uiView.setNeedsLayout()
     }
 }
