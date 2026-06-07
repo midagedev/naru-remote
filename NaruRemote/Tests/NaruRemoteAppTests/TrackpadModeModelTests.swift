@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import os
 import XCTest
 @testable import NaruRemoteApp
@@ -309,6 +310,62 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(event.mask, 0x00)
         XCTAssertEqual(event.x, 160)
         XCTAssertEqual(event.y, 50)
+    }
+
+    func testContinuousTrackpadCursorMirrorDoesNotInvalidateAppModel() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        let publishedStart = model.trackpadCursor.position
+        let transform = ViewportTransform(
+            framebufferSize: CGSize(width: 200, height: 100),
+            viewSize: CGSize(width: 200, height: 100),
+            zoomScale: 1,
+            panOffset: .zero
+        )
+
+        var modelPublishCount = 0
+        var cursorStorePublishCount = 0
+        let modelCancellable = model.objectWillChange.sink {
+            modelPublishCount += 1
+        }
+        let cursorStoreCancellable = model.trackpadCursorStore.objectWillChange.sink {
+            cursorStorePublishCount += 1
+        }
+
+        let result = try XCTUnwrap(
+            model.handleTrackpadGesture(
+                .dragChanged(
+                    viewPoint: CGPoint(x: 120, y: 60),
+                    translation: CGSize(width: 20, height: 10)
+                ),
+                transform: transform
+            )
+        )
+
+        XCTAssertEqual(model.trackpadCursor.position, publishedStart)
+        XCTAssertEqual(result.cursor.position.x, 120, accuracy: 1e-6)
+        XCTAssertEqual(result.cursor.position.y, 60, accuracy: 1e-6)
+
+        try await waitForTrackpadCursor(model) { cursor in
+            abs(cursor.position.x - 120) < 0.0001
+                && abs(cursor.position.y - 60) < 0.0001
+        }
+
+        XCTAssertEqual(
+            modelPublishCount,
+            0,
+            "Continuous trackpad cursor mirror updates should not invalidate the app shell or focused Compose dock."
+        )
+        XCTAssertGreaterThanOrEqual(
+            cursorStorePublishCount,
+            1,
+            "The viewport-local cursor store still publishes the slower SwiftUI mirror."
+        )
+
+        withExtendedLifetime((modelCancellable, cursorStoreCancellable)) {}
     }
 
     func testTrackpadTapUsesHotCursorForClickBeforePublishedCursorFlush() async throws {

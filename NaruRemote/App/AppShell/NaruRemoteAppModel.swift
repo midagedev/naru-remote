@@ -522,7 +522,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// disconnect / fresh connect / profile change.  Constitution §IV:
     /// the cursor position is published for the overlay but never
     /// logged, persisted, or exported.
-    @Published public private(set) var trackpadCursor: TrackpadCursor = TrackpadCursor()
+    /// Viewport-local mirror for SwiftUI overlays. New UI that needs cursor
+    /// samples should observe this store directly instead of the app model.
+    public let trackpadCursorStore: TrackpadCursorStore
+    public var trackpadCursor: TrackpadCursor {
+        trackpadCursorStore.cursor
+    }
 
     /// Rolling estimator smoothing per-frame round-trip latency into
     /// `connectionQuality` so a single slow frame does not flip the
@@ -779,6 +784,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 serverCursor: snapshot.latestServerCursor
             )
         )
+        self.trackpadCursorStore = TrackpadCursorStore()
         self.profilePreviews = snapshot.profilePreviews
         self.profileReachability = snapshot.profileReachability
         self.helperTextBridgeState = snapshot.helperTextBridgeState
@@ -6755,7 +6761,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             trackpadCursorPublishTask = nil
             pendingTrackpadCursor = nil
             resolvedTrackpadCursor = cursor
-            trackpadCursor = cursor
+            trackpadCursorStore.publish(cursor)
             return
         }
 
@@ -6786,7 +6792,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         pendingTrackpadCursor = nil
-        trackpadCursor = cursor
+        trackpadCursorStore.publish(cursor)
     }
 
     /// Translate a tap in the framebuffer view's coordinate space into a
