@@ -2062,7 +2062,10 @@ public struct SessionViewportView: View {
     nonisolated static func viewportStatePublishPolicy(
         for frameStrategy: ViewportInteractionFrameStrategy
     ) -> ViewportStatePublishPolicy {
-        frameStrategy.prefersLiveViewportStatePublication ? .liveDisplayLink : .gestureEnd
+        switch frameStrategy {
+        case .deferUntilSettled, .liveRemoteFrames:
+            return .liveDisplayLink
+        }
     }
 
     /// Maps a framebuffer-pixel cursor position into the container's

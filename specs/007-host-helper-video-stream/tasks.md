@@ -434,6 +434,13 @@ without unsafe report fields.
   next required action is grant permission, quit/relaunch helper, rerun
   `screen-recording-watch`, then run the true helper-video live capture gate.
   **Done.**
+- [x] T031T [US1] Reproduce the remaining physical-feel issue as a missing
+  service-level split between IME text input, viewport navigation, and ordinary
+  visual frame delivery. Add separate frame-delivery cadences, make Compose
+  focus win over viewport/transient interactions, publish viewport transforms
+  live for view-aware request regions, and increase zoomed trackpad
+  cursor-follow pan coupling while preserving finger-paced visible cursor
+  travel. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

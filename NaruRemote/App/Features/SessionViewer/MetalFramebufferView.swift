@@ -606,10 +606,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     private static let viewportStatePublishPreferredFramesPerSecond: Float = 60
     // Keep the visible viewport on the UIKit/Core Animation hot path during
-    // touch. SwiftUI/PiP state is reconciled at the boundary so streaming
-    // updates and layout work cannot compete with pinch/pan samples.
+    // touch. Parent/model state follows at display-link cadence so viewport-
+    // aware stream requests track the visible region without owning the visual
+    // transform path.
     private static let interactiveViewportStatePublishCadence: ViewportStatePublishCadence =
-        .gestureEnd
+        .nextDisplayLink
 
     init(coordinator: MetalFramebufferView.Coordinator) {
         self.coordinator = coordinator

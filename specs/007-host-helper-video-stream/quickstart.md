@@ -43,6 +43,7 @@ swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapFailureKeeps
 ```bash
 swift test --filter RemoteInputDockRenderStateTests
 swift test --filter RemoteInputDockSyncPolicyTests
+swift test --filter SessionFrameStoreTests --filter SessionFrameDeliveryPriorityModelTests --filter SessionViewportViewGeometryTests --filter TrackpadModeModelTests --filter PointerGestureResolverTests --filter ViewportGestureRedrawThrottleTests
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests test
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:NaruRemoteUITests/NaruRemoteLaunchUITests test
 ```
@@ -56,8 +57,12 @@ post-send regression where typing over a previous "remote confirmation
 unavailable" status clears `latestInjectionAttempt`; that status clear is now
 detached from the focused editor host so the next Korean IME key can continue.
 `ComposeInputResponsivenessUITests` verifies the simulator accepts a second
-Korean syllable after the first input in both profile-detail and active compact
-layouts.
+Korean syllable after the first input in profile-detail, active compact, stale
+confirmation clear, cursor-storm, and framebuffer-flood plus cursor-storm
+layouts. The service-level tests verify that focused Compose uses the
+text-input cadence, viewport navigation gets its own cadence, viewport-aware
+traffic follows live transform samples, and zoomed trackpad pan remains
+attached to the actual cursor.
 
 ## Implemented Helper Video Readiness Surface Tests
 

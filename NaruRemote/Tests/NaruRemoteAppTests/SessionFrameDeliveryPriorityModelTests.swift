@@ -4,7 +4,7 @@ import NaruRemoteCore
 
 @MainActor
 final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
-    func testComposeFocusKeepsInteractiveFrameDeliveryUntilFocusLeaves() {
+    func testComposeFocusUsesTextInputFrameDeliveryUntilFocusLeaves() {
         let model = NaruRemoteAppModel()
 
         XCTAssertEqual(
@@ -16,7 +16,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            .milliseconds(120)
         )
 
         model.setComposeInputEditingActive(false)
@@ -27,7 +27,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         )
     }
 
-    func testViewportGestureKeepsInteractiveFrameDeliveryUntilGestureEnds() {
+    func testViewportGestureUsesNavigationFrameDeliveryUntilGestureEnds() {
         let model = NaruRemoteAppModel()
 
         model.setViewportInteractionActive(true)
@@ -45,7 +45,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         )
     }
 
-    func testDirectKeyTapTemporarilyUsesInteractiveFrameDelivery() async throws {
+    func testDirectKeyTapTemporarilyUsesNavigationFrameDelivery() async throws {
         let model = NaruRemoteAppModel()
 
         await model.tapDirectKey(.character("a"))
@@ -65,7 +65,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         )
     }
 
-    func testDirectModeToggleTemporarilyUsesInteractiveFrameDelivery() async throws {
+    func testDirectModeToggleTemporarilyUsesNavigationFrameDelivery() async throws {
         let model = NaruRemoteAppModel()
 
         model.toggleDirectKeystrokeMode()
@@ -152,7 +152,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            .milliseconds(120)
         )
 
         model.selectProfile(id: second.id)
@@ -180,7 +180,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            .milliseconds(120)
         )
 
         try await Task.sleep(
@@ -189,12 +189,42 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50),
+            .milliseconds(120),
             "A transient interaction lease must not drop Compose focus back to visual frame cadence."
         )
 
         model.setComposeInputEditingActive(false)
 
+        XCTAssertEqual(
+            model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(16)
+        )
+    }
+
+    func testComposeFocusTakesPriorityOverViewportGestureCadence() {
+        let model = NaruRemoteAppModel()
+
+        model.setViewportInteractionActive(true)
+        XCTAssertEqual(
+            model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(50)
+        )
+
+        model.setComposeInputEditingActive(true)
+        XCTAssertEqual(
+            model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(120),
+            "IME-owned Compose input must win over viewport/navigation frame delivery."
+        )
+
+        model.setComposeInputEditingActive(false)
+        XCTAssertEqual(
+            model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
+            .milliseconds(50),
+            "Ending Compose focus should reveal the still-active viewport navigation cadence."
+        )
+
+        model.setViewportInteractionActive(false)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
             .milliseconds(16)
