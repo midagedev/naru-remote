@@ -6104,6 +6104,50 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D134 Add A Frame-Application Worker Cadence Floor
+
+References:
+- `artifacts/benchmarks/2026-06-07-frame-apply-worker-cadence-summary.md`
+- D130/D131 app-side frame-application backlog isolation work.
+- Apple UI responsiveness guidance:
+  https://developer.apple.com/documentation/xcode/improving-app-responsiveness
+- RFC 6143:
+  https://www.rfc-editor.org/rfc/rfc6143
+
+**Decision**: before the MainActor frame-application worker applies a repeated
+content frame, wait for a bounded display-frame-scale interval since the
+previous content frame application. Empty liveness and cursor updates do not
+receive this delay when they are the next queued work.
+
+**Why**:
+- Physical iPhone feedback still reports real-session freezing immediately
+  after VNC frames start. Previous work moved receive/decode and Metal staging
+  off MainActor and bounded the backlog, but a healthy worker can still resume
+  repeatedly on the UI executor if several content frames are already queued.
+- Apple treats main-thread responsiveness as the priority for user
+  interactions. A short, explicit pre-content-frame suspension gives gesture,
+  Compose, and pointer handlers a run-loop opportunity instead of relying on a
+  best-effort task yield, while letting the next empty cursor/liveness update
+  apply immediately.
+- RFB is client-driven in the request/response path, and RFC 6143 explicitly
+  allows slow clients/networks to skip transient framebuffer states. Preserving
+  every intermediate content frame is less important than keeping the phone
+  interactive.
+
+**Evidence target**:
+- Unit tests assert that repeated content work receives the cadence floor,
+  initial content work is immediate, and liveness/cursor-only empty updates
+  remain delay-free.
+- App-model focused tests and full package tests must pass.
+- This is not evidence that VNC reached the 10fps target; physical follow-up
+  still needs to verify gesture, trackpad, and Compose responsiveness after
+  connection start.
+
+**Privacy rule**: this change records no new diagnostics. It must not print or
+export host identity, credentials, ports, request coordinates, dimensions,
+pixels, byte counts, raw timing samples, command text, draft text, marked text,
+IME state, keysyms, or pointer coordinates.
+
 ### D135 Add A Remote Desktop 10fps Readiness Dashboard
 
 References:

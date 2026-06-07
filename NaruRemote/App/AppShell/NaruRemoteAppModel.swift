@@ -27,6 +27,26 @@ struct StreamFrameApplicationWork: Sendable {
     let isEmptyUpdate: Bool
 }
 
+struct SessionFrameApplicationWorkerPacing: Equatable, Sendable {
+    static let defaultContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
+
+    var contentFrameMinimumInterval: TimeInterval = Self.defaultContentFrameMinimumInterval
+
+    func delay(
+        before work: StreamFrameApplicationWork,
+        lastContentFrameAppliedAt: Date?,
+        now: Date
+    ) -> TimeInterval {
+        guard !work.isEmptyUpdate else {
+            return 0
+        }
+        guard let lastContentFrameAppliedAt else {
+            return 0
+        }
+        return max(contentFrameMinimumInterval - now.timeIntervalSince(lastContentFrameAppliedAt), 0)
+    }
+}
+
 actor SessionStreamFrameApplicationQueue {
     static let maximumPendingWorkCount = 3
 
@@ -3964,9 +3984,25 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func startFrameApplicationWorker(_ queue: SessionStreamFrameApplicationQueue) {
         activeFrameApplicationTask?.cancel()
+        let workerPacing = SessionFrameApplicationWorkerPacing()
         activeFrameApplicationTask = Task { @MainActor [weak self, queue] in
+            var lastContentFrameAppliedAt: Date?
             while !Task.isCancelled, let work = await queue.next() {
+                let pacingDelay = workerPacing.delay(
+                    before: work,
+                    lastContentFrameAppliedAt: lastContentFrameAppliedAt,
+                    now: Date()
+                )
+                if pacingDelay > 0 {
+                    try? await Task.sleep(for: .seconds(pacingDelay))
+                    if Task.isCancelled {
+                        return
+                    }
+                }
                 self?.applyStreamFrameApplication(work)
+                if !work.isEmptyUpdate {
+                    lastContentFrameAppliedAt = Date()
+                }
                 await Task.yield()
             }
         }
