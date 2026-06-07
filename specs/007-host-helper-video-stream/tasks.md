@@ -278,6 +278,13 @@ without unsafe report fields.
 - [x] T030A [US1] Let physical-device preflight infer a single local Apple
   Development team for the captured build check while reporting only a fixed
   `developmentTeamStatus=inferred` label. **Done.**
+- [x] T030B [US1] Split helper-video H.264 sample-buffer preparation from
+  display-layer enqueue by making the access-unit renderer async, moving
+  Annex-B parsing / AVCC conversion / CoreMedia sample-buffer creation into a
+  dedicated actor, and keeping only `AVSampleBufferDisplayLayer` mutation on
+  MainActor. Also move the VNC frame-application worker loop/pacing sleeps to a
+  detached task so it hops to the app model only for the bounded commit.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

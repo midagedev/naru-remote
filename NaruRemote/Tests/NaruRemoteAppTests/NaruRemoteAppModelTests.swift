@@ -6226,13 +6226,13 @@ private final class AppModelFakeHelperVideoRenderer: HelperVideoAccessUnitRender
 
     func enqueueDisplayableAccessUnit(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> Bool {
+    ) async throws -> Bool {
         let sequence = decoded.envelope.body.sequence
         enqueuedSequences.append(sequence)
         return displayableSequences.contains(sequence)
     }
 
-    func flush() {
+    func flush() async {
         flushCount += 1
     }
 }
