@@ -41,6 +41,41 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertEqual(model.snapshot.profiles, [storedProfile])
     }
 
+    func testEditProfilePreservesExistingHelperVideoConfiguration() async throws {
+        let persistence = InMemoryConnectionProfilePersistence()
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let helperVideo = HelperVideoConnectionConfiguration(
+            isEnabled: true,
+            pairingSecretRef: "helper-video-token:desk",
+            pairingFingerprint: "sha256:helper-video"
+        )
+        let original = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: helperVideo
+        )
+        let model = NaruRemoteAppModel(profileStore: store)
+        await model.addProfile(original)
+
+        let editedFromProfileEditor = try ConnectionProfile(
+            id: original.id,
+            displayName: "Desk Renamed",
+            host: "renamed.tailnet.ts.net",
+            port: 5905
+        )
+
+        await model.editProfile(editedFromProfileEditor, password: nil)
+
+        let reloaded = try await ConnectionProfileStore(persistence: persistence)
+        let storedOrNil = await reloaded.profile(id: original.id)
+        let stored = try XCTUnwrap(storedOrNil)
+        XCTAssertEqual(stored.helperVideo, helperVideo)
+        XCTAssertEqual(model.snapshot.selectedProfile?.helperVideo, helperVideo)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[original.id]?.isEnabled, true)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[original.id]?.availability, .checking)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
     func testEditProfileWithNilPasswordPreservesExistingCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)

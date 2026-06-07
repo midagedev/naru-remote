@@ -134,7 +134,7 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
-    func testFocusedInputDockRenderStateStillSurfacesSendStatusChanges() throws {
+    func testFocusedInputDockRenderStateDefersSendStatusChangesUntilFocusLeaves() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
         let baseSnapshot = NaruRemoteAppSnapshot(
@@ -158,7 +158,7 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             latestInjectionAttempt: attempt
         )
 
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             RemoteInputDockRenderState(
                 snapshot: baseSnapshot,
                 isLiveSession: true,
@@ -169,7 +169,72 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 isLiveSession: true,
                 isComposeFieldFocused: true
             ),
-            "Send status must still repaint the compact dock even while the editor keeps first responder."
+            "Send status is model chrome; while UIKit owns Korean/CJK Compose focus, it must not repaint the editor host."
+        )
+        XCTAssertNotEqual(
+            RemoteInputDockRenderState(
+                snapshot: baseSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            RemoteInputDockRenderState(
+                snapshot: statusSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            "Once Compose focus leaves, send status should repaint normally."
+        )
+    }
+
+    func testFocusedInputDockRenderStateDefersStatusClearAfterTypingOverPreviousSendResult() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let previousAttempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            status: .unknown,
+            safeMessage: "Paste command sent; remote app confirmation unavailable."
+        )
+        let statusSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입"),
+            latestInjectionAttempt: previousAttempt
+        )
+        let editingSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입력")
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: statusSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ),
+            RemoteInputDockRenderState(
+                snapshot: editingSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ),
+            "Typing the first Korean syllable after a previous send clears stale model status; that clear must not repaint the focused UIKit editor or the next IME key can stall."
+        )
+        XCTAssertNotEqual(
+            RemoteInputDockRenderState(
+                snapshot: statusSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            RemoteInputDockRenderState(
+                snapshot: editingSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            "Once Compose focus leaves, stale send status can be cleared from the visible dock."
         )
     }
 

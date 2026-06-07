@@ -115,6 +115,15 @@ private struct ConnectionGridCardView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                Label(
+                    card.helperVideoReadiness.label,
+                    systemImage: card.helperVideoReadiness.symbolName
+                )
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(card.helperVideoReadiness.tint)
+                .lineLimit(1)
+                .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
             }
             .padding(12)
         }
@@ -128,7 +137,9 @@ private struct ConnectionGridCardView: View {
                 )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(card.displayName), \(card.endpoint), \(card.reachability.gridAccessibilityLabel)")
+        .accessibilityLabel(
+            "\(card.displayName), \(card.endpoint), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
+        )
     }
 
     @ViewBuilder
@@ -194,6 +205,67 @@ private struct ProfilePreviewThumbnailView: View {
         .frame(maxWidth: .infinity)
         .accessibilityLabel("Last preview")
         .accessibilityIdentifier("naru.connection.grid.preview.thumbnail")
+    }
+}
+
+private extension ConnectionGridHelperVideoReadiness {
+    var identifier: String {
+        switch status {
+        case .vncOnly:
+            return "vncOnly"
+        case .checking:
+            return "checking"
+        case .ready:
+            return "ready"
+        case .needsSetup:
+            return "needsSetup"
+        case .needsPermission:
+            return "needsPermission"
+        case .disabled:
+            return "disabled"
+        case .revoked:
+            return "revoked"
+        case .blocked:
+            return "blocked"
+        case .vncFallback:
+            return "vncFallback"
+        }
+    }
+
+    var symbolName: String {
+        switch status {
+        case .vncOnly:
+            return "display"
+        case .checking:
+            return "arrow.triangle.2.circlepath"
+        case .ready:
+            return "video.fill"
+        case .needsSetup:
+            return "wrench.and.screwdriver.fill"
+        case .needsPermission:
+            return "lock.fill"
+        case .disabled:
+            return "video.slash.fill"
+        case .revoked:
+            return "xmark.shield.fill"
+        case .blocked:
+            return "exclamationmark.triangle.fill"
+        case .vncFallback:
+            return "arrow.uturn.backward.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch status {
+        case .ready:
+            return NaruColors.reachable
+        case .checking, .needsSetup, .needsPermission, .vncFallback:
+            return NaruColors.warning
+        case .blocked, .revoked:
+            return NaruColors.coral
+        case .vncOnly, .disabled:
+            return .secondary
+        }
     }
 }
 

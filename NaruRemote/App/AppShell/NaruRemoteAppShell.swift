@@ -182,6 +182,10 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
+                        if let focusedStatusText = focusedComposeStatusText(snapshot: snapshot) {
+                            FocusedComposeStatusLine(text: focusedStatusText)
+                        }
+
                         RemoteInputDockEquatableHost(
                             state: RemoteInputDockRenderState(
                                 snapshot: snapshot,
@@ -271,6 +275,17 @@ public struct NaruRemoteAppShell: View {
             await model.loadStoredSettings()
         }
     }
+
+    private func focusedComposeStatusText(snapshot: NaruRemoteAppSnapshot) -> String? {
+        guard composeFieldFocused, !snapshot.directKeystrokeMode.isActive else {
+            return nil
+        }
+        return RemoteInputDockView.resolvedCompactStatusText(
+            hasStatus: snapshot.latestInjectionAttempt != nil,
+            statusText: snapshot.inputStatusText,
+            helperStatusText: snapshot.inputHelperStatusText
+        )
+    }
 }
 
 struct RemoteInputDockRenderState: Equatable, Sendable {
@@ -289,13 +304,14 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         isLiveSession: Bool,
         isComposeFieldFocused: Bool = false
     ) {
-        self.initialText = snapshot.composeDraft?.text ?? ""
-        self.statusText = snapshot.inputStatusText
-        self.helperStatusText = snapshot.inputHelperStatusText
         self.directKeystrokeMode = snapshot.directKeystrokeMode
+        let isFocusedCompose = isComposeFieldFocused && !snapshot.directKeystrokeMode.isActive
+        self.initialText = snapshot.composeDraft?.text ?? ""
+        self.statusText = isFocusedCompose ? "Ready to compose locally" : snapshot.inputStatusText
+        self.helperStatusText = isFocusedCompose ? nil : snapshot.inputHelperStatusText
         self.stickyModifierState = snapshot.stickyModifierState
         self.layoutStyle = isLiveSession ? .compactAccessory : .standard
-        self.showsCompactStatusText = snapshot.latestInjectionAttempt != nil
+        self.showsCompactStatusText = isFocusedCompose ? false : snapshot.latestInjectionAttempt != nil
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
     }
@@ -312,11 +328,11 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             && !lhs.directKeystrokeMode.isActive
             && !rhs.directKeystrokeMode.isActive
         if freezeModelMirroredComposeFields {
-            // While UIKit owns IME focus, model mirrors and live-session
-            // accessory/layout transitions are advisory. Keep the UITextView
-            // identity stable; only user-visible send status may repaint.
-            return lhs.statusText == rhs.statusText
-                && lhs.showsCompactStatusText == rhs.showsCompactStatusText
+            // While UIKit owns IME focus, every model-mirrored field is
+            // advisory. Keep the UITextView identity stable even when a
+            // previous send status is cleared or a later send status arrives;
+            // otherwise Korean/CJK IME can lose its next-key input chain.
+            return true
         }
 
         guard lhs.stickyModifierState == rhs.stickyModifierState,
@@ -330,6 +346,27 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             && lhs.statusText == rhs.statusText
             && lhs.helperStatusText == rhs.helperStatusText
             && lhs.showsCompactStatusText == rhs.showsCompactStatusText
+    }
+}
+
+private struct FocusedComposeStatusLine: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(NaruColors.hairline)
+                    .frame(height: 1)
+            }
+            .accessibilityIdentifier("naru.input.focused-status")
     }
 }
 

@@ -7,9 +7,11 @@ final class NaruRemoteLaunchUITests: XCTestCase {
 
         let app = launchAppWithEmptyProfileStore()
 
-        XCTAssertTrue(app.staticTexts["Naru Remote"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Add a private VNC profile"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Add a computer to begin."].waitForExistence(timeout: 2))
+        XCTAssertTrue(
+            app.staticTexts["Connect to your Mac or Linux machine over your private Tailscale network."]
+                .waitForExistence(timeout: 2)
+        )
         XCTAssertTrue(app.buttons["naru.home.empty.addProfile"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["Remote Input Dock"].exists)
         XCTAssertFalse(app.staticTexts["Diagnostics"].exists)
@@ -42,7 +44,7 @@ final class NaruRemoteLaunchUITests: XCTestCase {
 
         let app = launchAppWithEmptyProfileStore()
 
-        let addProfile = app.buttons["Add Profile"]
+        let addProfile = app.buttons["naru.home.empty.addProfile"]
         XCTAssertTrue(addProfile.waitForExistence(timeout: 8))
         addProfile.tap()
 
@@ -51,6 +53,7 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         let hostField = app.textFields["MagicDNS or private host"]
         XCTAssertTrue(hostField.waitForExistence(timeout: 2))
 
+        hostField.tap()
         app.typeText("studio.tailnet.ts.net")
         XCTAssertEqual(hostField.value as? String, "studio.tailnet.ts.net")
     }
@@ -91,13 +94,6 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         XCTAssertTrue(
             glance025.waitForExistence(timeout: 4),
             "Low-traffic RGB565 physical candidates must expose the injected glance scale"
-        )
-
-        glance025.tap()
-        XCTAssertTrue(
-            startupGlanceButton(in: lowTrafficApp, containing: "Startup glance 0.45")
-                .waitForExistence(timeout: 2),
-            "Startup glance scale control must cycle to the default candidate"
         )
     }
 

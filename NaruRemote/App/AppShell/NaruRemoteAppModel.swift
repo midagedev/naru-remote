@@ -1568,6 +1568,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         var profileToSave = profile
+        if profileToSave.helperVideo == nil {
+            profileToSave.helperVideo = existingProfile.helperVideo
+        }
 
         if let password {
             let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)

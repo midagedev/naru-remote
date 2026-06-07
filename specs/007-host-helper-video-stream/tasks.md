@@ -328,8 +328,20 @@ without unsafe report fields.
 - [x] T031E [US1] Reproduce the focused Compose freeze as a
   `connecting -> active` session-transition render-state change, then defer
   live-session dock layout and quick-key accessory invalidation while UIKit
-  owns Compose focus. Send-result status still repaints, and unfocused docks
-  still adopt the compact live layout. **Done.**
+  owns Compose focus. Send-result status is now handled by a detached status
+  line so the focused editor host stays stable, and unfocused docks still adopt
+  the compact live layout. **Done.**
+- [x] T031F [US3] Surface helper-video readiness on connection-grid cards with
+  fixed safe labels, and preserve an existing helper-video opt-in when a
+  profile is edited through the current profile editor. Current live readiness
+  still routes the smooth visual path to `Screen Recording` setup while VNC
+  remains the control/input/fallback path. **Done.**
+- [x] T031G [US1] Reproduce the post-send focused Compose freeze where typing
+  a Korean syllable clears `latestInjectionAttempt`, then prevent that status
+  clear from invalidating the UIKit editor host. Keep actionable status visible
+  in a sibling focused-status line and verify simulator Compose still accepts a
+  second Korean syllable in both profile-detail and active compact layouts.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

@@ -516,4 +516,60 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.connectionGridCards[1].verdict, .unknown)
         XCTAssertTrue(snapshot.connectionGridCards[1].isSelected)
     }
+
+    func testConnectionGridCardsExposeHelperVideoReadinessWithoutUnsafeDetails() throws {
+        let vncOnly = try ConnectionProfile(
+            displayName: "VNC Desk",
+            host: "vnc.tailnet.ts.net"
+        )
+        let ready = try ConnectionProfile(
+            displayName: "Ready Desk",
+            host: "ready.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: "helper-video-token:ready",
+                pairingFingerprint: "sha256:ready-helper"
+            )
+        )
+        let permissionBlocked = try ConnectionProfile(
+            displayName: "Capture Desk",
+            host: "capture.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: "helper-video-token:capture",
+                pairingFingerprint: "sha256:capture-helper"
+            )
+        )
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [vncOnly, ready, permissionBlocked],
+            helperVideoProfileState: [
+                ready.id: HelperVideoProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:ready-helper",
+                    availability: .available,
+                    lastCheckedBucket: .recent
+                ),
+                permissionBlocked.id: HelperVideoProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:capture-helper",
+                    availability: .permissionMissing,
+                    lastFailureCode: .permissionMissing,
+                    lastCheckedBucket: .recent
+                )
+            ]
+        )
+
+        XCTAssertEqual(snapshot.connectionGridCards[0].helperVideoReadiness.status, .vncOnly)
+        XCTAssertEqual(snapshot.connectionGridCards[0].helperVideoReadiness.label, "VNC only")
+        XCTAssertEqual(snapshot.connectionGridCards[1].helperVideoReadiness.status, .ready)
+        XCTAssertEqual(snapshot.connectionGridCards[1].helperVideoReadiness.label, "Helper video")
+        XCTAssertEqual(snapshot.connectionGridCards[2].helperVideoReadiness.status, .needsPermission)
+        XCTAssertEqual(snapshot.connectionGridCards[2].helperVideoReadiness.label, "Screen Recording")
+
+        let exportedLabels = snapshot.connectionGridCards.map(\.helperVideoReadiness.label)
+            + snapshot.connectionGridCards.map(\.helperVideoReadiness.accessibilityLabel)
+        XCTAssertFalse(exportedLabels.joined(separator: " ").contains("sha256:"))
+        XCTAssertFalse(exportedLabels.joined(separator: " ").contains("helper-video-token"))
+        XCTAssertFalse(exportedLabels.joined(separator: " ").contains("tailnet.ts.net"))
+    }
 }
