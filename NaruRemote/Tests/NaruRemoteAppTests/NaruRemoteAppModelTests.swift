@@ -22,6 +22,143 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
     }
 
+    func testSessionStreamFrameApplicationQueueCoalescesContentBacklogToInitialAndLatestFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let queue = SessionStreamFrameApplicationQueue()
+
+        for sequence in 1...6 {
+            await queue.enqueue(
+                Self.makeStreamFrameApplicationWork(
+                    sequence: sequence,
+                    red: UInt8(sequence * 10),
+                    serverInit: serverInit,
+                    profile: profile,
+                    sessionID: sessionID,
+                    streamID: streamID
+                )
+            )
+        }
+        await queue.close()
+
+        let pendingCount = await queue.pendingCount()
+        XCTAssertEqual(
+            pendingCount,
+            2,
+            "A lagging UI worker should keep the initial connect frame and latest content frame, not every transient framebuffer."
+        )
+        let first = await queue.next()
+        let latest = await queue.next()
+        let done = await queue.next()
+
+        XCTAssertEqual(first?.frame.sequence, 1)
+        XCTAssertEqual(latest?.frame.sequence, 6)
+        XCTAssertNil(done)
+        XCTAssertEqual(SessionStreamFrameApplicationQueue.maximumPendingWorkCount, 3)
+    }
+
+    func testSessionStreamFrameApplicationQueueKeepsLatestCursorUpdateWhenContentBacklogIsCoalesced() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let queue = SessionStreamFrameApplicationQueue()
+        let firstCursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 1, green: 1, blue: 1)]
+        )
+        let latestCursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 2, green: 2, blue: 2)]
+        )
+
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 1,
+                red: 10,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 2,
+                red: 10,
+                isEmptyUpdate: true,
+                serverCursor: firstCursor,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 3,
+                red: 30,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 4,
+                red: 30,
+                isEmptyUpdate: true,
+                serverCursor: latestCursor,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 5,
+                red: 30,
+                isEmptyUpdate: true,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 6,
+                red: 60,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.close()
+
+        let retained = [
+            await queue.next(),
+            await queue.next(),
+            await queue.next()
+        ]
+        let done = await queue.next()
+
+        XCTAssertEqual(retained.compactMap { $0?.frame.sequence }, [1, 4, 6])
+        XCTAssertEqual(retained[1]?.frame.serverCursor, latestCursor)
+        XCTAssertNil(done)
+    }
+
     func testStartupPreflightPolicyClampsHiddenFramesForAppSafety() {
         XCTAssertEqual(SessionStreamStartupPreflightPolicy.disabled.hiddenFrameCount, 0)
         XCTAssertEqual(SessionStreamStartupPreflightPolicy.maximumHiddenFrameCount, 1)
@@ -5081,6 +5218,61 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(readTimeoutReport.stageRows.last?.stageID, DiagnosticStage.rfbHandshake.rawValue)
         XCTAssertEqual(readTimeoutReport.stageRows.last?.failureCode, "network.readTimedOut")
+    }
+
+    private static func makeServerInit(width: Int, height: Int) -> RFBServerInit {
+        RFBServerInit(
+            width: width,
+            height: height,
+            pixelFormat: RFBPixelFormat(
+                bitsPerPixel: 32,
+                depth: 24,
+                isBigEndian: false,
+                isTrueColor: true,
+                redMax: 255,
+                greenMax: 255,
+                blueMax: 255,
+                redShift: 16,
+                greenShift: 8,
+                blueShift: 0
+            ),
+            name: "Desk"
+        )
+    }
+
+    private static func makeStreamFrameApplicationWork(
+        sequence: Int,
+        red: UInt8,
+        isEmptyUpdate: Bool = false,
+        serverCursor: RFBServerCursor? = nil,
+        serverInit: RFBServerInit,
+        profile: ConnectionProfile,
+        sessionID: RemoteSession.ID,
+        streamID: UUID
+    ) -> StreamFrameApplicationWork {
+        let framebuffer = RFBRawFramebuffer(
+            width: Int(serverInit.width),
+            height: Int(serverInit.height),
+            fill: RFBColor(red: red, green: 0, blue: 0)
+        )
+        return StreamFrameApplicationWork(
+            frame: RFBFramePumpFrame(
+                sequence: sequence,
+                framebuffer: framebuffer,
+                dirtyRectangles: isEmptyUpdate
+                    ? []
+                    : [RFBFrameDamageRect(x: 0, y: 0, width: framebuffer.width, height: framebuffer.height)],
+                changedPixelCount: isEmptyUpdate ? 0 : framebuffer.width * framebuffer.height,
+                capturedAt: Date(timeIntervalSince1970: TimeInterval(sequence)),
+                isIncremental: sequence > 1,
+                serverCursor: serverCursor
+            ),
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID,
+            isEmptyUpdate: isEmptyUpdate
+        )
     }
 
     private func failedConnectReport(connectError: RFBNetworkClientError) async throws -> DiagnosticCollectionReport {

@@ -18,7 +18,7 @@ private struct DeferredViewportInteractionFrame {
     let streamID: UUID
 }
 
-private struct StreamFrameApplicationWork: Sendable {
+struct StreamFrameApplicationWork: Sendable {
     let frame: RFBFramePumpFrame
     let serverInit: RFBServerInit
     let profile: ConnectionProfile
@@ -27,39 +27,95 @@ private struct StreamFrameApplicationWork: Sendable {
     let isEmptyUpdate: Bool
 }
 
-private actor SessionStreamFrameApplicationQueue {
+actor SessionStreamFrameApplicationQueue {
+    static let maximumPendingWorkCount = 3
+
     private var pending: [StreamFrameApplicationWork] = []
-    private var waiters: [CheckedContinuation<StreamFrameApplicationWork?, Never>] = []
+    private var waiters: [CheckedContinuation<Void, Never>] = []
     private var isClosed = false
 
-    func enqueue(_ work: StreamFrameApplicationWork) {
+    @discardableResult
+    func enqueue(_ work: StreamFrameApplicationWork) -> Int {
         guard !isClosed else {
-            return
-        }
-        guard waiters.isEmpty else {
-            waiters.removeFirst().resume(returning: work)
-            return
+            return 0
         }
         pending.append(work)
+        let droppedCount = coalescePending()
+        resumePendingWaiters()
+        return droppedCount
     }
 
     func next() async -> StreamFrameApplicationWork? {
-        guard pending.isEmpty else {
-            return pending.removeFirst()
+        while true {
+            guard pending.isEmpty else {
+                return pending.removeFirst()
+            }
+            guard !isClosed else {
+                return nil
+            }
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
         }
-        guard !isClosed else {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+    }
+
+    func pendingCount() -> Int {
+        pending.count
     }
 
     func close() {
         isClosed = true
+        resumePendingWaiters()
+    }
+
+    private func resumePendingWaiters() {
         let pendingWaiters = waiters
         waiters.removeAll()
-        pendingWaiters.forEach { $0.resume(returning: nil) }
+        pendingWaiters.forEach { $0.resume() }
+    }
+
+    private func coalescePending() -> Int {
+        guard pending.count > 1 else {
+            return 0
+        }
+
+        let originalCount = pending.count
+        let initialContentIndex = pending.indices.first {
+            pending[$0].frame.sequence == 1 && !pending[$0].isEmptyUpdate
+        }
+        let latestContentIndex = pending.indices.last {
+            !pending[$0].isEmptyUpdate
+        }
+        let latestCursorIndex = pending.indices.last {
+            pending[$0].isEmptyUpdate && pending[$0].frame.serverCursor != nil
+        }
+        let latestLivenessIndex = pending.indices.last {
+            pending[$0].isEmptyUpdate && pending[$0].frame.serverCursor == nil
+        }
+
+        var retainedIndexes = Set<Int>()
+        if let initialContentIndex {
+            retainedIndexes.insert(initialContentIndex)
+        }
+        if let latestContentIndex {
+            retainedIndexes.insert(latestContentIndex)
+        }
+        if let latestCursorIndex {
+            retainedIndexes.insert(latestCursorIndex)
+        }
+        if retainedIndexes.isEmpty, let latestLivenessIndex {
+            retainedIndexes.insert(latestLivenessIndex)
+        }
+        if retainedIndexes.isEmpty, let lastIndex = pending.indices.last {
+            retainedIndexes.insert(lastIndex)
+        }
+
+        pending = pending.enumerated()
+            .compactMap { retainedIndexes.contains($0.offset) ? $0.element : nil }
+        if pending.count > Self.maximumPendingWorkCount {
+            pending = Array(pending.suffix(Self.maximumPendingWorkCount))
+        }
+        return originalCount - pending.count
     }
 }
 
@@ -3908,6 +3964,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFrameApplicationTask = Task { @MainActor [weak self, queue] in
             while !Task.isCancelled, let work = await queue.next() {
                 self?.applyStreamFrameApplication(work)
+                await Task.yield()
             }
         }
     }
