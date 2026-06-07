@@ -1528,6 +1528,21 @@ iPhone) and ships as its own PR.
   byte counts, stimulus command text, draft text, marked text, IME state, or
   keystroke content. Owns: benchmark summary type, CLI report schema/text
   output, tests, research note, and benchmark artifact. **Done.**
+- **T472** Remote desktop 10fps server cadence probe: add
+  `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-server-cadence-probe`
+  to compare fixed `local-low-latency-rgb565` candidates across network
+  conditioning, sustained request region, and first-frame request mode under
+  the `iphone-remote-desktop-10fps-v1` target. Record whether first-byte wait
+  persists when network conditioning is disabled, when startup uses a full
+  first frame, and when sustained requests use a full region. Emit/export only
+  fixed mode/candidate/profile/target/network/request labels, fixed
+  verdict/status/action labels, aggregate counts, aggregate timings, and
+  permille shares; do not print/export host identity, credentials, ports,
+  helper paths, executable paths, command lines, raw stdout/stderr, raw TCP/RFB
+  errors, coordinates, dimensions, pixels, byte counts, stimulus command text,
+  draft text, marked text, IME state, keystroke content, or exact helper
+  timings. Owns: launchctl runner, README, research note, benchmark artifact,
+  and live evidence. **Done.**
 
 ## Cross-cutting (every increment)
 

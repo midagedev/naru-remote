@@ -274,6 +274,16 @@ request cadence health. The first live v68 run still fails the 10fps gate
 classifies the run as `first-byte-wait-dominated` with
 `inspectServerUpdateCadence`. Treat this as evidence to inspect server update
 cadence / first-byte timing before trying another VNC profile-only promotion.
+Current remote desktop 10fps server cadence probe:
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-server-cadence-probe-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-server-cadence-probe`
+to compare fixed `local-low-latency-rgb565` candidates across network
+conditioning, sustained request region, and first-frame request mode. The first
+live run completed all four candidates; all still failed the 10fps target and
+all classified as `first-byte-wait-dominated`. Even the unconditioned local
+candidate reached only `6.99` content FPS with `503` ms p95 update and `502` ms
+first-byte wait p95, so the current bottleneck is not explained solely by the
+constrained-cellular proxy, viewport request regions, or visible-glance startup.
 Current remote desktop 10fps readiness artifact:
 `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-readiness-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` to run

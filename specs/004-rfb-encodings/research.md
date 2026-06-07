@@ -6171,6 +6171,87 @@ raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
 counts, stimulus command text, draft text, marked text, IME state, keystroke
 content, or exact helper timings.
 
+### D138 Add A Remote Desktop 10fps Server Cadence Probe
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-server-cadence-probe-summary.md`
+- D137 server cadence diagnosis.
+- D135 remote desktop 10fps profile cadence sweep.
+- D134 remote desktop 10fps target.
+
+**Decision**: add a fixed launchctl-backed
+`remote-desktop-10fps-server-cadence-probe` runner that compares the current
+`local-low-latency-rgb565` VNC path across network conditioning, sustained
+request region, and first-frame request mode under
+`iphone-remote-desktop-10fps-v1`.
+
+The fixed candidates are:
+- `constrained-viewport-visible`: constrained-cellular,
+  `viewport-phone-portrait`, `visible-glance`.
+- `local-viewport-visible`: no benchmark network conditioning,
+  `viewport-phone-portrait`, `visible-glance`.
+- `constrained-viewport-full-startup`: constrained-cellular,
+  `viewport-phone-portrait`, full first frame.
+- `constrained-full-full-startup`: constrained-cellular, full sustained
+  requests, full first frame.
+
+**Why**:
+- D137 confirmed the live 10fps failure routes to first-byte wait, but did not
+  prove whether the wait came from the constrained-cellular proxy,
+  viewport-aware request regions, visible-glance startup, or the Mac VNC server
+  cadence itself.
+- A same-profile fixed candidate sweep avoids conflating profile/encoding
+  behavior with transport cadence.
+- Keeping one unconditioned candidate answers whether the poor-network proxy is
+  the entire problem before we spend more work on request-region tuning.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `remote-desktop-10fps-server-cadence-probe`.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-server-cadence-probe -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- A clean live `remote-desktop-10fps-server-cadence-probe` run exited `rc=0`
+  and completed all four fixed candidates.
+- `jq empty /tmp/naru-remote-desktop-10fps-server-cadence-probe.json` passes.
+
+**Live result**:
+- `constrained-viewport-visible`: fail, `first-byte-wait-dominated`,
+  `1.57` content FPS, `569` ms average update, `910` ms p95 update, `632` ms
+  first-byte wait p95, `425` ms payload p95, `872` first-byte wait share,
+  `128` payload-read share.
+- `local-viewport-visible`: fail, `first-byte-wait-dominated`,
+  `6.99` content FPS, `117` ms average update, `503` ms p95 update, `502` ms
+  first-byte wait p95, `0` ms payload p95, `1000` first-byte wait share.
+- `constrained-viewport-full-startup`: fail, `first-byte-wait-dominated`,
+  `2.03` content FPS, `492` ms average update, `629` ms p95 update, `628` ms
+  first-byte wait p95, `0` ms payload p95, `1000` first-byte wait share.
+- `constrained-full-full-startup`: fail, `first-byte-wait-dominated`,
+  `1.92` content FPS, `500` ms average update, `889` ms p95 update, `627` ms
+  first-byte wait p95, `445` ms payload p95, `921` first-byte wait share,
+  `79` payload-read share.
+
+**Interpretation**:
+- Removing the constrained-cellular proxy improves the average but still misses
+  10fps and keeps first-byte wait as the p95 bottleneck. The proxy is not the
+  whole explanation.
+- Full first-frame startup does not clear the sustained first-byte wait.
+- Full sustained requests do not clear first-byte wait under constrained
+  cellular and increase payload pressure in some runs.
+- The current evidence weakens request-region/startup-mode promotion as the
+  path to Chrome-Remote-like smoothness. The next product-smoothness unit
+  should prioritize true helper-video progress while VNC server cadence remains
+  a fallback/control-path investigation.
+
+**Privacy rule**: the server cadence probe emits only fixed
+mode/candidate/profile/target/network/request labels, fixed
+verdict/status/action labels, aggregate counts, aggregate millisecond
+summaries, and permille shares. It must not print or export host identity,
+credentials, ports, helper paths, executable paths, command lines, raw
+stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+counts, stimulus command text, draft text, marked text, IME state, keystroke
+content, or exact helper timings.
+
 ### D136 Prefer Control Updates While Content Frames Are Paced
 
 References:
