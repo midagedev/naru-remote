@@ -2203,3 +2203,67 @@ nominal `upTo30` bucket until the system reports pressure.
 **Privacy rule**: Helper-video start request policy may use local power and
 thermal state to choose fixed stream labels. It must not export raw thermal
 samples, battery state, bitrate values, byte counts, or exact timings.
+
+## D56 - Apply input-aware cadence before MainActor frame application
+
+**Decision**: Move the existing IME/viewport frame-delivery priority one step
+earlier in the pipeline. Repeated content frames now consult the current
+service priority before they hop into MainActor frame application: ordinary
+visual playback keeps a 60fps-class floor, viewport navigation applies repeated
+content at a 20fps-class cadence, and focused Compose applies repeated content
+at a 10fps-class cadence. Empty/control updates remain immediate and the
+application queue keeps coalescing backlog to the initial frame, latest content
+frame, and latest cursor/liveness update. After a pacing sleep, a dequeued
+content frame is replaced by the newest pending content frame when one exists,
+so the app skips stale visual work instead of replaying old frames through the
+MainActor.
+
+**Rationale**:
+- The remaining physical-device symptom is about touch and IME responsiveness,
+  not just viewport-store delivery. If every content frame still enters the app
+  model at display cadence while the keyboard is active, frame publication,
+  preview bookkeeping, session stats, and diagnostics can compete with UIKit's
+  input transaction before the later frame-store coalescing delay helps.
+- Apple frames responsiveness as keeping expensive or blocking work away from
+  the main thread and measuring hitches/hangs as first-class product failures.
+  This change reduces the amount of content-frame work that reaches the main
+  actor while user input owns the session.
+- Metal guidance emphasizes CPU/GPU parallelism and avoiding stalls. Keeping
+  only the latest pending content frame before the MainActor hop preserves the
+  renderer side channel without replaying stale frames through UI-owned state.
+- Sleeping after dequeue without replacement still lets an old frame apply
+  after a newer one is already waiting. Replacing stale dequeued content after
+  the sleep keeps visual catch-up closer to a video player: show the freshest
+  available frame, not every frame in order.
+- The 10fps Compose cadence is deliberately not a helper-video quality target;
+  it is an input-protection floor for the VNC control/fallback path while
+  helper-video remains the primary smooth visual path once Screen Recording is
+  granted.
+
+**Sources**:
+- Apple Improving app responsiveness:
+  https://developer.apple.com/documentation/xcode/improving-app-responsiveness
+- Apple Improving your app's performance:
+  https://developer.apple.com/documentation/xcode/improving-your-app-s-performance
+- Apple Metal Best Practices Guide:
+  https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/index.html
+
+**Evidence**:
+- `SessionFrameApplicationWorkerPacing` tests prove the visual, viewport, and
+  Compose content-application cadence constants and delay calculation.
+- `SessionStreamFrameApplicationQueue` tests prove a stale dequeued content
+  frame can be replaced by the newest pending content frame after a pacing
+  sleep.
+- `NaruRemoteAppModelTests/testComposeFocusPacesFrameApplicationBeforeMainActorWork`
+  proves a focused Compose session gates repeated content frames before they
+  enter MainActor frame application, then applies only the newest queued frame.
+- `SessionFrameDeliveryPriorityModelTests` pins Compose focus above viewport
+  and transient interaction leases.
+- `SessionFrameStoreTests` pins the matching 10fps-class text-input delivery
+  coalescing cadence.
+
+**Privacy rule**: This change adds no exported fields. Tests and artifacts may
+mention only fixed cadence classes and pass/fail outcomes; they must not emit
+draft text, marked text, keysyms, pointer coordinates, host identity,
+credentials, ports, physical device identifiers, pixels, byte counts, raw
+timings, raw OS errors, or helper endpoints.

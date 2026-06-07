@@ -16,7 +16,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120)
+            .milliseconds(100)
         )
 
         model.setComposeInputEditingActive(false)
@@ -152,7 +152,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120)
+            .milliseconds(100)
         )
 
         model.selectProfile(id: second.id)
@@ -180,7 +180,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120)
+            .milliseconds(100)
         )
 
         try await Task.sleep(
@@ -189,7 +189,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120),
+            .milliseconds(100),
             "A transient interaction lease must not drop Compose focus back to visual frame cadence."
         )
 
@@ -213,7 +213,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         model.setComposeInputEditingActive(true)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120),
+            .milliseconds(100),
             "IME-owned Compose input must win over viewport/navigation frame delivery."
         )
 

@@ -31,7 +31,7 @@ final class SessionFrameStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(120)
+            .milliseconds(100)
         )
     }
 
@@ -241,7 +241,7 @@ final class SessionFrameStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.pendingFrameDeliveryCoalescingDelayForTesting,
-            .milliseconds(120),
+            .milliseconds(100),
             "Entering text input should move already pending steady frames to the IME-friendly cadence."
         )
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
