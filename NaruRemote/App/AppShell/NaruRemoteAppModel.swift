@@ -692,6 +692,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var frameDeliveryInteractionReasons: Set<FrameDeliveryInteractionReason> = []
     private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
     private var transientFrameDeliveryInteractionLeaseID: UUID?
+    private var focusedInputChromePublishTask: Task<Void, Never>?
+    private var pendingFocusedInputConnectionQuality: ConnectionQuality?
+    private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
     private var isViewportInteractionActive: Bool {
         viewportInteractionFrameStrategy != nil
@@ -739,6 +742,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
+    static let focusedInputChromePublishInterval: Duration = .milliseconds(250)
     public static let defaultActiveFrameInterval: TimeInterval =
         StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -1265,6 +1269,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         helperVideoStreamDescriptor = descriptor
+        pendingFocusedInputHelperVideoHealth = nil
         helperVideoStreamHealth = health
         helperVideoVisualSelectionFailureReason = nil
         visualTransportMode = .helperVideo
@@ -1310,8 +1315,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profileID) else {
             return
         }
-        helperVideoStreamHealth = health
         guard health.shouldUseVNCVisualFallback else {
+            publishHelperVideoStreamHealth(health)
             return
         }
         fallbackToVNCVisualTransport(
@@ -1324,6 +1329,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         health: HelperVideoStreamHealth,
         profileID: ConnectionProfile.ID?
     ) {
+        pendingFocusedInputHelperVideoHealth = nil
         visualTransportMode = .vncFramebuffer
         helperVideoStreamDescriptor = nil
         helperVideoStreamHealth = HelperVideoStreamHealth(
@@ -1345,6 +1351,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func resetVisualTransportState() {
+        pendingFocusedInputHelperVideoHealth = nil
         visualTransportMode = .vncFramebuffer
         helperVideoStreamDescriptor = nil
         helperVideoStreamHealth = HelperVideoStreamHealth()
@@ -1442,6 +1449,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         else {
             return
         }
+        pendingFocusedInputHelperVideoHealth = nil
         visualTransportMode = .vncFramebuffer
         helperVideoStreamDescriptor = nil
         helperVideoStreamHealth = HelperVideoStreamHealth(
@@ -4183,12 +4191,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         _ reason: FrameDeliveryInteractionReason,
         active: Bool
     ) {
+        let wasFocusedInputActive = isFocusedInputChromeCoalescingActive
         if active {
             frameDeliveryInteractionReasons.insert(reason)
         } else {
             frameDeliveryInteractionReasons.remove(reason)
         }
         frameStore.setDeliveryPriority(frameDeliveryPriority(for: frameDeliveryInteractionReasons))
+        if wasFocusedInputActive && !isFocusedInputChromeCoalescingActive {
+            flushFocusedInputChromeUpdates()
+        }
     }
 
     private func frameDeliveryPriority(
@@ -4201,6 +4213,83 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .viewportNavigation
         }
         return .visual
+    }
+
+    private var isFocusedInputChromeCoalescingActive: Bool {
+        frameDeliveryInteractionReasons.contains(.composeFocus)
+    }
+
+    private func publishConnectionQuality(_ quality: ConnectionQuality) {
+        guard isFocusedInputChromeCoalescingActive else {
+            pendingFocusedInputConnectionQuality = nil
+            if connectionQuality != quality {
+                connectionQuality = quality
+            }
+            return
+        }
+
+        guard connectionQuality != quality else {
+            pendingFocusedInputConnectionQuality = nil
+            return
+        }
+        pendingFocusedInputConnectionQuality = quality
+        scheduleFocusedInputChromePublish()
+    }
+
+    private func publishHelperVideoStreamHealth(_ health: HelperVideoStreamHealth) {
+        guard isFocusedInputChromeCoalescingActive else {
+            pendingFocusedInputHelperVideoHealth = nil
+            helperVideoStreamHealth = health
+            return
+        }
+
+        guard helperVideoStreamHealth != health else {
+            pendingFocusedInputHelperVideoHealth = nil
+            return
+        }
+        pendingFocusedInputHelperVideoHealth = health
+        scheduleFocusedInputChromePublish()
+    }
+
+    private func scheduleFocusedInputChromePublish() {
+        guard focusedInputChromePublishTask == nil else {
+            return
+        }
+        let delay = Self.focusedInputChromePublishInterval
+        focusedInputChromePublishTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            self?.flushFocusedInputChromeUpdates(cancelScheduledTask: false)
+        }
+    }
+
+    private func flushFocusedInputChromeUpdates(cancelScheduledTask: Bool = true) {
+        if cancelScheduledTask {
+            focusedInputChromePublishTask?.cancel()
+        }
+        focusedInputChromePublishTask = nil
+
+        if let quality = pendingFocusedInputConnectionQuality {
+            pendingFocusedInputConnectionQuality = nil
+            if connectionQuality != quality {
+                connectionQuality = quality
+            }
+        }
+
+        if let health = pendingFocusedInputHelperVideoHealth {
+            pendingFocusedInputHelperVideoHealth = nil
+            helperVideoStreamHealth = health
+        }
+    }
+
+    private func cancelFocusedInputChromeUpdates() {
+        focusedInputChromePublishTask?.cancel()
+        focusedInputChromePublishTask = nil
+        pendingFocusedInputConnectionQuality = nil
+        pendingFocusedInputHelperVideoHealth = nil
     }
 
     public func recordOutboundInputEvent(
@@ -4677,8 +4766,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         connectionQualityEstimator.record(latencyMilliseconds: milliseconds)
         let bucket = connectionQualityEstimator.quality
-        if connectionQuality != bucket {
-            connectionQuality = bucket
+        let currentOrPendingQuality = pendingFocusedInputConnectionQuality ?? connectionQuality
+        if currentOrPendingQuality != bucket {
+            publishConnectionQuality(bucket)
             renegotiateAdaptiveEncodingsIfNeeded(
                 for: bucket,
                 transportControl: transportControl,
@@ -4803,7 +4893,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         adaptiveEncodingRenegotiationTask = nil
         lastAdaptiveEncodingQuality = nil
         connectionQualityEstimator.reset()
-        connectionQuality = .unknown
+        pendingFocusedInputConnectionQuality = nil
+        publishConnectionQuality(.unknown)
     }
 
     /// Reset pointer-control mode + trackpad cursor to the product
@@ -4826,7 +4917,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Constitution §IV: a quality *bucket* is a coarse, non-sensitive
     /// signal — no raw latency value is stored or exported.
     public func seedConnectionQualityForTesting(_ quality: ConnectionQuality) {
-        connectionQuality = quality
+        publishConnectionQuality(quality)
     }
 
     private func handleStreamFailure(
@@ -5079,6 +5170,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         transientFrameDeliveryInteractionTask?.cancel()
         transientFrameDeliveryInteractionTask = nil
         transientFrameDeliveryInteractionLeaseID = nil
+        cancelFocusedInputChromeUpdates()
         frameDeliveryInteractionReasons.removeAll()
         viewportInteractionFrameStrategy = nil
         deferredViewportInteractionFrame = nil

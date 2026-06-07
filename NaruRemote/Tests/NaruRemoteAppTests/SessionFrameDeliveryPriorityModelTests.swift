@@ -230,4 +230,69 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
             .milliseconds(16)
         )
     }
+
+    func testComposeFocusCoalescesConnectionQualityChromeUntilFocusLeaves() async throws {
+        let model = NaruRemoteAppModel()
+
+        model.setComposeInputEditingActive(true)
+        model.seedConnectionQualityForTesting(.good)
+
+        XCTAssertEqual(
+            model.connectionQuality,
+            .unknown,
+            "Focused Compose should not republish chrome-only quality updates synchronously with IME events."
+        )
+
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(model.connectionQuality, .unknown)
+
+        model.setComposeInputEditingActive(false)
+
+        XCTAssertEqual(
+            model.connectionQuality,
+            .good,
+            "Leaving Compose focus should flush the latest coalesced quality bucket."
+        )
+    }
+
+    func testComposeFocusCoalescesHelperVideoHealthButDoesNotDeferFallback() async throws {
+        let model = NaruRemoteAppModel()
+        let healthy = HelperVideoStreamHealth(
+            state: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: .smooth,
+            decodePressure: .low
+        )
+
+        model.setComposeInputEditingActive(true)
+        model.updateHelperVideoStreamHealth(healthy)
+
+        XCTAssertEqual(
+            model.helperVideoStreamHealth,
+            HelperVideoStreamHealth(),
+            "Focused Compose should coalesce non-critical helper-video health chrome."
+        )
+
+        model.updateHelperVideoStreamHealth(
+            HelperVideoStreamHealth(
+                state: .stalled,
+                sustainedUpdateBand: .stalled,
+                fallbackCountBucket: .one
+            )
+        )
+
+        XCTAssertEqual(model.helperVideoStreamHealth.state, .fallbackToVNC)
+        XCTAssertEqual(
+            model.helperVideoStreamHealth.fallbackCountBucket,
+            .one,
+            "Functional helper-video fallback must remain immediate even during focused input."
+        )
+
+        try await Task.sleep(for: NaruRemoteAppModel.focusedInputChromePublishInterval + .milliseconds(80))
+        XCTAssertEqual(
+            model.helperVideoStreamHealth.state,
+            .fallbackToVNC,
+            "A pending healthy chrome sample must not overwrite an immediate fallback decision."
+        )
+    }
 }
