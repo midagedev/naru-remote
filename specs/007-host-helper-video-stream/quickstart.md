@@ -485,8 +485,13 @@ endpoints, byte counts, or exact timings. Use `--helper-video-probe
 external-helper-synthetic-encoded-tcp` when the benchmark should launch the
 real `NaruHelper --video-listen` process before connecting the helper-video
 client with deterministic VideoToolbox output. Use `--helper-video-probe
-external-helper-screen-capturekit-tcp` when the same external helper process
-should exercise finite ScreenCaptureKit capture. Use `--helper-video-probe
+external-helper-sustained-synthetic-encoded-tcp` or
+`scripts/run-naru-live-benchmark.sh helper-sustained-synthetic-probe` when a
+larger sustained synthetic H.264 batch should gate helper process, TCP framing,
+and receive/decode readiness before true capture is available. Use
+`--helper-video-probe external-helper-screen-capturekit-tcp` when the same
+external helper process should exercise finite ScreenCaptureKit capture. Use
+`--helper-video-probe
 screen-capturekit-tcp` only when the local benchmark process has Screen
 Recording permission and the run should exercise a finite real screen-capture
 batch through the same safe aggregate report boundary. Reports must preserve

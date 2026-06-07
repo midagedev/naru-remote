@@ -153,6 +153,25 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertFalse(accessUnits.map(\.binaryPayload).contains(Data([0x65, 0x88])))
     }
 
+    func testToolboxSyntheticAccessUnitSourceEmitsSustainedFrameBatch() throws {
+        let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
+            frameCount: 6,
+            width: 64,
+            height: 64
+        )
+
+        let accessUnits = try source.accessUnits(
+            for: HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo30)
+        )
+
+        XCTAssertEqual(accessUnits.map(\.sequence), Array(0..<accessUnits.count))
+        XCTAssertGreaterThanOrEqual(accessUnits.count, 7)
+        XCTAssertEqual(accessUnits[0].kind, .parameterSet)
+        XCTAssertEqual(accessUnits.dropFirst().filter { $0.kind == .keyframe }.count, 1)
+        XCTAssertGreaterThanOrEqual(accessUnits.dropFirst().filter { $0.kind == .delta }.count, 5)
+        XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+    }
+
     func testToolboxPixelBufferEncoderRejectsEmptyFrameBatch() throws {
         let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
             width: 64,

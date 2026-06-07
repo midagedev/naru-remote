@@ -3,6 +3,62 @@ import NaruRemoteCore
 @testable import VNCLiveBenchmarkKit
 
 final class BenchmarkHelperVideoReportTests: XCTestCase {
+    func testHelperVideoProbeModeParsesSustainedExternalSyntheticMode() {
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeMode.parse("external-helper-sustained-synthetic-encoded-tcp"),
+            .externalHelperSustainedSyntheticEncodedTCP
+        )
+        XCTAssertTrue(
+            BenchmarkHelperVideoProbeMode.usageDescription
+                .contains("external-helper-sustained-synthetic-encoded-tcp")
+        )
+    }
+
+    func testSustainedExternalHelperFrameBudgetClampsAndScalesTimeouts() {
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeTiming.externalHelperSustainedFrameCount(
+                environment: [:]
+            ),
+            30
+        )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeTiming.externalHelperSustainedFrameCount(
+                environment: ["NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT": "2"]
+            ),
+            6
+        )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeTiming.externalHelperSustainedFrameCount(
+                environment: ["NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT": "999"]
+            ),
+            120
+        )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeTiming.maxServerFrames(forExternalHelperFrameCount: 30),
+            32
+        )
+        XCTAssertGreaterThan(
+            BenchmarkHelperVideoProbeTiming.startStreamTimeout(
+                forExternalHelperFrameCount: 30
+            ),
+            BenchmarkHelperVideoProbeTiming.startStreamTimeout
+        )
+    }
+
+    func testExternalHelperUnavailableUsesFixedSafeIssueCode() throws {
+        let report = BenchmarkHelperVideoProbe
+            .externalHelperSustainedSyntheticEncodedTCPHelperVideoReport(
+                helperExecutablePath: "/tmp/naru-remote-missing-helper"
+            )
+
+        let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertTrue(report.issueCodes.contains(.externalHelperUnavailable))
+        XCTAssertTrue(json.contains("helper-video-external-helper-unavailable"))
+        XCTAssertFalse(json.contains("/tmp/naru-remote-missing-helper"))
+    }
+
     func testHelperVideoReportFixtureRoundTripsThroughSafeSchema() throws {
         let descriptor = HelperVideoStreamDescriptor(
             protocolVersion: 1,

@@ -15,6 +15,9 @@ public enum BenchmarkHelperVideoIssueCode: String, Codable, Equatable, CaseItera
     case sustainedStalled = "helper-video-sustained-stalled"
     case decodePressureHigh = "helper-video-decode-pressure-high"
     case fallbackObserved = "helper-video-fallback-observed"
+    case externalHelperUnavailable = "helper-video-external-helper-unavailable"
+    case externalHelperTimedOut = "helper-video-external-helper-timed-out"
+    case transportFailed = "helper-video-transport-failed"
 }
 
 public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {

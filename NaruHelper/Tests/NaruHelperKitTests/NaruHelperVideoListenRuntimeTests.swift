@@ -1,6 +1,6 @@
 import XCTest
-import NaruHelperKit
 import NaruRemoteCore
+@testable import NaruHelperKit
 
 #if canImport(Network)
 final class NaruHelperVideoListenRuntimeTests: XCTestCase {
@@ -269,6 +269,106 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         XCTAssertEqual(result.accessUnits[1].binaryPayload, keyframePayload)
     }
 
+    #if os(macOS) && canImport(VideoToolbox)
+    func testRuntimeServerSendsSustainedSyntheticEncodedBatch() async throws {
+        let frameCount = 6
+        let configuration = NaruHelperVideoListenConfiguration(
+            pairingSecret: pairingSecret,
+            profileFingerprint: profileFingerprint,
+            port: 0,
+            sourceMode: .syntheticEncoded,
+            frameCount: frameCount
+        )
+        let server = try NaruHelperVideoListenRuntime(configuration: configuration).makeServer()
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        let result = try await client.startStream(maxServerFrames: frameCount + 2)
+
+        XCTAssertEqual(result.startResponse.body.result, .accepted)
+        XCTAssertNil(result.stall)
+        XCTAssertEqual(result.accessUnits.count, frameCount + 1)
+        XCTAssertEqual(result.accessUnits.map { $0.envelope.body.sequence }, Array(0...(frameCount)))
+        XCTAssertEqual(result.accessUnits[0].envelope.body.kind, .parameterSet)
+        XCTAssertEqual(result.accessUnits.dropFirst().filter { $0.envelope.body.kind == .keyframe }.count, 1)
+        XCTAssertGreaterThanOrEqual(
+            result.accessUnits.dropFirst().filter { $0.envelope.body.kind == .delta }.count,
+            frameCount - 1
+        )
+    }
+
+    func testExternalHelperProcessSendsSustainedSyntheticEncodedBatch() async throws {
+        let frameCount = 6
+        let helperPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/debug/NaruHelper")
+            .path
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: helperPath),
+            "NaruHelper executable is not available at \(helperPath)"
+        )
+
+        let port = UInt16.random(in: 49_152...65_000)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: helperPath)
+        process.arguments = [
+            "--video-listen",
+            "--token-env",
+            "NARU_HELPER_VIDEO_TEST_TOKEN",
+            "--profile-fingerprint-env",
+            "NARU_HELPER_VIDEO_TEST_PROFILE_FINGERPRINT",
+            "--port",
+            "\(port)",
+            "--video-source",
+            "synthetic-encoded",
+            "--video-frame-count",
+            "\(frameCount)"
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["NARU_HELPER_VIDEO_TEST_TOKEN"] = pairingSecret
+        environment["NARU_HELPER_VIDEO_TEST_PROFILE_FINGERPRINT"] = profileFingerprint
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        try process.run()
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(process.isRunning, Self.stderrString(from: stderrPipe))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        do {
+            let result = try await client.startStream(maxServerFrames: frameCount + 2)
+            XCTAssertEqual(result.startResponse.body.result, .accepted)
+            XCTAssertNil(result.stall)
+            XCTAssertEqual(result.accessUnits.count, frameCount + 1)
+            XCTAssertEqual(result.accessUnits.map { $0.envelope.body.sequence }, Array(0...(frameCount)))
+        } catch {
+            process.terminate()
+            process.waitUntilExit()
+            XCTFail("External helper stream failed with \(error): \(Self.stderrString(from: stderrPipe))")
+        }
+    }
+    #endif
+
     func testRuntimeRejectsScreenCaptureKitStartWhenPermissionIsMissing() async throws {
         let configuration = NaruHelperVideoListenConfiguration(
             pairingSecret: pairingSecret,
@@ -309,6 +409,22 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         XCTAssertNil(result.stall)
     }
 
+    #if os(macOS) && canImport(CoreMedia) && canImport(ScreenCaptureKit)
+    func testScreenCaptureKitTimeoutBudgetScalesWithSustainedFrameLimit() {
+        let smokeTimeout = HelperVideoFrameRateBucket.upTo30
+            .screenCaptureFrameCollectionTimeout(frameLimit: 2)
+        let sustainedTimeout = HelperVideoFrameRateBucket.upTo30
+            .screenCaptureFrameCollectionTimeout(frameLimit: 120)
+        let providerTimeout = HelperVideoFrameRateBucket.upTo30
+            .screenCaptureProviderTimeout(frameLimit: 120)
+
+        XCTAssertEqual(smokeTimeout, 3)
+        XCTAssertGreaterThan(sustainedTimeout, smokeTimeout)
+        XCTAssertGreaterThan(providerTimeout, sustainedTimeout)
+        XCTAssertLessThanOrEqual(providerTimeout, 12)
+    }
+    #endif
+
     private func waitForPort(
         _ server: NaruHelperVideoStreamNetworkServer
     ) async throws -> UInt16 {
@@ -319,6 +435,10 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         return try XCTUnwrap(server.port)
+    }
+
+    private static func stderrString(from pipe: Pipe) -> String {
+        String(data: pipe.fileHandleForReading.availableData, encoding: .utf8) ?? ""
     }
 }
 #endif

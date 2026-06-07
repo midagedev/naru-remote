@@ -642,7 +642,11 @@ private extension BenchmarkHelperVideoProbeMode {
         switch self {
         case .screenCaptureKitTCP, .externalHelperScreenCaptureKitTCP:
             return true
-        case .disabled, .syntheticTCP, .syntheticEncodedTCP, .externalHelperSyntheticEncodedTCP:
+        case .disabled,
+             .syntheticTCP,
+             .syntheticEncodedTCP,
+             .externalHelperSyntheticEncodedTCP,
+             .externalHelperSustainedSyntheticEncodedTCP:
             return false
         }
     }
