@@ -3211,6 +3211,190 @@ public enum BenchmarkStreamShapeRequestCadenceNextProbe: String, Codable, Equata
     case collectLongerRun
 }
 
+public enum BenchmarkStreamShapeServerCadenceStatus: String, Codable, Equatable, Sendable {
+    case notMeasured = "not-measured"
+    case noUsableSamples = "no-usable-samples"
+    case pass
+    case firstByteWaitDominated = "first-byte-wait-dominated"
+    case payloadReadDominated = "payload-read-dominated"
+    case requestLoopDominated = "request-loop-dominated"
+    case localProcessingDominated = "local-processing-dominated"
+    case belowTargetNoDominantPhase = "below-target-no-dominant-phase"
+}
+
+public enum BenchmarkStreamShapeServerCadenceNextAction: String, Codable, Equatable, Sendable {
+    case none
+    case inspectServerUpdateCadence
+    case inspectPayloadThroughput
+    case tuneRequestPacingWindow
+    case inspectLocalRenderPipeline
+    case collectLongerRun
+    case runPhysicalDeviceSustainedGate
+}
+
+public struct BenchmarkStreamShapeServerCadenceDiagnosis: Codable, Equatable, Sendable {
+    private static let firstByteDominancePermille = 800
+
+    public let targetName: String
+    public let status: BenchmarkStreamShapeServerCadenceStatus
+    public let recommendedNextAction: BenchmarkStreamShapeServerCadenceNextAction
+    public let requestResponseGateCount: Int
+    public let requestResponseBlockedGateCount: Int
+    public let requestResponseUsableRunCount: Int
+    public let averageContentFramesPerSecond: Double?
+    public let averageUpdateMilliseconds: Int?
+    public let maxP95UpdateMilliseconds: Int?
+    public let dominantPhase: BenchmarkStreamShapeDominantPhase
+    public let networkReadDominantSubphase: BenchmarkStreamShapeNetworkReadSubphase?
+    public let slowDominantPhase: BenchmarkStreamShapeDominantPhase
+    public let slowNetworkReadDominantSubphase: BenchmarkStreamShapeNetworkReadSubphase?
+    public let averageFirstByteWaitSharePermille: Int?
+    public let averagePayloadReadSharePermille: Int?
+    public let maxFirstByteWaitP95Milliseconds: Int?
+    public let maxPayloadReadP95Milliseconds: Int?
+
+    public init(
+        targetName: String,
+        status: BenchmarkStreamShapeServerCadenceStatus,
+        recommendedNextAction: BenchmarkStreamShapeServerCadenceNextAction,
+        requestResponseGateCount: Int,
+        requestResponseBlockedGateCount: Int,
+        requestResponseUsableRunCount: Int,
+        averageContentFramesPerSecond: Double? = nil,
+        averageUpdateMilliseconds: Int? = nil,
+        maxP95UpdateMilliseconds: Int? = nil,
+        dominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
+        networkReadDominantSubphase: BenchmarkStreamShapeNetworkReadSubphase? = nil,
+        slowDominantPhase: BenchmarkStreamShapeDominantPhase = .unknown,
+        slowNetworkReadDominantSubphase: BenchmarkStreamShapeNetworkReadSubphase? = nil,
+        averageFirstByteWaitSharePermille: Int? = nil,
+        averagePayloadReadSharePermille: Int? = nil,
+        maxFirstByteWaitP95Milliseconds: Int? = nil,
+        maxPayloadReadP95Milliseconds: Int? = nil
+    ) {
+        self.targetName = targetName
+        self.status = status
+        self.recommendedNextAction = recommendedNextAction
+        self.requestResponseGateCount = max(requestResponseGateCount, 0)
+        self.requestResponseBlockedGateCount = max(requestResponseBlockedGateCount, 0)
+        self.requestResponseUsableRunCount = max(requestResponseUsableRunCount, 0)
+        self.averageContentFramesPerSecond = averageContentFramesPerSecond.map { max($0, 0) }
+        self.averageUpdateMilliseconds = averageUpdateMilliseconds.map { max($0, 0) }
+        self.maxP95UpdateMilliseconds = maxP95UpdateMilliseconds.map { max($0, 0) }
+        self.dominantPhase = dominantPhase
+        self.networkReadDominantSubphase = networkReadDominantSubphase
+        self.slowDominantPhase = slowDominantPhase
+        self.slowNetworkReadDominantSubphase = slowNetworkReadDominantSubphase
+        self.averageFirstByteWaitSharePermille = Self.clampOptionalPermille(
+            averageFirstByteWaitSharePermille
+        )
+        self.averagePayloadReadSharePermille = Self.clampOptionalPermille(
+            averagePayloadReadSharePermille
+        )
+        self.maxFirstByteWaitP95Milliseconds = maxFirstByteWaitP95Milliseconds.map { max($0, 0) }
+        self.maxPayloadReadP95Milliseconds = maxPayloadReadP95Milliseconds.map { max($0, 0) }
+    }
+
+    public static func diagnosis(
+        from health: BenchmarkStreamShapeRequestCadenceHealth?
+    ) -> BenchmarkStreamShapeServerCadenceDiagnosis? {
+        guard let health else {
+            return nil
+        }
+
+        let status = status(from: health)
+        return BenchmarkStreamShapeServerCadenceDiagnosis(
+            targetName: health.targetName,
+            status: status,
+            recommendedNextAction: nextAction(for: status, health: health),
+            requestResponseGateCount: health.requestResponseGateCount,
+            requestResponseBlockedGateCount: health.requestResponseBlockedGateCount,
+            requestResponseUsableRunCount: health.requestResponseUsableRunCount,
+            averageContentFramesPerSecond: health.averageContentFramesPerSecond,
+            averageUpdateMilliseconds: health.averageUpdateMilliseconds,
+            maxP95UpdateMilliseconds: health.maxP95UpdateMilliseconds,
+            dominantPhase: health.dominantPhase,
+            networkReadDominantSubphase: health.networkReadDominantSubphase,
+            slowDominantPhase: health.slowDominantPhase,
+            slowNetworkReadDominantSubphase: health.slowNetworkReadDominantSubphase,
+            averageFirstByteWaitSharePermille: health.averageFirstByteWaitSharePermille,
+            averagePayloadReadSharePermille: health.averagePayloadReadSharePermille,
+            maxFirstByteWaitP95Milliseconds: health.maxFirstByteWaitP95Milliseconds,
+            maxPayloadReadP95Milliseconds: health.maxPayloadReadP95Milliseconds
+        )
+    }
+
+    private static func status(
+        from health: BenchmarkStreamShapeRequestCadenceHealth
+    ) -> BenchmarkStreamShapeServerCadenceStatus {
+        guard health.requestResponseGateCount > 0 || health.requestResponseAggregateCount > 0 else {
+            return .notMeasured
+        }
+        guard health.requestResponseUsableRunCount > 0 else {
+            return .noUsableSamples
+        }
+        if health.requestResponseBlockedGateCount == 0,
+           health.latencyStatus == .pass,
+           health.sampleStatus == .highContentHit {
+            return .pass
+        }
+
+        let firstByteShare = health.averageFirstByteWaitSharePermille ?? 0
+        let payloadShare = health.averagePayloadReadSharePermille ?? 0
+        let effectiveDominantPhase = health.slowDominantPhase == .unknown
+            ? health.dominantPhase
+            : health.slowDominantPhase
+        let slowNetworkSubphase = health.slowNetworkReadDominantSubphase ?? .unknown
+        let effectiveNetworkSubphase = slowNetworkSubphase == .unknown
+            ? (health.networkReadDominantSubphase ?? .unknown)
+            : slowNetworkSubphase
+
+        if effectiveDominantPhase == .clientProcessing {
+            return .localProcessingDominated
+        }
+        if effectiveDominantPhase == .requestLoop {
+            return .requestLoopDominated
+        }
+        if effectiveDominantPhase == .networkRead {
+            if effectiveNetworkSubphase == .firstByteWait,
+               firstByteShare >= firstByteDominancePermille {
+                return .firstByteWaitDominated
+            }
+            if effectiveNetworkSubphase == .payloadRead || payloadShare > firstByteShare {
+                return .payloadReadDominated
+            }
+        }
+
+        return .belowTargetNoDominantPhase
+    }
+
+    private static func nextAction(
+        for status: BenchmarkStreamShapeServerCadenceStatus,
+        health: BenchmarkStreamShapeRequestCadenceHealth
+    ) -> BenchmarkStreamShapeServerCadenceNextAction {
+        switch status {
+        case .notMeasured, .noUsableSamples, .belowTargetNoDominantPhase:
+            return .collectLongerRun
+        case .pass:
+            return .runPhysicalDeviceSustainedGate
+        case .firstByteWaitDominated:
+            return .inspectServerUpdateCadence
+        case .payloadReadDominated:
+            return .inspectPayloadThroughput
+        case .requestLoopDominated:
+            return health.sampleStatus == .unansweredWait
+                ? .inspectServerUpdateCadence
+                : .tuneRequestPacingWindow
+        case .localProcessingDominated:
+            return .inspectLocalRenderPipeline
+        }
+    }
+
+    private static func clampOptionalPermille(_ value: Int?) -> Int? {
+        value.map { min(max($0, 0), 1_000) }
+    }
+}
+
 public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Sendable {
     public let targetName: String
     public let sampleStatus: BenchmarkStreamShapeRequestCadenceSampleStatus

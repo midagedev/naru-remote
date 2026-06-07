@@ -1701,6 +1701,144 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(health.recommendedNextProbe, .compareRequestResponseEncodingProfiles)
     }
 
+    func testServerCadenceDiagnosisRoutesFirstByteDominanceToServerCadenceInspection() throws {
+        let health = BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: "iphone-remote-desktop-10fps-v1",
+            sampleStatus: .highContentHit,
+            latencyStatus: .p95Failed,
+            recommendedNextProbe: .inspectUpdateWaitTiming,
+            requestResponseGateCount: 3,
+            requestResponseBlockedGateCount: 3,
+            requestResponseAggregateCount: 3,
+            requestResponseUsableRunCount: 3,
+            averageUpdateMilliseconds: 505,
+            maxP95UpdateMilliseconds: 631,
+            averageContentFramesPerSecond: 1.89,
+            dominantPhase: .networkRead,
+            networkReadDominantSubphase: .firstByteWait,
+            slowDominantPhase: .networkRead,
+            slowNetworkReadDominantSubphase: .firstByteWait,
+            averageFirstByteWaitSharePermille: 1_000,
+            averagePayloadReadSharePermille: 0,
+            maxFirstByteWaitP95Milliseconds: 630,
+            maxPayloadReadP95Milliseconds: 0
+        )
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeServerCadenceDiagnosis.diagnosis(from: health))
+
+        XCTAssertEqual(diagnosis.targetName, "iphone-remote-desktop-10fps-v1")
+        XCTAssertEqual(diagnosis.status, .firstByteWaitDominated)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .inspectServerUpdateCadence)
+        XCTAssertEqual(diagnosis.averageContentFramesPerSecond, 1.89)
+        XCTAssertEqual(diagnosis.averageFirstByteWaitSharePermille, 1_000)
+        XCTAssertEqual(diagnosis.maxFirstByteWaitP95Milliseconds, 630)
+    }
+
+    func testServerCadenceDiagnosisFallsBackToDominantNetworkSubphaseWhenSlowSubphaseIsMissing() throws {
+        let health = BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: "iphone-remote-desktop-10fps-v1",
+            sampleStatus: .highContentHit,
+            latencyStatus: .averageFailed,
+            recommendedNextProbe: .inspectUpdateWaitTiming,
+            requestResponseGateCount: 1,
+            requestResponseBlockedGateCount: 1,
+            requestResponseAggregateCount: 1,
+            requestResponseUsableRunCount: 1,
+            averageUpdateMilliseconds: 520,
+            maxP95UpdateMilliseconds: 520,
+            averageContentFramesPerSecond: 1.9,
+            dominantPhase: .networkRead,
+            networkReadDominantSubphase: .firstByteWait,
+            slowDominantPhase: .networkRead,
+            slowNetworkReadDominantSubphase: nil,
+            averageFirstByteWaitSharePermille: 900,
+            averagePayloadReadSharePermille: 100,
+            maxFirstByteWaitP95Milliseconds: 500,
+            maxPayloadReadP95Milliseconds: 1
+        )
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeServerCadenceDiagnosis.diagnosis(from: health))
+
+        XCTAssertEqual(diagnosis.status, .firstByteWaitDominated)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .inspectServerUpdateCadence)
+    }
+
+    func testServerCadenceDiagnosisRoutesPayloadDominanceToThroughputInspection() throws {
+        let health = BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: "iphone-remote-desktop-10fps-v1",
+            sampleStatus: .highContentHit,
+            latencyStatus: .p95Failed,
+            recommendedNextProbe: .inspectUpdateWaitTiming,
+            requestResponseGateCount: 1,
+            requestResponseBlockedGateCount: 1,
+            requestResponseAggregateCount: 1,
+            requestResponseUsableRunCount: 1,
+            averageUpdateMilliseconds: 520,
+            maxP95UpdateMilliseconds: 800,
+            averageContentFramesPerSecond: 2.0,
+            dominantPhase: .networkRead,
+            networkReadDominantSubphase: .payloadRead,
+            slowDominantPhase: .networkRead,
+            slowNetworkReadDominantSubphase: .payloadRead,
+            averageFirstByteWaitSharePermille: 100,
+            averagePayloadReadSharePermille: 900,
+            maxFirstByteWaitP95Milliseconds: 40,
+            maxPayloadReadP95Milliseconds: 620
+        )
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeServerCadenceDiagnosis.diagnosis(from: health))
+
+        XCTAssertEqual(diagnosis.status, .payloadReadDominated)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .inspectPayloadThroughput)
+    }
+
+    func testServerCadenceDiagnosisPromotesCleanPassToPhysicalDeviceGate() throws {
+        let health = BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: "iphone-remote-desktop-10fps-v1",
+            sampleStatus: .highContentHit,
+            latencyStatus: .pass,
+            recommendedNextProbe: .none,
+            requestResponseGateCount: 1,
+            requestResponseBlockedGateCount: 0,
+            requestResponseAggregateCount: 1,
+            requestResponseUsableRunCount: 1,
+            averageUpdateMilliseconds: 80,
+            maxP95UpdateMilliseconds: 120,
+            averageContentFramesPerSecond: 10.2,
+            dominantPhase: .networkRead,
+            networkReadDominantSubphase: .firstByteWait,
+            slowDominantPhase: .unknown,
+            slowNetworkReadDominantSubphase: nil,
+            averageFirstByteWaitSharePermille: 700,
+            averagePayloadReadSharePermille: 100,
+            maxFirstByteWaitP95Milliseconds: 90,
+            maxPayloadReadP95Milliseconds: 10
+        )
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeServerCadenceDiagnosis.diagnosis(from: health))
+
+        XCTAssertEqual(diagnosis.status, .pass)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .runPhysicalDeviceSustainedGate)
+    }
+
+    func testServerCadenceDiagnosisCollectsLongerRunWhenNoUsableSamplesExist() throws {
+        let health = BenchmarkStreamShapeRequestCadenceHealth(
+            targetName: "iphone-remote-desktop-10fps-v1",
+            sampleStatus: .noUsableSamples,
+            latencyStatus: .notMeasured,
+            recommendedNextProbe: .collectLongerRun,
+            requestResponseGateCount: 1,
+            requestResponseBlockedGateCount: 1,
+            requestResponseAggregateCount: 1,
+            requestResponseUsableRunCount: 0
+        )
+
+        let diagnosis = try XCTUnwrap(BenchmarkStreamShapeServerCadenceDiagnosis.diagnosis(from: health))
+
+        XCTAssertEqual(diagnosis.status, .noUsableSamples)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .collectLongerRun)
+    }
+
     func testProfileGateDecodesMissingFailureLabelCountsAsEmpty() throws {
         let json = Data(
             """
