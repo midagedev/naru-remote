@@ -2311,3 +2311,36 @@ the next VNC request returns to ordinary VNC cadence.
 showing that helper-primary VNC sampling was active. They must not export VNC
 byte counts, helper-video byte counts, frame dimensions, endpoints, display
 names, credentials, raw timings, pointer coordinates, pixels, or text payloads.
+
+## D58 - Surface physical preflight alongside helper capture blockers
+
+**Decision**: `helper-video-live-gate` should always include the safe physical
+iPhone preflight subreport, even when macOS Screen Recording permission is
+missing and true helper capture/app-bootstrap work must be skipped.
+
+**Rationale**:
+- The true helper-video promotion path has two independent human setup gates:
+  macOS Screen Recording permission for the helper app bundle, and Xcode
+  account/provisioning readiness for physical iPhone installation.
+- If the live gate stops reporting after the first permission blocker, the next
+  run can reveal a second setup blocker only after the user fixes the first
+  one. That serializes work unnecessarily and slows the path to physical
+  hand-feel/thermal validation.
+- The physical preflight already emits fixed labels only. Including it in the
+  helper live gate keeps the report actionable without adding unsafe device IDs,
+  raw xcodebuild logs, provisioning profile names, helper paths, endpoints,
+  credentials, pixels, byte counts, or exact timings.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test` proves
+  the blocked, physical-blocked, and ready summaries.
+- `artifacts/benchmarks/2026-06-08-helper-live-gate-physical-preflight-summary.md`
+  records the current live-safe run: Screen Recording permission is still
+  missing, the physical iPhone is connected, and Xcode account/provisioning
+  setup remains missing.
+
+**Privacy rule**: The combined helper live gate may report only fixed
+permission, physical-readiness, issue-code, and setup-action labels. It must not
+export raw device IDs, device names, account names, provisioning profile names,
+raw xcodebuild logs, helper executable paths, endpoints, credentials, pixels,
+byte counts, exact timings, or raw OS errors.
