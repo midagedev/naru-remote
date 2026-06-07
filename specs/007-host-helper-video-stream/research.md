@@ -1776,3 +1776,47 @@ issue, and setup-action labels, poll budget values, and helper safe capability
 JSON. They must not include helper executable paths, endpoints, credentials,
 raw OS errors, pixels, dimensions, byte counts, exact helper timings, hostnames,
 physical device IDs, Compose text, marked text, keysyms, or clipboard contents.
+
+## D48 - Make helper-video a long-lived event stream, not a finite smoke batch
+
+**Decision**: Keep the existing finite `startStream(maxServerFrames:)` API for
+deterministic unit tests and benchmark smoke probes, but make the app bootstrap
+prefer a long-lived helper-video event stream. The helper TCP server now forwards
+Async access units as they are produced, the iOS network client can consume
+`startResponse`, `accessUnit`, and `stall` events until the helper closes or the
+session is cancelled, and the app runner publishes healthy state only once after
+the first displayable frame while subsequent access units go through the
+renderer path.
+
+**Rationale**:
+- The current live VNC 10fps readiness run reproduces about 1.9 content FPS
+  with first-byte wait dominance, while helper synthetic and sustained
+  synthetic H.264 probes pass. That makes helper-video the correct primary
+  smoothness path and VNC the control/input/fallback path.
+- A finite helper-video batch can prove pairing, framing, and sample-buffer
+  creation, but it cannot deliver Chrome-Remote-like continuous visual motion.
+- Publishing app model state on every access unit would risk recreating the
+  same UI/input contention that caused physical-device freezes. Continuous
+  helper-video frames should therefore enter only the renderer after the visual
+  transport is selected and health is marked healthy.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh helper-readiness-sweep` reports synthetic
+  and sustained synthetic helper-video `pass`, with ScreenCaptureKit still
+  blocked by helper app Screen Recording permission.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` reports
+  `overallGateState=blockedByHelperScreenCapture`, VNC
+  `productVerdict=fail`, `contentFramesPerSecond` near 2, and
+  `serverCadenceStatus=first-byte-wait-dominated`.
+- `NaruHelperVideoStreamNetworkServiceTests/testNetworkClientStreamsStartResponseAndAccessUnitsFromHelperServer`
+  proves the server/client can use an Async access-unit source instead of the
+  finite batch path.
+- `HelperVideoStreamSessionRunnerTests/testEventStreamKeepsRenderingAccessUnitsAfterHealthySelection`
+  proves the app runner keeps consuming access units after healthy helper-video
+  selection without repeated app-state promotion.
+
+**Privacy rule**: Continuous helper-video tests and diagnostics may include
+only fixed event labels, aggregate counts, fixed health buckets, and fixed
+failure codes. They must not export helper endpoints, credentials, tokens,
+frame payloads, pixels, dimensions, byte counts, exact frame timings, raw OS
+errors, Compose text, keysyms, or clipboard contents.

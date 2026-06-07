@@ -94,6 +94,82 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         }
     }
 
+    public func streamEvents(
+        _ requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody()
+    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
+        AsyncThrowingStream { continuation in
+            guard let port = NWEndpoint.Port(rawValue: port) else {
+                continuation.finish(throwing: HelperVideoStreamNetworkClientError.invalidPort)
+                return
+            }
+
+            let requestID = UUID()
+            let request = HelperVideoWireEnvelope(
+                requestID: requestID,
+                messageType: .startStream,
+                profileFingerprint: profileFingerprint,
+                authProof: HelperVideoAuthProof.make(
+                    requestID: requestID,
+                    messageType: .startStream,
+                    profileFingerprint: profileFingerprint,
+                    pairingSecret: pairingSecret
+                ),
+                body: requestBody
+            )
+            let frame: Data
+            do {
+                frame = try HelperVideoWireCodec.frame(request)
+            } catch {
+                continuation.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            let connection = NWConnection(
+                host: NWEndpoint.Host(host),
+                port: port,
+                using: .tcp
+            )
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            let eventStream = HelperVideoStreamNetworkEventStream(
+                continuation: continuation,
+                connection: connection,
+                timer: timer
+            )
+
+            timer.schedule(deadline: .now() + timeout)
+            timer.setEventHandler {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.timedOut)
+            }
+            timer.resume()
+
+            continuation.onTermination = { _ in
+                eventStream.cancel()
+            }
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    connection.send(content: frame, completion: .contentProcessed { error in
+                        guard error == nil else {
+                            eventStream.finish(
+                                throwing: HelperVideoStreamNetworkClientError.unreachable
+                            )
+                            return
+                        }
+                        Self.receiveEventFrame(on: connection, eventStream: eventStream)
+                    })
+                case .failed:
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+                case .cancelled:
+                    break
+                default:
+                    break
+                }
+            }
+            connection.start(queue: queue)
+        }
+    }
+
     private static func receiveFrame(
         on connection: NWConnection,
         completion: HelperVideoStreamNetworkCompletion
@@ -236,6 +312,169 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         }
         receiveFrame(on: connection, completion: completion)
     }
+
+    private static func receiveEventFrame(
+        on connection: NWConnection,
+        eventStream: HelperVideoStreamNetworkEventStream
+    ) {
+        connection.receive(
+            minimumIncompleteLength: HelperVideoWireCodec.headerByteCount,
+            maximumLength: HelperVideoWireCodec.headerByteCount
+        ) { header, _, isComplete, error in
+            if error != nil {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+                return
+            }
+            guard let header else {
+                if isComplete {
+                    eventStream.finish()
+                } else {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                }
+                return
+            }
+
+            let jsonLength: Int
+            do {
+                jsonLength = try HelperVideoWireCodec.jsonPayloadLength(from: header)
+            } catch {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            receiveEventJSONPayload(
+                length: jsonLength,
+                header: header,
+                on: connection,
+                eventStream: eventStream
+            )
+        }
+    }
+
+    private static func receiveEventJSONPayload(
+        length: Int,
+        header: Data,
+        on connection: NWConnection,
+        eventStream: HelperVideoStreamNetworkEventStream
+    ) {
+        connection.receive(minimumIncompleteLength: length, maximumLength: length) {
+            payload, _, _, error in
+            if error != nil {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+                return
+            }
+            guard let payload else {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            let messageType: HelperVideoMessageType
+            do {
+                messageType = try JSONDecoder()
+                    .decode(HelperVideoWireMessageHeader.self, from: payload)
+                    .messageType
+            } catch {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            let frame = header + payload
+            switch messageType {
+            case .startStream:
+                do {
+                    let response = try HelperVideoWireCodec.decodeFrame(
+                        HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
+                        from: frame
+                    ).envelope
+                    eventStream.yield(.startResponse(response))
+                    receiveEventFrame(on: connection, eventStream: eventStream)
+                } catch {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                }
+            case .streamStalled:
+                do {
+                    let stall = try HelperVideoWireCodec.decodeFrame(
+                        HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
+                        from: frame
+                    ).envelope
+                    eventStream.yield(.stall(stall))
+                    receiveEventFrame(on: connection, eventStream: eventStream)
+                } catch {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                }
+            case .videoAccessUnit:
+                receiveEventBinaryPayload(
+                    jsonFrame: frame,
+                    on: connection,
+                    eventStream: eventStream
+                )
+            case .capabilityRequest, .requestKeyframe, .stopStream:
+                eventStream.finish(
+                    throwing: HelperVideoStreamNetworkClientError.unexpectedMessageType(messageType)
+                )
+            }
+        }
+    }
+
+    private static func receiveEventBinaryPayload(
+        jsonFrame: Data,
+        on connection: NWConnection,
+        eventStream: HelperVideoStreamNetworkEventStream
+    ) {
+        connection.receive(
+            minimumIncompleteLength: HelperVideoWireCodec.headerByteCount,
+            maximumLength: HelperVideoWireCodec.headerByteCount
+        ) { binaryHeader, _, _, error in
+            if error != nil {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+                return
+            }
+            guard let binaryHeader else {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            let binaryLength: Int
+            do {
+                binaryLength = try HelperVideoWireCodec.binaryPayloadLength(from: binaryHeader)
+            } catch {
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                return
+            }
+
+            connection.receive(
+                minimumIncompleteLength: binaryLength,
+                maximumLength: binaryLength
+            ) { binaryPayload, _, _, error in
+                if error != nil {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+                    return
+                }
+                guard let binaryPayload else {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                    return
+                }
+
+                do {
+                    let accessUnit = try HelperVideoWireCodec.decodeFrame(
+                        HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
+                        from: jsonFrame + binaryHeader + binaryPayload,
+                        expectsBinaryPayload: true
+                    )
+                    eventStream.yield(.accessUnit(accessUnit))
+                    receiveEventFrame(on: connection, eventStream: eventStream)
+                } catch {
+                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
+                }
+            }
+        }
+    }
+}
+
+public enum HelperVideoStreamNetworkEvent: Equatable, Sendable {
+    case startResponse(HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>)
+    case accessUnit(HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>)
+    case stall(HelperVideoWireEnvelope<HelperVideoStreamStallBody>)
 }
 
 public struct HelperVideoStreamNetworkStartResult: Equatable, Sendable {
@@ -268,6 +507,69 @@ public enum HelperVideoStreamNetworkClientError: Error, Equatable, Sendable {
 
 private struct HelperVideoWireMessageHeader: Decodable {
     var messageType: HelperVideoMessageType
+}
+
+private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
+    private let lock = NSLock()
+    private let continuation: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
+        .Continuation
+    private let connection: NWConnection
+    private let timer: DispatchSourceTimer
+    private var isFinished = false
+
+    init(
+        continuation: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
+            .Continuation,
+        connection: NWConnection,
+        timer: DispatchSourceTimer
+    ) {
+        self.continuation = continuation
+        self.connection = connection
+        self.timer = timer
+    }
+
+    func yield(_ event: HelperVideoStreamNetworkEvent) {
+        guard !hasFinished else {
+            return
+        }
+        continuation.yield(event)
+    }
+
+    func finish() {
+        finish(result: nil)
+    }
+
+    func finish(throwing error: any Error) {
+        finish(result: error)
+    }
+
+    func cancel() {
+        finish(result: CancellationError())
+    }
+
+    private var hasFinished: Bool {
+        lock.withLock {
+            isFinished
+        }
+    }
+
+    private func finish(result: (any Error)?) {
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+        isFinished = true
+        lock.unlock()
+
+        timer.cancel()
+        connection.cancel()
+        if let result {
+            continuation.finish(throwing: result)
+        } else {
+            continuation.finish()
+        }
+    }
 }
 
 private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {

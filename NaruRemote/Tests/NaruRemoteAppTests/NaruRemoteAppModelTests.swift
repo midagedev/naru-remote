@@ -3202,6 +3202,71 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
     }
 
+    func testHelperVideoBootstrapPrefersContinuousOpenStreamAfterVNCFirstFrame() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 8, green: 16, blue: 24)
+        )
+        let connector = FakeStreamingConnector(width: 2, height: 1, name: "Desk", framebuffer: framebuffer)
+        let descriptor = HelperVideoStreamDescriptor(codecProfile: .high, frameRateBucket: .upTo30)
+        let helperRecorder = HelperVideoOpenStreamRecorder(
+            descriptor: descriptor,
+            accessUnits: [
+                Self.helperVideoAccessUnit(sequence: 0, kind: .parameterSet),
+                Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe),
+                Self.helperVideoAccessUnit(sequence: 2, kind: .delta)
+            ]
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1, 2])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoOpenStream: { profile, pairingSecret, pairingFingerprint, requestBody in
+                helperRecorder.open(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+
+        let calls = helperRecorder.recordedCallSnapshot()
+        let snapshot = model.snapshot
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.profileID, profile.id)
+        XCTAssertEqual(calls.first?.pairingFingerprint, "sha256:helper-video")
+        XCTAssertEqual(calls.first?.loadedSecretWasPresent, true)
+        XCTAssertEqual(snapshot.session?.state, .active)
+        XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
+        XCTAssertEqual(snapshot.visualTransportMode, VisualTransportMode.helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamDescriptor, descriptor)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+        XCTAssertEqual(helperRenderer.enqueuedSequences, [0, 1, 2])
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+    }
+
     func testHelperVideoBootstrapFailureKeepsVNCFrameAndControlPathActive() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
@@ -6380,6 +6445,70 @@ private actor HelperVideoStartRecorder {
             throw FakeHelperVideoStartError.transportUnavailable
         }
         return result
+    }
+}
+
+private final class HelperVideoOpenStreamRecorder: @unchecked Sendable {
+    struct Call: Equatable, Sendable {
+        let profileID: ConnectionProfile.ID
+        let pairingFingerprint: String
+        let loadedSecretWasPresent: Bool
+        let requestBody: HelperVideoStartStreamRequestBody
+    }
+
+    private let lock = NSLock()
+    private let descriptor: HelperVideoStreamDescriptor
+    private let accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>]
+    private var recordedCalls: [Call] = []
+
+    init(
+        descriptor: HelperVideoStreamDescriptor,
+        accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>]
+    ) {
+        self.descriptor = descriptor
+        self.accessUnits = accessUnits
+    }
+
+    func recordedCallSnapshot() -> [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    func open(
+        profile: ConnectionProfile,
+        pairingSecret: String,
+        pairingFingerprint: String,
+        requestBody: HelperVideoStartStreamRequestBody
+    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
+        lock.lock()
+        recordedCalls.append(
+            Call(
+                profileID: profile.id,
+                pairingFingerprint: pairingFingerprint,
+                loadedSecretWasPresent: !pairingSecret.isEmpty,
+                requestBody: requestBody
+            )
+        )
+        lock.unlock()
+        let descriptor = descriptor
+        let accessUnits = accessUnits
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.startResponse(
+                HelperVideoWireEnvelope(
+                    messageType: .startStream,
+                    profileFingerprint: pairingFingerprint,
+                    body: HelperVideoStartStreamResponseBody(
+                        result: .accepted,
+                        streamDescriptor: descriptor
+                    )
+                )
+            ))
+            for accessUnit in accessUnits {
+                continuation.yield(.accessUnit(accessUnit))
+            }
+            continuation.finish()
+        }
     }
 }
 

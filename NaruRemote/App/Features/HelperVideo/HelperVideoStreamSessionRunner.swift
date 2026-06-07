@@ -69,8 +69,12 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         HelperVideoStartStreamRequestBody,
         Int
     ) async throws -> HelperVideoStreamNetworkStartResult
+    public typealias EventStream = @Sendable (
+        HelperVideoStartStreamRequestBody
+    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
 
-    private let startStream: StartStream
+    private let startStream: StartStream?
+    private let eventStream: EventStream?
     private let renderer: HelperVideoMainActorRendererBox
     private let maxServerFrames: Int
 
@@ -80,6 +84,18 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         maxServerFrames: Int = 16
     ) {
         self.startStream = startStream
+        self.eventStream = nil
+        self.renderer = HelperVideoMainActorRendererBox(renderer)
+        self.maxServerFrames = max(maxServerFrames, 1)
+    }
+
+    public init(
+        eventStream: @escaping EventStream,
+        renderer: any HelperVideoAccessUnitRendering,
+        maxServerFrames: Int = 16
+    ) {
+        self.startStream = nil
+        self.eventStream = eventStream
         self.renderer = HelperVideoMainActorRendererBox(renderer)
         self.maxServerFrames = max(maxServerFrames, 1)
     }
@@ -91,11 +107,8 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         maxServerFrames: Int = 16
     ) {
         self.init(
-            startStream: { requestBody, maxServerFrames in
-                try await networkClient.startStream(
-                    requestBody,
-                    maxServerFrames: maxServerFrames
-                )
+            eventStream: { requestBody in
+                networkClient.streamEvents(requestBody)
             },
             renderer: renderer,
             maxServerFrames: maxServerFrames
@@ -109,6 +122,24 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         model: NaruRemoteAppModel,
         requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody()
     ) async -> HelperVideoStreamSessionOutcome {
+        if let eventStream {
+            return await startEventStream(
+                eventStream(requestBody),
+                sessionID: sessionID,
+                profileID: profileID,
+                model: model
+            )
+        }
+
+        guard let startStream else {
+            return await failBeforeStart(
+                failureCode: .transportFailed,
+                sessionID: sessionID,
+                profileID: profileID,
+                model: model
+            )
+        }
+
         let result: HelperVideoStreamNetworkStartResult
         do {
             result = try await startStream(requestBody, maxServerFrames)
@@ -131,6 +162,194 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
 
         return await handleStartResult(
             result,
+            sessionID: sessionID,
+            profileID: profileID,
+            model: model
+        )
+    }
+
+    private func startEventStream(
+        _ events: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID,
+        model: NaruRemoteAppModel
+    ) async -> HelperVideoStreamSessionOutcome {
+        var startAccepted = false
+        var selectedVisualTransport = false
+        var receivedAccessUnitCount = 0
+        var displayableFrameCount = 0
+        var didPublishHealthy = false
+
+        do {
+            for try await event in events {
+                guard await isCurrentSession(
+                    sessionID: sessionID,
+                    profileID: profileID,
+                    model: model
+                ) else {
+                    return await ignoreStaleResult(
+                        startAccepted: startAccepted,
+                        receivedAccessUnitCount: receivedAccessUnitCount,
+                        fallbackFailureCode: .fallbackToVNC,
+                        model: model
+                    )
+                }
+
+                switch event {
+                case .startResponse(let response):
+                    guard response.body.result == .accepted else {
+                        let failureCode = response.body.safeFailureCode ?? .transportFailed
+                        return await failBeforeStart(
+                            failureCode: failureCode,
+                            sessionID: sessionID,
+                            profileID: profileID,
+                            model: model
+                        )
+                    }
+
+                    startAccepted = true
+                    let selected = await model.selectHelperVideoVisualTransport(
+                        descriptor: response.body.streamDescriptor,
+                        health: HelperVideoStreamHealth(state: .starting)
+                    )
+                    guard selected else {
+                        await renderer.flush()
+                        return HelperVideoStreamSessionOutcome(
+                            startAccepted: true,
+                            selectedVisualTransport: false,
+                            receivedAccessUnitCount: receivedAccessUnitCount,
+                            displayableFrameCount: 0,
+                            fallbackFailureCode: .fallbackToVNC,
+                            finalHealth: await helperVideoStreamHealth(model: model)
+                        )
+                    }
+                    selectedVisualTransport = true
+                    await renderer.flush()
+                case .accessUnit(let accessUnit):
+                    receivedAccessUnitCount += 1
+                    guard selectedVisualTransport else {
+                        continue
+                    }
+                    do {
+                        if try await renderer.enqueueDisplayableAccessUnit(accessUnit) {
+                            displayableFrameCount += 1
+                            if !didPublishHealthy {
+                                didPublishHealthy = true
+                                let healthy = HelperVideoStreamHealth(
+                                    state: .healthy,
+                                    startupBand: .fast,
+                                    sustainedUpdateBand: .smooth,
+                                    decodePressure: .low
+                                )
+                                await model.updateHelperVideoStreamHealth(
+                                    healthy,
+                                    sessionID: sessionID,
+                                    profileID: profileID
+                                )
+                                await markProfileAvailable(
+                                    sessionID: sessionID,
+                                    profileID: profileID,
+                                    model: model
+                                )
+                            }
+                        }
+                    } catch {
+                        await renderer.flush()
+                        let health = fallbackHealth(for: .decoderRejected)
+                        await model.updateHelperVideoStreamHealth(
+                            health,
+                            sessionID: sessionID,
+                            profileID: profileID
+                        )
+                        await markProfileFailure(
+                            .decoderRejected,
+                            sessionID: sessionID,
+                            profileID: profileID,
+                            model: model
+                        )
+                        return HelperVideoStreamSessionOutcome(
+                            startAccepted: startAccepted,
+                            selectedVisualTransport: selectedVisualTransport,
+                            receivedAccessUnitCount: receivedAccessUnitCount,
+                            displayableFrameCount: displayableFrameCount,
+                            fallbackFailureCode: .decoderRejected,
+                            finalHealth: await helperVideoStreamHealth(model: model)
+                        )
+                    }
+                case .stall(let stall):
+                    // StreamStalled is terminal for helper-video schema v1:
+                    // even if the reason is encoder/backpressure-related, the
+                    // current visual stream is no longer producing displayable
+                    // frames. Future recoverable stalls should use a distinct
+                    // event/retry contract before bypassing VNC fallback.
+                    await renderer.flush()
+                    let health = fallbackHealth(for: .streamStalled, reportedHealth: stall.body.health)
+                    await model.updateHelperVideoStreamHealth(
+                        health,
+                        sessionID: sessionID,
+                        profileID: profileID
+                    )
+                    await markProfileFailure(
+                        .streamStalled,
+                        sessionID: sessionID,
+                        profileID: profileID,
+                        model: model
+                    )
+                    return HelperVideoStreamSessionOutcome(
+                        startAccepted: startAccepted,
+                        selectedVisualTransport: selectedVisualTransport,
+                        receivedAccessUnitCount: receivedAccessUnitCount,
+                        displayableFrameCount: displayableFrameCount,
+                        fallbackFailureCode: .streamStalled,
+                        finalHealth: await helperVideoStreamHealth(model: model)
+                    )
+                }
+            }
+        } catch {
+            guard await isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
+                return await ignoreStaleResult(
+                    startAccepted: startAccepted,
+                    receivedAccessUnitCount: receivedAccessUnitCount,
+                    fallbackFailureCode: .transportFailed,
+                    model: model
+                )
+            }
+            let failureCode: HelperVideoFailureCode = startAccepted ? .streamStalled : .transportFailed
+            let health = fallbackHealth(for: failureCode)
+            await renderer.flush()
+            await model.updateHelperVideoStreamHealth(
+                health,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+            await markProfileFailure(
+                failureCode,
+                sessionID: sessionID,
+                profileID: profileID,
+                model: model
+            )
+            return HelperVideoStreamSessionOutcome(
+                startAccepted: startAccepted,
+                selectedVisualTransport: selectedVisualTransport,
+                receivedAccessUnitCount: receivedAccessUnitCount,
+                displayableFrameCount: displayableFrameCount,
+                fallbackFailureCode: failureCode,
+                finalHealth: await helperVideoStreamHealth(model: model)
+            )
+        }
+
+        if displayableFrameCount > 0 {
+            return HelperVideoStreamSessionOutcome(
+                startAccepted: startAccepted,
+                selectedVisualTransport: selectedVisualTransport,
+                receivedAccessUnitCount: receivedAccessUnitCount,
+                displayableFrameCount: displayableFrameCount,
+                finalHealth: await helperVideoStreamHealth(model: model)
+            )
+        }
+
+        return await failBeforeStart(
+            failureCode: startAccepted ? .streamStalled : .transportFailed,
             sessionID: sessionID,
             profileID: profileID,
             model: model

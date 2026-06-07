@@ -45,6 +45,47 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertEqual(renderer.enqueuedSequences, [0, 1])
     }
 
+    func testEventStreamKeepsRenderingAccessUnitsAfterHealthySelection() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(displayableSequences: [1, 2, 3])
+        let descriptor = HelperVideoStreamDescriptor(codecProfile: .high, frameRateBucket: .upTo30)
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(
+                    descriptor: descriptor,
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe),
+                        Self.accessUnit(sequence: 2, kind: .delta),
+                        Self.accessUnit(sequence: 3, kind: .delta)
+                    ]
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertTrue(outcome.startAccepted)
+        XCTAssertTrue(outcome.selectedVisualTransport)
+        XCTAssertEqual(outcome.receivedAccessUnitCount, 4)
+        XCTAssertEqual(outcome.displayableFrameCount, 3)
+        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertEqual(snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamDescriptor, descriptor)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .healthy)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+        XCTAssertEqual(renderer.flushCount, 1)
+        XCTAssertEqual(renderer.enqueuedSequences, [0, 1, 2, 3])
+    }
+
     func testAsyncRendererPreparationYieldsMainActorDuringAccessUnitEnqueue() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
@@ -365,6 +406,28 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
             accessUnits: accessUnits,
             stall: stall
         )
+    }
+
+    private nonisolated static func eventStream(
+        descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
+        accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>]
+    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.startResponse(
+                HelperVideoWireEnvelope(
+                    messageType: .startStream,
+                    profileFingerprint: "sha256:helper-video",
+                    body: HelperVideoStartStreamResponseBody(
+                        result: .accepted,
+                        streamDescriptor: descriptor
+                    )
+                )
+            ))
+            for accessUnit in accessUnits {
+                continuation.yield(.accessUnit(accessUnit))
+            }
+            continuation.finish()
+        }
     }
 
     private nonisolated static func accessUnit(
