@@ -279,6 +279,18 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    func testDoesNotMirrorFocusedUIKitComposeTextIntoSwiftUIBinding() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
+                resolvedText: "입력느낌",
+                currentBindingText: "입력느",
+                hasMarkedText: false,
+                isFirstResponder: true
+            ),
+            "Focused Compose text is owned by UITextView until send, focus loss, or mode switch."
+        )
+    }
+
     func testSkipsDuplicateUIKitComposeTextAdoption() {
         XCTAssertFalse(
             RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
@@ -653,6 +665,37 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         XCTAssertEqual(
             plan.snapshotDelayNanoseconds,
             RemoteInputDockView.composeSendStabilizationDelayNanoseconds
+        )
+    }
+
+    func testFocusedComposeSendButtonStaysEnabledWithoutSwiftUITextMirror() {
+        XCTAssertFalse(
+            RemoteInputDockView.composeSendDisabled(
+                isPreparingComposeSend: false,
+                isComposeFieldFocused: true,
+                currentText: ""
+            ),
+            "Focused Compose reads final text directly from UITextView on send, so the button cannot depend on mirrored SwiftUI text."
+        )
+    }
+
+    func testUnfocusedEmptyComposeStillDisablesSendButton() {
+        XCTAssertTrue(
+            RemoteInputDockView.composeSendDisabled(
+                isPreparingComposeSend: false,
+                isComposeFieldFocused: false,
+                currentText: ""
+            )
+        )
+    }
+
+    func testComposeSendButtonDisablesWhilePreparingSend() {
+        XCTAssertTrue(
+            RemoteInputDockView.composeSendDisabled(
+                isPreparingComposeSend: true,
+                isComposeFieldFocused: true,
+                currentText: "입력"
+            )
         )
     }
 
