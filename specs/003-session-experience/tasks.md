@@ -101,6 +101,20 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   under pressure. Covered by `TrackpadModeModelTests` and
   `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringTrackpadCursorStorm`.
   **Done.**
+- [x] T015be [B] Interaction isolation gate: add deterministic unit coverage
+  that a same-size steady-frame flood coalesces to the latest display-cadence
+  `SessionFrameStore` event, and that locally composed draft text survives an
+  active streaming frame flood. This keeps future renderer/helper-video work
+  from regressing into keyboard or Compose state loss while physical iPhone
+  retest remains pending. Covered by `SessionFrameStoreTests` and focused
+  `NaruRemoteAppModelTests`. **Done.**
+- [x] T015bf [B] Interaction reproduction gate: add an iPhone XCUITest fixture
+  that combines an active session, stale Compose confirmation status,
+  continuous trackpad cursor pressure, and full-frame `SessionFrameStore`
+  flood while entering Korean text. This turns the physical "first syllable
+  then keyboard freezes" report into a simulator regression gate before the
+  helper-video renderer work increases frame pressure again. Covered by
+  `ComposeInputResponsivenessUITests`. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

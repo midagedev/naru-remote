@@ -5158,6 +5158,52 @@ final class NaruRemoteAppModelTests: XCTestCase {
         withExtendedLifetime((appModelCancellable, frameStoreCancellable, frameEventCancellable)) {}
     }
 
+    func testComposeDraftSurvivesSteadyStreamingFrameFlood() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffers = (1...24).map { red in
+            RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: UInt8(red), green: 0, blue: 0)
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            framebuffers: framebuffers
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: framebuffers.count, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+
+        model.updateComposeDraftText("입")
+        try await Task.sleep(for: .milliseconds(2))
+        model.updateComposeDraftText("입력")
+        try await Task.sleep(for: .milliseconds(2))
+        model.updateComposeDraftText("입력느낌")
+
+        for _ in 0..<160 where model.snapshot.latestFramebuffer != framebuffers.last {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers.last)
+        XCTAssertEqual(
+            model.snapshot.composeDraft?.text,
+            "입력느낌",
+            "Incoming frame churn must not reset or roll back the locally composed draft while UIKit is feeding Compose text."
+        )
+        XCTAssertNil(
+            model.snapshot.latestInjectionAttempt,
+            "Typing during a frame flood should only edit the local draft; it must not synthesize a send result."
+        )
+    }
+
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
