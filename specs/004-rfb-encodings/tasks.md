@@ -1463,6 +1463,17 @@ iPhone) and ships as its own PR.
   without logging frame contents, dimensions, coordinates, byte counts, raw
   timings, or user input. Owns: app stream pressure state, app frame loop,
   focused app-model tests, benchmark/research artifact. **Done.**
+- **T467** Frame-application worker cadence floor: before applying a repeated
+  content framebuffer on the MainActor, force the worker to yield through a
+  bounded display-frame-scale delay since the previous content frame. This gives
+  gestures, Compose editing, and pointer input an executor slot even when a
+  real server delivers several updates back-to-back; initial content and the
+  next queued empty liveness/cursor updates remain delay-free. This is an
+  app-side starvation guard, not a VNC 10fps success claim or production
+  stream-profile promotion. Emit/export no host identity, credentials, request
+  coordinates, dimensions, pixels, byte counts, raw timings, command text,
+  draft text, marked text, IME state, or keysyms. Owns: app frame worker
+  pacing, focused app-model tests, research/benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

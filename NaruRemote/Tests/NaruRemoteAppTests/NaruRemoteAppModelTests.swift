@@ -171,6 +171,95 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(done)
     }
 
+    func testSessionFrameApplicationWorkerPacingDelaysRepeatedContentFrame() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let pacing = SessionFrameApplicationWorkerPacing()
+        let lastContentAppliedAt = Date(timeIntervalSince1970: 100)
+        let work = Self.makeStreamFrameApplicationWork(
+            sequence: 1,
+            red: 10,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+
+        XCTAssertEqual(
+            pacing.delay(
+                before: work,
+                lastContentFrameAppliedAt: lastContentAppliedAt,
+                now: lastContentAppliedAt.addingTimeInterval(0.001)
+            ),
+            SessionFrameApplicationWorkerPacing.defaultContentFrameMinimumInterval - 0.001,
+            accuracy: 0.0001
+        )
+    }
+
+    func testSessionFrameApplicationWorkerPacingDoesNotDelayInitialContentFrame() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let pacing = SessionFrameApplicationWorkerPacing()
+        let work = Self.makeStreamFrameApplicationWork(
+            sequence: 1,
+            red: 10,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+
+        XCTAssertEqual(
+            pacing.delay(
+                before: work,
+                lastContentFrameAppliedAt: nil,
+                now: Date(timeIntervalSince1970: 100)
+            ),
+            0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testSessionFrameApplicationWorkerPacingDoesNotDelayEmptyUpdates() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let pacing = SessionFrameApplicationWorkerPacing()
+        let lastContentAppliedAt = Date(timeIntervalSince1970: 100)
+        let cursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 1, green: 1, blue: 1)]
+        )
+        let work = Self.makeStreamFrameApplicationWork(
+            sequence: 2,
+            red: 10,
+            isEmptyUpdate: true,
+            serverCursor: cursor,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+
+        XCTAssertEqual(
+            pacing.delay(
+                before: work,
+                lastContentFrameAppliedAt: lastContentAppliedAt,
+                now: lastContentAppliedAt
+            ),
+            0,
+            accuracy: 0.0001
+        )
+    }
+
     func testStartupPreflightPolicyClampsHiddenFramesForAppSafety() {
         XCTAssertEqual(SessionStreamStartupPreflightPolicy.disabled.hiddenFrameCount, 0)
         XCTAssertEqual(SessionStreamStartupPreflightPolicy.maximumHiddenFrameCount, 1)
@@ -2360,10 +2449,17 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.appSettings.streamPowerMode, .balanced)
         XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 4)
         XCTAssertEqual(model.snapshot.sessionStreamStats.adaptiveClientPressurePacingSampleCount, 2)
+        for _ in 0..<40 where model.snapshot.sessionStreamStats.appFrameApplyTimingSampleCount < 2 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 2)
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 500)
-        XCTAssertEqual(performance.appFrameApplyTimingSampleCount, 4)
+        XCTAssertEqual(
+            performance.appFrameApplyTimingSampleCount,
+            2,
+            "The paced frame-apply worker should keep the initial visual state and the latest coalesced state instead of replaying every stale intermediate frame."
+        )
         XCTAssertEqual(performance.streamPacingDelaySampleCount, 4)
         XCTAssertEqual(performance.averageStreamPacingDelayBucket, DiagnosticTimingBucket.interactive.rawValue)
         XCTAssertEqual(performance.maxStreamPacingDelayBucket, DiagnosticTimingBucket.interactive.rawValue)
