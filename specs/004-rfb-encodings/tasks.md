@@ -1497,6 +1497,27 @@ iPhone) and ships as its own PR.
   counts, stimulus command text, draft text, marked text, or IME state. Owns:
   benchmark preset enum, CLI preset application, tests, quickstart, and
   research note. **Done.**
+- **T470** Remote desktop 10fps profile cadence sweep: add a fixed
+  `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-profile-cadence-sweep`
+  mode that imports live credentials from environment/launchctl without
+  printing values, builds `VNCLiveBenchmark` once, rejects extra arguments,
+  validates each per-profile JSON report when a local validator is available,
+  and compares `local-low-latency-rgb565`, `tight-first-cursor`, and `tight-first`
+  under the same `iphone-remote-desktop-10fps-v1` gate:
+  constrained-cellular, VNC-only, request-response depth `1`,
+  viewport-phone-portrait, `visible-glance` scale `0.25`, 12 second
+  duration-only probes. Record live evidence that every compared VNC profile
+  still fails the 10fps target and that successful samples remain dominated by
+  receive-path first-byte wait while payload, client processing, and renderer
+  upload stay low. Use this before considering any VNC profile promotion for
+  Chrome-Remote-like smoothness. Emit/export only fixed mode/profile/target
+  labels, fixed target/transport/request labels, scale permille values, fixed
+  verdict/issue labels, aggregate counts, permille ratios, and aggregate
+  timings; do not print/export host identity, credentials, ports, executable
+  paths, command lines, raw stdout/stderr, raw TCP/RFB errors, coordinates,
+  dimensions, pixels, byte counts, stimulus command text, draft text, marked
+  text, or IME state. Owns: launchctl runner, README, research note, benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
