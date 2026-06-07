@@ -1356,3 +1356,62 @@ permission/capability labels only. It must not emit host identity,
 credentials, helper executable paths, physical device identifiers, endpoints,
 framebuffer dimensions, coordinates, pixels, byte counts, raw command output,
 exact helper timings, Compose text, marked text, or IME state.
+
+## D40 - Gate helper-video on sustained external synthetic H.264, not smoke only
+
+**Decision**: Add a sustained external helper-video probe that starts the real
+helper process with a configurable synthetic H.264 frame budget and validates a
+full finite batch through the TCP client. Keep the two-frame external synthetic
+probe as smoke only, but use `external-helper-sustained-synthetic-encoded-tcp`
+for readiness and short live comparison gates. Split VideoToolbox encoding into
+`completeFrameBatch` for deterministic synthetic probes and
+`lowLatencyRealtime` for ScreenCaptureKit capture, and scale ScreenCaptureKit
+timeouts by requested frame count.
+
+**Rationale**:
+- A two-frame helper-video smoke probe can pass while the sustained path still
+  fails before transport health is meaningful.
+- Reproducing the issue at six synthetic frames showed that VideoToolbox
+  low-latency rate control can drop synthetic batch frames; for benchmark
+  transport validation that is the wrong policy. Synthetic sustained probes
+  should prove helper process, H.264 access-unit framing, and TCP delivery
+  deterministically.
+- Real ScreenCaptureKit streaming should keep the low-latency realtime policy,
+  where dropping late frames is preferable to blocking UI/input.
+- The benchmark wrapper can be misled by a stale launchctl helper executable.
+  External helper failures now map to fixed safe issue labels such as
+  `helper-video-external-helper-unavailable`,
+  `helper-video-external-helper-timed-out`, or
+  `helper-video-transport-failed` instead of collapsing into a generic failed
+  helper-video report.
+- Direct key-event write timeout must not permanently disable the key emitter.
+  A timeout should record diagnostics while allowing later key events in the
+  same session to recover.
+
+**Evidence**:
+- Before this change, `helper-synthetic-probe` passed but
+  `helper-sustained-synthetic-probe` failed with
+  `helper-video-startup-failed` and `helper-video-sustained-stalled`.
+- `swift test --filter
+  NaruHelperVideoEncoderPrototypeTests/testToolboxSyntheticAccessUnitSourceEmitsSustainedFrameBatch`
+  now passes and proves the synthetic VideoToolbox source emits a sustained
+  Annex B access-unit batch.
+- `swift test --filter
+  NaruHelperVideoListenRuntimeTests/testExternalHelperProcessSendsSustainedSyntheticEncodedBatch`
+  now passes and proves a real helper process can send the sustained synthetic
+  batch through TCP.
+- `scripts/run-naru-live-benchmark.sh helper-sustained-synthetic-probe` now
+  emits a helper-video report with `streamState=healthy`,
+  `startupBand=fast`, `sustainedUpdateBand=smooth`,
+  `codecProfile=high`, and empty issue codes after the launchctl helper path is
+  refreshed to the current SwiftPM helper artifact.
+- Running the same wrapper against the stale helper executable no longer hides
+  the cause completely; the report includes fixed
+  `helper-video-transport-failed` in addition to derived failed health labels.
+
+**Privacy rule**: sustained helper-video benchmark artifacts may include fixed
+mode names, fixed issue labels, coarse health bands, codec catalog labels, and
+aggregate pass/fail verdicts only. They must not include helper executable
+paths, launchctl values, host identity, endpoints, credentials, physical device
+identifiers, framebuffer dimensions, pixels, byte counts, exact timings,
+stderr/stdout, Compose text, marked text, or IME state.

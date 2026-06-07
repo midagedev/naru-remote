@@ -5393,9 +5393,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                         operationMilliseconds: operationMilliseconds,
                         timedOut: timedOut
                     )
-                    self.cancelOutboundInputEventQueues()
-                    self.activeKeyEventClient = nil
-                    self.keystrokeEmitter = nil
                 }
             }
         )

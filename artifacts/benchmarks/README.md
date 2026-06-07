@@ -1209,3 +1209,14 @@ client-processing p95 remained near zero. Treat this as reproduced evidence
 that VNC is still the control/input/fallback path and true helper-video capture
 is the primary smoothness path after physical iPhone and Screen Recording
 setup are unblocked.
+The sustained helper-video artifact is
+`2026-06-07-sustained-helper-video-and-input-recovery-summary.md`; it records
+the larger-unit repro and fix for the remaining helper-video/input failures.
+Two-frame external helper smoke could pass while sustained synthetic H.264
+failed. The patch adds a sustained external synthetic helper-video probe,
+separates deterministic synthetic VideoToolbox batch encoding from real-time
+ScreenCaptureKit encoding, fixes external helper frame budgeting and safe issue
+labels, and keeps Direct key emission recoverable after write timeout. The
+launchctl-backed sustained synthetic helper-video probe now reports
+healthy/fast/smooth/high-profile with empty issue codes when pointed at the
+current SwiftPM helper artifact.

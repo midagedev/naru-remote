@@ -11,6 +11,7 @@ values from launchctl environment variables into the child process only.
 Modes:
   preflight                Redacted live environment and helper capture readiness.
   helper-synthetic-probe   Helper-video probe-only run with external synthetic H.264.
+  helper-sustained-synthetic-probe Helper-video sustained external synthetic H.264 run.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
@@ -43,6 +44,7 @@ Launchctl variables used when present:
   NARU_LIVE_STIMULUS_COMMAND
   NARU_PHYSICAL_IOS_DEVICE_ID
   NARU_XCODE_DEVELOPMENT_TEAM
+  NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
 
 The script never prints environment values. It passes through the benchmark's
@@ -112,6 +114,7 @@ import_env() {
 
 import_helper_env() {
   import_env NARU_HELPER_EXECUTABLE required
+  import_env NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT optional
 }
 
 import_live_env() {
@@ -2400,6 +2403,16 @@ print_helper_readiness_sweep_report() {
     --helper-video-probe external-helper-synthetic-encoded-tcp \
     --json
   printf ',\n'
+  printf '  "sustainedSyntheticProbe": '
+  json_step_or_fixed_failure \
+    externalSustainedSyntheticProbe \
+    benchmarkStep.externalSustainedSyntheticProbe.failed \
+    swift run --quiet VNCLiveBenchmark \
+    --helper-video-probe-only \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-sustained-synthetic-encoded-tcp \
+    --json
+  printf ',\n'
   printf '  "screenProbe": '
   json_step_or_fixed_failure \
     externalScreenCaptureKitProbe \
@@ -2724,6 +2737,15 @@ case "$mode" in
       --helper-video-probe external-helper-synthetic-encoded-tcp \
       --json
     ;;
+  helper-sustained-synthetic-probe)
+    import_helper_env
+    cd "$repo_root"
+    run_benchmark_with_extra \
+      --helper-video-probe-only \
+      --visual-transport helper-video \
+      --helper-video-probe external-helper-sustained-synthetic-encoded-tcp \
+      --json
+    ;;
   helper-screen-probe)
     import_helper_env
     cd "$repo_root"
@@ -2752,7 +2774,7 @@ case "$mode" in
     run_benchmark_with_extra \
       --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
       --visual-transport vnc,helper-video \
-      --helper-video-probe external-helper-synthetic-encoded-tcp \
+      --helper-video-probe external-helper-sustained-synthetic-encoded-tcp \
       --first-frame-profiles none \
       --full-refresh-samples 0 \
       --continuous-update-samples 0 \

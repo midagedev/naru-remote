@@ -310,6 +310,16 @@ without unsafe report fields.
   `helper-video-screen-capture-gate-blocked`, and
   `vnc-10fps-product-gate-failed`, with VNC still failing at about 2 content
   FPS from first-byte wait dominance. **Done.**
+- [x] T030E [US1] Keep Direct key-event emission recoverable after a write
+  timeout by recording timeout diagnostics without cancelling the active key
+  event client or emitter; add a regression that a later key still emits
+  down/up events after the first write times out. **Done.**
+- [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
+  frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
+  batch encoding, and fixed external-helper transport issue labels. Current
+  local run reports healthy/smooth/high-profile helper-video after the
+  launchctl helper path is refreshed to the current SwiftPM helper artifact.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

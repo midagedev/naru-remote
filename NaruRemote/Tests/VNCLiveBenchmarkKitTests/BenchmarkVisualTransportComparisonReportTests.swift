@@ -91,13 +91,17 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
             .externalHelperSyntheticEncodedTCP
         )
         XCTAssertEqual(
+            BenchmarkHelperVideoProbeMode.parse("external-helper-sustained-synthetic-encoded-tcp"),
+            .externalHelperSustainedSyntheticEncodedTCP
+        )
+        XCTAssertEqual(
             BenchmarkHelperVideoProbeMode.parse("external-helper-screen-capturekit-tcp"),
             .externalHelperScreenCaptureKitTCP
         )
         XCTAssertNil(BenchmarkHelperVideoProbeMode.parse("local"))
         XCTAssertEqual(
             BenchmarkHelperVideoProbeMode.usageDescription,
-            "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp"
+            "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-sustained-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp"
         )
     }
 

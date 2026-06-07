@@ -25,19 +25,27 @@ public enum NaruHelperVideoToolboxSyntheticAccessUnitSourceError: Error, Equatab
     case noEncodedAccessUnits
 }
 
+public enum NaruHelperVideoToolboxEncodingMode: Equatable, Sendable {
+    case lowLatencyRealtime
+    case completeFrameBatch
+}
+
 public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAccessUnitSource {
     public var frameCount: Int
     public var width: Int32
     public var height: Int32
+    public var encodingMode: NaruHelperVideoToolboxEncodingMode
 
     public init(
         frameCount: Int = 2,
         width: Int32 = 64,
-        height: Int32 = 64
+        height: Int32 = 64,
+        encodingMode: NaruHelperVideoToolboxEncodingMode = .completeFrameBatch
     ) {
         self.frameCount = max(frameCount, 1)
         self.width = width
         self.height = height
+        self.encodingMode = encodingMode
     }
 
     public func accessUnits(
@@ -55,7 +63,8 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
-            keyFrameInterval: frameCount
+            keyFrameInterval: frameCount,
+            encodingMode: encodingMode
         )
         return try encoder.encode(pixelBuffers: pixelBuffers)
         #else
@@ -70,17 +79,20 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     private let height: Int32
     private let frameRateBucket: HelperVideoFrameRateBucket
     private let keyFrameInterval: Int
+    private let encodingMode: NaruHelperVideoToolboxEncodingMode
 
     public init(
         width: Int32,
         height: Int32,
         frameRateBucket: HelperVideoFrameRateBucket,
-        keyFrameInterval: Int
+        keyFrameInterval: Int,
+        encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime
     ) {
         self.width = width
         self.height = height
         self.frameRateBucket = frameRateBucket
         self.keyFrameInterval = max(keyFrameInterval, 1)
+        self.encodingMode = encodingMode
     }
 
     public func encode(pixelBuffers: [CVPixelBuffer]) throws -> [NaruHelperVideoAccessUnit] {
@@ -93,10 +105,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
 
         let collector = LiveNaruHelperVideoToolboxOutputCollector()
         var session: VTCompressionSession?
-        let encoderSpecification: CFDictionary = [
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
-            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue as Any
-        ] as CFDictionary
+        let encoderSpecification = encodingMode.encoderSpecification
         let imageBufferAttributes: CFDictionary = [
             kCVPixelBufferPixelFormatTypeKey: Int(kCVPixelFormatType_32BGRA),
             kCVPixelBufferWidthKey: Int(width),
@@ -169,7 +178,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         refcon,
         _,
         status,
-        _,
+        infoFlags,
         sampleBuffer
     in
         guard let refcon else {
@@ -178,7 +187,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         let collector = Unmanaged<LiveNaruHelperVideoToolboxOutputCollector>
             .fromOpaque(refcon)
             .takeUnretainedValue()
-        collector.record(status: status, sampleBuffer: sampleBuffer)
+        collector.record(status: status, infoFlags: infoFlags, sampleBuffer: sampleBuffer)
     }
 
     private static func forceKeyframeProperties() -> CFDictionary {
@@ -189,7 +198,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
 
     private func configure(_ session: VTCompressionSession) throws {
         let properties: [(CFString, CFTypeRef)] = [
-            (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
+            (kVTCompressionPropertyKey_RealTime, encodingMode.realTimePropertyValue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
             (kVTCompressionPropertyKey_MaxKeyFrameInterval, keyFrameInterval as CFNumber),
@@ -202,6 +211,31 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
                 throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError
                     .compressionSessionConfigurationFailed(status)
             }
+        }
+    }
+}
+
+private extension NaruHelperVideoToolboxEncodingMode {
+    var encoderSpecification: CFDictionary {
+        switch self {
+        case .lowLatencyRealtime:
+            return [
+                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
+                kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue as Any
+            ] as CFDictionary
+        case .completeFrameBatch:
+            return [
+                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any
+            ] as CFDictionary
+        }
+    }
+
+    var realTimePropertyValue: CFBoolean {
+        switch self {
+        case .lowLatencyRealtime:
+            return kCFBooleanTrue
+        case .completeFrameBatch:
+            return kCFBooleanFalse
         }
     }
 }
@@ -262,10 +296,17 @@ private final class LiveNaruHelperVideoToolboxOutputCollector: @unchecked Sendab
     private var parameterSetPayload: Data?
     private var encodedSamples: [(kind: HelperVideoAccessUnitKind, payload: Data)] = []
 
-    func record(status: OSStatus, sampleBuffer: CMSampleBuffer?) {
+    func record(
+        status: OSStatus,
+        infoFlags: VTEncodeInfoFlags,
+        sampleBuffer: CMSampleBuffer?
+    ) {
         lock.withLock {
             guard status == noErr else {
                 statusError = status
+                return
+            }
+            guard !infoFlags.contains(.frameDropped) else {
                 return
             }
             guard let sampleBuffer else {

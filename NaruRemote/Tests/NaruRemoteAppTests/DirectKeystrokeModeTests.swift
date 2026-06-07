@@ -297,6 +297,56 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertEqual(pointerEvents[1].y, 10)
     }
 
+    func testTimedOutKeyEmissionDoesNotPermanentlyDisableLaterKeys() async throws {
+        // Live-device regression: the first key write can time out
+        // under socket pressure, but that must not nil the Direct-mode
+        // emitter. The next soft-key tap should enqueue against the
+        // same active session and reach the wire once the queue has
+        // been reset.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            keyEventDelays: [.seconds(10), nil, nil]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(60)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.toggleDirectKeystrokeMode()
+        await model.tapDirectKey(.character("a"))
+
+        try await Task.sleep(for: .milliseconds(140))
+        XCTAssertTrue(
+            connector.recordedKeyEvents.isEmpty,
+            "The first delayed key write should time out before recording"
+        )
+
+        await model.tapDirectKey(.character("b"))
+
+        try await waitForKeyEvents(connector, count: 2, timeout: 1)
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.keysym },
+            [0x0062, 0x0062]
+        )
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.isDown },
+            [true, false]
+        )
+    }
+
     // MARK: - Sticky modifier integration (Phase 4 / US-2)
 
     func testFreshModelHasAllStickyModifiersIdle() {
@@ -657,27 +707,31 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
         var recordedKeyEventsList: [(keysym: UInt32, isDown: Bool)] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
         var recordedInputEventsList: [RecordedInputEvent] = []
+        var keyEventDelays: [Duration?]
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
     private let width: Int
     private let height: Int
     private let name: String
-    private let keyEventDelay: Duration?
 
     init(
         width: Int,
         height: Int,
         name: String,
         framebuffer: RFBRawFramebuffer,
-        keyEventDelay: Duration? = nil
+        keyEventDelay: Duration? = nil,
+        keyEventDelays: [Duration?]? = nil
     ) {
         self.width = width
         self.height = height
         self.name = name
-        self.keyEventDelay = keyEventDelay
+        let resolvedKeyEventDelays = keyEventDelays ?? [keyEventDelay]
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(framebuffers: [framebuffer, framebuffer, framebuffer])
+            initialState: Recording(
+                framebuffers: [framebuffer, framebuffer, framebuffer],
+                keyEventDelays: resolvedKeyEventDelays
+            )
         )
     }
 
@@ -751,6 +805,12 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
     }
 
     func sendKeyEvent(keysym: UInt32, isDown: Bool) async throws {
+        let keyEventDelay = recording.withLock { state -> Duration? in
+            if state.keyEventDelays.count > 1 {
+                return state.keyEventDelays.removeFirst()
+            }
+            return state.keyEventDelays.first ?? nil
+        }
         if let keyEventDelay {
             try await Task.sleep(for: keyEventDelay)
         }

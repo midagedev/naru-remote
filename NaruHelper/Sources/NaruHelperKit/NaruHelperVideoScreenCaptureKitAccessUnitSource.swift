@@ -66,7 +66,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
-            keyFrameInterval: frameCount
+            keyFrameInterval: frameCount,
+            encodingMode: .lowLatencyRealtime
         )
         return try encoder.encode(pixelBuffers: pixelBuffers)
     }
@@ -75,8 +76,6 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
 private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
     NaruHelperVideoScreenCaptureKitPixelBufferProvider
 {
-    private let captureTimeout: TimeInterval = 5
-
     func pixelBuffers(
         frameLimit: Int,
         frameRateBucket: HelperVideoFrameRateBucket
@@ -101,7 +100,10 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
             semaphore.signal()
         }
 
-        guard semaphore.wait(timeout: .now() + captureTimeout) == .success else {
+        let providerTimeout = frameRateBucket.screenCaptureProviderTimeout(
+            frameLimit: frameLimit
+        )
+        guard semaphore.wait(timeout: .now() + providerTimeout) == .success else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
         }
         return try resultBox.value().get().map(\.pixelBuffer)
@@ -144,7 +146,11 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
         try await Self.start(stream)
 
         do {
-            let frames = try collector.waitForFrames(timeout: frameRateBucket.captureWaitTimeout)
+            let frames = try collector.waitForFrames(
+                timeout: frameRateBucket.screenCaptureFrameCollectionTimeout(
+                    frameLimit: frameLimit
+                )
+            )
             try await Self.stop(stream)
             return frames
         } catch {
@@ -279,13 +285,18 @@ private final class LiveNaruHelperVideoScreenCaptureKitResultBox<T>: @unchecked 
     }
 }
 
-private extension HelperVideoFrameRateBucket {
+extension HelperVideoFrameRateBucket {
     var screenCaptureMinimumFrameInterval: CMTime {
         CMTime(value: 1, timescale: nominalFrameRate)
     }
 
-    var captureWaitTimeout: TimeInterval {
-        3
+    func screenCaptureFrameCollectionTimeout(frameLimit: Int) -> TimeInterval {
+        let expectedFrameSeconds = Double(max(frameLimit, 1)) / Double(nominalFrameRate)
+        return min(max(expectedFrameSeconds + 2.0, 3.0), 10.0)
+    }
+
+    func screenCaptureProviderTimeout(frameLimit: Int) -> TimeInterval {
+        min(screenCaptureFrameCollectionTimeout(frameLimit: frameLimit) + 2.0, 12.0)
     }
 
     private var nominalFrameRate: CMTimeScale {
