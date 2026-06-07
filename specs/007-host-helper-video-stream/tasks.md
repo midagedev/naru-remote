@@ -455,6 +455,11 @@ without unsafe report fields.
   H.264 encoder sessions without exporting raw traffic counters in diagnostics
   or benchmark JSON. Covered by helper encoder policy tests and a live
   permission-gated helper-video run. **Done.**
+- [x] T031W [US1] Add an app-side helper-video start request policy so nominal
+  sessions request `readability/upTo30`, while app power saver, iOS Low Power
+  Mode, or elevated thermal state request `readability/upTo15` before the stream
+  reaches the helper encoder. Covered by policy and bootstrap routing tests.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

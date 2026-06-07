@@ -22,6 +22,54 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
     }
 
+    func testHelperVideoStartRequestPolicyPrefersReadabilityAtThirtyFPSWhenNominal() {
+        let policy = HelperVideoStartRequestPolicy(
+            streamPowerMode: .balanced,
+            isSystemLowPowerModeEnabled: false,
+            thermalState: .nominal
+        )
+
+        XCTAssertEqual(policy.requestBody.codec, .h264)
+        XCTAssertEqual(policy.requestBody.latencyMode, .lowLatency)
+        XCTAssertEqual(policy.requestBody.qualityBucket, .readability)
+        XCTAssertEqual(policy.requestBody.maxFrameRateBucket, .upTo30)
+    }
+
+    func testHelperVideoStartRequestPolicyDropsToFifteenFPSForPowerAndThermalPressure() {
+        let constrainedPolicies = [
+            HelperVideoStartRequestPolicy(
+                streamPowerMode: .powerSaver,
+                isSystemLowPowerModeEnabled: false,
+                thermalState: .nominal
+            ),
+            HelperVideoStartRequestPolicy(
+                streamPowerMode: .balanced,
+                isSystemLowPowerModeEnabled: true,
+                thermalState: .nominal
+            ),
+            HelperVideoStartRequestPolicy(
+                streamPowerMode: .balanced,
+                isSystemLowPowerModeEnabled: false,
+                thermalState: .fair
+            ),
+            HelperVideoStartRequestPolicy(
+                streamPowerMode: .balanced,
+                isSystemLowPowerModeEnabled: false,
+                thermalState: .serious
+            ),
+            HelperVideoStartRequestPolicy(
+                streamPowerMode: .balanced,
+                isSystemLowPowerModeEnabled: false,
+                thermalState: .critical
+            )
+        ]
+
+        XCTAssertTrue(constrainedPolicies.allSatisfy {
+            $0.requestBody.qualityBucket == .readability
+                && $0.requestBody.maxFrameRateBucket == .upTo15
+        })
+    }
+
     func testSessionStreamFrameApplicationQueueCoalescesContentBacklogToInitialAndLatestFrame() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let sessionID = RemoteSession(profileID: profile.id).id
@@ -3193,6 +3241,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(calls.first?.profileID, profile.id)
         XCTAssertEqual(calls.first?.pairingFingerprint, "sha256:helper-video")
         XCTAssertEqual(calls.first?.loadedSecretWasPresent, true)
+        XCTAssertEqual(calls.first?.requestBody.qualityBucket, .readability)
+        XCTAssertEqual(calls.first?.requestBody.maxFrameRateBucket, .upTo30)
         XCTAssertEqual(snapshot.session?.state, .active)
         XCTAssertEqual(snapshot.latestFramebuffer, framebuffer)
         XCTAssertEqual(snapshot.visualTransportMode, VisualTransportMode.helperVideo)
@@ -3200,6 +3250,65 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
         XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, nil)
         XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+    }
+
+    func testHelperVideoBootstrapRequestsFifteenFPSInSystemLowPowerMode() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 1,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer },
+            lowPowerModeProvider: { true }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.requestBody.qualityBucket, .readability)
+        XCTAssertEqual(calls.first?.requestBody.maxFrameRateBucket, .upTo15)
     }
 
     func testHelperVideoBootstrapStartsBeforeSlowVNCFirstFrame() async throws {

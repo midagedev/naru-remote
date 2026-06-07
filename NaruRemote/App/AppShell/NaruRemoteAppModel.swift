@@ -1968,7 +1968,20 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             return
         }
-        _ = await runner.start(sessionID: sessionID, profileID: profile.id, model: self)
+        _ = await runner.start(
+            sessionID: sessionID,
+            profileID: profile.id,
+            model: self,
+            requestBody: helperVideoStartRequestBody()
+        )
+    }
+
+    private func helperVideoStartRequestBody() -> HelperVideoStartStreamRequestBody {
+        HelperVideoStartRequestPolicy(
+            streamPowerMode: appSettings.streamPowerMode,
+            isSystemLowPowerModeEnabled: lowPowerModeProvider(),
+            thermalState: thermalStateProvider()
+        ).requestBody
     }
 
     private func markHelperVideoBootstrapChecking(
