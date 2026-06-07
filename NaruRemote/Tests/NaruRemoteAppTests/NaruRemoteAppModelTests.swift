@@ -171,6 +171,54 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(done)
     }
 
+    func testSessionStreamFrameApplicationQueueCanPreferControlUpdatesDuringContentPacing() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let queue = SessionStreamFrameApplicationQueue()
+        let latestCursor = RFBServerCursor(
+            width: 1,
+            height: 1,
+            hotSpotX: 0,
+            hotSpotY: 0,
+            pixels: [RFBColor(red: 2, green: 2, blue: 2)]
+        )
+
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 10,
+                red: 10,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 11,
+                red: 10,
+                isEmptyUpdate: true,
+                serverCursor: latestCursor,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.close()
+
+        let preferred = await queue.next(preferControlUpdates: true)
+        let content = await queue.next(preferControlUpdates: true)
+        let done = await queue.next(preferControlUpdates: true)
+
+        XCTAssertEqual(preferred?.frame.sequence, 11)
+        XCTAssertEqual(preferred?.frame.serverCursor, latestCursor)
+        XCTAssertEqual(content?.frame.sequence, 10)
+        XCTAssertNil(done)
+    }
+
     func testSessionFrameApplicationWorkerPacingDelaysRepeatedContentFrame() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let sessionID = RemoteSession(profileID: profile.id).id

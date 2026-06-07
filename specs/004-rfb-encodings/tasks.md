@@ -1474,6 +1474,16 @@ iPhone) and ships as its own PR.
   coordinates, dimensions, pixels, byte counts, raw timings, command text,
   draft text, marked text, IME state, or keysyms. Owns: app frame worker
   pacing, focused app-model tests, research/benchmark artifact. **Done.**
+- **T468** Frame-application control-lane priority: when the MainActor
+  frame-application worker is pacing repeated content frames, allow the
+  bounded queue to return empty liveness/cursor updates ahead of pending content
+  work. This keeps lightweight connection/cursor state from being parked behind
+  video pacing while preserving content coalescing and the first visible
+  content path. Emit/export no host identity, credentials, request coordinates,
+  dimensions, pixels, byte counts, raw timings, command text, draft text,
+  marked text, IME state, keysyms, or pointer coordinates. Owns: app frame
+  queue priority, focused app-model tests, research/benchmark artifact.
+  **Done.**
 
 ## Cross-cutting (every increment)
 

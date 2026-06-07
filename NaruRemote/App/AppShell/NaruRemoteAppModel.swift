@@ -65,9 +65,14 @@ actor SessionStreamFrameApplicationQueue {
         return droppedCount
     }
 
-    func next() async -> StreamFrameApplicationWork? {
+    func next(preferControlUpdates: Bool = false) async -> StreamFrameApplicationWork? {
         while true {
             guard pending.isEmpty else {
+                if preferControlUpdates,
+                   let controlUpdateIndex = pending.firstIndex(where: \.isEmptyUpdate)
+                {
+                    return pending.remove(at: controlUpdateIndex)
+                }
                 return pending.removeFirst()
             }
             guard !isClosed else {
@@ -3987,7 +3992,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         let workerPacing = SessionFrameApplicationWorkerPacing()
         activeFrameApplicationTask = Task { @MainActor [weak self, queue] in
             var lastContentFrameAppliedAt: Date?
-            while !Task.isCancelled, let work = await queue.next() {
+            while !Task.isCancelled,
+                  let work = await queue.next(preferControlUpdates: lastContentFrameAppliedAt != nil)
+            {
                 let pacingDelay = workerPacing.delay(
                     before: work,
                     lastContentFrameAppliedAt: lastContentFrameAppliedAt,

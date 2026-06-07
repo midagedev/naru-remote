@@ -6104,6 +6104,43 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D136 Prefer Control Updates While Content Frames Are Paced
+
+References:
+- `artifacts/benchmarks/2026-06-07-frame-apply-control-lane-summary.md`
+- D134 frame-application worker cadence floor.
+- D130/D131 app-side frame-application backlog isolation work.
+
+**Decision**: when the MainActor frame-application worker has already applied a
+content frame and is therefore in repeated-content pacing mode, ask the bounded
+frame-application queue to prefer empty liveness/cursor updates over pending
+content work. Initial content delivery still uses normal FIFO order, and
+content work still coalesces to the initial/latest visual states.
+
+**Why**:
+- The cadence floor protects gestures, Compose editing, and pointer input from
+  repeated content frame application, but a single FIFO queue can still leave
+  lightweight cursor/liveness work parked behind a content item that is about to
+  be paced.
+- Cursor/liveness work does not publish framebuffer pixels or drive GPU upload.
+  Treating it as a lightweight control lane is closer to the intended
+  separation between video and UI/control state.
+- This is still deliberately smaller than a full renderer rewrite: it preserves
+  the existing queue ownership and MainActor state boundary while removing the
+  most obvious cross-lane head-of-line blocking.
+
+**Evidence target**:
+- Focused queue tests assert that `preferControlUpdates` returns a retained
+  cursor/liveness empty update ahead of content when requested.
+- Focused app-model tests and full package tests must pass.
+- This is not evidence that VNC reached the 10fps target; it is a
+  responsiveness isolation increment.
+
+**Privacy rule**: this change records no new diagnostics. It must not print or
+export host identity, credentials, ports, request coordinates, dimensions,
+pixels, byte counts, raw timing samples, command text, draft text, marked text,
+IME state, keysyms, or pointer coordinates.
+
 ### D134 Add A Frame-Application Worker Cadence Floor
 
 References:
