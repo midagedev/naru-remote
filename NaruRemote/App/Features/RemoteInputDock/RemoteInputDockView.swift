@@ -145,7 +145,7 @@ public struct RemoteInputDockView: View {
             // explicitly clear the focus signal so the app shell
             // can restore the full checklist.
             if isDirect {
-                cancelPendingComposeTextPropagation()
+                flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
                 composeFieldFocused = false
                 onComposeFocusChange(false)
             }
@@ -489,7 +489,7 @@ public struct RemoteInputDockView: View {
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
         if !focused {
-            flushComposeTextToModelIfNeeded(currentComposeTextSnapshot())
+            flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
         }
     }
 
@@ -547,7 +547,7 @@ public struct RemoteInputDockView: View {
         if immediateText != text {
             text = immediateText
         }
-        flushComposeTextToModelIfNeeded(immediateText)
+        flushComposeTextToModelIfNeeded(immediateText, force: true)
         Task { @MainActor in
             let plan = Self.composeSendPreparationPlan(
                 hadMarkedTextBeforeSend: hadMarkedTextBeforeSend,
@@ -570,7 +570,7 @@ public struct RemoteInputDockView: View {
             if finalText != text {
                 text = finalText
             }
-            flushComposeTextToModelIfNeeded(finalText)
+            flushComposeTextToModelIfNeeded(finalText, force: true)
             onComposeSendPreparation(preparationReport)
             composeSendNeedsMarkedCommitStabilization = false
             isPreparingComposeSend = false
@@ -630,11 +630,15 @@ public struct RemoteInputDockView: View {
 
         return Self.shouldPropagateLocalComposeTextToModel(
             isDirectModeActive: directKeystrokeMode.isActive,
-            hasMarkedText: hasMarkedText
+            hasMarkedText: hasMarkedText,
+            isComposeFieldFocused: composeFieldFocused
         )
     }
 
-    private func shouldPropagateLocalComposeTextToModel(_ newValue: String) -> Bool {
+    private func shouldPropagateLocalComposeTextToModel(
+        _ newValue: String,
+        force: Bool = false
+    ) -> Bool {
         #if os(iOS) && canImport(UIKit)
         let hasMarkedText = composeCommitController.hasMarkedText
         #else
@@ -645,7 +649,9 @@ public struct RemoteInputDockView: View {
             newValue: newValue,
             lastPropagatedText: lastPropagatedComposeText,
             isDirectModeActive: directKeystrokeMode.isActive,
-            hasMarkedText: hasMarkedText
+            hasMarkedText: hasMarkedText,
+            isComposeFieldFocused: composeFieldFocused,
+            force: force
         )
     }
 
@@ -684,9 +690,9 @@ public struct RemoteInputDockView: View {
         flushComposeTextToModelIfNeeded(pendingComposeTextPropagation.text)
     }
 
-    private func flushComposeTextToModelIfNeeded(_ newValue: String) {
+    private func flushComposeTextToModelIfNeeded(_ newValue: String, force: Bool = false) {
         cancelPendingComposeTextPropagation()
-        guard shouldPropagateLocalComposeTextToModel(newValue) else {
+        guard shouldPropagateLocalComposeTextToModel(newValue, force: force) else {
             return
         }
         lastPropagatedComposeText = newValue
@@ -704,20 +710,29 @@ public struct RemoteInputDockView: View {
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
         isDirectModeActive: Bool,
-        hasMarkedText: Bool
+        hasMarkedText: Bool,
+        isComposeFieldFocused: Bool = false,
+        force: Bool = false
     ) -> Bool {
-        !isDirectModeActive && !hasMarkedText
+        if force {
+            return true
+        }
+        return !isDirectModeActive && !hasMarkedText && !isComposeFieldFocused
     }
 
     nonisolated static func shouldPropagateLocalComposeTextToModel(
         newValue: String,
         lastPropagatedText: String,
         isDirectModeActive: Bool,
-        hasMarkedText: Bool
+        hasMarkedText: Bool,
+        isComposeFieldFocused: Bool = false,
+        force: Bool = false
     ) -> Bool {
         shouldPropagateLocalComposeTextToModel(
             isDirectModeActive: isDirectModeActive,
-            hasMarkedText: hasMarkedText
+            hasMarkedText: hasMarkedText,
+            isComposeFieldFocused: isComposeFieldFocused,
+            force: force
         ) && newValue != lastPropagatedText
     }
 

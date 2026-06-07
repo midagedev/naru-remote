@@ -245,6 +245,75 @@ final class DirectKeystrokeModeTests: XCTestCase {
         )
     }
 
+    func testFrameStreamPressureAndTrackpadMoveBacklogDoNotBlockDirectKeyLane() async throws {
+        // Broad physical-device reproduction gate: live sessions can
+        // receive a burst of frames while the user is zoomed/panning in
+        // trackpad mode and then starts typing. Frame application and
+        // stale pointer movement must remain outside the key lane so
+        // the keyboard does not feel frozen after the first character.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffers = (0..<96).map { index in
+            RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: UInt8(index % 255), green: 20, blue: 30)
+            )
+        }
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: framebuffers[0],
+            framebuffers: framebuffers,
+            pointerEventDelay: .seconds(10)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: framebuffers.count,
+                frameInterval: 0
+            ),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(250)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+        try await waitForFrameRequests(connector, count: 16, timeout: 1)
+
+        model.togglePointerControlMode()
+        for index in 0..<12 {
+            model.handleTrackpadGesture(
+                .dragChanged(
+                    viewPoint: CGPoint(x: 20 + index, y: 20 + index),
+                    translation: CGSize(width: 8, height: 6)
+                ),
+                viewSize: CGSize(width: 80, height: 60)
+            )
+        }
+
+        model.toggleDirectKeystrokeMode()
+        let startedAt = Date()
+        await model.tapDirectKey(.character("a"))
+        await model.tapDirectKey(.character("b"))
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertLessThan(
+            elapsed,
+            0.12,
+            "Frame pressure and delayed pointer movement must not make soft-key taps wait on the wire."
+        )
+        try await waitForKeyEvents(connector, count: 4, timeout: 1)
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.keysym },
+            [0x0061, 0x0061, 0x0062, 0x0062]
+        )
+        XCTAssertTrue(
+            connector.recordedPointerEvents.isEmpty,
+            "The delayed pointer backlog may time out, but it must not head-of-line block direct keys."
+        )
+    }
+
     func testButtonlessTrackpadMoveUsesBestEffortPointerPathWhenAvailable() async throws {
         // Stronger live-device fix: a plain trackpad cursor-follow
         // move should not wait for Network.framework contentProcessed
@@ -819,6 +888,24 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTFail("Timed out waiting for \(count) pointer events; got \(connector.recordedPointerEvents.count)")
         throw DirectKeystrokeTestTimeout.inputEvents
     }
+
+    private func waitForFrameRequests(
+        _ connector: KeyCapturingStreamingConnector,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connector.requestedFramebufferUpdateCount >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail(
+            "Timed out waiting for \(count) frame requests; got \(connector.requestedFramebufferUpdateCount)"
+        )
+        throw DirectKeystrokeTestTimeout.inputEvents
+    }
 }
 
 private enum DirectKeystrokeTestTimeout: Error {
@@ -838,6 +925,7 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
         var recordedKeyEventsList: [(keysym: UInt32, isDown: Bool)] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
         var recordedInputEventsList: [RecordedInputEvent] = []
+        var requestedFramebufferUpdateCount: Int = 0
         var keyEventDelays: [Duration?]
         var pointerEventDelays: [Duration?]
     }
@@ -852,6 +940,7 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
         height: Int,
         name: String,
         framebuffer: RFBRawFramebuffer,
+        framebuffers: [RFBRawFramebuffer]? = nil,
         keyEventDelay: Duration? = nil,
         keyEventDelays: [Duration?]? = nil,
         pointerEventDelay: Duration? = nil,
@@ -862,9 +951,10 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
         self.name = name
         let resolvedKeyEventDelays = keyEventDelays ?? [keyEventDelay]
         let resolvedPointerEventDelays = pointerEventDelays ?? [pointerEventDelay]
+        let resolvedFramebuffers = framebuffers ?? [framebuffer, framebuffer, framebuffer]
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
-                framebuffers: [framebuffer, framebuffer, framebuffer],
+                framebuffers: resolvedFramebuffers,
                 keyEventDelays: resolvedKeyEventDelays,
                 pointerEventDelays: resolvedPointerEventDelays
             )
@@ -886,6 +976,10 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
 
     var recordedInputEvents: [RecordedInputEvent] {
         recording.withLock { $0.recordedInputEventsList }
+    }
+
+    var requestedFramebufferUpdateCount: Int {
+        recording.withLock { $0.requestedFramebufferUpdateCount }
     }
 
     func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
@@ -922,7 +1016,8 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
 
     func requestRawFramebufferUpdate(incremental: Bool, timeout: TimeInterval) throws -> RFBRawFramebuffer {
         let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
-            state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
+            state.requestedFramebufferUpdateCount += 1
+            return state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
         }
         guard let framebuffer else {
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
