@@ -368,6 +368,8 @@ final class LiveMacRFBSmokeTests: XCTestCase {
             return "unsupported-framebuffer-encoding"
         case RFBNetworkClientError.notConnected:
             return "not-connected"
+        case RFBNetworkClientError.unsupportedBestEffortPointerMask:
+            return "unsupported-best-effort-pointer-mask"
         case RFBProtocolDecoderError.insufficientData:
             return "protocol-insufficient-data"
         case RFBProtocolDecoderError.invalidProtocolVersion:

@@ -91,6 +91,12 @@ the 10fps VNC gate. Request/response reaches about 6 content FPS but still
 fails from first-byte wait, while ContinuousUpdates fails before usable samples
 on the current Mac Screen Sharing target. A paired `screen-recording-setup`
 probe records that the helper app bundle still needs Screen Recording approval.
+Current best-effort pointer input artifact:
+`artifacts/benchmarks/2026-06-07-best-effort-pointer-move-summary.md`.
+That pass removes a remaining input-path blocking point by routing only single
+buttonless trackpad cursor-follow moves through an optional non-blocking RFB
+write capability, while keeping clicks, drags, scroll, and keys on reliable
+ordered writes.
 Current live routing artifact:
 `artifacts/benchmarks/2026-06-06-sustained-v2-core-live-routing-baseline.md`.
 That run uses schema v41's report-level decision to choose

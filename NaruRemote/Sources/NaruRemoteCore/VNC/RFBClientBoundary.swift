@@ -132,6 +132,18 @@ public protocol RFBPointerEventClient: AnyObject, Sendable {
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws
 }
 
+/// Optional fast path for lossy cursor-follow updates. A single
+/// buttonless pointer move is safe to treat as latest-value input:
+/// stale moves may be overtaken or dropped, but button-down/up,
+/// scroll, drag, and key events must remain on the reliable path.
+///
+/// Implementations MUST NOT log coordinates or payload bytes. Errors
+/// should be limited to coarse connection state; write-completion
+/// failures may surface through the normal stream failure path later.
+public protocol RFBBestEffortPointerEventClient: AnyObject, Sendable {
+    func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws
+}
+
 /// Capability boundary for RFB clients that can deliver `KeyEvent`
 /// messages (RFC 6143 §7.5.4, message type 4) on the active
 /// connection. Used by Direct Keystroke Streaming Mode (the named

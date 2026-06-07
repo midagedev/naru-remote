@@ -23,11 +23,20 @@ Dependency rule preserved: `iOSApp → NaruRemoteApp → NaruRemoteCore`; Core g
 
 ## Adapters / boundaries
 
-No new RFB boundary. Trackpad emits **absolute** `PointerEvent`s (RFC 6143 §7.5.5) from the cursor position via the existing `RFBPointerEventClient.sendPointerEvent(buttonMask:x:y:)`; relativity is local cursor bookkeeping. Quick keys reuse `RFBKeyEventClient`/`KeystrokeEmitter`. No clipboard, no helper, no new credential surface.
+One optional RFB input boundary is added for latency, not new protocol semantics:
+`RFBBestEffortPointerEventClient` can send a single buttonless (`0x00`)
+cursor-follow `PointerEvent` without waiting for Network.framework
+`contentProcessed`. Trackpad still emits **absolute** `PointerEvent`s
+(RFC 6143 §7.5.5) from the cursor position; relativity is local cursor
+bookkeeping. Clicks, drags, scroll, and keys remain on
+`RFBPointerEventClient.sendPointerEvent(buttonMask:x:y:)` /
+`RFBKeyEventClient` reliable paths. Quick keys reuse
+`RFBKeyEventClient`/`KeystrokeEmitter`. No clipboard, no helper, no new
+credential surface.
 
 ## Data flow
 
-Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteAppModel` → `PointerGestureResolver.resolve(...)` using the current `ViewportTransform` + `TrackpadCursor` → returns updated cursor/transform (published → SwiftUI redraw of overlay/scale) + zero-or-more `RFBPointerCommand` → model dispatches each via `activePointerClient` on the pointer outbound lane (dropped silently if not `.active`). Direct-mode and Compose quick-key `KeyEvent`s dispatch through a separate key outbound lane, so bursty buttonless trackpad-move writes cannot park keyboard input behind a pointer backlog. Zoom/pan return commands == `[]` (constitution §I). Frame arrival in the stream loop records a latency sample → `ConnectionQualityEstimator` → published bucket.
+Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteAppModel` → `PointerGestureResolver.resolve(...)` using the current `ViewportTransform` + `TrackpadCursor` → returns updated cursor/transform (published → SwiftUI redraw of overlay/scale) + zero-or-more `RFBPointerCommand` → model dispatches pointer commands via `activePointerClient` on the pointer outbound lane (dropped silently if not `.active`). A single buttonless cursor-follow command uses `RFBBestEffortPointerEventClient` when available; all multi-command/non-zero-mask pointer gestures use reliable pointer writes. Direct-mode and Compose quick-key `KeyEvent`s dispatch through a separate key outbound lane, so bursty buttonless trackpad-move writes cannot park keyboard input behind a pointer backlog. Zoom/pan return commands == `[]` (constitution §I). Frame arrival in the stream loop records a latency sample → `ConnectionQualityEstimator` → published bucket.
 
 ## Verification Matrix (constitution §III; iPhone before iPad)
 
