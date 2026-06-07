@@ -9,6 +9,7 @@ struct NaruRemoteApplication: App {
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
     @MainActor private static var helperVideoHealthStormTask: Task<Void, Never>?
+    @MainActor private static var incomingClipboardChromeStormTask: Task<Void, Never>?
     @MainActor private static var delayedFirstFrameTask: Task<Void, Never>?
 
     var body: some Scene {
@@ -140,6 +141,7 @@ struct NaruRemoteApplication: App {
             applyTestFramebufferFlood(to: model)
             applyTestModelPublishStorm(to: model)
             applyTestHelperVideoHealthStorm(to: model)
+            applyTestIncomingClipboardChromeStorm(to: model)
             applyTestDelayedFirstFrameAfterComposeFocus(to: model)
         }
         return model
@@ -314,6 +316,8 @@ struct NaruRemoteApplication: App {
         modelPublishStormTask = nil
         helperVideoHealthStormTask?.cancel()
         helperVideoHealthStormTask = nil
+        incomingClipboardChromeStormTask?.cancel()
+        incomingClipboardChromeStormTask = nil
     }
 
     /// XCUITest responsiveness hook — for the connecting-session fixture,
@@ -432,6 +436,60 @@ struct NaruRemoteApplication: App {
                 }
                 model.updateHelperVideoStreamHealth(samples[index % samples.count])
                 try? await Task.sleep(for: .milliseconds(7))
+            }
+        }
+    }
+
+    /// XCUITest responsiveness hook — when enabled, wait until Compose owns
+    /// first-responder focus and then repeatedly publish remote clipboard
+    /// reviews. Unlike quality/helper samples, this drives a bottom
+    /// safe-area banner whose height can appear above the keyboard; it
+    /// reproduces the physical-device class where Korean/CJK input stalls
+    /// after the first syllable because accessory chrome relayouts under
+    /// UIKit's active IME transaction.
+    @MainActor
+    private static func applyTestIncomingClipboardChromeStorm(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_INCOMING_CLIPBOARD_CHROME_STORM"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        guard model.session?.state == .active else {
+            return
+        }
+
+        incomingClipboardChromeStormTask?.cancel()
+        incomingClipboardChromeStormTask = Task { @MainActor in
+            defer { incomingClipboardChromeStormTask = nil }
+            for _ in 0..<160 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                if model.isComposeInputEditingActiveForTesting {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(15))
+            }
+            guard !Task.isCancelled,
+                  model.isComposeInputEditingActiveForTesting
+            else {
+                return
+            }
+
+            let samples = [
+                "Synthetic remote clipboard review while Compose is focused.",
+                "Synthetic remote clipboard review with enough text to span more than one compact iPhone line during a keyboard accessory relayout.",
+                "Synthetic remote clipboard review updated again during active IME composition."
+            ]
+            for index in 0..<360 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                model.recordIncomingClipboard(
+                    samples[index % samples.count],
+                    at: Date(timeIntervalSince1970: TimeInterval(index))
+                )
+                try? await Task.sleep(for: .milliseconds(9))
             }
         }
     }

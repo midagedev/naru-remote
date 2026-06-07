@@ -184,18 +184,21 @@ public struct NaruRemoteAppShell: View {
                 // pre-announcement of capabilities the empty-home CTA
                 // is meant to remove.
                 if !isEmptyHome && !showsConnectionGrid {
+                    let accessoryChrome = RemoteInputAccessoryChromeState(
+                        snapshot: snapshot,
+                        incomingClipboardReview: model.pendingIncomingClipboard,
+                        isLiveSession: usesLiveSessionLayout,
+                        isComposeFieldFocused: composeFieldFocused
+                    )
+
                     VStack(spacing: 0) {
                         IncomingClipboardBanner(
-                            review: model.pendingIncomingClipboard,
+                            review: accessoryChrome.incomingClipboardReview,
                             onAccept: { model.acceptIncomingClipboard() },
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        if let statusLine = RemoteInputDockStatusLineState(
-                            snapshot: snapshot,
-                            isLiveSession: usesLiveSessionLayout,
-                            isComposeFieldFocused: composeFieldFocused
-                        ) {
+                        if let statusLine = accessoryChrome.statusLine {
                             RemoteInputDockStatusLine(text: statusLine.text)
                         }
 
@@ -325,6 +328,25 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
+}
+
+struct RemoteInputAccessoryChromeState: Equatable, Sendable {
+    var incomingClipboardReview: IncomingClipboardReview?
+    var statusLine: RemoteInputDockStatusLineState?
+
+    init(
+        snapshot: NaruRemoteAppSnapshot,
+        incomingClipboardReview: IncomingClipboardReview?,
+        isLiveSession: Bool,
+        isComposeFieldFocused: Bool
+    ) {
+        self.incomingClipboardReview = isComposeFieldFocused ? nil : incomingClipboardReview
+        self.statusLine = RemoteInputDockStatusLineState(
+            snapshot: snapshot,
+            isLiveSession: isLiveSession,
+            isComposeFieldFocused: isComposeFieldFocused
+        )
+    }
 }
 
 struct RemoteInputDockRenderState: Equatable, Sendable {
