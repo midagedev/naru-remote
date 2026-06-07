@@ -115,6 +115,15 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   then keyboard freezes" report into a simulator regression gate before the
   helper-video renderer work increases frame pressure again. Covered by
   `ComposeInputResponsivenessUITests`. **Done.**
+- [x] T015bg [B] Interaction architecture gate: freeze focused Compose sibling
+  chrome while UIKit owns the active IME transaction, and add an iPhone
+  XCUITest fixture that combines active-session Compose, stale confirmation
+  status, trackpad cursor pressure, full-frame framebuffer flood, and
+  app-model `@Published` chrome churn while entering Korean text. This
+  reproduces the broader live-session freeze class instead of only the
+  framebuffer/cursor subset. Covered by `RemoteInputDockRenderStateTests` and
+  `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm`.
+  **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

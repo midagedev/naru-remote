@@ -271,8 +271,13 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             isComposeFieldFocused: true
         )
 
-        XCTAssertEqual(statusLine?.text, "Remote app confirmation unavailable.")
-        XCTAssertEqual(editingLine?.text, "Ready to compose locally")
+        XCTAssertEqual(statusLine?.text, FocusedComposeStatusLineState.focusedStatusText)
+        XCTAssertEqual(editingLine?.text, FocusedComposeStatusLineState.focusedStatusText)
+        XCTAssertEqual(
+            statusLine,
+            editingLine,
+            "Focused Compose chrome should stay visually static while model send status clears; dynamic status resumes after focus leaves."
+        )
         XCTAssertNotNil(statusLine)
         XCTAssertNotNil(
             editingLine,
@@ -283,6 +288,52 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 snapshot: editingSnapshot,
                 isComposeFieldFocused: false
             )
+        )
+    }
+
+    func testFocusedComposeStatusLineIgnoresPublishedModelChromeChanges() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let baseSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입")
+        )
+        let attempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            status: .unknown,
+            safeMessage: "Remote app confirmation unavailable."
+        )
+        let noisySnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입력"),
+            latestInjectionAttempt: attempt,
+            helperTextBridgeState: [
+                profile.id: HelperTextBridgeProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper",
+                    availability: .checking,
+                    lastFailureCode: nil,
+                    lastCheckedBucket: .recent
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            FocusedComposeStatusLineState(
+                snapshot: baseSnapshot,
+                isComposeFieldFocused: true
+            ),
+            FocusedComposeStatusLineState(
+                snapshot: noisySnapshot,
+                isComposeFieldFocused: true
+            ),
+            "Focused Compose's sibling chrome must not relayout when helper/send status changes under an active IME transaction."
         )
     }
 

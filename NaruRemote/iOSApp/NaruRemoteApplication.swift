@@ -6,6 +6,7 @@ import SwiftUI
 struct NaruRemoteApplication: App {
     @StateObject private var model = Self.makeModel()
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
+    @MainActor private static var modelPublishStormTask: Task<Void, Never>?
 
     var body: some Scene {
         WindowGroup {
@@ -128,6 +129,7 @@ struct NaruRemoteApplication: App {
             UXAuditFixtures.applyFixturePostInitMutations(to: model)
             applyTestTrackpadCursorStorm(to: model)
             applyTestFramebufferFlood(to: model)
+            applyTestModelPublishStorm(to: model)
         }
         return model
     }
@@ -288,6 +290,38 @@ struct NaruRemoteApplication: App {
         ]
         return colors.map { color in
             RFBRawFramebuffer(width: width, height: height, fill: color)
+        }
+    }
+
+    /// XCUITest responsiveness hook — when enabled on an active-session
+    /// fixture, continuously mutates model-published chrome while Compose is
+    /// focused. This recreates the production class of pressure where frame
+    /// liveness, quality, and helper state can invalidate the shell even
+    /// though the UIKit IME editor should remain an isolated transaction.
+    @MainActor
+    private static func applyTestModelPublishStorm(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_MODEL_PUBLISH_STORM"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        guard model.session?.state == .active else {
+            return
+        }
+
+        modelPublishStormTask?.cancel()
+        modelPublishStormTask = Task { @MainActor in
+            defer { modelPublishStormTask = nil }
+            let qualitySamples: [ConnectionQuality] = [.good, .fair, .poor, .good]
+            for index in 0..<900 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                model.seedConnectionQualityForTesting(
+                    qualitySamples[index % qualitySamples.count]
+                )
+                try? await Task.sleep(for: .milliseconds(6))
+            }
         }
     }
 
