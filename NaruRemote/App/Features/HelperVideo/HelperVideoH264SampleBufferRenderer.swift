@@ -2,8 +2,8 @@ import Foundation
 import NaruRemoteCore
 
 #if canImport(AVFoundation) && canImport(CoreMedia)
-import AVFoundation
-import CoreMedia
+@preconcurrency import AVFoundation
+@preconcurrency import CoreMedia
 
 public struct HelperVideoH264FrameDimensions: Equatable, Sendable {
     public var width: Int32
@@ -303,30 +303,55 @@ public final class HelperVideoH264SampleBufferFactory {
     }
 }
 
+private struct HelperVideoPreparedSampleBuffer: @unchecked Sendable {
+    let sampleBuffer: CMSampleBuffer
+}
+
+private actor HelperVideoH264SampleBufferPreparationPipeline {
+    private let factory: HelperVideoH264SampleBufferFactory
+
+    init(factory: HelperVideoH264SampleBufferFactory) {
+        self.factory = factory
+    }
+
+    func makeSampleBuffer(
+        from decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) throws -> HelperVideoPreparedSampleBuffer? {
+        try factory.makeSampleBuffer(from: decoded)
+            .map { HelperVideoPreparedSampleBuffer(sampleBuffer: $0) }
+    }
+
+    func reset() {
+        factory.reset()
+    }
+}
+
 public final class HelperVideoH264SampleBufferRenderer {
     public let displayLayer: AVSampleBufferDisplayLayer
 
-    private let factory: HelperVideoH264SampleBufferFactory
+    private let preparationPipeline: HelperVideoH264SampleBufferPreparationPipeline
 
     public init(
         displayLayer: AVSampleBufferDisplayLayer = AVSampleBufferDisplayLayer(),
-        factory: HelperVideoH264SampleBufferFactory = HelperVideoH264SampleBufferFactory()
+        factory: sending HelperVideoH264SampleBufferFactory = HelperVideoH264SampleBufferFactory()
     ) {
         self.displayLayer = displayLayer
-        self.factory = factory
+        self.preparationPipeline = HelperVideoH264SampleBufferPreparationPipeline(factory: factory)
         self.displayLayer.videoGravity = .resizeAspect
     }
 
     @discardableResult
+    @MainActor
     public func enqueue(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> CMSampleBuffer? {
+    ) async throws -> CMSampleBuffer? {
+        guard let prepared = try await preparationPipeline.makeSampleBuffer(from: decoded) else {
+            return nil
+        }
+        let sampleBuffer = prepared.sampleBuffer
+
         if displayLayer.status == .failed {
             displayLayer.flushAndRemoveImage()
-        }
-
-        guard let sampleBuffer = try factory.makeSampleBuffer(from: decoded) else {
-            return nil
         }
 
         displayLayer.enqueue(sampleBuffer)
@@ -338,8 +363,9 @@ public final class HelperVideoH264SampleBufferRenderer {
         return sampleBuffer
     }
 
-    public func flush() {
-        factory.reset()
+    @MainActor
+    public func flush() async {
+        await preparationPipeline.reset()
         displayLayer.flush()
     }
 }
@@ -348,8 +374,8 @@ extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRendering {
     @discardableResult
     public func enqueueDisplayableAccessUnit(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> Bool {
-        try enqueue(decoded) != nil
+    ) async throws -> Bool {
+        try await enqueue(decoded) != nil
     }
 }
 #endif

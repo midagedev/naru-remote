@@ -3990,7 +3990,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func startFrameApplicationWorker(_ queue: SessionStreamFrameApplicationQueue) {
         activeFrameApplicationTask?.cancel()
         let workerPacing = SessionFrameApplicationWorkerPacing()
-        activeFrameApplicationTask = Task { @MainActor [weak self, queue] in
+        activeFrameApplicationTask = Task.detached(priority: .userInitiated) { [weak self, queue] in
             var lastContentFrameAppliedAt: Date?
             while !Task.isCancelled,
                   let work = await queue.next(preferControlUpdates: lastContentFrameAppliedAt != nil)
@@ -4006,7 +4006,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         return
                     }
                 }
-                self?.applyStreamFrameApplication(work)
+                await self?.applyStreamFrameApplication(work)
                 if !work.isEmptyUpdate {
                     lastContentFrameAppliedAt = Date()
                 }

@@ -1142,3 +1142,47 @@ measurement now run on detached tasks owned by the dispatcher.
 - Keep the tail on the app model and rely on diagnostics only: rejected because
   diagnostics help triage but do not reduce the executor coupling seen in live
   physical-device reports.
+
+## D35 - Keep helper-video sample preparation off MainActor
+
+**Decision**: Make `HelperVideoAccessUnitRendering` async and move helper-video
+H.264 sample preparation behind a dedicated
+`HelperVideoH264SampleBufferPreparationPipeline` actor. The actor owns the
+mutable H.264 format cache and performs Annex-B parsing, parameter-set handling,
+AVCC conversion, `CMBlockBuffer` allocation/copy, and
+`CMSampleBufferCreateReady`. The renderer then returns to MainActor only for
+`AVSampleBufferDisplayLayer` status checks, flush, and enqueue. The VNC
+frame-application worker loop also now runs as a detached task so queue waits
+and pacing sleeps do not live on the UI executor.
+
+**Rationale**:
+- Physical iPhone testing reported that the app could freeze immediately after
+  an actual connection started, with gestures and keyboard input no longer
+  accepted. After previous frame-store and input-dispatcher splits, the next
+  suspicious coupling was helper-video sample preparation and frame-application
+  pacing still sharing the UI executor.
+- `CMSampleBuffer` itself is not Sendable, so the actor returns it in a narrow
+  explicit wrapper and the renderer consumes it immediately on MainActor. This
+  keeps the non-Sendable display object boundary small while moving the CPU and
+  allocation work out of the gesture/input lane.
+- H.264 parameter-set state must remain serial. An actor preserves that
+  sequence without forcing every access unit through a synchronous MainActor
+  method.
+
+**Verification**:
+- `HelperVideoStreamSessionRunnerTests/testAsyncRendererPreparationYieldsMainActorDuringAccessUnitEnqueue`
+  proves an async renderer can suspend while a MainActor probe still runs.
+- `HelperVideoH264SampleBufferRendererTests/testRendererUsesAspectResizeAndIgnoresParameterSetOnlyAccessUnit`
+  covers the async renderer API while preserving parameter-set-only behavior.
+- `swift test --filter HelperVideoStreamSessionRunnerTests` and
+  `swift test --filter HelperVideoH264SampleBufferRendererTests` passed after
+  the split.
+
+**Alternatives considered**:
+- Keep the renderer protocol synchronous and only lower helper-video frame
+  count: rejected because a single large access unit can still monopolize the
+  UI executor during sample preparation.
+- Move the display layer itself off MainActor: rejected because UIKit/AV layer
+  mutation should stay on the UI boundary; only sample preparation is moved.
+- Drop the H.264 format cache and prepare each frame independently: rejected
+  because parameter-set handling is part of stream correctness.

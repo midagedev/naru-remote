@@ -45,6 +45,43 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertEqual(renderer.enqueuedSequences, [0, 1])
     }
 
+    func testAsyncRendererPreparationYieldsMainActorDuringAccessUnitEnqueue() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let gate = HelperVideoRendererSuspensionGate()
+        let renderer = SuspendingHelperVideoAccessUnitRenderer(gate: gate)
+        let runner = HelperVideoStreamSessionRunner(
+            startStream: { _, _ in
+                Self.startResult(accessUnits: [
+                    Self.accessUnit(sequence: 0, kind: .keyframe)
+                ])
+            },
+            renderer: renderer
+        )
+
+        let runnerTask = Task {
+            await runner.start(
+                sessionID: session.id,
+                profileID: profile.id,
+                model: model
+            )
+        }
+
+        await gate.waitUntilSuspended()
+        var mainActorProbeDidRun = false
+        await Task { @MainActor in
+            mainActorProbeDidRun = true
+        }.value
+        XCTAssertTrue(mainActorProbeDidRun)
+
+        await gate.release()
+        let outcome = await runnerTask.value
+
+        XCTAssertEqual(outcome.displayableFrameCount, 1)
+        XCTAssertEqual(renderer.enqueuedSequences, [0])
+    }
+
     func testAcceptedStartDoesNotSelectHelperVideoForStaleSessionCallback() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let currentSession = RemoteSession(profileID: profile.id, state: .active)
@@ -363,7 +400,7 @@ private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRend
 
     func enqueueDisplayableAccessUnit(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> Bool {
+    ) async throws -> Bool {
         let sequence = decoded.envelope.body.sequence
         enqueuedSequences.append(sequence)
         if throwingSequences.contains(sequence) {
@@ -372,8 +409,66 @@ private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRend
         return displayableSequences.contains(sequence)
     }
 
-    func flush() {
+    func flush() async {
         flushCount += 1
+    }
+}
+
+@MainActor
+private final class SuspendingHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRendering {
+    private let gate: HelperVideoRendererSuspensionGate
+
+    private(set) var enqueuedSequences: [Int] = []
+
+    init(gate: HelperVideoRendererSuspensionGate) {
+        self.gate = gate
+    }
+
+    func enqueueDisplayableAccessUnit(
+        _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+    ) async throws -> Bool {
+        enqueuedSequences.append(decoded.envelope.body.sequence)
+        await gate.suspendUntilReleased()
+        return true
+    }
+
+    func flush() async {}
+}
+
+private actor HelperVideoRendererSuspensionGate {
+    private var didSuspend = false
+    private var isReleased = false
+    private var suspendedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func suspendUntilReleased() async {
+        didSuspend = true
+        let waiters = suspendedWaiters
+        suspendedWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+
+        guard !isReleased else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilSuspended() async {
+        guard !didSuspend else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            suspendedWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 }
 

@@ -153,7 +153,8 @@ final class HelperVideoH264SampleBufferRendererTests: XCTestCase {
         }
     }
 
-    func testRendererUsesAspectResizeAndIgnoresParameterSetOnlyAccessUnit() throws {
+    @MainActor
+    func testRendererUsesAspectResizeAndIgnoresParameterSetOnlyAccessUnit() async throws {
         let renderer = HelperVideoH264SampleBufferRenderer()
         let decoded = HelperVideoDecodedFrame(
             envelope: Self.envelope(kind: .parameterSet),
@@ -161,7 +162,8 @@ final class HelperVideoH264SampleBufferRendererTests: XCTestCase {
         )
 
         XCTAssertEqual(renderer.displayLayer.videoGravity, .resizeAspect)
-        XCTAssertNil(try renderer.enqueue(decoded))
+        let sampleBuffer = try await renderer.enqueue(decoded)
+        XCTAssertNil(sampleBuffer)
     }
 
     func testHelperPipelineAccessUnitsFeedIOSSampleBufferFactory() throws {

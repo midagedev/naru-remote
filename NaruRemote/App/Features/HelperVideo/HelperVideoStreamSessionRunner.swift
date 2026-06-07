@@ -6,9 +6,9 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     @discardableResult
     func enqueueDisplayableAccessUnit(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> Bool
+    ) async throws -> Bool
 
-    func flush()
+    func flush() async
 }
 
 // @unchecked Sendable justified: the wrapped renderer remains main-actor
@@ -25,13 +25,13 @@ private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
     @discardableResult
     func enqueueDisplayableAccessUnit(
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
-    ) throws -> Bool {
-        try renderer.enqueueDisplayableAccessUnit(decoded)
+    ) async throws -> Bool {
+        try await renderer.enqueueDisplayableAccessUnit(decoded)
     }
 
     @MainActor
-    func flush() {
-        renderer.flush()
+    func flush() async {
+        await renderer.flush()
     }
 }
 
