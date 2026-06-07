@@ -3699,10 +3699,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func recordAppFrameApplyTiming(milliseconds: Int) {
         let clampedMilliseconds = max(milliseconds, 0)
         sessionStreamStats.recordAppFrameApplyTiming(milliseconds: clampedMilliseconds)
-        pendingAsyncAppFrameApplyMilliseconds = max(
-            pendingAsyncAppFrameApplyMilliseconds ?? 0,
-            clampedMilliseconds
-        )
+        pendingAsyncAppFrameApplyMilliseconds = clampedMilliseconds
     }
 
     private func consumeAsyncAppFrameApplyMilliseconds() -> Int? {
