@@ -1484,6 +1484,19 @@ iPhone) and ships as its own PR.
   marked text, IME state, keysyms, or pointer coordinates. Owns: app frame
   queue priority, focused app-model tests, research/benchmark artifact.
   **Done.**
+- **T469** Remote desktop 10fps CLI preset: expose the fixed
+  `glance-025-10fps-duration-probe` shape as
+  `VNCLiveBenchmark --stream-shape-gate-preset remote-desktop-10fps` so direct
+  benchmark runs outside the launchctl wrapper still use the same
+  constrained-cellular, `0.25` visible-glance,
+  `local-low-latency-rgb565`, request/response-only,
+  `iphone-remote-desktop-10fps-v1` gate. Emit/export only the existing safe
+  fixed labels and aggregate benchmark fields; do not print/export host
+  identity, credentials, ports, helper paths, executable paths, command lines,
+  raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+  counts, stimulus command text, draft text, marked text, or IME state. Owns:
+  benchmark preset enum, CLI preset application, tests, quickstart, and
+  research note. **Done.**
 
 ## Cross-cutting (every increment)
 
