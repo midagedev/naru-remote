@@ -482,6 +482,16 @@ without unsafe report fields.
   Xcode account/profile setup can be resolved in parallel before the next true
   helper-video physical run. Covered by live-gate self-test and a current live
   permission-missing run. **Done.**
+- [x] T031AA [US1] Reproduce the remaining input freeze class as VNC
+  request/decode overwork during active interaction, not only MainActor frame
+  application churn. Focused Compose now paces the next VNC framebuffer request
+  at a 10 Hz-class floor, transient direct-key/pointer/trackpad activity at a
+  20 Hz-class floor, while viewport gestures keep their existing
+  viewport-aware policy. Diagnostic schema v33 adds safe
+  `activeInputPacingSampleCount` so physical logs can prove this protection
+  engaged without exporting text, keysyms, coordinates, pixels, endpoints, byte
+  counts, or exact timings. Covered by policy, app-model reproduction, snapshot,
+  diagnostic, and delivery-priority tests. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

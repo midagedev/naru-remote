@@ -43,7 +43,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
                 delay: 1.0 / 24.0,
                 usesThermalPacing: true,
                 usesPowerSaverPacing: false,
-                usesEmptyBackoffPacing: false
+                usesEmptyBackoffPacing: false,
+                usesActiveInputPacing: true
             )
         )
         stats.recordPacingDecision(
@@ -131,6 +132,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.thermalPacingSampleCount, 1)
         XCTAssertEqual(report.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(report.emptyBackoffPacingSampleCount, 1)
+        XCTAssertEqual(report.activeInputPacingSampleCount, 1)
         XCTAssertEqual(report.viewportInteractionPacingSampleCount, 1)
         XCTAssertEqual(report.helperVideoPrimaryVNCSamplingPacingSampleCount, 0)
         XCTAssertEqual(report.viewportInteractionRequestPauseCount, 2)

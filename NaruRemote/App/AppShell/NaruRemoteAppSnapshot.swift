@@ -69,6 +69,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var thermalPacingSampleCount: Int
     public var powerSaverPacingSampleCount: Int
     public var emptyBackoffPacingSampleCount: Int
+    public var activeInputPacingSampleCount: Int
     public var viewportInteractionPacingSampleCount: Int
     public var helperVideoPrimaryVNCSamplingPacingSampleCount: Int
     public var viewportInteractionRequestPauseCount: Int
@@ -141,6 +142,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         thermalPacingSampleCount: Int = 0,
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
+        activeInputPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
         helperVideoPrimaryVNCSamplingPacingSampleCount: Int = 0,
         viewportInteractionRequestPauseCount: Int = 0,
@@ -218,6 +220,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
         self.emptyBackoffPacingSampleCount = min(
             max(emptyBackoffPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
+        self.activeInputPacingSampleCount = min(
+            max(activeInputPacingSampleCount, 0),
             self.streamPacingDelaySampleCount
         )
         self.viewportInteractionPacingSampleCount = min(
@@ -529,6 +535,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             thermalPacingSampleCount: thermalPacingSampleCount,
             powerSaverPacingSampleCount: powerSaverPacingSampleCount,
             emptyBackoffPacingSampleCount: emptyBackoffPacingSampleCount,
+            activeInputPacingSampleCount: activeInputPacingSampleCount,
             viewportInteractionPacingSampleCount: viewportInteractionPacingSampleCount,
             helperVideoPrimaryVNCSamplingPacingSampleCount: helperVideoPrimaryVNCSamplingPacingSampleCount,
             viewportInteractionRequestPauseCount: viewportInteractionRequestPauseCount,
@@ -635,6 +642,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         if decision.usesEmptyBackoffPacing {
             emptyBackoffPacingSampleCount += 1
+        }
+        if decision.usesActiveInputPacing {
+            activeInputPacingSampleCount += 1
         }
         if decision.usesViewportInteractionPacing {
             viewportInteractionPacingSampleCount += 1

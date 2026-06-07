@@ -11,6 +11,7 @@ struct SessionStreamPacingDecision: Equatable, Sendable {
     var usesThermalPacing: Bool
     var usesPowerSaverPacing: Bool
     var usesEmptyBackoffPacing: Bool
+    var usesActiveInputPacing: Bool = false
     var usesViewportInteractionPacing: Bool = false
     var usesHelperVideoPrimaryVNCSamplingPacing: Bool = false
 }
@@ -26,6 +27,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
+        activeInputPacingInterval: TimeInterval? = nil,
         usesViewportInteractionPacing: Bool = false,
         helperVideoPrimaryVNCSamplingInterval: TimeInterval? = nil,
         viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
@@ -36,6 +38,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             configuredDelay: configuredDelay,
             thermalState: thermalState,
             usesPowerSaverPacing: usesPowerSaverPacing,
+            activeInputPacingInterval: activeInputPacingInterval,
             usesViewportInteractionPacing: usesViewportInteractionPacing,
             helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
             viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval,
@@ -48,6 +51,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         configuredDelay: TimeInterval,
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
+        activeInputPacingInterval: TimeInterval? = nil,
         usesViewportInteractionPacing: Bool = false,
         helperVideoPrimaryVNCSamplingInterval: TimeInterval? = nil,
         viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
@@ -65,6 +69,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
                 usesThermalPacing: false,
                 usesPowerSaverPacing: false,
                 usesEmptyBackoffPacing: false,
+                usesActiveInputPacing: false,
                 usesViewportInteractionPacing: false,
                 usesHelperVideoPrimaryVNCSamplingPacing: false
             )
@@ -82,6 +87,9 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             for: event,
             usesPowerSaverPacing: usesPowerSaverPacing
         )
+        let activeInputMinimum = minimumDelayForActiveInput(
+            interval: activeInputPacingInterval
+        )
         let viewportInteractionMinimum = minimumDelayForViewportInteraction(
             for: event,
             usesViewportInteractionPacing: usesViewportInteractionPacing,
@@ -91,6 +99,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             configuredDelayWithBackoff,
             thermalMinimum,
             powerSaverMinimum,
+            activeInputMinimum,
             viewportInteractionMinimum,
             helperVideoMinimum
         )
@@ -100,6 +109,8 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             usesPowerSaverPacing: powerSaverMinimum > 0 && powerSaverMinimum == effectiveDelay,
             usesEmptyBackoffPacing: configuredDelayWithBackoff > configuredDelay
                 && configuredDelayWithBackoff == effectiveDelay,
+            usesActiveInputPacing: activeInputMinimum > 0
+                && activeInputMinimum == effectiveDelay,
             usesViewportInteractionPacing: viewportInteractionMinimum > 0
                 && viewportInteractionMinimum == effectiveDelay,
             usesHelperVideoPrimaryVNCSamplingPacing: helperVideoMinimum > 0
@@ -199,6 +210,15 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         case .emptyUpdate:
             return StreamPressurePacingDefaults.viewportInteractionIdleFrameIntervalSeconds
         }
+    }
+
+    private static func minimumDelayForActiveInput(
+        interval: TimeInterval?
+    ) -> TimeInterval {
+        guard let interval else {
+            return 0
+        }
+        return max(interval, 0)
     }
 
     private static func minimumDelayForHelperVideoPrimaryVNCSampling(
