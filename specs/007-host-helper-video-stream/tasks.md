@@ -460,6 +460,13 @@ without unsafe report fields.
   Mode, or elevated thermal state request `readability/upTo15` before the stream
   reaches the helper encoder. Covered by policy and bootstrap routing tests.
   **Done.**
+- [x] T031X [US1] Apply input-aware cadence before MainActor frame application,
+  not only after frames reach the viewport store. Compose focus caps repeated
+  content frame application at 10fps-class cadence, viewport navigation keeps a
+  20fps-class cap, and ordinary visual playback keeps the 60fps-class floor so
+  queued frames coalesce to the newest frame before they can compete with
+  UIKit IME, local zoom/pan, or trackpad sampling. After a pacing sleep,
+  replace stale dequeued content with the newest pending content frame. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

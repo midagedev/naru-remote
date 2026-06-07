@@ -35,7 +35,7 @@ public enum SessionFrameDeliveryPriority: Equatable, Sendable {
 public final class SessionFrameStore: ObservableObject {
     static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
     static let viewportNavigationFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
-    static let textInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(120)
+    static let textInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(100)
 
     public private(set) var state: SessionFrameState
 

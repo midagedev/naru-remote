@@ -267,6 +267,49 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(done)
     }
 
+    func testSessionStreamFrameApplicationQueueReplacesStaleDequeuedContentAfterPacingSleep() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let queue = SessionStreamFrameApplicationQueue()
+        let stale = Self.makeStreamFrameApplicationWork(
+            sequence: 20,
+            red: 20,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 21,
+                red: 21,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 22,
+                red: 22,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+
+        let replacement = await queue.latestContentWork(replacing: stale)
+        let pendingCount = await queue.pendingCount()
+
+        XCTAssertEqual(replacement.frame.sequence, 22)
+        XCTAssertEqual(pendingCount, 0)
+    }
+
     func testSessionFrameApplicationWorkerPacingDelaysRepeatedContentFrame() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let sessionID = RemoteSession(profileID: profile.id).id
@@ -291,6 +334,51 @@ final class NaruRemoteAppModelTests: XCTestCase {
             ),
             SessionFrameApplicationWorkerPacing.defaultContentFrameMinimumInterval - 0.001,
             accuracy: 0.0001
+        )
+    }
+
+    func testSessionFrameApplicationWorkerPacingUsesInputAwareCadence() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let sessionID = RemoteSession(profileID: profile.id).id
+        let streamID = UUID()
+        let serverInit = Self.makeServerInit(width: 1, height: 1)
+        let pacing = SessionFrameApplicationWorkerPacing()
+        let lastContentAppliedAt = Date(timeIntervalSince1970: 100)
+        let work = Self.makeStreamFrameApplicationWork(
+            sequence: 1,
+            red: 10,
+            serverInit: serverInit,
+            profile: profile,
+            sessionID: sessionID,
+            streamID: streamID
+        )
+
+        XCTAssertEqual(
+            SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .visual),
+            1.0 / 60.0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .viewportNavigation),
+            0.05,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .textInput),
+            0.10,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            pacing.delay(
+                before: work,
+                lastContentFrameAppliedAt: lastContentAppliedAt,
+                now: lastContentAppliedAt.addingTimeInterval(0.001),
+                contentFrameMinimumInterval: SessionFrameApplicationWorkerPacing
+                    .contentFrameMinimumInterval(for: .textInput)
+            ),
+            0.099,
+            accuracy: 0.0001,
+            "Focused Compose should cap MainActor frame application at a 10fps-class cadence while keeping only the latest pending frame."
         )
     }
 
@@ -5563,6 +5651,65 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(
             model.snapshot.latestInjectionAttempt,
             "Typing during a frame flood should only edit the local draft; it must not synthesize a send result."
+        )
+    }
+
+    func testComposeFocusPacesFrameApplicationBeforeMainActorWork() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffers = (1...4).map { red in
+            RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: UInt8(red), green: 0, blue: 0)
+            )
+        }
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            framebuffers: framebuffers
+        )
+        let frameApplicationGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: framebuffers.count, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false },
+            frameApplicationSleep: { delay in
+                try await frameApplicationGate.sleep(delay)
+            }
+        )
+
+        await model.connectSelectedProfile()
+        model.setComposeInputEditingActive(true)
+
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != framebuffers.first {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers.first)
+
+        try await frameApplicationGate.waitForWaitCount(1)
+        let frameApplicationDelays = await frameApplicationGate.delays
+        let firstFrameApplicationDelay = try XCTUnwrap(frameApplicationDelays.first)
+        XCTAssertGreaterThanOrEqual(firstFrameApplicationDelay, 0.09)
+        XCTAssertLessThanOrEqual(
+            firstFrameApplicationDelay,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval
+        )
+        XCTAssertEqual(
+            model.snapshot.latestFramebuffer,
+            framebuffers.first,
+            "Focused Compose should hold repeated content frames before they enter MainActor frame application."
+        )
+
+        await frameApplicationGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != framebuffers.last {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(
+            model.snapshot.latestFramebuffer,
+            framebuffers.last,
+            "After the input-aware pacing slot opens, only the newest queued content frame should apply."
         )
     }
 

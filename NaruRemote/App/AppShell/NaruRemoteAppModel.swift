@@ -34,14 +34,30 @@ struct StreamFrameApplicationWork: Sendable {
 }
 
 struct SessionFrameApplicationWorkerPacing: Equatable, Sendable {
-    static let defaultContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
+    static let visualContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
+    static let viewportNavigationContentFrameMinimumInterval: TimeInterval = 0.05
+    static let textInputContentFrameMinimumInterval: TimeInterval = 0.10
+    static let defaultContentFrameMinimumInterval: TimeInterval =
+        visualContentFrameMinimumInterval
 
-    var contentFrameMinimumInterval: TimeInterval = Self.defaultContentFrameMinimumInterval
+    static func contentFrameMinimumInterval(
+        for priority: SessionFrameDeliveryPriority
+    ) -> TimeInterval {
+        switch priority {
+        case .visual:
+            return visualContentFrameMinimumInterval
+        case .viewportNavigation:
+            return viewportNavigationContentFrameMinimumInterval
+        case .textInput:
+            return textInputContentFrameMinimumInterval
+        }
+    }
 
     func delay(
         before work: StreamFrameApplicationWork,
         lastContentFrameAppliedAt: Date?,
-        now: Date
+        now: Date,
+        contentFrameMinimumInterval: TimeInterval = Self.defaultContentFrameMinimumInterval
     ) -> TimeInterval {
         guard !work.isEmptyUpdate else {
             return 0
@@ -92,6 +108,18 @@ actor SessionStreamFrameApplicationQueue {
 
     func pendingCount() -> Int {
         pending.count
+    }
+
+    func latestContentWork(replacing work: StreamFrameApplicationWork) -> StreamFrameApplicationWork {
+        guard !work.isEmptyUpdate,
+              let latestContentIndex = pending.indices.last(where: { !pending[$0].isEmptyUpdate })
+        else {
+            return work
+        }
+
+        let latest = pending.remove(at: latestContentIndex)
+        pending.removeAll { !$0.isEmptyUpdate }
+        return latest
     }
 
     func close() {
@@ -584,6 +612,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// sleeping in real time. `nil` keeps production cancellation on
     /// the direct `Task.sleep` path.
     private let streamPacingSleepOverride: (@Sendable (TimeInterval) async throws -> Void)?
+    /// Test seam for frame-application pacing. Production keeps the direct
+    /// worker sleep path; tests can gate the sleep to prove input-aware
+    /// cadence is applied before a content frame enters MainActor work.
+    private let frameApplicationSleepOverride: (@Sendable (TimeInterval) async throws -> Void)?
     private let allowsAdaptiveEncodingRenegotiation: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
@@ -763,6 +795,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             ProcessInfo.processInfo.isLowPowerModeEnabled
         },
         streamPacingSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
+        frameApplicationSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         outboundInputEventTimeout: Duration = .milliseconds(2_500),
         allowsAdaptiveEncodingRenegotiation: Bool = false
     ) {
@@ -870,6 +903,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
         self.streamPacingSleepOverride = streamPacingSleep
+        self.frameApplicationSleepOverride = frameApplicationSleep
         self.pointerInputDispatcher = OutboundInputEventDispatcher(
             timeout: outboundInputEventTimeout
         )
@@ -4260,24 +4294,47 @@ public final class NaruRemoteAppModel: ObservableObject {
             while !Task.isCancelled,
                   let work = await queue.next(preferControlUpdates: lastContentFrameAppliedAt != nil)
             {
+                let contentFrameMinimumInterval = await self?
+                    .currentFrameApplicationContentFrameMinimumInterval()
+                    ?? SessionFrameApplicationWorkerPacing.defaultContentFrameMinimumInterval
                 let pacingDelay = workerPacing.delay(
                     before: work,
                     lastContentFrameAppliedAt: lastContentFrameAppliedAt,
-                    now: Date()
+                    now: Date(),
+                    contentFrameMinimumInterval: contentFrameMinimumInterval
                 )
                 if pacingDelay > 0 {
-                    try? await Task.sleep(for: .seconds(pacingDelay))
+                    if let frameApplicationSleepOverride = await self?
+                        .currentFrameApplicationSleepOverride()
+                    {
+                        try? await frameApplicationSleepOverride(pacingDelay)
+                    } else {
+                        try? await Task.sleep(for: .seconds(pacingDelay))
+                    }
                     if Task.isCancelled {
                         return
                     }
                 }
-                await self?.applyStreamFrameApplication(work)
-                if !work.isEmptyUpdate {
+                let workToApply = await queue.latestContentWork(replacing: work)
+                await self?.applyStreamFrameApplication(workToApply)
+                if !workToApply.isEmptyUpdate {
                     lastContentFrameAppliedAt = Date()
                 }
                 await Task.yield()
             }
         }
+    }
+
+    private func currentFrameApplicationContentFrameMinimumInterval() -> TimeInterval {
+        SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(
+            for: frameDeliveryPriority(for: frameDeliveryInteractionReasons)
+        )
+    }
+
+    private func currentFrameApplicationSleepOverride() -> (
+        @Sendable (TimeInterval) async throws -> Void
+    )? {
+        frameApplicationSleepOverride
     }
 
     private func applyStreamFrameApplication(_ work: StreamFrameApplicationWork) {
