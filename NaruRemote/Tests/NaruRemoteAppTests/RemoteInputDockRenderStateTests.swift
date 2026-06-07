@@ -238,6 +238,54 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testFocusedComposeStatusLineStaysMountedWhenTypingClearsPreviousSendResult() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let previousAttempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            status: .unknown,
+            safeMessage: "Remote app confirmation unavailable."
+        )
+        let statusSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: ""),
+            latestInjectionAttempt: previousAttempt
+        )
+        let editingSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입")
+        )
+
+        let statusLine = FocusedComposeStatusLineState(
+            snapshot: statusSnapshot,
+            isComposeFieldFocused: true
+        )
+        let editingLine = FocusedComposeStatusLineState(
+            snapshot: editingSnapshot,
+            isComposeFieldFocused: true
+        )
+
+        XCTAssertEqual(statusLine?.text, "Remote app confirmation unavailable.")
+        XCTAssertEqual(editingLine?.text, "Ready to compose locally")
+        XCTAssertNotNil(statusLine)
+        XCTAssertNotNil(
+            editingLine,
+            "The focused status sibling must remain mounted after the first syllable clears stale send chrome; removing it can collapse the keyboard safe-area layout under UIKit IME."
+        )
+        XCTAssertNil(
+            FocusedComposeStatusLineState(
+                snapshot: editingSnapshot,
+                isComposeFieldFocused: false
+            )
+        )
+    }
+
     func testInputDockRenderStateChangesWhenComposeQuickKeysBecomeAvailable() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let draftSession = RemoteSession(profileID: profile.id, state: .connecting)

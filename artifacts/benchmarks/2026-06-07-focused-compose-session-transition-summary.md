@@ -32,10 +32,14 @@ availability, model-mirrored draft text, helper-status text, and sticky
 modifier state as advisory. The `UITextView` bridge stays stable until focus
 leaves.
 
-Send-result status still invalidates the dock while focused, so user-facing
-confirmation/failure messages remain visible. When the editor is not focused,
-the same `connecting -> active` transition still updates the dock to the
-compact live layout and exposes quick keys.
+Send-result status is kept outside the hot editor identity while focused, so
+user-facing confirmation/failure chrome can remain visible without remounting
+the `UITextView`. The follow-up artifact
+`2026-06-07-focused-compose-and-helper-readiness-order-summary.md` records the
+post-send status-clear fix that keeps this sibling line mounted through the
+keyboard transaction. When the editor is not focused, the same
+`connecting -> active` transition still updates the dock to the compact live
+layout and exposes quick keys.
 
 ## Verification
 

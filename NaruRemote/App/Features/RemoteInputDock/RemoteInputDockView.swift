@@ -532,6 +532,7 @@ public struct RemoteInputDockView: View {
 
     private func focusComposeEditor() {
         #if os(iOS) && canImport(UIKit)
+        updateComposeFocus(true)
         composeCommitController.focus()
         #endif
     }
@@ -1128,6 +1129,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         private var previouslyHadMarkedText = false
         private var lastCommittedTextNotification: String?
         private var lastAppliedBindingText = ""
+        private var lastReportedFocus = false
 
         init(parent: MultilingualComposeTextView) {
             self.parent = parent
@@ -1142,6 +1144,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            reportFocus(textView.isFirstResponder)
             parent.commitController.updateCurrentText(from: textView)
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
             if RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
@@ -1155,6 +1158,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            reportFocus(textView.isFirstResponder)
             parent.commitController.updateCurrentText(from: textView)
             let resolvedText = parent.commitController.readCurrentText(fallback: parent.text)
             if RemoteInputDockView.didCommitMarkedComposeText(
@@ -1171,11 +1175,11 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
-            parent.onFocusChange(true)
+            reportFocus(true)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
-            parent.onFocusChange(false)
+            reportFocus(false)
         }
 
         func shouldDeferBindingWrite(
@@ -1213,6 +1217,14 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             }
             lastCommittedTextNotification = resolvedText
             parent.onMarkedTextCommit(resolvedText)
+        }
+
+        private func reportFocus(_ focused: Bool) {
+            guard lastReportedFocus != focused else {
+                return
+            }
+            lastReportedFocus = focused
+            parent.onFocusChange(focused)
         }
     }
 }

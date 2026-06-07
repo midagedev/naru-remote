@@ -1220,16 +1220,19 @@ input owns the editor.
 The remote desktop readiness gate artifact is
 `2026-06-07-remote-desktop-readiness-gate-summary.md`; it upgrades
 `remote-desktop-10fps-readiness` to schema v2 with a product-oriented
-`readinessGateSummary`. The current live run reports
-`blockedByPhysicalIPhone`, with `physical-iphone-gate-blocked`,
-`helper-video-screen-capture-gate-blocked`, and
-`vnc-10fps-product-gate-failed`. The VNC wrapper command succeeded, but the
-inner product verdict failed at 1.99 content FPS, 502 ms average update,
-621 ms p95 update, and 618 ms first-byte wait p95, while payload-read and
-client-processing p95 remained near zero. Treat this as reproduced evidence
-that VNC is still the control/input/fallback path and true helper-video capture
-is the primary smoothness path after physical iPhone and Screen Recording
-setup are unblocked.
+`readinessGateSummary`.
+The focused Compose/helper readiness ordering artifact is
+`2026-06-07-focused-compose-and-helper-readiness-order-summary.md`; it records
+the current live run after correcting action priority. The dashboard now reports
+`blockedByHelperScreenCapture` and recommends
+`grant-helper-video-app-screen-recording-permission` before physical iPhone
+preflight, because true helper-video capture cannot be benchmarked until
+Screen Recording is granted. The same pass records VNC still failing the
+10fps product gate at 1.98 content FPS, 505 ms average update, 628 ms p95
+update, and 619 ms first-byte wait p95, while payload-read and
+client-processing p95 remain near zero. Treat this as reproduced evidence that
+VNC is still the control/input/fallback path and true helper-video capture is
+the primary smoothness path once helper Screen Recording setup is unblocked.
 The sustained helper-video artifact is
 `2026-06-07-sustained-helper-video-and-input-recovery-summary.md`; it records
 the larger-unit repro and fix for the remaining helper-video/input failures.
@@ -1254,9 +1257,10 @@ The Compose input island artifact is
 Korean Compose freeze hypothesis and fix. While the UIKit Compose editor owns
 focus, the dock render identity now ignores model-mirrored draft/helper-status
 changes so debounced app-model mirrors and live frame churn do not invalidate
-the `UITextView` bridge. Send-result status still repaints while focused. The
-new active-session compact Compose XCUITest types `입` then `력` against the
-live-session dock and passes on the iPhone 17 Pro simulator.
+the `UITextView` bridge. Send-result status now lives outside the hot editor
+identity while focused. The new active-session compact Compose XCUITest types
+`입` then `력` against the live-session dock and passes on the iPhone 17 Pro
+simulator.
 The focused Compose session-transition artifact is
 `2026-06-07-focused-compose-session-transition-summary.md`; it narrows the
 remaining first-character freeze path to a focused `connecting -> active`
@@ -1264,6 +1268,11 @@ render-state transition where the dock would otherwise switch from standard to
 compact layout and expose quick keys under the active `UITextView`. Focused
 Compose now defers those visual/accessory transitions, while unfocused docks
 still adopt the live layout.
+The focused Compose/helper readiness ordering artifact above also closes the
+post-send sibling-layout path: when typing the first Korean/CJK syllable clears
+a previous `Remote app confirmation unavailable` result, the focused status
+line stays mounted above the keyboard and the iPhone simulator verifies the
+same active-session editor still accepts the second syllable.
 The trackpad hot-cursor artifact is
 `2026-06-07-trackpad-hot-cursor-summary.md`; it records the phone-portrait /
 wide-desktop resolver reproduction where 6 pt touch samples could degrade to

@@ -2280,6 +2280,34 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
         }
 
+        if let helperState,
+           let helperTextInsertClient,
+           Self.canRouteThroughHelperTextBridge(
+                state: helperState,
+                client: helperTextInsertClient
+            ) {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .helperTextBridge,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
+        if let profile,
+           let helperState,
+           Self.canRouteThroughStoredHelperTextBridge(
+                state: helperState,
+                profile: profile
+           ) {
+            return ComposeRouteDiagnosticSnapshot(
+                plannedPath: .helperTextBridge,
+                utf8ClipboardSupport: utf8Support,
+                routeBlocker: DiagnosticComposeRouteBlocker.none,
+                helperProfileID: profileID
+            )
+        }
+
         guard let utf8Support else {
             return ComposeRouteDiagnosticSnapshot(
                 plannedPath: nil,
@@ -2307,23 +2335,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
         }
 
-        if let helperState,
-           let helperTextInsertClient,
-           Self.canRouteThroughHelperTextBridge(
-                state: helperState,
-                client: helperTextInsertClient
-            ) {
-            return ComposeRouteDiagnosticSnapshot(
-                plannedPath: .helperTextBridge,
-                utf8ClipboardSupport: utf8Support,
-                routeBlocker: DiagnosticComposeRouteBlocker.none,
-                helperProfileID: profileID
-            )
-        }
-
         if let profile,
            let helperState,
-           Self.canRouteThroughStoredHelperTextBridge(
+           Self.canAttemptStoredHelperTextBridge(
                 state: helperState,
                 profile: profile
            ) {
@@ -5556,36 +5570,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        guard let activeTextClient else {
-            let message = TextInjectionError
-                .clipboardUnavailable("Connect to a remote session before sending text.")
-                .localizedDescription
-            draft.markFailed(reason: message, at: now)
-            composeDraft = draft
-            latestInjectionAttempt = TextInjectionAttempt(
-                draftID: draft.id,
-                sessionID: draft.sessionID,
-                path: .vncClipboardPaste,
-                pasteCommand: pasteCommand,
-                payloadEncoding: payloadEncoding,
-                startedAt: now,
-                finishedAt: now,
-                status: .failed,
-                safeMessage: message
-            )
-            return
-        }
-
-        let utf8Support = activeTextClient.utf8ClipboardSupport
+        let utf8Support = activeTextClient?.utf8ClipboardSupport ?? .unknown
         let transferMode = TextClipboardTransferMode.selected(utf8Support: utf8Support)
         let profileID = session?.profileID ?? selectedProfileID
         let helperState = helperTextBridgeState(for: profileID)
         let profile = profileID.flatMap { id in
             profiles.first { $0.id == id }
         }
-        if payloadEncoding == .utf8ExtensionRequired,
-           utf8Support != .supported,
-           let profileID,
+        if let profileID,
            let helperState,
            let helperTextInsertClient,
            Self.canRouteThroughHelperTextBridge(
@@ -5600,6 +5592,23 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profileID: profileID,
                 helperState: helperState,
                 helperTextInsertClient: helperTextInsertClient,
+                now: now
+            )
+            return
+        }
+        if let profile,
+           let helperState,
+           Self.canRouteThroughStoredHelperTextBridge(
+                state: helperState,
+                profile: profile
+           ) {
+            sendComposedTextThroughStoredHelper(
+                draft: draft,
+                payloadEncoding: payloadEncoding,
+                transferMode: transferMode,
+                utf8Support: utf8Support,
+                profile: profile,
+                helperState: helperState,
                 now: now
             )
             return
@@ -5620,6 +5629,26 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profile: profile,
                 helperState: helperState,
                 now: now
+            )
+            return
+        }
+
+        guard let activeTextClient else {
+            let message = TextInjectionError
+                .clipboardUnavailable("Connect to a remote session before sending text.")
+                .localizedDescription
+            draft.markFailed(reason: message, at: now)
+            composeDraft = draft
+            latestInjectionAttempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .vncClipboardPaste,
+                pasteCommand: pasteCommand,
+                payloadEncoding: payloadEncoding,
+                startedAt: now,
+                finishedAt: now,
+                status: .failed,
+                safeMessage: message
             )
             return
         }

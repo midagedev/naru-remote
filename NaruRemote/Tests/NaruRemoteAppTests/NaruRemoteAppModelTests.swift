@@ -3759,6 +3759,86 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("😊"))
     }
 
+    func testModelPrefersReachableHelperForComposePayloadsEvenWhenVNCPasteCouldRun() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .supported
+        )
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("status")
+        let asciiPreflightJSON = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let asciiPreflightReport = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(asciiPreflightJSON.utf8)
+        )
+        XCTAssertEqual(asciiPreflightReport.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+
+        model.sendComposedText("status", pasteCommand: .commandV)
+        try await waitForHelperInsertRequests(helper, count: 1)
+
+        XCTAssertEqual(helper.insertedTexts, ["status"])
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .ascii)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+
+        model.updateComposeDraftText("한글과 English 😊")
+        let utf8PreflightJSON = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let utf8PreflightReport = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(utf8PreflightJSON.utf8)
+        )
+        XCTAssertEqual(utf8PreflightReport.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .controlV)
+        try await waitForHelperInsertRequests(helper, count: 2)
+
+        XCTAssertEqual(helper.insertedTexts, ["status", "한글과 English 😊"])
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .helperTextBridge)
+        XCTAssertNil(model.snapshot.latestInjectionAttempt?.pasteCommand)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+    }
+
     func testDiagnosticExportIncludesComposeRouteBlockerBeforeUTF8SendWithoutHelper() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
