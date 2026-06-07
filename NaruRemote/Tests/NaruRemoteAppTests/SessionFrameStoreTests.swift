@@ -195,6 +195,56 @@ final class SessionFrameStoreTests: XCTestCase {
         withExtendedLifetime(frameCancellable) {}
     }
 
+    func testEnteringInputEditingReschedulesPendingSteadyFrameToKeyboardCadence() {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 1, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 2, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+        XCTAssertEqual(
+            store.pendingFrameDeliveryCoalescingDelayForTesting,
+            .milliseconds(16)
+        )
+
+        store.setDeliveryPriority(.inputEditing)
+
+        XCTAssertEqual(
+            store.pendingFrameDeliveryCoalescingDelayForTesting,
+            .milliseconds(50),
+            "Entering Compose focus should move already pending steady frames to the input-friendly cadence."
+        )
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
+
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1, 2])
+
+        withExtendedLifetime(frameCancellable) {}
+    }
+
     func testSteadyFrameFloodCoalescesToLatestFrameAtDisplayCadence() async throws {
         let store = SessionFrameStore()
         var frameEvents: [SessionFrameState] = []
