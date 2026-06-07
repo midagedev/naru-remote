@@ -325,6 +325,11 @@ without unsafe report fields.
   requests Screen Recording, and emits only fixed setup/status labels. Current
   local run reports app-bundle identity, synthetic/sustained helper-video pass,
   and Screen Recording permission still missing. **Done.**
+- [x] T031E [US1] Reproduce the focused Compose freeze as a
+  `connecting -> active` session-transition render-state change, then defer
+  live-session dock layout and quick-key accessory invalidation while UIKit
+  owns Compose focus. Send-result status still repaints, and unfocused docks
+  still adopt the compact live layout. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

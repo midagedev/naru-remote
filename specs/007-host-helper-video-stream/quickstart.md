@@ -38,6 +38,19 @@ swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapStartsAfterV
 swift test --filter NaruRemoteAppModelTests/testHelperVideoBootstrapFailureKeepsVNCFrameAndControlPathActive
 ```
 
+## Implemented Compose / Input Isolation Tests
+
+```bash
+swift test --filter RemoteInputDockRenderStateTests
+swift test --filter RemoteInputDockSyncPolicyTests
+```
+
+`RemoteInputDockRenderStateTests` includes the focused
+`connecting -> active` regression where the first VNC frame would otherwise
+switch the dock from standard to compact layout and expose quick keys under an
+active UIKit Compose editor. Focused Compose must keep the editor identity
+stable; unfocused docks still adopt the live layout.
+
 ## Implemented Helper Video Probe
 
 ```bash

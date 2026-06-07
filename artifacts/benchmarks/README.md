@@ -1236,6 +1236,13 @@ changes so debounced app-model mirrors and live frame churn do not invalidate
 the `UITextView` bridge. Send-result status still repaints while focused. The
 new active-session compact Compose XCUITest types `입` then `력` against the
 live-session dock and passes on the iPhone 17 Pro simulator.
+The focused Compose session-transition artifact is
+`2026-06-07-focused-compose-session-transition-summary.md`; it narrows the
+remaining first-character freeze path to a focused `connecting -> active`
+render-state transition where the dock would otherwise switch from standard to
+compact layout and expose quick keys under the active `UITextView`. Focused
+Compose now defers those visual/accessory transitions, while unfocused docks
+still adopt the live layout.
 The trackpad hot-cursor artifact is
 `2026-06-07-trackpad-hot-cursor-summary.md`; it records the phone-portrait /
 wide-desktop resolver reproduction where 6 pt touch samples could degrade to

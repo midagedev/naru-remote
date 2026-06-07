@@ -200,4 +200,59 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             RemoteInputDockRenderState(snapshot: activeSnapshot, isLiveSession: true)
         )
     }
+
+    func testFocusedInputDockRenderStateDefersLiveSessionLayoutTransition() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let draftSession = RemoteSession(profileID: profile.id, state: .connecting)
+        let activeSession = RemoteSession(
+            id: draftSession.id,
+            profileID: profile.id,
+            state: .active
+        )
+        let draft = ComposeDraft(sessionID: draftSession.id, text: "입")
+        let connectingSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: draftSession,
+            composeDraft: draft
+        )
+        let activeSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: activeSession,
+            composeDraft: draft,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900),
+            latestFrameDirtyRectangles: [
+                RFBFrameDamageRect(x: 40, y: 40, width: 96, height: 48)
+            ],
+            latestFrameChangedPixelCount: 4_608
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: connectingSnapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: true
+            ),
+            RemoteInputDockRenderState(
+                snapshot: activeSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ),
+            "A first frame arriving while UIKit owns Korean/CJK composition must not swap dock layout or quick-key accessories under the active UITextView."
+        )
+        XCTAssertNotEqual(
+            RemoteInputDockRenderState(
+                snapshot: connectingSnapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: false
+            ),
+            RemoteInputDockRenderState(
+                snapshot: activeSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false
+            ),
+            "Once focus leaves, the live session dock layout and quick-key strip should be allowed to appear."
+        )
+    }
 }

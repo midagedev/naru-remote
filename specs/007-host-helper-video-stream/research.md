@@ -1460,3 +1460,51 @@ only. They must not include helper executable paths, app paths, team
 identifiers, signing identity names, raw install logs, host identity,
 endpoints, credentials, physical device identifiers, pixels, byte counts,
 exact timings, stderr/stdout, Compose text, marked text, or IME state.
+
+## D42 - Defer live-session dock transitions while Compose owns IME focus
+
+**Decision**: Treat the UIKit Compose editor as an input island across VNC
+first-frame and session-activation churn. While Compose is focused and Direct
+mode is inactive, `RemoteInputDockRenderState` equality ignores model-mirrored
+draft text, helper-status text, standard-to-compact dock layout changes, sticky
+modifier state, and Compose quick-key availability. Send-result status remains
+visible and still repaints the dock while focused.
+
+**Rationale**:
+- The current physical-device symptom is not just low FPS; the user reports
+  Korean Compose accepting one character and then appearing frozen after a real
+  connection starts.
+- A focused repro showed that a first frame arriving during input changes the
+  derived dock state from pre-live standard layout with no quick keys to live
+  compact layout with quick keys. That transition is useful when the editor is
+  idle, but it is the wrong boundary while UIKit owns marked-text state.
+- Deferring accessory/layout invalidation keeps the `UITextView` bridge stable
+  during IME composition without losing the app-model mirror, diagnostics, or
+  Send result visibility. Once focus leaves, the live-session compact layout
+  and quick-key strip can appear normally.
+- This fits the broader dual-transport design: visual-stream state may change
+  independently, but local input responsiveness is product-critical and must
+  not depend on VNC first-byte cadence or helper-video readiness.
+
+**Evidence**:
+- Before the fix,
+  `swift test --filter RemoteInputDockRenderStateTests/testFocusedInputDockRenderStateDefersLiveSessionLayoutTransition`
+  failed with `layoutStyle: standard -> compactAccessory` and
+  `showsComposeQuickKeys: false -> true` while the focused Compose text was
+  unchanged.
+- After the fix, `swift test --filter RemoteInputDockRenderStateTests` passes.
+- `swift test --filter RemoteInputDockSyncPolicyTests` also passes, preserving
+  the existing marked-text adoption, binding-write deferral, and send
+  stabilization contract.
+- `swift test` passes with 1188 tests executed and 14 benchmark/device-gated
+  tests skipped.
+- The iPhone 17 Pro simulator UI test
+  `NaruRemoteUITests/ComposeInputResponsivenessUITests` passes both the
+  active-session compact Compose path and the profile-detail Compose path,
+  typing a second Korean syllable after the first input.
+
+**Privacy rule**: Compose input isolation tests and artifacts use fixed UI
+state labels and synthetic text only. They must not emit live draft text,
+marked text, keysyms, pointer coordinates, host identity, credentials,
+framebuffer pixels, dimensions, byte counts, raw timings, raw OS errors, or
+helper endpoints.
