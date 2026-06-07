@@ -18,6 +18,51 @@ private struct DeferredViewportInteractionFrame {
     let streamID: UUID
 }
 
+private struct StreamFrameApplicationWork: Sendable {
+    let frame: RFBFramePumpFrame
+    let serverInit: RFBServerInit
+    let profile: ConnectionProfile
+    let sessionID: RemoteSession.ID
+    let streamID: UUID
+    let isEmptyUpdate: Bool
+}
+
+private actor SessionStreamFrameApplicationQueue {
+    private var pending: [StreamFrameApplicationWork] = []
+    private var waiters: [CheckedContinuation<StreamFrameApplicationWork?, Never>] = []
+    private var isClosed = false
+
+    func enqueue(_ work: StreamFrameApplicationWork) {
+        guard !isClosed else {
+            return
+        }
+        guard waiters.isEmpty else {
+            waiters.removeFirst().resume(returning: work)
+            return
+        }
+        pending.append(work)
+    }
+
+    func next() async -> StreamFrameApplicationWork? {
+        guard pending.isEmpty else {
+            return pending.removeFirst()
+        }
+        guard !isClosed else {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func close() {
+        isClosed = true
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        pendingWaiters.forEach { $0.resume(returning: nil) }
+    }
+}
+
 private struct RemoteClipboardTextClientBox: @unchecked Sendable {
     let client: any RemoteClipboardTextClient
     private let identity: ObjectIdentifier
@@ -500,6 +545,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let outboundInputDispatcher: OutboundInputEventDispatcher
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
+    private var activeFrameApplicationTask: Task<Void, Never>?
+    private var activeFrameApplicationQueue: SessionStreamFrameApplicationQueue?
     private var activeFrameStreamID: UUID?
     private var activeHelperVideoStreamTask: Task<Void, Never>?
     private var activeHelperVideoStreamID: UUID?
@@ -3197,8 +3244,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         let streamID = UUID()
         let pump = RFBFramePump(source: streamingClient)
         let configuration = frameStreamConfiguration
+        let frameApplicationQueue = SessionStreamFrameApplicationQueue()
         activeFrameStreamID = streamID
         activeFramePump = pump
+        activeFrameApplicationQueue = frameApplicationQueue
+        startFrameApplicationWorker(frameApplicationQueue)
         resetPreviewThrottle(for: profile.id)
         // Capture the profile + credential on every fresh stream
         // start so a later drop can reconnect against the same
@@ -3208,13 +3258,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamProfile = profile
         activeStreamCredential = credential
 
-        activeFrameStreamTask = Task.detached(priority: .userInitiated) { [weak self] in
+        activeFrameStreamTask = Task.detached(priority: .userInitiated) { [weak self, frameApplicationQueue] in
             guard let self else {
                 return
             }
             defer {
                 Task.detached(priority: .utility) {
                     pump.stopContinuousUpdatesIfNeeded(timeout: configuration.requestTimeout)
+                }
+                Task.detached(priority: .utility) {
+                    await frameApplicationQueue.close()
                 }
             }
 
@@ -3316,13 +3369,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                     // forward. Content frames take the full apply path.
                     let isEmptyUpdate = frame.isIncremental && frame.changedPixelCount == 0
                     emptyUpdateStreak = isEmptyUpdate ? emptyUpdateStreak + 1 : 0
-                    await self.scheduleStreamFrameApplication(
-                        frame,
-                        serverInit: serverInit,
-                        profile: profile,
-                        sessionID: pendingSession.id,
-                        streamID: streamID,
-                        isEmptyUpdate: isEmptyUpdate
+                    await frameApplicationQueue.enqueue(
+                        StreamFrameApplicationWork(
+                            frame: frame,
+                            serverInit: serverInit,
+                            profile: profile,
+                            sessionID: pendingSession.id,
+                            streamID: streamID,
+                            isEmptyUpdate: isEmptyUpdate
+                        )
                     )
 
                     let previousAppFrameApplyMilliseconds = await self.consumeAsyncAppFrameApplyMilliseconds()
@@ -3848,52 +3903,50 @@ public final class NaruRemoteAppModel: ObservableObject {
         usesViewportAwareRequestRegions
     }
 
-    private func scheduleStreamFrameApplication(
-        _ frame: RFBFramePumpFrame,
-        serverInit: RFBServerInit,
-        profile: ConnectionProfile,
-        sessionID: RemoteSession.ID,
-        streamID: UUID,
-        isEmptyUpdate: Bool
-    ) {
-        Task { @MainActor [weak self, frame, serverInit, profile, sessionID, streamID, isEmptyUpdate] in
-            guard let self,
-                  self.isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id)
-            else {
-                return
+    private func startFrameApplicationWorker(_ queue: SessionStreamFrameApplicationQueue) {
+        activeFrameApplicationTask?.cancel()
+        activeFrameApplicationTask = Task { @MainActor [weak self, queue] in
+            while !Task.isCancelled, let work = await queue.next() {
+                self?.applyStreamFrameApplication(work)
             }
-
-            let appFrameApplyStart = Date()
-            if isEmptyUpdate, let serverCursor = frame.serverCursor {
-                self.noteServerCursorUpdate(
-                    serverCursor,
-                    sessionID: sessionID,
-                    profile: profile,
-                    streamID: streamID,
-                    capturedAt: frame.capturedAt
-                )
-            } else if isEmptyUpdate {
-                self.noteStreamLiveness(
-                    sessionID: sessionID,
-                    profile: profile,
-                    streamID: streamID,
-                    capturedAt: frame.capturedAt
-                )
-            } else {
-                self.applyStreamFrame(
-                    frame,
-                    serverInit: serverInit,
-                    profile: profile,
-                    sessionID: sessionID,
-                    streamID: streamID
-                )
-            }
-
-            guard self.isCurrentStream(streamID, sessionID: sessionID, profileID: profile.id) else {
-                return
-            }
-            self.recordAppFrameApplyTiming(milliseconds: Self.elapsedMilliseconds(since: appFrameApplyStart))
         }
+    }
+
+    private func applyStreamFrameApplication(_ work: StreamFrameApplicationWork) {
+        guard isCurrentStream(work.streamID, sessionID: work.sessionID, profileID: work.profile.id) else {
+            return
+        }
+
+        let appFrameApplyStart = Date()
+        if work.isEmptyUpdate, let serverCursor = work.frame.serverCursor {
+            noteServerCursorUpdate(
+                serverCursor,
+                sessionID: work.sessionID,
+                profile: work.profile,
+                streamID: work.streamID,
+                capturedAt: work.frame.capturedAt
+            )
+        } else if work.isEmptyUpdate {
+            noteStreamLiveness(
+                sessionID: work.sessionID,
+                profile: work.profile,
+                streamID: work.streamID,
+                capturedAt: work.frame.capturedAt
+            )
+        } else {
+            applyStreamFrame(
+                work.frame,
+                serverInit: work.serverInit,
+                profile: work.profile,
+                sessionID: work.sessionID,
+                streamID: work.streamID
+            )
+        }
+
+        guard isCurrentStream(work.streamID, sessionID: work.sessionID, profileID: work.profile.id) else {
+            return
+        }
+        recordAppFrameApplyTiming(milliseconds: Self.elapsedMilliseconds(since: appFrameApplyStart))
     }
 
     private func applyStreamFrame(
@@ -4596,14 +4649,23 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func stopFrameStream() {
         activeFrameStreamTask?.cancel()
         activeFramePump?.cancel()
+        let frameApplicationQueue = activeFrameApplicationQueue
+        activeFrameApplicationTask?.cancel()
         activeFrameStreamTask = nil
         activeFramePump = nil
+        activeFrameApplicationTask = nil
+        activeFrameApplicationQueue = nil
         activeFrameStreamID = nil
         viewportInteractionFrameStrategy = nil
         deferredViewportInteractionFrame = nil
         lastViewportInteractionFramePublishedAt = nil
         viewportInteractionStartedAt = nil
         cancelOutboundInputEventQueues()
+        if let frameApplicationQueue {
+            Task.detached(priority: .utility) {
+                await frameApplicationQueue.close()
+            }
+        }
     }
 
     private func cancelOutboundInputEventQueues() {
