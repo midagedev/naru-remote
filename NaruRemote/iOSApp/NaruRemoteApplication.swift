@@ -9,6 +9,7 @@ struct NaruRemoteApplication: App {
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
     @MainActor private static var helperVideoHealthStormTask: Task<Void, Never>?
+    @MainActor private static var delayedFirstFrameTask: Task<Void, Never>?
 
     var body: some Scene {
         WindowGroup {
@@ -139,6 +140,7 @@ struct NaruRemoteApplication: App {
             applyTestFramebufferFlood(to: model)
             applyTestModelPublishStorm(to: model)
             applyTestHelperVideoHealthStorm(to: model)
+            applyTestDelayedFirstFrameAfterComposeFocus(to: model)
         }
         return model
     }
@@ -304,12 +306,53 @@ struct NaruRemoteApplication: App {
 
     @MainActor
     private static func cancelTestStormTasks() {
+        delayedFirstFrameTask?.cancel()
+        delayedFirstFrameTask = nil
         framebufferFloodTask?.cancel()
         framebufferFloodTask = nil
         modelPublishStormTask?.cancel()
         modelPublishStormTask = nil
         helperVideoHealthStormTask?.cancel()
         helperVideoHealthStormTask = nil
+    }
+
+    /// XCUITest responsiveness hook — for the connecting-session fixture,
+    /// wait until Compose has first-responder focus and then publish the first
+    /// framebuffer. This exercises the exact live-layout transition that can
+    /// otherwise happen under an active Korean/CJK IME transaction.
+    @MainActor
+    private static func applyTestDelayedFirstFrameAfterComposeFocus(to model: NaruRemoteAppModel) {
+        guard UXAuditFixtureToken.current() == .sessionConnectingDelayedFirstFrame else {
+            return
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let delayMilliseconds = env["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"]
+            .flatMap(Int.init) ?? 250
+
+        delayedFirstFrameTask?.cancel()
+        delayedFirstFrameTask = Task { @MainActor in
+            defer { delayedFirstFrameTask = nil }
+            for _ in 0..<120 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                if model.isComposeInputEditingActiveForTesting {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard !Task.isCancelled,
+                  model.isComposeInputEditingActiveForTesting
+            else {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(max(delayMilliseconds, 0)))
+            guard !Task.isCancelled else {
+                return
+            }
+            model.publishFirstFrameForTesting(UXAuditFixtures.sampleWidescreenFramebuffer())
+        }
     }
 
     /// XCUITest responsiveness hook — when enabled on an active-session

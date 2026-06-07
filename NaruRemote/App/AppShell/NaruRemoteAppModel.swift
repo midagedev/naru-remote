@@ -1569,7 +1569,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func addProfile(
         _ profile: ConnectionProfile,
         password: String? = nil,
-        helperPairingSecret: String? = nil
+        helperPairingSecret: String? = nil,
+        helperVideoPairingSecret: String? = nil
     ) async {
         profilePersistenceError = nil
         var profileToSave = profile
@@ -1593,6 +1594,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         guard await applyHelperPairingSecretUpdate(
             helperPairingSecret,
+            to: &profileToSave,
+            existingProfile: nil
+        ) else {
+            return
+        }
+        guard await applyHelperVideoPairingSecretUpdate(
+            helperVideoPairingSecret,
             to: &profileToSave,
             existingProfile: nil
         ) else {
@@ -1666,7 +1674,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func editProfile(
         _ profile: ConnectionProfile,
         password: String?,
-        helperPairingSecret: String? = nil
+        helperPairingSecret: String? = nil,
+        helperVideoPairingSecret: String? = nil
     ) async {
         profilePersistenceError = nil
 
@@ -1718,6 +1727,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         guard await applyHelperPairingSecretUpdate(
             helperPairingSecret,
+            to: &profileToSave,
+            existingProfile: existingProfile
+        ) else {
+            return
+        }
+        guard await applyHelperVideoPairingSecretUpdate(
+            helperVideoPairingSecret,
             to: &profileToSave,
             existingProfile: existingProfile
         ) else {
@@ -2212,6 +2228,56 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         configuration.pairingSecretRef = secretRef
         profile.helperTextBridge = configuration
+        return true
+    }
+
+    private func applyHelperVideoPairingSecretUpdate(
+        _ helperVideoPairingSecret: String?,
+        to profile: inout ConnectionProfile,
+        existingProfile: ConnectionProfile?
+    ) async -> Bool {
+        guard let helperVideoPairingSecret else {
+            return true
+        }
+
+        let trimmedSecret = helperVideoPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingRef = existingProfile?.helperVideo?.pairingSecretRef
+
+        guard !trimmedSecret.isEmpty else {
+            if let existingRef {
+                do {
+                    try await credentialStore?.deletePassword(for: existingRef)
+                } catch {
+                    profilePersistenceError = "Helper video token could not be removed on this device."
+                    return false
+                }
+            }
+            return true
+        }
+
+        guard let credentialStore else {
+            profilePersistenceError = "Helper video token could not be saved on this device."
+            return false
+        }
+        guard var configuration = profile.helperVideo else {
+            profilePersistenceError = "Helper video token could not be saved on this device."
+            return false
+        }
+
+        let secretRef = configuration.pairingSecretRef
+            ?? Self.helperVideoPairingSecretReference(for: profile.id)
+        do {
+            try await credentialStore.savePassword(trimmedSecret, for: secretRef)
+            if let existingRef, existingRef != secretRef {
+                try await credentialStore.deletePassword(for: existingRef)
+            }
+        } catch {
+            profilePersistenceError = "Helper video token could not be saved on this device."
+            return false
+        }
+
+        configuration.pairingSecretRef = secretRef
+        profile.helperVideo = configuration
         return true
     }
 
@@ -3287,6 +3353,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private static func helperPairingSecretReference(for profileID: ConnectionProfile.ID) -> String {
         "helper-token:\(profileID.uuidString)"
+    }
+
+    private static func helperVideoPairingSecretReference(for profileID: ConnectionProfile.ID) -> String {
+        "helper-video-token:\(profileID.uuidString)"
     }
 
     public func connectSelectedProfile() async {
@@ -4918,6 +4988,24 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// signal — no raw latency value is stored or exported.
     public func seedConnectionQualityForTesting(_ quality: ConnectionQuality) {
         publishConnectionQuality(quality)
+    }
+
+    public var isComposeInputEditingActiveForTesting: Bool {
+        isFocusedInputChromeCoalescingActive
+    }
+
+    public func publishFirstFrameForTesting(_ framebuffer: RFBRawFramebuffer) {
+        guard var currentSession = session else {
+            return
+        }
+        currentSession.markFirstFrameReceived()
+        session = currentSession
+        publishSessionFrame(
+            framebuffer: framebuffer,
+            dirtyRectangles: nil,
+            changedPixelCount: framebuffer.width * framebuffer.height,
+            serverCursor: nil
+        )
     }
 
     private func handleStreamFailure(

@@ -22,6 +22,7 @@ public struct ProfileEditorFormState: Equatable, Sendable {
     /// Optional override. Empty means "use the VNC profile host".
     public var helperHost: String
     public var helperPort: String
+    public var helperVideoEnabled: Bool
 
     public init(
         displayName: String = "",
@@ -29,7 +30,8 @@ public struct ProfileEditorFormState: Equatable, Sendable {
         port: String = "5900",
         helperTextBridgeEnabled: Bool = false,
         helperHost: String = "",
-        helperPort: String = String(naruHelperTextBridgeDefaultPort)
+        helperPort: String = String(naruHelperTextBridgeDefaultPort),
+        helperVideoEnabled: Bool = false
     ) {
         self.displayName = displayName
         self.host = host
@@ -37,6 +39,7 @@ public struct ProfileEditorFormState: Equatable, Sendable {
         self.helperTextBridgeEnabled = helperTextBridgeEnabled
         self.helperHost = helperHost
         self.helperPort = helperPort
+        self.helperVideoEnabled = helperVideoEnabled
     }
 
     // MARK: - Field-level validation

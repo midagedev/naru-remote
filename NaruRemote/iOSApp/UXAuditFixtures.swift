@@ -31,6 +31,11 @@ enum UXAuditFixtureToken: String {
     /// the keyboard-safe-area transition that can happen after the next
     /// focused Korean/CJK syllable clears that result.
     case sessionActiveComposeConfirmationUnavailable = "session-active-compose-confirmation-unavailable"
+    /// Connecting session that receives its first framebuffer only after
+    /// Compose focus is active.  Used to reproduce the reported
+    /// "first Korean syllable, then live session starts, keyboard freezes"
+    /// transition without a real socket.
+    case sessionConnectingDelayedFirstFrame = "session-connecting-delayed-first-frame"
     /// Active session in trackpad mode with a server-provided cursor
     /// shape so screenshots cover the "real remote cursor" overlay path.
     case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
@@ -65,6 +70,8 @@ enum UXAuditFixtures {
             return sessionActiveWidescreenSnapshot()
         case .sessionActiveComposeConfirmationUnavailable:
             return sessionActiveComposeConfirmationUnavailableSnapshot()
+        case .sessionConnectingDelayedFirstFrame:
+            return sessionConnectingDelayedFirstFrameSnapshot()
         case .sessionActiveTrackpadCursor:
             return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
         }
@@ -129,6 +136,8 @@ enum UXAuditFixtures {
             // fed by a live latency stream the fixture can't drive.
             model.seedConnectionQualityForTesting(.good)
         case .sessionActiveComposeConfirmationUnavailable:
+            model.seedConnectionQualityForTesting(.good)
+        case .sessionConnectingDelayedFirstFrame:
             model.seedConnectionQualityForTesting(.good)
         case .sessionActiveTrackpadCursor:
             // Same active-session surface, but start in trackpad mode so
@@ -369,6 +378,28 @@ enum UXAuditFixtures {
             composeDraft: draft,
             latestInjectionAttempt: attempt,
             latestFramebuffer: framebuffer
+        )
+    }
+
+    private static func sessionConnectingDelayedFirstFrameSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .connecting
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id)
+        )
+    }
+
+    static func sampleWidescreenFramebuffer() -> RFBRawFramebuffer {
+        RFBRawFramebuffer(
+            width: 1600,
+            height: 900,
+            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
         )
     }
 

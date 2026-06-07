@@ -231,6 +231,52 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    func testFocusedConnectingComposeDefersLiveLayoutAfterFirstFrameAndKeepsTyping() {
+        let app = launchAppWithConnectingDelayedFirstFrameFixture()
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+        let firstFrameMarker = app.descendants(matching: .any)["naru.test.session.firstFrameReceived"]
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        let focusedProbe = waitForLifecycleProbe(in: app) { probe in
+            probe.isFirstResponder && probe.makeCount == 1
+        }
+        let token = focusedProbe.instanceToken
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+
+        XCTAssertTrue(
+            firstFrameMarker.waitForExistence(timeout: 4),
+            "The delayed test hook must publish the first frame while Compose is focused."
+        )
+        let postFirstFrame = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.isFirstResponder
+        }
+        XCTAssertEqual(postFirstFrame.instanceToken, token)
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+        let afterSecondInput = waitForLifecycleProbe(in: app) { probe in
+            probe.instanceToken == token
+                && probe.makeCount == 1
+                && probe.textChangeCount >= postFirstFrame.textChangeCount
+                && probe.isFirstResponder
+        }
+
+        XCTAssertEqual(afterSecondInput.instanceToken, token)
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "The first-frame arrival must not freeze the Korean/CJK Compose keyboard after the first syllable."
+        )
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
         let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
         let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
@@ -342,6 +388,16 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         if exposeComposeLifecycle {
             app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
         }
+        app.launch()
+        return app
+    }
+
+    private func launchAppWithConnectingDelayedFirstFrameFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-connecting-delayed-first-frame"
+        app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
+        app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
+        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "250"
         app.launch()
         return app
     }

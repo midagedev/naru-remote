@@ -113,6 +113,17 @@ final class ProfileEditorFormStateTests: XCTestCase {
         XCTAssertEqual(state.parsedHelperPort, 5974)
     }
 
+    func testHelperVideoEnabledDoesNotChangeBaseValidation() {
+        let state = ProfileEditorFormState(
+            displayName: "Studio",
+            host: "studio.tailnet.ts.net",
+            helperVideoEnabled: true
+        )
+
+        XCTAssertTrue(state.helperVideoEnabled)
+        XCTAssertTrue(state.isValid)
+    }
+
     // MARK: - isValid
 
     func testIsValidFalseWhenNameEmpty() {

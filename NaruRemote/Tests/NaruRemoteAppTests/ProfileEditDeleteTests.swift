@@ -76,6 +76,126 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertNil(model.profilePersistenceError)
     }
 
+    func testAddProfileSavesHelperVideoPairingSecretAndPublishesCheckingState() async throws {
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(credentialStore: credentialStore)
+        let profileID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let profile = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+
+        await model.addProfile(profile, helperVideoPairingSecret: "helper-video-secret")
+
+        let saved = try XCTUnwrap(model.snapshot.selectedProfile)
+        let secretRef = try XCTUnwrap(saved.helperVideo?.pairingSecretRef)
+        let storedSecret = try await credentialStore.password(for: secretRef)
+        XCTAssertEqual(secretRef, "helper-video-token:\(profileID.uuidString)")
+        XCTAssertEqual(storedSecret, "helper-video-secret")
+        XCTAssertEqual(saved.helperVideo?.isEnabled, true)
+        XCTAssertEqual(saved.helperVideo?.isRevoked, false)
+        XCTAssertEqual(saved.helperVideo?.pairingFingerprint, "sha256:helper-video")
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profileID]?.isEnabled, true)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profileID]?.availability, .checking)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testEditProfileDisablesHelperVideoButKeepsSavedToken() async throws {
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(credentialStore: credentialStore)
+        let profileID = try XCTUnwrap(UUID(uuidString: "22222222-3333-4444-5555-666666666666"))
+        let secretRef = "helper-video-token:\(profileID.uuidString)"
+        let original = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        await model.addProfile(original, helperVideoPairingSecret: "helper-video-secret")
+
+        let disabledFromProfileEditor = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: false,
+                isRevoked: false,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+
+        await model.editProfile(
+            disabledFromProfileEditor,
+            password: nil,
+            helperVideoPairingSecret: nil
+        )
+
+        let saved = try XCTUnwrap(model.snapshot.selectedProfile)
+        let storedSecret = try await credentialStore.password(for: secretRef)
+        XCTAssertEqual(saved.helperVideo?.isEnabled, false)
+        XCTAssertEqual(saved.helperVideo?.isRevoked, false)
+        XCTAssertEqual(saved.helperVideo?.pairingSecretRef, secretRef)
+        XCTAssertEqual(storedSecret, "helper-video-secret")
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profileID]?.isEnabled, false)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profileID]?.availability, .disabled)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testEditProfileReplacesHelperVideoPairingSecret() async throws {
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(credentialStore: credentialStore)
+        let profileID = try XCTUnwrap(UUID(uuidString: "33333333-4444-5555-6666-777777777777"))
+        let secretRef = "helper-video-token:\(profileID.uuidString)"
+        let original = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: "sha256:old-helper-video"
+            )
+        )
+        await model.addProfile(original, helperVideoPairingSecret: "old-helper-video-secret")
+
+        let edited = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                isRevoked: false,
+                pairingSecretRef: secretRef,
+                pairingFingerprint: "sha256:new-helper-video"
+            )
+        )
+
+        await model.editProfile(
+            edited,
+            password: nil,
+            helperVideoPairingSecret: "new-helper-video-secret"
+        )
+
+        let saved = try XCTUnwrap(model.snapshot.selectedProfile)
+        let storedSecret = try await credentialStore.password(for: secretRef)
+        XCTAssertEqual(saved.helperVideo?.isEnabled, true)
+        XCTAssertEqual(saved.helperVideo?.pairingSecretRef, secretRef)
+        XCTAssertEqual(saved.helperVideo?.pairingFingerprint, "sha256:new-helper-video")
+        XCTAssertEqual(storedSecret, "new-helper-video-secret")
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profileID]?.availability, .checking)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
     func testEditProfileWithNilPasswordPreservesExistingCredential() async throws {
         let credentialStore = InMemoryConnectionCredentialStore()
         let model = NaruRemoteAppModel(credentialStore: credentialStore)
@@ -213,6 +333,35 @@ final class ProfileEditDeleteTests: XCTestCase {
 
         let storedPassword = try await credentialStore.password(for: credentialRef)
         XCTAssertNil(storedPassword)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testDeleteProfileRemovesHelperVideoPairingSecret() async throws {
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(credentialStore: credentialStore)
+        let profileID = try XCTUnwrap(UUID(uuidString: "44444444-5555-6666-7777-888888888888"))
+        let profile = try ConnectionProfile(
+            id: profileID,
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+
+        await model.addProfile(profile, helperVideoPairingSecret: "helper-video-secret")
+        let saved = try XCTUnwrap(model.snapshot.selectedProfile)
+        let secretRef = try XCTUnwrap(saved.helperVideo?.pairingSecretRef)
+        let initialSecret = try await credentialStore.password(for: secretRef)
+        XCTAssertEqual(secretRef, "helper-video-token:\(profileID.uuidString)")
+        XCTAssertEqual(initialSecret, "helper-video-secret")
+
+        await model.deleteProfile(id: saved.id)
+
+        let storedSecret = try await credentialStore.password(for: secretRef)
+        XCTAssertNil(storedSecret)
+        XCTAssertNil(model.snapshot.helperVideoProfileState[saved.id])
         XCTAssertNil(model.profilePersistenceError)
     }
 
