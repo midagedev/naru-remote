@@ -185,7 +185,8 @@ public struct NaruRemoteAppShell: View {
                         RemoteInputDockEquatableHost(
                             state: RemoteInputDockRenderState(
                                 snapshot: snapshot,
-                                isLiveSession: isLiveSession
+                                isLiveSession: isLiveSession,
+                                isComposeFieldFocused: composeFieldFocused
                             ),
                             onSend: { model.sendComposedText($0) },
                             onTextChange: { model.updateComposeDraftText($0) },
@@ -281,8 +282,13 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     var layoutStyle: RemoteInputDockLayoutStyle
     var showsCompactStatusText: Bool
     var showsComposeQuickKeys: Bool
+    var isComposeFieldFocused: Bool
 
-    init(snapshot: NaruRemoteAppSnapshot, isLiveSession: Bool) {
+    init(
+        snapshot: NaruRemoteAppSnapshot,
+        isLiveSession: Bool,
+        isComposeFieldFocused: Bool = false
+    ) {
         self.initialText = snapshot.composeDraft?.text ?? ""
         self.statusText = snapshot.inputStatusText
         self.helperStatusText = snapshot.inputHelperStatusText
@@ -291,6 +297,33 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         self.layoutStyle = isLiveSession ? .compactAccessory : .standard
         self.showsCompactStatusText = snapshot.latestInjectionAttempt != nil
         self.showsComposeQuickKeys = snapshot.session?.state == .active
+        self.isComposeFieldFocused = isComposeFieldFocused
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.directKeystrokeMode == rhs.directKeystrokeMode,
+              lhs.stickyModifierState == rhs.stickyModifierState,
+              lhs.layoutStyle == rhs.layoutStyle,
+              lhs.showsComposeQuickKeys == rhs.showsComposeQuickKeys,
+              lhs.isComposeFieldFocused == rhs.isComposeFieldFocused
+        else {
+            return false
+        }
+
+        let freezeModelMirroredComposeFields = lhs.isComposeFieldFocused
+            && rhs.isComposeFieldFocused
+            && !lhs.directKeystrokeMode.isActive
+            && !rhs.directKeystrokeMode.isActive
+        if freezeModelMirroredComposeFields {
+            // While UIKit owns IME focus, model mirrors are advisory and must not recreate the editor.
+            return lhs.statusText == rhs.statusText
+                && lhs.showsCompactStatusText == rhs.showsCompactStatusText
+        }
+
+        return lhs.initialText == rhs.initialText
+            && lhs.statusText == rhs.statusText
+            && lhs.helperStatusText == rhs.helperStatusText
+            && lhs.showsCompactStatusText == rhs.showsCompactStatusText
     }
 }
 
