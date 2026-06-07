@@ -1518,6 +1518,16 @@ iPhone) and ships as its own PR.
   dimensions, pixels, byte counts, stimulus command text, draft text, marked
   text, or IME state. Owns: launchctl runner, README, research note, benchmark
   artifact. **Done.**
+- **T471** Server cadence diagnosis in benchmark schema: add
+  `streamShapeServerCadenceDiagnosis` to `VNCLiveBenchmark` schema v68 so live
+  10fps reports classify request/response failures as first-byte wait,
+  payload-read, request-loop, or local-processing dominated and recommend the
+  next fixed action. Reuse only the existing aggregate request cadence health
+  fields; emit no host identity, credentials, ports, executable paths, command
+  lines, raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels,
+  byte counts, stimulus command text, draft text, marked text, IME state, or
+  keystroke content. Owns: benchmark summary type, CLI report schema/text
+  output, tests, research note, and benchmark artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

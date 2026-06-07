@@ -265,6 +265,15 @@ inspect server transport cadence/update request timing directly, while product
 smoothness remains focused on true helper-video. The sweep envelope and
 per-profile entries intentionally use distinct fixed `mode` labels so report
 consumers can aggregate the full sweep separately from individual probe rows.
+Current server cadence diagnosis artifact:
+`artifacts/benchmarks/2026-06-07-server-cadence-diagnosis-summary.md`.
+Schema v68 adds `streamShapeServerCadenceDiagnosis` so 10fps VNC reports expose
+one fixed bottleneck classification and next action derived from aggregate
+request cadence health. The first live v68 run still fails the 10fps gate
+(`1.90` content FPS, `525` ms average update, `920` ms p95 update), but now
+classifies the run as `first-byte-wait-dominated` with
+`inspectServerUpdateCadence`. Treat this as evidence to inspect server update
+cadence / first-byte timing before trying another VNC profile-only promotion.
 Current remote desktop 10fps readiness artifact:
 `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-readiness-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` to run

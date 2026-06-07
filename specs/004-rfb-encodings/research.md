@@ -6104,6 +6104,73 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D137 Add Server Cadence Diagnosis To 10fps Reports
+
+References:
+- `artifacts/benchmarks/2026-06-07-server-cadence-diagnosis-summary.md`
+- D135 remote desktop 10fps profile cadence sweep.
+- D134 remote desktop 10fps target.
+
+**Decision**: add `streamShapeServerCadenceDiagnosis` to `VNCLiveBenchmark`
+schema v68. The field derives from existing request cadence health aggregates
+and classifies the current bottleneck as one fixed status label:
+`first-byte-wait-dominated`, `payload-read-dominated`,
+`request-loop-dominated`, `local-processing-dominated`, `pass`,
+`no-usable-samples`, `not-measured`, or `below-target-no-dominant-phase`.
+
+**Why**:
+- D135 showed every VNC profile still missing the 10fps bar, but the decisive
+  clue lived several fields apart: high content hit-rate, low client/render
+  costs, and high first-byte wait. A single diagnosis field keeps future
+  benchmark consumers from treating the failure as another profile-promotion
+  problem.
+- The next VNC unit should inspect server update cadence and
+  FramebufferUpdateRequest timing when first-byte wait dominates. Payload-read
+  or local-processing dominated runs should route to different work, so the
+  report needs to make that split explicit.
+- The diagnosis is intentionally derived from aggregate summaries already safe
+  to emit. It adds no new timing samples, request coordinates, byte counts,
+  dimensions, pixels, raw server errors, host identity, or command text.
+
+**Evidence**:
+- `swift test --filter BenchmarkStreamShapeSummaryTests` passes and covers
+  first-byte, payload-read, pass, no-usable-sample, and missing slow-subphase
+  fallback classifications.
+- A local fake RFB smoke run emitted schema v68 JSON with
+  `streamShapeServerCadenceDiagnosis`.
+- `swift run --quiet VNCLiveBenchmark --help` lists schema v68 and
+  request/server cadence diagnosis.
+- A live `scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe`
+  run emitted schema v68, failed the 10fps decision, and classified the VNC
+  bottleneck as `first-byte-wait-dominated` with
+  `inspectServerUpdateCadence`.
+
+**Live result**:
+- `local-low-latency-rgb565`, `iphone-remote-desktop-10fps-v1`: fail,
+  `1.90` content FPS, `525` ms average update, `920` ms p95 update,
+  `630` ms first-byte wait p95, `462` ms payload p95, `918` first-byte wait
+  share, `82` payload-read share, dominant/slow dominant phase
+  `network-read` / `network-read`, dominant/slow network subphase
+  `first-byte-wait` / `first-byte-wait`.
+
+**Interpretation**:
+- Do not promote another VNC profile based on this evidence. The live run still
+  misses the 10fps product gate and routes to server update cadence inspection.
+- The next VNC benchmark unit should directly probe whether the server emits
+  framebuffer updates only after a roughly 500-900 ms cadence under our current
+  request pattern, or whether our request pacing/region policy is accidentally
+  delaying the server's first byte.
+- Product smoothness work should continue in parallel on helper-video because
+  the VNC path remains far below Chrome-Remote-like hand feel.
+
+**Privacy rule**: server cadence diagnosis may emit only fixed status/action
+labels, fixed phase/subphase labels, aggregate request/gate counts, aggregate
+millisecond summaries, and permille shares. It must not print or export host
+identity, credentials, ports, helper paths, executable paths, command lines,
+raw stdout/stderr, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+counts, stimulus command text, draft text, marked text, IME state, keystroke
+content, or exact helper timings.
+
 ### D136 Prefer Control Updates While Content Frames Are Paced
 
 References:
