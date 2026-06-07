@@ -492,6 +492,15 @@ without unsafe report fields.
   engaged without exporting text, keysyms, coordinates, pixels, endpoints, byte
   counts, or exact timings. Covered by policy, app-model reproduction, snapshot,
   diagnostic, and delivery-priority tests. **Done.**
+- [x] T031AB [US1] Add app-side helper-video render backpressure before
+  CoreMedia sample-buffer preparation. `AVSampleBufferDisplayLayer`
+  readiness now lets the foreground renderer drop only H.264 delta access units
+  when its queue is full, while parameter sets and keyframes still pass through
+  for decoder state and visible recovery. Dropped deltas downgrade helper-video
+  health to fixed `usable/medium` labels instead of replaying stale frames and
+  increasing sustained iPhone heat/latency. Covered by event-stream, finite
+  start-result, H.264 renderer, and opt-in static app-runner benchmark tests.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

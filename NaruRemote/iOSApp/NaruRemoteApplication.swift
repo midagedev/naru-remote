@@ -8,6 +8,7 @@ struct NaruRemoteApplication: App {
     @StateObject private var model = Self.makeModel()
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
+    @MainActor private static var helperVideoHealthStormTask: Task<Void, Never>?
 
     var body: some Scene {
         WindowGroup {
@@ -137,6 +138,7 @@ struct NaruRemoteApplication: App {
             applyTestTrackpadCursorStorm(to: model)
             applyTestFramebufferFlood(to: model)
             applyTestModelPublishStorm(to: model)
+            applyTestHelperVideoHealthStorm(to: model)
         }
         return model
     }
@@ -306,6 +308,8 @@ struct NaruRemoteApplication: App {
         framebufferFloodTask = nil
         modelPublishStormTask?.cancel()
         modelPublishStormTask = nil
+        helperVideoHealthStormTask?.cancel()
+        helperVideoHealthStormTask = nil
     }
 
     /// XCUITest responsiveness hook — when enabled on an active-session
@@ -336,6 +340,55 @@ struct NaruRemoteApplication: App {
                     qualitySamples[index % qualitySamples.count]
                 )
                 try? await Task.sleep(for: .milliseconds(6))
+            }
+        }
+    }
+
+    /// XCUITest responsiveness hook — when enabled on an active-session
+    /// fixture, continuously publishes helper-video health changes while
+    /// Compose is focused. This recreates helper-video renderer/status churn
+    /// without requiring ScreenCaptureKit permission, encoded frames, or a
+    /// helper process in the simulator.
+    @MainActor
+    private static func applyTestHelperVideoHealthStorm(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_HELPER_VIDEO_HEALTH_STORM"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        guard model.session?.state == .active else {
+            return
+        }
+
+        helperVideoHealthStormTask?.cancel()
+        helperVideoHealthStormTask = Task { @MainActor in
+            defer { helperVideoHealthStormTask = nil }
+            let samples = [
+                HelperVideoStreamHealth(
+                    state: .healthy,
+                    startupBand: .fast,
+                    sustainedUpdateBand: .smooth,
+                    decodePressure: .low
+                ),
+                HelperVideoStreamHealth(
+                    state: .healthy,
+                    startupBand: .fast,
+                    sustainedUpdateBand: .usable,
+                    decodePressure: .medium
+                ),
+                HelperVideoStreamHealth(
+                    state: .healthy,
+                    startupBand: .usable,
+                    sustainedUpdateBand: .usable,
+                    decodePressure: .medium
+                )
+            ]
+            for index in 0..<900 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                model.updateHelperVideoStreamHealth(samples[index % samples.count])
+                try? await Task.sleep(for: .milliseconds(7))
             }
         }
     }
