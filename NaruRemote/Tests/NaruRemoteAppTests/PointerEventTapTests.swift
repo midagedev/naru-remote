@@ -258,6 +258,27 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(report.outboundInputEventTimeoutCount, 0)
     }
 
+    func testDisconnectCancelsInFlightPointerClickBeforeQueuedButtonUp() async throws {
+        let connection = try await PointerEventTapTests.connectedModelAndConnector(
+            pointerEventDelay: .milliseconds(500)
+        )
+        let model = connection.model
+        let recorder = connection.connector
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100)
+        )
+        try await waitForPointerEvents(recorder, count: 1, timeout: 1)
+
+        model.disconnect()
+        try await Task.sleep(for: .milliseconds(700))
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].mask, RFBPointerCommand.leftButton)
+    }
+
     // MARK: Right click
 
     func testRightClickSendsButtonThreeDownThenUp() async throws {

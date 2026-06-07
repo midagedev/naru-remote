@@ -1101,3 +1101,44 @@ coordinates, keysyms, text, endpoint data, byte counts, or exact timings.
   privacy posture; coarse buckets are enough to route freeze triage.
 - Measure only at the RFB client write boundary: rejected because it would miss
   queue-delay freezes caused by a previous input event holding the serial tail.
+
+## D34 - Move outbound input serialization out of MainActor
+
+**Decision**: Replace the app-model-owned outbound input tail with a dedicated
+lock-backed `OutboundInputEventDispatcher`. `NaruRemoteAppModel` still captures
+the active stream, session, profile, and client identity on MainActor, but the
+ordered key/pointer task chain, timeout race, and coarse queue/write timing
+measurement now run on detached tasks owned by the dispatcher.
+
+**Rationale**:
+- Physical iPhone testing still reports that gestures and keyboard input can
+  appear frozen immediately after a real VNC connection starts. Even after
+  frame decoding and steady frame delivery moved away from SwiftUI frame-diff
+  cadence, the input path still kept its serial tail and timeout race as
+  app-model state.
+- RFB uses one socket for framebuffer control, pointer events, and key events,
+  so key/pointer messages must remain ordered. The dispatcher preserves that
+  ordering while keeping tail chaining and timeout work off MainActor.
+- SwiftUI gesture callbacks necessarily enter on MainActor, but after the
+  model maps the gesture to a safe wire command, enqueue must be short and
+  non-blocking so video/frame pressure has less chance to delay later input.
+
+**Verification**:
+- `DirectKeystrokeModeTests/testTapDirectKeyReturnsBeforeSlowWireWritesAndKeepsOrder`
+  proves direct-key taps return before slow wire writes while preserving key
+  order.
+- `DirectKeystrokeModeTests/testTimedOutKeyEmissionReleasesOutboundQueueForLaterPointerInput`
+  proves a stuck key write releases the outbound path for later pointer input.
+- `PointerEventTapTests/testRapidTapsStaySerializedAsClickPairsWhenWritesAreSlow`
+  proves rapid pointer taps still serialize as click pairs with diagnostics
+  samples after the dispatcher split.
+
+**Alternatives considered**:
+- Make the dispatcher a Swift actor: deferred because sync enqueue from
+  MainActor preserves user-event order more predictably than spawning a new
+  task only to await an actor enqueue call.
+- Split key and pointer queues: rejected because RFB wire order across key and
+  pointer events matters for mixed interactions such as modifier plus click.
+- Keep the tail on the app model and rely on diagnostics only: rejected because
+  diagnostics help triage but do not reduce the executor coupling seen in live
+  physical-device reports.

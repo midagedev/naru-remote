@@ -122,6 +122,169 @@ private final class OutboundInputEventOperationRace: @unchecked Sendable {
     }
 }
 
+private final class OutboundInputEventDispatcher: @unchecked Sendable {
+    typealias Operation = @Sendable () async throws -> Void
+    typealias Validator = @Sendable () async -> Bool
+    typealias Recorder = @Sendable (
+        _ queueDelayMilliseconds: Int,
+        _ operationMilliseconds: Int,
+        _ timedOut: Bool
+    ) async -> Void
+
+    private let lock = NSLock()
+    private let timeout: Duration
+    private var generation = UUID()
+    private var tail: Task<Void, Never>?
+
+    init(timeout: Duration) {
+        self.timeout = timeout
+    }
+
+    func cancelAll() {
+        let taskToCancel: Task<Void, Never>?
+        lock.lock()
+        generation = UUID()
+        taskToCancel = tail
+        tail = nil
+        lock.unlock()
+
+        taskToCancel?.cancel()
+    }
+
+    func enqueue(
+        operation: @escaping Operation,
+        validate: @escaping Validator,
+        record: @escaping Recorder,
+        handleFailure: @escaping Recorder
+    ) {
+        let enqueuedAt = Date()
+        let previous: Task<Void, Never>?
+        let eventGeneration: UUID
+
+        lock.lock()
+        previous = tail
+        eventGeneration = generation
+        lock.unlock()
+
+        let task = Task.detached(priority: .userInitiated) { [
+            weak self,
+            previous,
+            enqueuedAt,
+            eventGeneration,
+            operation,
+            validate,
+            record,
+            handleFailure
+        ] in
+            await previous?.value
+            guard let self,
+                  !Task.isCancelled,
+                  self.isCurrent(eventGeneration),
+                  await validate()
+            else {
+                return
+            }
+
+            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
+            let operationStartedAt = Date()
+            do {
+                try await Self.runOperation(timeout: self.timeout, operation: operation)
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                guard self.isCurrent(eventGeneration) else {
+                    return
+                }
+                await record(queueDelayMilliseconds, operationMilliseconds, false)
+            } catch {
+                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                let timedOut: Bool
+                if case OutboundInputEventError.timedOut = error {
+                    timedOut = true
+                } else {
+                    timedOut = false
+                }
+                guard self.invalidateIfCurrent(eventGeneration) else {
+                    return
+                }
+                await handleFailure(queueDelayMilliseconds, operationMilliseconds, timedOut)
+            }
+        }
+
+        let shouldCancelTask: Bool
+        lock.lock()
+        if generation == eventGeneration {
+            tail = task
+            shouldCancelTask = false
+        } else {
+            shouldCancelTask = true
+        }
+        lock.unlock()
+
+        if shouldCancelTask {
+            task.cancel()
+        }
+    }
+
+    private func isCurrent(_ eventGeneration: UUID) -> Bool {
+        let current: Bool
+        lock.lock()
+        current = generation == eventGeneration
+        lock.unlock()
+        return current
+    }
+
+    private func invalidateIfCurrent(_ eventGeneration: UUID) -> Bool {
+        let taskToCancel: Task<Void, Never>?
+        lock.lock()
+        guard generation == eventGeneration else {
+            lock.unlock()
+            return false
+        }
+        generation = UUID()
+        taskToCancel = tail
+        tail = nil
+        lock.unlock()
+
+        taskToCancel?.cancel()
+        return true
+    }
+
+    private static func elapsedMilliseconds(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
+    }
+
+    private static func runOperation(
+        timeout: Duration,
+        operation: @escaping Operation
+    ) async throws {
+        let race = OutboundInputEventOperationRace()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                race.setContinuation(continuation)
+                let operationTask = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await operation()
+                        race.finish(.success(()))
+                    } catch {
+                        race.finish(.failure(error))
+                    }
+                }
+                let timeoutTask = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    operationTask.cancel()
+                    race.finish(.failure(OutboundInputEventError.timedOut))
+                }
+                race.setTasks([operationTask, timeoutTask])
+            }
+        } onCancel: {
+            race.cancel()
+        }
+    }
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     public typealias HelperVideoStartStream = @Sendable (
@@ -329,21 +492,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
     private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
-    /// Single serial tail for all outbound input messages. RFB key and
-    /// pointer writes share one socket, so they must preserve the order
-    /// the user produced them while still keeping synchronous
-    /// Network.framework back-pressure off MainActor.
-    private var outboundInputEventTail: Task<Void, Never>?
-    /// Backstop for the shared key/pointer queue. Production
-    /// `RFBNetworkClient` writes already time out at the socket layer;
-    /// this prevents a non-cooperative test/helper client from parking
-    /// the serial tail forever and making later input feel frozen.
-    private let outboundInputEventTimeout: Duration
-    /// Queue invalidation token. Cancelling only the latest tail is not
-    /// enough when multiple tasks are chained behind an older write, so
-    /// every queued task also checks this generation before touching the
-    /// active socket.
-    private var outboundInputEventGeneration = UUID()
+    /// Owns key/pointer wire serialization outside MainActor. The app
+    /// model captures the active session/client identity and returns to
+    /// SwiftUI; this dispatcher performs the ordered writes, timeout race,
+    /// and coarse diagnostics callbacks on detached tasks.
+    private let outboundInputDispatcher: OutboundInputEventDispatcher
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameStreamID: UUID?
@@ -540,7 +693,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
         self.streamPacingSleepOverride = streamPacingSleep
-        self.outboundInputEventTimeout = outboundInputEventTimeout
+        self.outboundInputDispatcher = OutboundInputEventDispatcher(
+            timeout: outboundInputEventTimeout
+        )
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
@@ -4407,12 +4562,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func cancelOutboundInputEventQueues() {
-        outboundInputEventGeneration = UUID()
         pointerMoveFlushTask?.cancel()
         pointerMoveFlushTask = nil
         pendingPointerMove = nil
-        outboundInputEventTail?.cancel()
-        outboundInputEventTail = nil
+        outboundInputDispatcher.cancelAll()
     }
 
     /// Begin a long-lived receive loop that pulls `ServerCutText`
@@ -4928,67 +5081,39 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID?,
         operation: @escaping @Sendable () async throws -> Void
     ) {
-        let previous = outboundInputEventTail
-        let enqueuedAt = Date()
-        let generation = outboundInputEventGeneration
-        let inputEventTimeout = outboundInputEventTimeout
-        let task = Task.detached(priority: .userInitiated) { [
-            weak self,
-            previous,
-            enqueuedAt,
-            emitter,
-            streamID,
-            sessionID,
-            profileID,
-            generation,
-            inputEventTimeout,
-            operation
-        ] in
-            await previous?.value
-            guard !Task.isCancelled else {
-                return
-            }
-
-            let isStillCurrent = await MainActor.run { [weak self] in
-                guard let self else {
-                    return false
+        outboundInputDispatcher.enqueue(
+            operation: operation,
+            validate: { [weak self, emitter, streamID, sessionID, profileID] in
+                await MainActor.run {
+                    guard let self else {
+                        return false
+                    }
+                    return self.activeFrameStreamID == streamID
+                        && self.session?.id == sessionID
+                        && self.selectedProfileID == profileID
+                        && self.keystrokeEmitter === emitter
                 }
-                return self.outboundInputEventGeneration == generation
-                    && self.activeFrameStreamID == streamID
-                    && self.session?.id == sessionID
-                    && self.selectedProfileID == profileID
-                    && self.keystrokeEmitter === emitter
-            }
-            guard isStillCurrent else {
-                return
-            }
-
-            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
-            let operationStartedAt = Date()
-            do {
-                try await Self.runOutboundInputOperation(
-                    timeout: inputEventTimeout,
-                    operation: operation
-                )
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                await Self.recordOutboundInputEventIfCurrent(
-                    self,
-                    generation: generation,
-                    queueDelayMilliseconds: queueDelayMilliseconds,
-                    operationMilliseconds: operationMilliseconds,
-                    timedOut: false
-                )
-            } catch {
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                let timedOut: Bool
-                if case OutboundInputEventError.timedOut = error {
-                    timedOut = true
-                } else {
-                    timedOut = false
-                }
-                await MainActor.run { [weak self] in
+            },
+            record: { [weak self, emitter, streamID, sessionID, profileID] queueDelayMilliseconds, operationMilliseconds, timedOut in
+                await MainActor.run {
                     guard let self,
-                          self.outboundInputEventGeneration == generation,
+                          self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID,
+                          self.keystrokeEmitter === emitter
+                    else {
+                        return
+                    }
+                    self.recordOutboundInputEvent(
+                        queueDelayMilliseconds: queueDelayMilliseconds,
+                        operationMilliseconds: operationMilliseconds,
+                        timedOut: timedOut
+                    )
+                }
+            },
+            handleFailure: { [weak self, emitter, streamID, sessionID, profileID] queueDelayMilliseconds, operationMilliseconds, timedOut in
+                await MainActor.run {
+                    guard let self,
                           self.activeFrameStreamID == streamID,
                           self.session?.id == sessionID,
                           self.selectedProfileID == profileID,
@@ -5006,61 +5131,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     self.keystrokeEmitter = nil
                 }
             }
-        }
-        outboundInputEventTail = task
-    }
-
-    private static func recordOutboundInputEventIfCurrent(
-        _ model: NaruRemoteAppModel?,
-        generation: UUID,
-        queueDelayMilliseconds: Int,
-        operationMilliseconds: Int,
-        timedOut: Bool
-    ) async {
-        await MainActor.run {
-            guard let model,
-                  model.outboundInputEventGeneration == generation
-            else {
-                return
-            }
-            model.recordOutboundInputEvent(
-                queueDelayMilliseconds: queueDelayMilliseconds,
-                operationMilliseconds: operationMilliseconds,
-                timedOut: timedOut
-            )
-        }
-    }
-
-    nonisolated private static func runOutboundInputOperation(
-        timeout: Duration,
-        operation: @escaping @Sendable () async throws -> Void
-    ) async throws {
-        let race = OutboundInputEventOperationRace()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                race.setContinuation(continuation)
-                let operationTask = Task.detached(priority: .userInitiated) {
-                    do {
-                        try await operation()
-                        race.finish(.success(()))
-                    } catch {
-                        race.finish(.failure(error))
-                    }
-                }
-                let timeoutTask = Task.detached(priority: .userInitiated) {
-                    do {
-                        try await Task.sleep(for: timeout)
-                    } catch {
-                        return
-                    }
-                    operationTask.cancel()
-                    race.finish(.failure(OutboundInputEventError.timedOut))
-                }
-                race.setTasks([operationTask, timeoutTask])
-            }
-        } onCancel: {
-            race.cancel()
-        }
+        )
     }
 
     nonisolated private static func connectAndReadFirstFrame(
@@ -6183,77 +6254,50 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let previous = outboundInputEventTail
-        let enqueuedAt = Date()
-        let generation = outboundInputEventGeneration
-        let inputEventTimeout = outboundInputEventTimeout
-        let task = Task.detached(priority: .userInitiated) { [
-            weak self,
-            previous,
-            enqueuedAt,
-            pointerClient,
-            commands,
-            streamID,
-            sessionID,
-            profileID,
-            generation,
-            inputEventTimeout
-        ] in
-            await previous?.value
-            guard !Task.isCancelled else {
-                return
-            }
-
-            let isStillCurrent = await MainActor.run { [weak self] in
-                guard let self else {
-                    return false
-                }
-                return self.outboundInputEventGeneration == generation
-                    && self.activeFrameStreamID == streamID
-                    && self.session?.id == sessionID
-                    && self.selectedProfileID == profileID
-                    && self.activePointerClient === pointerClient
-            }
-            guard isStillCurrent else {
-                return
-            }
-
-            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
-            let operationStartedAt = Date()
-            do {
-                try await Self.runOutboundInputOperation(timeout: inputEventTimeout) {
-                    for command in commands {
-                        guard !Task.isCancelled else {
-                            return
-                        }
-                        try await pointerClient.sendPointerEvent(
-                            buttonMask: command.buttonMask,
-                            x: command.x,
-                            y: command.y
-                        )
+        outboundInputDispatcher.enqueue(
+            operation: { [pointerClient, commands] in
+                for command in commands {
+                    guard !Task.isCancelled else {
+                        return
                     }
+                    try await pointerClient.sendPointerEvent(
+                        buttonMask: command.buttonMask,
+                        x: command.x,
+                        y: command.y
+                    )
                 }
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                await Self.recordOutboundInputEventIfCurrent(
-                    self,
-                    generation: generation,
-                    queueDelayMilliseconds: queueDelayMilliseconds,
-                    operationMilliseconds: operationMilliseconds,
-                    timedOut: false
-                )
-            } catch {
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                let timedOut: Bool
-                if case OutboundInputEventError.timedOut = error {
-                    timedOut = true
-                } else {
-                    timedOut = false
-                }
-                guard let self else {
-                    return
-                }
+            },
+            validate: { [weak self, pointerClient, streamID, sessionID, profileID] in
                 await MainActor.run {
-                    guard self.outboundInputEventGeneration == generation,
+                    guard let self else {
+                        return false
+                    }
+                    return self.activeFrameStreamID == streamID
+                        && self.session?.id == sessionID
+                        && self.selectedProfileID == profileID
+                        && self.activePointerClient === pointerClient
+                }
+            },
+            record: { [weak self, pointerClient, streamID, sessionID, profileID] queueDelayMilliseconds, operationMilliseconds, timedOut in
+                await MainActor.run {
+                    guard let self,
+                          self.activeFrameStreamID == streamID,
+                          self.session?.id == sessionID,
+                          self.selectedProfileID == profileID,
+                          self.activePointerClient === pointerClient
+                    else {
+                        return
+                    }
+                    self.recordOutboundInputEvent(
+                        queueDelayMilliseconds: queueDelayMilliseconds,
+                        operationMilliseconds: operationMilliseconds,
+                        timedOut: timedOut
+                    )
+                }
+            },
+            handleFailure: { [weak self, pointerClient, streamID, sessionID, profileID] queueDelayMilliseconds, operationMilliseconds, timedOut in
+                await MainActor.run {
+                    guard let self,
                           self.activeFrameStreamID == streamID,
                           self.session?.id == sessionID,
                           self.selectedProfileID == profileID,
@@ -6271,8 +6315,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     self.lastEmittedDragCoord = nil
                 }
             }
-        }
-        outboundInputEventTail = task
+        )
     }
 
     private static func singleButtonlessPointerMove(_ commands: [RFBPointerCommand]) -> RFBPointerCommand? {
