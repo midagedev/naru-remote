@@ -27,13 +27,13 @@ public struct SessionFrameState: Equatable, Sendable {
 
 public enum SessionFrameDeliveryPriority: Equatable, Sendable {
     case visual
-    case inputEditing
+    case interactiveInput
 }
 
 @MainActor
 public final class SessionFrameStore: ObservableObject {
     static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
-    static let inputEditingFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
+    static let interactiveInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
 
     public private(set) var state: SessionFrameState
 
@@ -86,13 +86,13 @@ public final class SessionFrameStore: ObservableObject {
         deliveryPriority = priority
         switch priority {
         case .visual:
-            // Leaving text input should make the latest remote frame visible
+            // Leaving active input should make the latest remote frame visible
             // immediately instead of waiting for the longer keyboard-friendly
             // coalescing window to expire.
             frameDeliveryTask?.cancel()
             frameDeliveryTask = nil
             flushPendingFrameDelivery()
-        case .inputEditing:
+        case .interactiveInput:
             reschedulePendingSteadyFrameDelivery()
         }
     }
@@ -165,8 +165,8 @@ public final class SessionFrameStore: ObservableObject {
         switch deliveryPriority {
         case .visual:
             return Self.steadyFrameDeliveryCoalescingDelay
-        case .inputEditing:
-            return Self.inputEditingFrameDeliveryCoalescingDelay
+        case .interactiveInput:
+            return Self.interactiveInputFrameDeliveryCoalescingDelay
         }
     }
 

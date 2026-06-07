@@ -411,6 +411,14 @@ without unsafe report fields.
   helper-primary overlay policy tests. Current live readiness still needs macOS
   Screen Recording permission before true ScreenCaptureKit helper-video can
   clear T031. **Done.**
+- [x] T031Q [US1] Generalize frame delivery priority from Compose-only editing
+  to active session interaction: Compose focus, viewport zoom/pan gestures, and
+  transient direct-key / hardware-key / pointer / trackpad input now switch
+  steady VNC frame delivery to an input-friendly coalescing cadence, with
+  pending steady frames rescheduled and focus/gesture reasons preserving the
+  priority across transient lease expiry. This reduces frame-event contention
+  with UIKit input and local viewport navigation while helper-video Screen
+  Recording and physical iPhone gates are still blocked. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

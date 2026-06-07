@@ -10,6 +10,12 @@ private struct PendingPointerMove {
     let profileID: ConnectionProfile.ID?
 }
 
+private enum FrameDeliveryInteractionReason: Hashable {
+    case composeFocus
+    case viewportGesture
+    case transientInteraction
+}
+
 private struct DeferredViewportInteractionFrame {
     let frame: RFBFramePumpFrame
     let serverInit: RFBServerInit
@@ -649,6 +655,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var mainActorResponsivenessMonitorID: UUID?
     private var activeHelperVideoStreamTask: Task<Void, Never>?
     private var activeHelperVideoStreamID: UUID?
+    private var frameDeliveryInteractionReasons: Set<FrameDeliveryInteractionReason> = []
+    private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
+    private var transientFrameDeliveryInteractionLeaseID: UUID?
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
     private var isViewportInteractionActive: Bool {
         viewportInteractionFrameStrategy != nil
@@ -695,6 +704,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let previewSaveMinimumInterval: TimeInterval = 5
     private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
+    static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
     public static let defaultActiveFrameInterval: TimeInterval =
         StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -1477,6 +1487,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func selectProfile(id: ConnectionProfile.ID) {
         if selectedProfileID != id {
             cancelPendingReconnect()
+            resetFrameDeliveryInteractionState()
             stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
@@ -1559,6 +1570,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         selectedProfileID = profileToSave.id
         if session == nil || session?.profileID != profileToSave.id {
             cancelPendingReconnect()
+            resetFrameDeliveryInteractionState()
             stopFrameStream()
             stopIncomingClipboardReceive()
             pendingIncomingClipboard = nil
@@ -2215,6 +2227,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         if wasActive {
             cancelPendingReconnect()
+            resetFrameDeliveryInteractionState()
             stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
@@ -3226,6 +3239,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         // reset the bounded attempt counter so a future drop gets a
         // fresh `maxAttempts` budget.
         cancelPendingReconnect()
+        resetFrameDeliveryInteractionState()
         explicitlyDisconnected = false
         reconnectAttempts = 0
         activeStreamProfile = nil
@@ -4032,7 +4046,45 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     public func setComposeInputEditingActive(_ isActive: Bool) {
-        frameStore.setDeliveryPriority(isActive ? .inputEditing : .visual)
+        setFrameDeliveryInteractionReason(.composeFocus, active: isActive)
+    }
+
+    func markTransientFrameDeliveryInteractionActivityForTesting() {
+        markTransientFrameDeliveryInteractionActivity()
+    }
+
+    private func markTransientFrameDeliveryInteractionActivity() {
+        setFrameDeliveryInteractionReason(.transientInteraction, active: true)
+        let leaseID = UUID()
+        transientFrameDeliveryInteractionLeaseID = leaseID
+        transientFrameDeliveryInteractionTask?.cancel()
+        transientFrameDeliveryInteractionTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.transientFrameDeliveryInteractionPriorityDuration)
+            } catch {
+                return
+            }
+            guard self?.transientFrameDeliveryInteractionLeaseID == leaseID else {
+                return
+            }
+            self?.transientFrameDeliveryInteractionLeaseID = nil
+            self?.transientFrameDeliveryInteractionTask = nil
+            self?.setFrameDeliveryInteractionReason(.transientInteraction, active: false)
+        }
+    }
+
+    private func setFrameDeliveryInteractionReason(
+        _ reason: FrameDeliveryInteractionReason,
+        active: Bool
+    ) {
+        if active {
+            frameDeliveryInteractionReasons.insert(reason)
+        } else {
+            frameDeliveryInteractionReasons.remove(reason)
+        }
+        frameStore.setDeliveryPriority(
+            frameDeliveryInteractionReasons.isEmpty ? .visual : .interactiveInput
+        )
     }
 
     public func recordOutboundInputEvent(
@@ -4052,6 +4104,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         frameStrategy: ViewportInteractionFrameStrategy = .liveRemoteFrames
     ) {
         if isActive {
+            setFrameDeliveryInteractionReason(.viewportGesture, active: true)
             if isViewportInteractionActive {
                 viewportInteractionFrameStrategy = frameStrategy
                 return
@@ -4063,11 +4116,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         guard isViewportInteractionActive else {
+            setFrameDeliveryInteractionReason(.viewportGesture, active: false)
             return
         }
         viewportInteractionFrameStrategy = nil
         viewportInteractionStartedAt = nil
         lastViewportInteractionFramePublishedAt = nil
+        setFrameDeliveryInteractionReason(.viewportGesture, active: false)
         flushDeferredViewportInteractionFrame()
     }
 
@@ -4881,6 +4936,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         pendingReconnectTask = nil
     }
 
+    private func resetFrameDeliveryInteractionState() {
+        transientFrameDeliveryInteractionTask?.cancel()
+        transientFrameDeliveryInteractionTask = nil
+        transientFrameDeliveryInteractionLeaseID = nil
+        frameDeliveryInteractionReasons.removeAll()
+        viewportInteractionFrameStrategy = nil
+        deferredViewportInteractionFrame = nil
+        lastViewportInteractionFramePublishedAt = nil
+        viewportInteractionStartedAt = nil
+        frameStore.setDeliveryPriority(.visual)
+    }
+
     /// User-initiated disconnect.  Tears down the active stream,
     /// any pending reconnect sleep, and the session HUD.  The
     /// `explicitlyDisconnected` latch stays set until the next
@@ -4897,6 +4964,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func disconnect() {
         explicitlyDisconnected = true
         cancelPendingReconnect()
+        resetFrameDeliveryInteractionState()
         stopHelperVideoStreamBootstrap()
         stopFrameStream()
         stopIncomingClipboardReceive()
@@ -5191,6 +5259,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         session: RemoteSession,
         cursor: TrackpadCursor
     ) -> SessionViewportTrackpadGestureResult {
+        markTransientFrameDeliveryInteractionActivity()
         let resolver = PointerGestureResolver(mode: .trackpad)
         let outcome = resolver.resolve(gesture, transform: transform, cursor: cursor)
         let result = SessionViewportTrackpadGestureResult(
@@ -5269,6 +5338,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     ///   has already produced.
     public func toggleDirectKeystrokeMode() {
         let newActive = !directKeystrokeMode.isActive
+        markTransientFrameDeliveryInteractionActivity()
         directKeystrokeMode = DirectKeystrokeMode(
             isActive: newActive,
             page: .qwerty,
@@ -5337,6 +5407,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// armed state is still consumed so the user is not stranded
     /// with phantom-armed modifiers after a partial wire write.
     public func tapDirectKey(_ key: DirectKey) async {
+        markTransientFrameDeliveryInteractionActivity()
         switch key {
         case .pageToggle:
             setDirectKeystrokePage(directKeystrokeMode.page == .qwerty ? .special : .qwerty)
@@ -5436,6 +5507,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         else {
             return
         }
+        markTransientFrameDeliveryInteractionActivity()
         // `modifiers` is presently informational (matches what
         // `UIKey.modifierFlags` reported on the press).  We do not
         // wrap here — every hardware UIPress emits exactly one
@@ -5484,6 +5556,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let emitter = keystrokeEmitter else {
             return
         }
+        markTransientFrameDeliveryInteractionActivity()
         let emission = key.emission
         enqueueKeyEventEmission(
             emitter: emitter,
@@ -6935,6 +7008,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         let streamID = activeFrameStreamID
         let sessionID = session?.id
         let profileID = selectedProfileID
@@ -6975,6 +7049,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         let streamID = activeFrameStreamID
         let sessionID = session?.id
         let profileID = selectedProfileID
@@ -7050,6 +7125,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         let streamID = activeFrameStreamID
         let sessionID = session?.id
         let profileID = selectedProfileID
@@ -7103,6 +7179,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         let streamID = activeFrameStreamID
         let sessionID = session?.id
         let profileID = selectedProfileID
@@ -7148,6 +7225,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         // Sub-pixel throttle: drop moves whose framebuffer-coord delta
         // does not advance the last emitted coord on either axis.
         if let last = lastEmittedDragCoord, last.x == mapped.x, last.y == mapped.y {
@@ -7191,6 +7269,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        markTransientFrameDeliveryInteractionActivity()
         let streamID = activeFrameStreamID
         let sessionID = session?.id
         let profileID = selectedProfileID
