@@ -128,6 +128,37 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("payload"))
     }
 
+    func testRateControlPolicyScalesByQualityAndFrameRateWithoutExportShape() {
+        let readability15 = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .readability,
+            frameRateBucket: .upTo15
+        )
+        let readability30 = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .readability,
+            frameRateBucket: .upTo30
+        )
+        let balanced30 = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .balanced,
+            frameRateBucket: .upTo30
+        )
+        let fidelity30 = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .fidelity,
+            frameRateBucket: .upTo30
+        )
+        let unknownFrameRate = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .readability,
+            frameRateBucket: .unknown
+        )
+
+        XCTAssertEqual(readability15.averageBitRate, 1_200_000)
+        XCTAssertEqual(readability15.dataRateLimits, [225_000, 1])
+        XCTAssertGreaterThan(readability30.averageBitRate, readability15.averageBitRate)
+        XCTAssertGreaterThan(balanced30.averageBitRate, readability30.averageBitRate)
+        XCTAssertGreaterThan(fidelity30.averageBitRate, balanced30.averageBitRate)
+        XCTAssertEqual(unknownFrameRate.averageBitRate, readability30.averageBitRate)
+        XCTAssertEqual(unknownFrameRate.dataRateLimits, readability30.dataRateLimits)
+    }
+
     #if os(macOS) && canImport(VideoToolbox)
     func testToolboxSyntheticAccessUnitSourceEmitsRealAnnexBParameterSetsAndFrame() throws {
         let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
@@ -223,6 +254,24 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
                 .noSourceFrames
             )
         }
+    }
+
+    func testToolboxPixelBufferEncoderStoresRequestedRateControlPolicy() throws {
+        let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
+            width: 64,
+            height: 64,
+            frameRateBucket: .upTo15,
+            qualityBucket: .balanced,
+            keyFrameInterval: 2
+        )
+
+        XCTAssertEqual(
+            encoder.rateControlPolicy,
+            NaruHelperVideoRateControlPolicy(
+                qualityBucket: .balanced,
+                frameRateBucket: .upTo15
+            )
+        )
     }
 
     #if canImport(ScreenCaptureKit)

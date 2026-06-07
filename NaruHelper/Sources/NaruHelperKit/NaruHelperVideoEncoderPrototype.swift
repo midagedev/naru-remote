@@ -197,11 +197,15 @@ private enum LiveNaruHelperVideoToolboxH264EncoderPrototype {
     }
 
     private static func configure(session: VTCompressionSession) -> Bool {
+        let rateControlPolicy = NaruHelperVideoRateControlPolicy(
+            qualityBucket: .readability,
+            frameRateBucket: .upTo30
+        )
         let properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
-        ]
+        ] + rateControlPolicy.videoToolboxCompressionProperties()
 
         for property in properties {
             let status = VTSessionSetProperty(session, key: property.0, value: property.1)

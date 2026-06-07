@@ -449,6 +449,12 @@ without unsafe report fields.
   command proceeds toward the true helper-video app decode gate and physical
   iPhone handoff. Covered by `helper-video-live-gate-self-test` and a short
   live permission-missing run. **Done.**
+- [x] T031V [US2] Add an explicit helper-video rate-control policy that maps
+  safe quality/frame-rate buckets to VideoToolbox average bitrate and
+  one-second hard data-rate caps, then apply it to synthetic and ScreenCaptureKit
+  H.264 encoder sessions without exporting raw traffic counters in diagnostics
+  or benchmark JSON. Covered by helper encoder policy tests and a live
+  permission-gated helper-video run. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

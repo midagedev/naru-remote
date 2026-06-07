@@ -67,6 +67,7 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
+            qualityBucket: request.qualityBucket,
             keyFrameInterval: finiteFrameCount,
             encodingMode: encodingMode
         )
@@ -91,6 +92,7 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
+            qualityBucket: request.qualityBucket,
             keyFrameInterval: keyFrameInterval,
             encodingMode: .lowLatencyRealtime
         )
@@ -106,6 +108,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     private let width: Int32
     private let height: Int32
     private let frameRateBucket: HelperVideoFrameRateBucket
+    public let rateControlPolicy: NaruHelperVideoRateControlPolicy
     private let keyFrameInterval: Int
     private let encodingMode: NaruHelperVideoToolboxEncodingMode
 
@@ -113,12 +116,17 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         width: Int32,
         height: Int32,
         frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket = .readability,
         keyFrameInterval: Int,
         encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime
     ) {
         self.width = width
         self.height = height
         self.frameRateBucket = frameRateBucket
+        self.rateControlPolicy = NaruHelperVideoRateControlPolicy(
+            qualityBucket: qualityBucket,
+            frameRateBucket: frameRateBucket
+        )
         self.keyFrameInterval = max(keyFrameInterval, 1)
         self.encodingMode = encodingMode
     }
@@ -359,7 +367,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
             (kVTCompressionPropertyKey_MaxKeyFrameInterval, keyFrameInterval as CFNumber),
             (kVTCompressionPropertyKey_ExpectedFrameRate, frameRateBucket.nominalTimescale as CFNumber)
-        ]
+        ] + rateControlPolicy.videoToolboxCompressionProperties()
 
         for (key, value) in properties {
             let status = VTSessionSetProperty(session, key: key, value: value)

@@ -2109,3 +2109,56 @@ states, fixed issue/action labels, helper safe capability JSON, and existing
 safe subreports. They must not emit helper executable paths, endpoints,
 credentials, raw OS errors, pixels, dimensions, byte counts, physical device
 identifiers, raw XCTest output, or exact helper timings.
+
+## D54 - Make helper-video quality buckets enforce encoder rate control
+
+**Decision**: Map the existing `HelperVideoQualityBucket` and
+`HelperVideoFrameRateBucket` labels to an internal helper-side
+`NaruHelperVideoRateControlPolicy`, then set VideoToolbox
+`AverageBitRate` and `DataRateLimits` on every helper-video H.264 compression
+session. `readability` remains the default mobile/poor-network bucket;
+`balanced` and `fidelity` are explicit higher-traffic choices. `unknown`
+frame-rate requests normalize to the `upTo30` budget so the helper never runs
+with an unbounded encoder target.
+
+**Rationale**:
+- The product goal now includes traffic and thermal pressure, not only FPS.
+  A quality label that is only echoed in stream metadata cannot protect a poor
+  network or a hot iPhone.
+- Apple documents VideoToolbox bitrate and data-rate-limit properties as the
+  encoder-level way to set a long-term target plus a hard cap window. That
+  matches Naru's need for a readable stream that does not burst indefinitely
+  when the desktop changes quickly.
+- Apple also documents realtime compression, expected frame rate, and
+  low-latency rate control as part of the live/interactive encoder surface.
+  Naru already used those knobs; this decision closes the missing traffic
+  contract by adding explicit bitrate and hard-cap policy.
+- Diagnostics and benchmark reports continue to export only fixed labels and
+  aggregate health bands. Exact bitrate and cap values are implementation
+  configuration, not diagnostic output.
+
+**Sources**:
+- Apple VideoToolbox `kVTCompressionPropertyKey_AverageBitRate`:
+  https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_averagebitrate
+- Apple VideoToolbox `kVTCompressionPropertyKey_DataRateLimits`:
+  https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_dataratelimits
+- Apple VideoToolbox `kVTCompressionPropertyKey_RealTime`:
+  https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_realtime
+- Apple VideoToolbox low-latency rate control:
+  https://developer.apple.com/documentation/videotoolbox/kvtvideoencoderspecification_enablelowlatencyratecontrol
+- Apple VideoToolbox live streaming encoder settings:
+  https://developer.apple.com/documentation/videotoolbox/encoding-video-for-live-streaming
+
+**Evidence**:
+- `NaruHelperVideoRateControlPolicy` unit tests prove quality/frame-rate
+  buckets scale monotonically and normalize unknown frame-rate requests.
+- The helper encoder prototype JSON privacy test still rejects raw `byte` and
+  payload fields; rate-control values do not enter exported helper capability,
+  diagnostic, or benchmark JSON.
+- The current live helper-video gate remains blocked by Screen Recording
+  permission, so this decision prepares true capture for poor-network testing
+  once the macOS permission gate is cleared.
+
+**Privacy rule**: Rate-control policy values may be used inside the encoder
+configuration and tests. They must not be added to diagnostic exports, live
+benchmark JSON, helper capability reports, or user-visible connection logs.
