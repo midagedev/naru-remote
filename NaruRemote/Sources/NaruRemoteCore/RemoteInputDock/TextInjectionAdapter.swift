@@ -95,7 +95,11 @@ public enum TextInjectionClipboardPolicy {
         case .supported:
             return nil
         case .unknown:
-            return nil
+            return TextInjectionError
+                .clipboardUnavailable(
+                    "This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably."
+                )
+                .localizedDescription
         case .unsupported:
             return TextInjectionError
                 .clipboardUnavailable(

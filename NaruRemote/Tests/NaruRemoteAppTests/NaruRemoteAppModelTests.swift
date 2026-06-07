@@ -4227,7 +4227,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .insertRejected)
     }
 
-    func testModelAllowsBestEffortUTF8ComposeWhenClipboardSupportIsUnconfirmedWithoutHelper() async throws {
+    func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmedWithoutHelper() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
         let model = NaruRemoteAppModel(
@@ -4243,27 +4243,27 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
 
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.pasteCommandStatus != .succeeded {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
-        XCTAssertEqual(connector.pasteCommands, [.commandV])
-        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.payloadEncoding, .utf8ExtensionRequired)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardTransferMode, .legacyClientCutText)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .notAttempted)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.utf8ClipboardSupport, .unknown)
         XCTAssertEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
-            "Paste command sent through legacy VNC clipboard; this server has not confirmed UTF-8 clipboard support, so Korean/CJK text may paste incorrectly."
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is not configured for this profile."
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
+            .notConfigured
         )
     }
 
-    func testModelFallsBackToBestEffortUTF8ComposeWhenStoredHelperIsKnownUnreachable() async throws {
+    func testModelRejectsUTF8ComposeWhenStoredHelperIsKnownUnreachable() async throws {
         let helperSecretRef = "helper-token:desk"
         let profile = try ConnectionProfile(
             displayName: "Desk",
@@ -4303,16 +4303,17 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.pasteCommandStatus != .succeeded {
-            try await Task.sleep(for: .milliseconds(10))
-        }
 
-        XCTAssertEqual(connector.clipboardPayloads, ["한글과 English 😊"])
-        XCTAssertEqual(connector.pasteCommands, [.commandV])
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .vncClipboardPaste)
-        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .unknown)
-        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .failed)
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .unreachable)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server has not confirmed UTF-8 clipboard support, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge is not reachable."
+        )
     }
 
     func testModelRejectsUTF8ComposeWhenClipboardSupportIsUnsupported() async throws {

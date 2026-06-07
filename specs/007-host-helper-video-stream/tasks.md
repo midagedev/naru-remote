@@ -285,6 +285,11 @@ without unsafe report fields.
   MainActor. Also move the VNC frame-application worker loop/pacing sleeps to a
   detached task so it hops to the app model only for the bounded commit.
   **Done.**
+- [x] T030C [US1] Add privacy-safe MainActor responsiveness heartbeat
+  diagnostics to active frame streams so physical-iPhone freeze reports can be
+  triaged as UI-executor stalls versus network/decode/input queue pressure
+  without exporting exact timings, endpoints, framebuffer data, coordinates,
+  keysyms, or text. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

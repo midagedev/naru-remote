@@ -91,7 +91,15 @@ description: "Tasks: Host Helper Text Bridge"
 - [x] T030 [US1] Add authenticated length-prefixed helper network transport, macOS listen mode, and client/server tests. **Done.**
 - [x] T031 [US1] Persist per-profile helper endpoint metadata and keychain-backed pairing secret references, then route Compose through the stored network helper transport from `NaruRemoteAppModel`. Verify with profile JSON, credential-store, load-state, and loopback helper transport tests. **Done.**
 - [x] T032 [US2] Probe stored helper capability before advertising readiness or sending raw Compose text, and keep permission/reachability failures in fixed catalog state. **Done.**
+- [x] T033 [US3] Remove best-effort legacy VNC clipboard sends for
+  UTF-8-required Compose when Extended Clipboard UTF-8 is unconfirmed. Keep the
+  draft, report the helper/confirmed-clipboard requirement with fixed safe copy,
+  and preserve ASCII/Latin-1 VNC paste as best-effort. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
+- [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
+  strategy without relying on VNC `ClientCutText`, using Accessibility direct
+  value insertion where supported and a bounded Unicode event/pasteboard-restore
+  fallback chain where direct insertion is unavailable.
 - [ ] T029 [US1] Record physical iPhone + Mac manual verification evidence.
 
 ---
