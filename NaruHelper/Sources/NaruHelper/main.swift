@@ -62,16 +62,19 @@ private enum NaruHelperCLI {
 
     private static func capabilityResponse() -> NaruHelperCapabilityResponse {
         #if os(macOS)
-        let nativeInserter = MacNativeTextInserter.live()
+        let accessibilityInserter = MacAccessibilityFocusedTextInserter()
+        let unicodeEventInserter = MacUnicodeKeyboardTextInserter()
         let poster = MacPasteCommandPoster()
         return NaruHelperTextBridgeCapabilityProbe.response(
-            canInsertNatively: nativeInserter.canInsertTextDirectly,
+            canInsertWithAccessibility: accessibilityInserter.canInsertTextDirectly,
+            canInsertWithUnicodeEvents: unicodeEventInserter.canInsertTextDirectly,
             canFallbackToPasteboard: poster.canPostPasteCommand
         )
         #else
         return NaruHelperTextBridgeCapabilityProbe.response(
             platformSupported: false,
-            canInsertNatively: false,
+            canInsertWithAccessibility: false,
+            canInsertWithUnicodeEvents: false,
             canFallbackToPasteboard: false
         )
         #endif

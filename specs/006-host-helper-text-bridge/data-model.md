@@ -99,11 +99,21 @@ Raw final text:
 Mac-side helper capability summary.
 
 Fields:
-- `accessibility`: `unknown`, `granted`, `missing`, `revoked`.
+- `accessibility`: legacy AX value-insert state, `unknown`, `granted`,
+  `missing`, `revoked`, or `unsupported`.
+- `accessibilityValueInsert`: optional granular AX focused-value insert state,
+  `unknown`, `granted`, `missing`, `revoked`, or `unsupported`.
+- `unicodeKeyboardEvent`: optional granular bounded Unicode keyboard-event
+  insert state, `unknown`, `granted`, `missing`, `revoked`, or `unsupported`.
 - `inputMonitoring`: `unknown`, `granted`, `missing`, `notRequired`.
-- `pasteboardFallback`: `available`, `restoreUnsupported`, `disabled`.
+- `pasteboardFallback`: `available`, `missing`, `restoreUnsupported`,
+  `disabled`, or `unsupported`.
 - `activeUserSession`: `available`, `locked`, `wrongUser`, `unknown`.
 
 Rules:
 - The helper reports only catalog states to the app.
 - The app may use these states for UI and diagnostics.
+- Clients that understand the granular fields should explain
+  `accessibilityValueInsert`, `unicodeKeyboardEvent`, and `pasteboardFallback`
+  separately so a fallback-only helper is not mistaken for a direct native
+  insertion endpoint.

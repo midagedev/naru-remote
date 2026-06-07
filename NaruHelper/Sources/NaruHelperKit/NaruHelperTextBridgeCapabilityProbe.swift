@@ -4,7 +4,8 @@ import NaruRemoteCore
 public enum NaruHelperTextBridgeCapabilityProbe {
     public static func response(
         platformSupported: Bool = true,
-        canInsertNatively: Bool,
+        canInsertWithAccessibility: Bool,
+        canInsertWithUnicodeEvents: Bool,
         canFallbackToPasteboard: Bool
     ) -> NaruHelperCapabilityResponse {
         guard platformSupported else {
@@ -12,6 +13,8 @@ public enum NaruHelperTextBridgeCapabilityProbe {
                 availability: .versionUnsupported,
                 permissionState: NaruHelperPermissionState(
                     accessibility: "unsupported",
+                    accessibilityValueInsert: "unsupported",
+                    unicodeKeyboardEvent: "unsupported",
                     inputMonitoring: "notRequired",
                     pasteboardFallback: "unsupported",
                     activeUserSession: "unsupported"
@@ -20,6 +23,7 @@ public enum NaruHelperTextBridgeCapabilityProbe {
             )
         }
 
+        let canInsertNatively = canInsertWithAccessibility || canInsertWithUnicodeEvents
         var supportedStrategies: [HelperTextInsertStrategy] = []
         if canInsertNatively {
             supportedStrategies.append(.nativeInsert)
@@ -31,7 +35,9 @@ public enum NaruHelperTextBridgeCapabilityProbe {
         return NaruHelperCapabilityResponse(
             availability: supportedStrategies.isEmpty ? .permissionMissing : .reachable,
             permissionState: NaruHelperPermissionState(
-                accessibility: canInsertNatively ? "granted" : "missing",
+                accessibility: canInsertWithAccessibility ? "granted" : "missing",
+                accessibilityValueInsert: canInsertWithAccessibility ? "granted" : "missing",
+                unicodeKeyboardEvent: canInsertWithUnicodeEvents ? "granted" : "missing",
                 inputMonitoring: "notRequired",
                 pasteboardFallback: canFallbackToPasteboard ? "available" : "missing",
                 activeUserSession: "available"

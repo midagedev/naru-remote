@@ -46,6 +46,8 @@ Output:
     "availability": "reachable",
     "permissionState": {
       "accessibility": "granted",
+      "accessibilityValueInsert": "granted",
+      "unicodeKeyboardEvent": "granted",
       "inputMonitoring": "notRequired",
       "pasteboardFallback": "available",
       "activeUserSession": "available"
@@ -58,6 +60,11 @@ Output:
 
 Privacy:
 - Capability responses must not include host name, username, focused app title, window title, endpoint, token, or raw OS errors.
+- `accessibility` remains the legacy AX-focused field and currently mirrors
+  `accessibilityValueInsert`. It can stay `"missing"` for a helper that only
+  supports bounded Unicode keyboard events; clients that understand granular
+  fields should use `accessibilityValueInsert`, `unicodeKeyboardEvent`, and
+  `pasteboardFallback` to explain exactly which insertion route is available.
 
 ## Insert Text Request
 
