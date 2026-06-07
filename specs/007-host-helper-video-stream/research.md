@@ -2432,11 +2432,12 @@ helper-video stream, but reports `sustainedUpdateBand=usable` and
 ## D60 - Keep permission-blocked helper-video reports single-cause
 
 **Decision**: If a helper-video benchmark report has an explicit
-`helper-video-permission-missing` issue code, do not derive additional
-stream-health issue codes from placeholder failed/stalled health bands.
-Permission-missing means ScreenCaptureKit capture did not start, so the report
-should remain a setup blocker instead of implying that a real helper stream
-started and then became unhealthy.
+`helper-video-permission-missing` issue code, normalize the issue list to that
+single setup blocker. Do not derive or preserve additional stream-health or
+transport issue codes from placeholder failed/stalled health bands or mixed
+caller input. Permission-missing means ScreenCaptureKit capture did not start,
+so the report should remain a setup blocker instead of implying that a real
+helper stream started and then became unhealthy.
 
 **Rationale**:
 - The current live readiness path is intentionally stopped by macOS Screen
@@ -2447,6 +2448,9 @@ started and then became unhealthy.
   fixed setup action. A single-cause permission report is more useful for the
   human step: grant Screen Recording to the stable helper app bundle, relaunch,
   and rerun the gate.
+- This normalization is intentionally inside `BenchmarkHelperVideoReport`, not
+  only at individual call sites, so future benchmark probes cannot accidentally
+  mix setup blockers with real stream-health failures.
 - Once permission is granted, true stream health bands and fallback labels are
   still derived normally from actual helper-video results.
 

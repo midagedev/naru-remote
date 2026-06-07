@@ -1310,3 +1310,9 @@ the focused active-session input freeze under a deterministic
 now publish through a viewport-local `TrackpadCursorStore`, not the whole app
 model, so SwiftUI cursor overlay updates cannot invalidate the compact Compose
 `UITextView` while the keyboard is composing Korean/CJK input.
+The nonblocking RFB input enqueue artifact is
+`2026-06-08-nonblocking-rfb-input-enqueue-summary.md`; it reproduces the
+post-connect gesture freeze where a stalled pointer write cleared the active
+pointer client and coordinate space, then fixes the boundary so pointer/key
+events return after transport enqueue and pointer-lane timeouts no longer
+permanently disable later gestures in the same session.

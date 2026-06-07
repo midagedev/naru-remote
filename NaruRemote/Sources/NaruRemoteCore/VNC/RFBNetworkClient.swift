@@ -636,6 +636,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     /// remote framebuffer pixel space — view→framebuffer mapping is the
     /// caller's responsibility.
     ///
+    /// User input is latency-sensitive: enqueue the bytes onto the TCP
+    /// transport and return without waiting for Network.framework
+    /// `contentProcessed`. A later send failure still tears down the stream
+    /// through the normal connection-failure path, but transient socket
+    /// back-pressure must not block the UI or disable the input lane.
+    ///
     /// Per constitution §IV the coordinates are not logged at this
     /// boundary; if the connection has been torn down the call surfaces
     /// `RFBNetworkClientError.notConnected` with no extra detail.
@@ -644,11 +650,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             throw RFBNetworkClientError.notConnected
         }
         let message = RFBClientMessageEncoder.encodePointerEvent(buttonMask: buttonMask, x: x, y: y)
-        try await writeActiveConnectionOffCallerExecutor(
-            message,
-            to: connection,
-            timeout: 2
-        )
+        connection.writeUserInputEvent(message) { [weak self, weak connection] in
+            guard let connection else {
+                return
+            }
+            self?.failConnection(connection)
+        }
     }
 
     /// Sends a lossy/latest-value `PointerEvent` without blocking the caller on
@@ -676,6 +683,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     /// (`KeysymMapping` in the `RemoteInputDock` module owns that
     /// table).
     ///
+    /// User input is latency-sensitive: enqueue the bytes onto the TCP
+    /// transport and return without waiting for Network.framework
+    /// `contentProcessed`. A later send failure still tears down the stream
+    /// through the normal connection-failure path, but transient socket
+    /// back-pressure must not block the UI or disable the input lane.
+    ///
     /// Per constitution §IV the keysym and isDown values are not
     /// logged at this boundary; if the connection has been torn
     /// down the call surfaces `RFBNetworkClientError.notConnected`
@@ -685,11 +698,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             throw RFBNetworkClientError.notConnected
         }
         let message = RFBClientMessageEncoder.keyEvent(keysym: keysym, isDown: isDown)
-        try await writeActiveConnectionOffCallerExecutor(
-            message,
-            to: connection,
-            timeout: 2
-        )
+        connection.writeUserInputEvent(message) { [weak self, weak connection] in
+            guard let connection else {
+                return
+            }
+            self?.failConnection(connection)
+        }
     }
 
     /// Re-sends `SetEncodings` on the active session so a caller can
@@ -1421,9 +1435,23 @@ private final class RFBNetworkConnection: Sendable {
             return
         }
 
+        writeUserInputEvent(data) { [self] in
+            cancel()
+        }
+    }
+
+    func writeUserInputEvent(
+        _ data: Data,
+        onFailure: @escaping @Sendable () -> Void = {}
+    ) {
+        guard !data.isEmpty else {
+            return
+        }
+
         connection.send(content: data, completion: .contentProcessed { [self] error in
             if error != nil {
                 cancel()
+                onFailure()
             }
         })
     }

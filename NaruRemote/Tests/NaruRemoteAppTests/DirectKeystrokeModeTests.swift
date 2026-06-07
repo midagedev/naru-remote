@@ -547,6 +547,59 @@ final class DirectKeystrokeModeTests: XCTestCase {
         )
     }
 
+    func testTimedOutPointerInputDoesNotPermanentlyDisableLaterPointerInput() async throws {
+        // Reproduction for the live-device "gesture freezes after the first
+        // stalled input" failure: a single slow PointerEvent write must not
+        // remove the active pointer client or coordinate space for the whole
+        // session. The next tap should retry on a fresh pointer lane.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            pointerEventDelays: [.seconds(10), nil, nil]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(60)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 10, y: 10),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+        try await Task.sleep(for: .milliseconds(140))
+        XCTAssertTrue(
+            connector.recordedPointerEvents.isEmpty,
+            "The first delayed pointer write should time out before recording"
+        )
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 20, y: 20),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+
+        try await waitForPointerEvents(connector, count: 2, timeout: 1)
+        let pointerEvents = connector.recordedPointerEvents
+        XCTAssertEqual(pointerEvents.count, 2)
+        XCTAssertEqual(pointerEvents[0].mask, 0x01)
+        XCTAssertEqual(pointerEvents[0].x, 20)
+        XCTAssertEqual(pointerEvents[0].y, 20)
+        XCTAssertEqual(pointerEvents[1].mask, 0x00)
+        XCTAssertEqual(pointerEvents[1].x, 20)
+        XCTAssertEqual(pointerEvents[1].y, 20)
+    }
+
     // MARK: - Sticky modifier integration (Phase 4 / US-2)
 
     func testFreshModelHasAllStickyModifiersIdle() {

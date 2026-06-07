@@ -504,11 +504,13 @@ without unsafe report fields.
 - [x] T031AC [US2] Treat Screen Recording permission-missing helper-video
   reports as setup blockers, not invented stream-health failures. When an
   explicit `helper-video-permission-missing` issue is present, benchmark
-  reports now suppress derived `stream-unhealthy`, `startup-failed`,
-  `sustained-stalled`, and `fallback-observed` labels so live readiness routes
-  to the single actionable permission step before true capture starts. Covered
-  by helper-video report tests, readiness summary self-test, helper live-gate
-  self-test, and current launchctl-backed readiness runs. **Done.**
+  reports now normalize the issue list to that single setup blocker, suppressing
+  both derived and mixed explicit `stream-unhealthy`, `startup-failed`,
+  `sustained-stalled`, `transport-failed`, and `fallback-observed` labels so
+  live readiness routes to the single actionable permission step before true
+  capture starts. Covered by helper-video report tests, readiness summary
+  self-test, helper live-gate self-test, and current launchctl-backed readiness
+  runs. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
