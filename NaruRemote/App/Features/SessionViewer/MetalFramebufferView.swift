@@ -500,6 +500,8 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// immediate trackpad cursor, not SwiftUI's published-state cadence.
     private var currentServerCursor: RFBServerCursor?
     private var currentServerCursorImage: UIImage?
+    private var currentServerCursorImageTask: Task<Void, Never>?
+    private var currentServerCursorImageGeneration = 0
 
     /// Live framebuffer dimensions used to build the same pure
     /// `ViewportTransform` the SwiftUI overlay used before the Metal
@@ -775,10 +777,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         ) {
             currentTrackpadCursor = trackpadCursor
         }
-        if currentServerCursor != serverCursor {
-            currentServerCursor = serverCursor
-            currentServerCursorImage = serverCursor.flatMap(Self.cursorImage(_:))
-        }
+        updateServerCursorIfNeeded(serverCursor)
         self.currentFramebufferSize = CGSize(
             width: max(framebufferSize.width, 0),
             height: max(framebufferSize.height, 0)
@@ -801,10 +800,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         _ serverCursor: RFBServerCursor?,
         framebufferSize: CGSize
     ) {
-        if currentServerCursor != serverCursor {
-            currentServerCursor = serverCursor
-            currentServerCursorImage = serverCursor.flatMap(Self.cursorImage(_:))
-        }
+        updateServerCursorIfNeeded(serverCursor)
         self.currentFramebufferSize = CGSize(
             width: max(framebufferSize.width, 0),
             height: max(framebufferSize.height, 0)
@@ -812,7 +808,45 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         updateHotCursorOverlay()
     }
 
+    private func updateServerCursorIfNeeded(_ serverCursor: RFBServerCursor?) {
+        guard currentServerCursor != serverCursor else {
+            return
+        }
+
+        currentServerCursorImageGeneration += 1
+        let generation = currentServerCursorImageGeneration
+        currentServerCursorImageTask?.cancel()
+        currentServerCursorImageTask = nil
+        currentServerCursor = serverCursor
+        currentServerCursorImage = nil
+
+        guard let serverCursor else {
+            return
+        }
+
+        currentServerCursorImageTask = Task { @MainActor [weak self, serverCursor, generation] in
+            let raster = await Task.detached(priority: .utility) {
+                ServerCursorImageRasterizer.rasterize(serverCursor)
+            }.value
+
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentServerCursorImageGeneration == generation,
+                  self.currentServerCursor == serverCursor
+            else {
+                return
+            }
+
+            self.currentServerCursorImage = raster.flatMap(Self.cursorImage(from:))
+            self.currentServerCursorImageTask = nil
+            self.updateHotCursorOverlay()
+        }
+    }
+
     public func clearFrameState() {
+        currentServerCursorImageGeneration += 1
+        currentServerCursorImageTask?.cancel()
+        currentServerCursorImageTask = nil
         currentFramebufferSize = .zero
         currentServerCursor = nil
         currentServerCursorImage = nil
@@ -850,6 +884,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             panOffset: panOffset,
             maxZoomScale: Self.maxZoomScale
         )
+    }
+
+    deinit {
+        currentServerCursorImageTask?.cancel()
     }
 
     @available(*, unavailable)
@@ -1692,36 +1730,34 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         bringSubviewToFront(hotCursorView)
     }
 
-    private static func cursorImage(_ cursor: RFBServerCursor) -> UIImage? {
-        guard cursor.width > 0, cursor.height > 0 else {
+    private static func cursorImage(from raster: ServerCursorImageRaster) -> UIImage? {
+        guard raster.width > 0,
+              raster.height > 0,
+              raster.rgbaBytes.count == raster.width * raster.height * 4,
+              let provider = CGDataProvider(data: Data(raster.rgbaBytes) as CFData)
+        else {
             return nil
         }
 
-        let size = CGSize(width: CGFloat(cursor.width), height: CGFloat(cursor.height))
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { context in
-            for y in 0..<cursor.height {
-                for x in 0..<cursor.width {
-                    guard let color = cursor[x, y], color.alpha > 0 else {
-                        continue
-                    }
-                    context.cgContext.setFillColor(
-                        UIColor(
-                            red: CGFloat(color.red) / 255.0,
-                            green: CGFloat(color.green) / 255.0,
-                            blue: CGFloat(color.blue) / 255.0,
-                            alpha: CGFloat(color.alpha) / 255.0
-                        ).cgColor
-                    )
-                    context.cgContext.fill(
-                        CGRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1)
-                    )
-                }
-            }
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue)
+        )
+        guard let image = CGImage(
+            width: raster.width,
+            height: raster.height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: raster.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ) else {
+            return nil
         }
+        return UIImage(cgImage: image, scale: 1, orientation: .up)
     }
 
     private func viewportAnchor(for gesture: PointerGesture) -> CGPoint {

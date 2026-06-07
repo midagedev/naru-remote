@@ -5,6 +5,13 @@ import NaruRemoteCore
 
 @MainActor
 final class SessionFrameStoreTests: XCTestCase {
+    func testSteadyFrameDeliveryCoalescingUsesDisplayCadence() {
+        XCTAssertEqual(
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay,
+            .milliseconds(16)
+        )
+    }
+
     func testSameSizeFramesEmitEventsWithoutSwiftUIPresentationRefresh() {
         let store = SessionFrameStore()
         var presentationPublishCount = 0
@@ -113,6 +120,48 @@ final class SessionFrameStoreTests: XCTestCase {
         XCTAssertEqual(frameEvents.map(\.framebuffer), [second])
         XCTAssertEqual(frameEvents.first?.dirtyRectangles, [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)])
         XCTAssertEqual(frameEvents.first?.changedPixelCount, 1)
+
+        withExtendedLifetime(frameCancellable) {}
+    }
+
+    func testImmediateClearCancelsPendingSteadyFrameDelay() async {
+        let store = SessionFrameStore()
+        var frameEvents: [SessionFrameState] = []
+        let frameCancellable = store.framePublisher.sink { state in
+            frameEvents.append(state)
+        }
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 10, green: 0, blue: 0)
+            ),
+            dirtyRectangles: nil,
+            changedPixelCount: nil,
+            serverCursor: nil
+        )
+        store.flushPendingFrameDeliveryForTesting()
+        XCTAssertEqual(frameEvents.count, 1)
+
+        store.publish(
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 2,
+                fill: RFBColor(red: 20, green: 0, blue: 0)
+            ),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1,
+            serverCursor: nil
+        )
+        store.clear()
+
+        for _ in 0..<10 where frameEvents.last?.hasFramebuffer == true {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(frameEvents.count, 2)
+        XCTAssertFalse(frameEvents.last?.hasFramebuffer ?? true)
 
         withExtendedLifetime(frameCancellable) {}
     }

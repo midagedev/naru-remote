@@ -27,6 +27,8 @@ public struct SessionFrameState: Equatable, Sendable {
 
 @MainActor
 public final class SessionFrameStore: ObservableObject {
+    static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
+
     public private(set) var state: SessionFrameState
 
     /// Bumps only when SwiftUI needs to rebuild the viewport shell: first
@@ -81,23 +83,45 @@ public final class SessionFrameStore: ObservableObject {
             changedPixelCount: changedPixelCount,
             serverCursor: serverCursor ?? state.serverCursor
         )
+        let requiresPresentationRefresh = Self.requiresPresentationRefresh(
+            previous: previous,
+            next: next
+        )
         state = next
-        scheduleFrameDelivery(next)
-        publishPresentationChangeIfNeeded(previous: previous, next: next)
+        scheduleFrameDelivery(
+            next,
+            coalescingDelay: requiresPresentationRefresh
+                ? nil
+                : Self.steadyFrameDeliveryCoalescingDelay
+        )
+        publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
 
     public func publishServerCursor(_ serverCursor: RFBServerCursor) {
         let previous = state
         state.serverCursor = serverCursor
-        scheduleFrameDelivery(state)
-        publishPresentationChangeIfNeeded(previous: previous, next: state)
+        let requiresPresentationRefresh = Self.requiresPresentationRefresh(
+            previous: previous,
+            next: state
+        )
+        scheduleFrameDelivery(
+            state,
+            coalescingDelay: requiresPresentationRefresh
+                ? nil
+                : Self.steadyFrameDeliveryCoalescingDelay
+        )
+        publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
 
     public func clear() {
         let previous = state
         state = SessionFrameState()
-        scheduleFrameDelivery(state)
-        publishPresentationChangeIfNeeded(previous: previous, next: state)
+        let requiresPresentationRefresh = Self.requiresPresentationRefresh(
+            previous: previous,
+            next: state
+        )
+        scheduleFrameDelivery(state, coalescingDelay: nil)
+        publishPresentationChangeIfNeeded(requiresPresentationRefresh)
     }
 
     func flushPendingFrameDeliveryForTesting() {
@@ -106,14 +130,33 @@ public final class SessionFrameStore: ObservableObject {
         flushPendingFrameDelivery()
     }
 
-    private func scheduleFrameDelivery(_ next: SessionFrameState) {
+    private func scheduleFrameDelivery(
+        _ next: SessionFrameState,
+        coalescingDelay: Duration?
+    ) {
         pendingFrameDelivery = next
+        if coalescingDelay == nil {
+            frameDeliveryTask?.cancel()
+            frameDeliveryTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.flushPendingFrameDelivery()
+            }
+            return
+        }
+
         guard frameDeliveryTask == nil else {
             return
         }
 
-        frameDeliveryTask = Task { @MainActor [weak self] in
-            await Task.yield()
+        guard let delay = coalescingDelay else {
+            return
+        }
+        frameDeliveryTask = Task { @MainActor [weak self, delay] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
             self?.flushPendingFrameDelivery()
         }
     }
@@ -127,11 +170,8 @@ public final class SessionFrameStore: ObservableObject {
         frameSubject.send(next)
     }
 
-    private func publishPresentationChangeIfNeeded(
-        previous: SessionFrameState,
-        next: SessionFrameState
-    ) {
-        guard Self.requiresPresentationRefresh(previous: previous, next: next) else {
+    private func publishPresentationChangeIfNeeded(_ requiresPresentationRefresh: Bool) {
+        guard requiresPresentationRefresh else {
             return
         }
         presentationRevision += 1
