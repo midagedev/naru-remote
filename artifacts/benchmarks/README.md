@@ -1132,3 +1132,9 @@ connection could freeze gestures and keyboard input. The patch moves the VNC
 frame loop off MainActor, stops foreground frames from feeding PiP
 sample-buffer conversion, detaches preview-thumbnail sampling, and makes the
 helper-video runner non-MainActor with an explicit main-actor renderer box.
+The frame-application backlog artifact is
+`2026-06-07-frame-application-backlog-coalescing-summary.md`; it bounds the
+post-receive MainActor apply queue so a busy iPhone UI keeps the initial
+diagnostic frame, latest framebuffer, and latest server cursor instead of
+replaying stale visual states after gestures or keyboard input have already
+fallen behind.
