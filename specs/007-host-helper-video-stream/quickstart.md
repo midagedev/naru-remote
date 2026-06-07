@@ -92,6 +92,7 @@ scripts/run-naru-live-benchmark.sh preflight
 scripts/run-naru-live-benchmark.sh helper-synthetic-probe
 scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
+scripts/run-naru-live-benchmark.sh helper-dev-app-setup
 scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark
 scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh physical-device-preflight
@@ -127,6 +128,14 @@ helper-video bootstrap, and the H.264 sample-buffer factory. It emits fixed
 JSON only and hides raw XCTest output. A `skipped` result means the benchmark
 host still needs Screen Recording permission or capture setup before T031 can
 claim true live helper-video app decode evidence.
+`helper-dev-app-setup` builds and installs the local `NaruHelperDev` app
+wrapper, sets the launchctl helper executable for future GUI-launched shells,
+runs the explicit Screen Recording permission request, optionally opens macOS
+Screen Recording settings, and emits only fixed JSON labels. Use
+`NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip` for non-interactive shape
+verification. A successful install with `screenRecordingPermission=missing`
+means macOS still needs the user to grant Screen Recording to the helper app
+bundle before true ScreenCaptureKit helper-video can pass.
 `screen-recording-setup` checks helper capability, runs the explicit helper
 permission request, opens macOS Screen Recording settings, and checks helper
 capability again. It emits only fixed setup/status labels. In automation, set

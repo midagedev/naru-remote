@@ -1415,3 +1415,48 @@ aggregate pass/fail verdicts only. They must not include helper executable
 paths, launchctl values, host identity, endpoints, credentials, physical device
 identifiers, framebuffer dimensions, pixels, byte counts, exact timings,
 stderr/stdout, Compose text, marked text, or IME state.
+
+## D41 - Make helper app setup a privacy-safe benchmark mode
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh helper-dev-app-setup` as
+the setup bridge before true ScreenCaptureKit helper-video gates. The mode
+builds and installs the local development helper app wrapper, sets the
+launchctl helper executable, runs the explicit Screen Recording permission
+request, optionally opens System Settings, and emits one privacy-safe JSON
+object with fixed install/signing/env labels and helper capability responses.
+
+**Rationale**:
+- True helper-video capture is blocked by Screen Recording permission, and the
+  permission identity must be the stable helper app bundle, not an arbitrary
+  SwiftPM executable path.
+- The existing install script is useful for humans but prints helper paths.
+  A benchmark-mode wrapper lets us collect setup evidence without leaking
+  helper paths, team identifiers, raw install logs, endpoints, credentials,
+  pixels, byte counts, or exact timings.
+- The mode does not claim permission is granted. When macOS returns
+  `notGranted`, it records `helper-video-permission-missing` and setup action
+  `grant-helper-video-app-screen-recording-permission`, keeping the remaining
+  action crisp.
+- This reduces false diagnosis in `remote-desktop-10fps-readiness`: synthetic
+  helper-video can stay green, VNC can remain first-byte-wait dominated, and
+  true ScreenCaptureKit failure can be routed to the correct app-bundle
+  permission gate.
+
+**Evidence**:
+- `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
+  scripts/run-naru-live-benchmark.sh helper-dev-app-setup` emits schema `1`
+  JSON with `installStatus=passed`, `codeSigningStatus=appleDevelopment`,
+  `launchctlEnvStatus=set`, `helperProcessKind=appBundle`,
+  `screenRecordingPermission=missing`, and setup action
+  `grant-helper-video-app-screen-recording-permission`.
+- `scripts/run-naru-live-benchmark.sh helper-readiness-sweep` after setup
+  reports `processKind=appBundle`, `synthetic=pass`, `sustained=pass`, and
+  `screenVerdict=fail` while Screen Recording remains missing.
+
+**Privacy rule**: helper app setup reports may include fixed install status,
+fixed code signing class, launchctl env status, helper process kind,
+capability catalog labels, fixed issue codes, and fixed setup action labels
+only. They must not include helper executable paths, app paths, team
+identifiers, signing identity names, raw install logs, host identity,
+endpoints, credentials, physical device identifiers, pixels, byte counts,
+exact timings, stderr/stdout, Compose text, marked text, or IME state.

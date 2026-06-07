@@ -14,6 +14,7 @@ Modes:
   helper-sustained-synthetic-probe Helper-video sustained external synthetic H.264 run.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
+  helper-dev-app-setup     Install dev helper app, set launchctl, request Screen Recording.
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
@@ -45,6 +46,7 @@ Launchctl variables used when present:
   NARU_PHYSICAL_IOS_DEVICE_ID
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
+  NARU_HELPER_DEV_APP_ROOT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
 
 The script never prints environment values. It passes through the benchmark's
@@ -2373,6 +2375,146 @@ open_screen_recording_settings_status() {
   fi
 }
 
+helper_dev_app_executable_path() {
+  local install_root="${NARU_HELPER_DEV_APP_ROOT:-$HOME/Applications/NaruRemoteDev}"
+  printf '%s/NaruHelperDev.app/Contents/MacOS/NaruHelper' "$install_root"
+}
+
+helper_dev_app_codesign_status() {
+  local helper_executable="$1"
+  local app_path
+  app_path="$(cd -- "$(dirname -- "$helper_executable")/../.." && pwd 2>/dev/null || true)"
+  if [[ -z "$app_path" || ! -e "$app_path/Contents/Info.plist" ]]; then
+    printf 'missing'
+    return
+  fi
+
+  local codesign_output
+  if ! codesign_output="$(codesign -dv --verbose=2 "$app_path" 2>&1)"; then
+    printf 'invalid'
+    return
+  fi
+  if grep -q '^Authority=Apple Development:' <<<"$codesign_output"; then
+    printf 'appleDevelopment'
+    return
+  fi
+  if grep -q '^Signature=adhoc' <<<"$codesign_output"; then
+    printf 'adHoc'
+    return
+  fi
+  printf 'other'
+}
+
+json_value_or_unknown() {
+  local json="$1"
+  local filter="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r "$filter // \"unknown\"" <<<"$json" 2>/dev/null || printf 'unknown'
+  else
+    printf 'unknown'
+  fi
+}
+
+print_helper_dev_app_setup_report() {
+  local install_output_file
+  install_output_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-dev-app-install.XXXXXX")"
+  local helper_executable
+  helper_executable="$(helper_dev_app_executable_path)"
+  local install_status="failed"
+  local issue_codes=()
+  local setup_actions=()
+
+  if scripts/install-naru-helper-dev-app.sh --set-launchctl-env \
+    >"$install_output_file" 2>&1; then
+    install_status="passed"
+    export NARU_HELPER_EXECUTABLE="$helper_executable"
+  else
+    append_unique issue_codes "helper-dev-app-install-failed"
+    append_unique setup_actions "inspect-helper-dev-app-install"
+  fi
+  rm -f "$install_output_file"
+
+  local codesign_status="unknown"
+  local launchctl_env_status="notSet"
+  local helper_process_kind="unknown"
+  local capability_after_install='{"status":"failed","step":"helperCapabilityAfterInstall","safeFailureCode":"benchmarkStep.helperCapabilityAfterInstall.failed"}'
+  local permission_request='{"status":"failed","step":"helperPermissionRequest","safeFailureCode":"benchmarkStep.helperPermissionRequest.failed"}'
+  local capability_after_request='{"status":"failed","step":"helperCapabilityAfterRequest","safeFailureCode":"benchmarkStep.helperCapabilityAfterRequest.failed"}'
+  local settings_open_status="skipped"
+
+  if [[ "$install_status" == "passed" ]]; then
+    codesign_status="$(helper_dev_app_codesign_status "$helper_executable")"
+    if [[ "$(launchctl getenv NARU_HELPER_EXECUTABLE 2>/dev/null || true)" == "$helper_executable" ]]; then
+      launchctl_env_status="set"
+    fi
+    capability_after_install="$(
+      json_step_or_fixed_failure \
+        helperCapabilityAfterInstall \
+        benchmarkStep.helperCapabilityAfterInstall.failed \
+        "$helper_executable" --video-capability
+    )"
+    helper_process_kind="$(
+      json_value_or_unknown \
+        "$capability_after_install" \
+        '.permissionIdentity.processKind'
+    )"
+    permission_request="$(
+      json_step_or_fixed_failure \
+        helperPermissionRequest \
+        benchmarkStep.helperPermissionRequest.failed \
+        "$helper_executable" --video-request-screen-recording-permission
+    )"
+    settings_open_status="$(open_screen_recording_settings_status)"
+    capability_after_request="$(
+      json_step_or_fixed_failure \
+        helperCapabilityAfterRequest \
+        benchmarkStep.helperCapabilityAfterRequest.failed \
+        "$helper_executable" --video-capability
+    )"
+
+    local permission_status
+    permission_status="$(json_value_or_unknown "$capability_after_request" '.screenRecordingPermission')"
+    if [[ "$permission_status" != "granted" ]]; then
+      append_unique issue_codes "helper-video-permission-missing"
+      append_unique setup_actions "grant-helper-video-app-screen-recording-permission"
+      append_unique setup_actions "rerun-helper-readiness-sweep"
+    fi
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-dev-app-setup",\n'
+  printf '  "installStatus": '
+  json_string "$install_status"
+  printf ',\n'
+  printf '  "codeSigningStatus": '
+  json_string "$codesign_status"
+  printf ',\n'
+  printf '  "launchctlEnvStatus": '
+  json_string "$launchctl_env_status"
+  printf ',\n'
+  printf '  "helperProcessKind": '
+  json_string "$helper_process_kind"
+  printf ',\n'
+  printf '  "capabilityAfterInstall": %s,\n' "$capability_after_install"
+  printf '  "permissionRequest": %s,\n' "$permission_request"
+  printf '  "settingsOpenStatus": '
+  json_string "$settings_open_status"
+  printf ',\n'
+  printf '  "capabilityAfterRequest": %s,\n' "$capability_after_request"
+  printf '  "issueCodes": '
+  json_string_array "${issue_codes[@]}"
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  json_string_array "${setup_actions[@]}"
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "helper executable paths, team identifiers, signing identities, raw install logs, endpoints, credentials, pixels, byte counts, and exact timings are not emitted",\n'
+  printf '    "only fixed install/signing/env status labels, helper capability JSON, fixed issue codes, and setup actions are emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
 print_helper_readiness_sweep_report() {
   printf '{\n'
   printf '  "schemaVersion": 1,\n'
@@ -2761,6 +2903,11 @@ case "$mode" in
     import_optional_live_env
     cd "$repo_root"
     print_helper_readiness_sweep_report
+    ;;
+  helper-dev-app-setup)
+    reject_extra_args
+    cd "$repo_root"
+    print_helper_dev_app_setup_report
     ;;
   helper-screen-app-bootstrap-benchmark)
     reject_extra_args
