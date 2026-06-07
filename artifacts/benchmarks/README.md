@@ -1196,3 +1196,16 @@ The input-dock render isolation artifact is
 render-state gate above the Compose/Direct dock so stream telemetry and
 framebuffer churn do not re-enter the UIKit `UITextView` bridge while local IME
 input owns the editor.
+The remote desktop readiness gate artifact is
+`2026-06-07-remote-desktop-readiness-gate-summary.md`; it upgrades
+`remote-desktop-10fps-readiness` to schema v2 with a product-oriented
+`readinessGateSummary`. The current live run reports
+`blockedByPhysicalIPhone`, with `physical-iphone-gate-blocked`,
+`helper-video-screen-capture-gate-blocked`, and
+`vnc-10fps-product-gate-failed`. The VNC wrapper command succeeded, but the
+inner product verdict failed at 1.99 content FPS, 502 ms average update,
+621 ms p95 update, and 618 ms first-byte wait p95, while payload-read and
+client-processing p95 remained near zero. Treat this as reproduced evidence
+that VNC is still the control/input/fallback path and true helper-video capture
+is the primary smoothness path after physical iPhone and Screen Recording
+setup are unblocked.

@@ -6104,6 +6104,42 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D140 Treat Readiness Wrapper Success Separately From VNC Product Verdict
+
+References:
+- `artifacts/benchmarks/2026-06-07-remote-desktop-readiness-gate-summary.md`
+- `specs/007-host-helper-video-stream/research.md` D39.
+
+**Decision**: expose a derived `readinessGateSummary` from
+`remote-desktop-10fps-readiness` instead of relying on the outer
+`vnc10fpsProbe.status`. The outer status means the live command produced a
+report; the inner `streamShapeProbe.summary.practicalAssessment.verdict`
+remains the product 10fps verdict.
+
+**Why**:
+- The latest live run reproduces the confusing state directly:
+  `vnc10fpsProbe.status=passed` but the product verdict is `fail`.
+- The failed VNC run is first-byte-wait dominated with low payload-read and
+  client-processing p95 values, so another VNC profile flip is not the best
+  next step.
+- A single summary keeps the RFB fallback path honest while routing smoothness
+  work to helper-video ScreenCaptureKit permission and physical iPhone gates.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test | jq empty`
+  passes.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness > /tmp/naru-readiness-v2.json`
+  emits schema `2` JSON that validates with `jq empty`.
+- Current summary: VNC product verdict `fail`, `1.99` content FPS,
+  `502` ms average update, `621` ms p95 update, `618` ms first-byte wait p95,
+  `0` ms payload-read p95, `2` ms client-processing p95, and
+  `first-byte-wait-dominated` server cadence.
+
+**Privacy rule**: summary fields remain aggregate and fixed-label only; no
+host identity, credentials, helper path, physical device ID, endpoint,
+dimensions, coordinates, pixels, byte counts, raw logs, exact helper timings,
+draft text, marked text, or IME state may be emitted.
+
 ### D134 Isolate The Input Dock From Stream Telemetry Re-renders
 
 References:

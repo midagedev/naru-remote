@@ -303,6 +303,13 @@ without unsafe report fields.
   emitting only fixed JSON labels. Current local run reports `skipped` because
   the benchmark host still needs Screen Recording/capture setup, so this is a
   readiness gate for T031 rather than T031 completion. **Done.**
+- [x] T031B [US2] Upgrade `remote-desktop-10fps-readiness` to schema `2` with
+  physical iPhone preflight and a product-oriented `readinessGateSummary` that
+  separates wrapper execution success from the inner 10fps product verdict.
+  Current local run reports `blockedByPhysicalIPhone`,
+  `helper-video-screen-capture-gate-blocked`, and
+  `vnc-10fps-product-gate-failed`, with VNC still failing at about 2 content
+  FPS from first-byte wait dominance. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
