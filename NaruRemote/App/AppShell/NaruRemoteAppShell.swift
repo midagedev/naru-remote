@@ -302,9 +302,6 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         guard lhs.directKeystrokeMode == rhs.directKeystrokeMode,
-              lhs.stickyModifierState == rhs.stickyModifierState,
-              lhs.layoutStyle == rhs.layoutStyle,
-              lhs.showsComposeQuickKeys == rhs.showsComposeQuickKeys,
               lhs.isComposeFieldFocused == rhs.isComposeFieldFocused
         else {
             return false
@@ -315,9 +312,18 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             && !lhs.directKeystrokeMode.isActive
             && !rhs.directKeystrokeMode.isActive
         if freezeModelMirroredComposeFields {
-            // While UIKit owns IME focus, model mirrors are advisory and must not recreate the editor.
+            // While UIKit owns IME focus, model mirrors and live-session
+            // accessory/layout transitions are advisory. Keep the UITextView
+            // identity stable; only user-visible send status may repaint.
             return lhs.statusText == rhs.statusText
                 && lhs.showsCompactStatusText == rhs.showsCompactStatusText
+        }
+
+        guard lhs.stickyModifierState == rhs.stickyModifierState,
+              lhs.layoutStyle == rhs.layoutStyle,
+              lhs.showsComposeQuickKeys == rhs.showsComposeQuickKeys
+        else {
+            return false
         }
 
         return lhs.initialText == rhs.initialText
