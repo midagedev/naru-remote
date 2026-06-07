@@ -82,3 +82,49 @@
 - Newline-delimited JSON: rejected because Compose text can contain newlines and framing mistakes would be costly.
 - Expose helper without a pairing secret on a private network: rejected because private network reachability is not the same as user approval.
 - Full persistent bidirectional helper protocol now: deferred because the next practical need is Compose insert reliability, and the security review should stay small.
+
+## D6 - Reject unconfirmed UTF-8 VNC clipboard and make native insert primary
+
+**Decision**: For Korean/CJK/emoji Compose payloads, reject the legacy VNC
+clipboard path unless the server has explicitly confirmed Extended Clipboard
+UTF-8 support. The primary no-false-success path is the Mac helper
+`nativeInsert` strategy. Its implementation should prefer focused-element
+Accessibility insertion, then bounded Unicode keyboard events where the target
+app honors them, and only then helper-local pasteboard paste with restore.
+
+**Rationale**:
+- The founder's Apple Screen Sharing path showed the worst UX failure mode:
+  Naru reported a dispatched paste while the remote app received no text.
+- Base VNC `ClientCutText` cannot confirm remote app insertion, and an
+  unconfirmed UTF-8 payload can fail silently or corrupt multilingual text.
+- Apple documents `AXUIElementSetAttributeValue` for setting supported
+  accessibility attributes such as editable values, while
+  `CGEventKeyboardSetUnicodeString` can attach Unicode text to key events but
+  may be ignored by application frameworks. `NSPasteboard` is shared system
+  state, so it remains a helper fallback that must restore or report restore
+  failure rather than the primary path.
+
+**Sources**:
+- Apple AXUIElementSetAttributeValue: https://developer.apple.com/documentation/applicationservices/1460434-axuielementsetattributevalue
+- Apple kAXValueAttribute: https://developer.apple.com/documentation/applicationservices/kaxvalueattribute
+- Apple CGEventKeyboardSetUnicodeString: https://developer.apple.com/documentation/coregraphics/cgevent/keyboardsetunicodestring%28stringlength%3Aunicodestring%3A%29
+- Apple NSPasteboard: https://developer.apple.com/documentation/AppKit/NSPasteboard
+- RealVNC copy/paste guidance: https://help.realvnc.com/hc/en-us/articles/360002253738-Copying-and-Pasting-Text
+
+**Verification**:
+- `TextInjectionAdapterTests/testAdapterRejectsUTF8ComposeWhenServerSupportIsUnknown`
+  proves unconfirmed UTF-8 no longer writes VNC clipboard or paste events.
+- `NaruRemoteAppModelTests/testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmedWithoutHelper`
+  proves the app keeps the draft and reports the helper/confirmed clipboard
+  requirement.
+- `NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed`
+  continues to prove reachable helper routing avoids VNC clipboard writes.
+
+**Alternatives considered**:
+- Keep best-effort legacy VNC clipboard for Korean/CJK/emoji: rejected because
+  it creates false success and loses the user's trust when no text appears.
+- Increase paste settle delay: rejected because silent remote pasteboard
+  adoption failure is not just a timing issue.
+- Use raw VNC key events for every character: rejected because Direct mode is
+  not a multilingual composition path and remote IME state is not reliably
+  controlled by the iPhone app.

@@ -439,6 +439,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case maxOutboundInputQueueDelayBucket
         case averageOutboundInputOperationTimingBucket
         case maxOutboundInputOperationTimingBucket
+        case mainActorResponsivenessSampleCount
+        case averageMainActorResponsivenessDelayBucket
+        case maxMainActorResponsivenessDelayBucket
         case startupPreflightRequestedHiddenFrameCount
         case startupPreflightConsumedHiddenFrameCount
         case startupPreflightOutcome
@@ -514,6 +517,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let maxOutboundInputQueueDelayBucket: String
     public let averageOutboundInputOperationTimingBucket: String
     public let maxOutboundInputOperationTimingBucket: String
+    public let mainActorResponsivenessSampleCount: Int
+    public let averageMainActorResponsivenessDelayBucket: String
+    public let maxMainActorResponsivenessDelayBucket: String
     public let startupPreflightRequestedHiddenFrameCount: Int
     public let startupPreflightConsumedHiddenFrameCount: Int
     public let startupPreflightOutcome: String
@@ -589,6 +595,9 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         maxOutboundInputQueueDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         averageOutboundInputOperationTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxOutboundInputOperationTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        mainActorResponsivenessSampleCount: Int = 0,
+        averageMainActorResponsivenessDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
+        maxMainActorResponsivenessDelayBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         startupPreflightRequestedHiddenFrameCount: Int = 0,
         startupPreflightConsumedHiddenFrameCount: Int = 0,
         startupPreflightOutcome: String? = nil,
@@ -773,6 +782,19 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             )
             self.maxOutboundInputOperationTimingBucket = Self.safeTimingBucket(
                 maxOutboundInputOperationTimingBucket
+            )
+        }
+        let mainActorResponsivenessSampleCount = max(mainActorResponsivenessSampleCount, 0)
+        self.mainActorResponsivenessSampleCount = mainActorResponsivenessSampleCount
+        if mainActorResponsivenessSampleCount == 0 {
+            self.averageMainActorResponsivenessDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+            self.maxMainActorResponsivenessDelayBucket = DiagnosticTimingBucket.notMeasured.rawValue
+        } else {
+            self.averageMainActorResponsivenessDelayBucket = Self.safeTimingBucket(
+                averageMainActorResponsivenessDelayBucket
+            )
+            self.maxMainActorResponsivenessDelayBucket = Self.safeTimingBucket(
+                maxMainActorResponsivenessDelayBucket
             )
         }
         let requestedHiddenFrameCount = min(
@@ -1037,6 +1059,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             maxOutboundInputOperationTimingBucket: try container.decodeIfPresent(
                 String.self,
                 forKey: .maxOutboundInputOperationTimingBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            mainActorResponsivenessSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .mainActorResponsivenessSampleCount
+            ) ?? 0,
+            averageMainActorResponsivenessDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .averageMainActorResponsivenessDelayBucket
+            ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
+            maxMainActorResponsivenessDelayBucket: try container.decodeIfPresent(
+                String.self,
+                forKey: .maxMainActorResponsivenessDelayBucket
             ) ?? DiagnosticTimingBucket.notMeasured.rawValue,
             startupPreflightRequestedHiddenFrameCount: try container.decodeIfPresent(
                 Int.self,

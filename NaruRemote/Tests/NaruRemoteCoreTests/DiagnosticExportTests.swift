@@ -1251,6 +1251,9 @@ final class DiagnosticExportTests: XCTestCase {
             maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket.lagging.rawValue,
             averageOutboundInputOperationTimingBucket: "timing=SECRET",
             maxOutboundInputOperationTimingBucket: DiagnosticTimingBucket.stalled.rawValue,
+            mainActorResponsivenessSampleCount: -25,
+            averageMainActorResponsivenessDelayBucket: "timing=SECRET",
+            maxMainActorResponsivenessDelayBucket: DiagnosticTimingBucket.stalled.rawValue,
             startupPreflightRequestedHiddenFrameCount: 9,
             startupPreflightConsumedHiddenFrameCount: 8,
             startupPreflightOutcome: "outcome=SECRET",
@@ -1333,6 +1336,33 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             performance.viewportRequestPauseHint,
             DiagnosticViewportRequestPauseHint.notMeasured.rawValue
+        )
+        XCTAssertEqual(performance.outboundInputEventSampleCount, 0)
+        XCTAssertEqual(performance.outboundInputEventTimeoutCount, 0)
+        XCTAssertEqual(
+            performance.averageOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputQueueDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.averageOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(performance.mainActorResponsivenessSampleCount, 0)
+        XCTAssertEqual(
+            performance.averageMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
         )
         XCTAssertEqual(performance.startupPreflightRequestedHiddenFrameCount, 1)
         XCTAssertEqual(performance.startupPreflightConsumedHiddenFrameCount, 1)
@@ -1499,6 +1529,9 @@ final class DiagnosticExportTests: XCTestCase {
             maxOutboundInputQueueDelayBucket: DiagnosticTimingBucket.lagging.rawValue,
             averageOutboundInputOperationTimingBucket: DiagnosticTimingBucket.interactive.rawValue,
             maxOutboundInputOperationTimingBucket: "timing=SECRET",
+            mainActorResponsivenessSampleCount: 3,
+            averageMainActorResponsivenessDelayBucket: "timing=SECRET",
+            maxMainActorResponsivenessDelayBucket: DiagnosticTimingBucket.stalled.rawValue,
             thermalState: "nominal"
         )
 
@@ -1532,6 +1565,15 @@ final class DiagnosticExportTests: XCTestCase {
         XCTAssertEqual(
             performance.maxOutboundInputOperationTimingBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(performance.mainActorResponsivenessSampleCount, 3)
+        XCTAssertEqual(
+            performance.averageMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.stalled.rawValue
         )
         XCTAssertEqual(performance.thermalPacingSampleCount, 2)
         XCTAssertEqual(performance.powerSaverPacingSampleCount, 1)
@@ -1631,6 +1673,15 @@ final class DiagnosticExportTests: XCTestCase {
         )
         XCTAssertEqual(
             performance.maxOutboundInputOperationTimingBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(performance.mainActorResponsivenessSampleCount, 0)
+        XCTAssertEqual(
+            performance.averageMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.notMeasured.rawValue
+        )
+        XCTAssertEqual(
+            performance.maxMainActorResponsivenessDelayBucket,
             DiagnosticTimingBucket.notMeasured.rawValue
         )
         XCTAssertEqual(performance.startupPreflightRequestedHiddenFrameCount, 0)

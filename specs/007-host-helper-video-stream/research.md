@@ -1186,3 +1186,39 @@ and pacing sleeps do not live on the UI executor.
   mutation should stay on the UI boundary; only sample preparation is moved.
 - Drop the H.264 format cache and prepare each frame independently: rejected
   because parameter-set handling is part of stream correctness.
+
+## D36 - Measure MainActor responsiveness during live streams
+
+**Decision**: Add a lightweight MainActor heartbeat for active VNC streams. The
+monitor sleeps at a fixed coarse cadence and records only aggregate
+responsiveness sample count plus average/max delay buckets in
+`DiagnosticStreamPerformanceReport`.
+
+**Rationale**:
+- Physical iPhone testing improved after frame, input, and helper-video work
+  moved off the UI executor, but a real connection could still make gestures or
+  the Compose dock feel frozen. Existing network/decode/app-apply/input queue
+  buckets cannot prove whether MainActor itself stopped getting scheduled.
+- A MainActor task that sleeps and compares actual wake time to the expected
+  wake time detects UI-executor starvation without doing work while it sleeps.
+- The export remains privacy-safe: no exact millisecond values, frame content,
+  dimensions, endpoints, coordinates, keysyms, text, or raw errors leave memory.
+
+**Verification**:
+- `NaruRemoteAppSnapshotTests/testSessionStreamStatsBuildSafeDiagnosticPerformanceReport`
+  proves responsiveness samples become only timing buckets and counts.
+- `DiagnosticExportTests/testStreamPerformanceReportSanitizesReceiveTimingBuckets`
+  and `testStreamPerformanceReportDecodesMissingNewerFieldsAsSafeDefaults`
+  prove unsafe or missing responsiveness fields clamp to safe defaults.
+- `NaruRemoteAppModelTests` passed after the stream-lifecycle monitor was
+  added.
+
+**Alternatives considered**:
+- Export exact heartbeat delays: rejected because existing diagnostics use
+  coarse timing buckets and exact values are not needed for first triage.
+- Run the heartbeat as a detached task that hops into `MainActor.run`:
+  rejected because Swift 6 strict concurrency flags task-isolated `self`
+  crossing into a main-actor closure; a MainActor sleeping task measures the
+  same wake delay with less concurrency risk.
+- Infer UI freezes only from app-frame apply timing: rejected because frame
+  publication can be healthy while gesture/keyboard scheduling is still starved.

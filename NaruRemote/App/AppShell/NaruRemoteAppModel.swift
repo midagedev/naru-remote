@@ -629,6 +629,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeFrameApplicationTask: Task<Void, Never>?
     private var activeFrameApplicationQueue: SessionStreamFrameApplicationQueue?
     private var activeFrameStreamID: UUID?
+    private var mainActorResponsivenessTask: Task<Void, Never>?
+    private var mainActorResponsivenessMonitorID: UUID?
     private var activeHelperVideoStreamTask: Task<Void, Never>?
     private var activeHelperVideoStreamID: UUID?
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
@@ -675,6 +677,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
+    private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
+    private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     public static let defaultActiveFrameInterval: TimeInterval =
         StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -3330,6 +3334,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeFramePump = pump
         activeFrameApplicationQueue = frameApplicationQueue
         startFrameApplicationWorker(frameApplicationQueue)
+        startMainActorResponsivenessMonitor(
+            streamID: streamID,
+            sessionID: pendingSession.id,
+            profileID: profile.id
+        )
         resetPreviewThrottle(for: profile.id)
         // Capture the profile + credential on every fresh stream
         // start so a later drop can reconnect against the same
@@ -3525,6 +3534,47 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func currentSessionStreamThermalState() -> SessionStreamThermalState {
         thermalStateProvider()
+    }
+
+    private func startMainActorResponsivenessMonitor(
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) {
+        let monitorID = UUID()
+        let probeInterval = Self.mainActorResponsivenessProbeInterval
+        mainActorResponsivenessMonitorID = monitorID
+        mainActorResponsivenessTask?.cancel()
+        mainActorResponsivenessTask = Task(priority: .utility) { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let expectedWakeAt = Date().addingTimeInterval(
+                    Self.mainActorResponsivenessProbeIntervalSeconds
+                )
+                do {
+                    try await Task.sleep(for: probeInterval)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                guard let self,
+                      self.mainActorResponsivenessMonitorID == monitorID,
+                      self.isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
+                else {
+                    return
+                }
+                self.recordMainActorResponsivenessDelay(
+                    milliseconds: Self.elapsedMilliseconds(since: expectedWakeAt)
+                )
+            }
+        }
+    }
+
+    private func stopMainActorResponsivenessMonitor() {
+        mainActorResponsivenessTask?.cancel()
+        mainActorResponsivenessTask = nil
+        mainActorResponsivenessMonitorID = nil
     }
 
     private func currentStreamPacingSleepOverride() -> (@Sendable (TimeInterval) async throws -> Void)? {
@@ -3839,6 +3889,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         let clampedMilliseconds = max(milliseconds, 0)
         sessionStreamStats.recordAppFrameApplyTiming(milliseconds: clampedMilliseconds)
         pendingAsyncAppFrameApplyMilliseconds = clampedMilliseconds
+    }
+
+    private func recordMainActorResponsivenessDelay(milliseconds: Int) {
+        sessionStreamStats.recordMainActorResponsivenessDelay(milliseconds: milliseconds)
     }
 
     private func consumeAsyncAppFrameApplyMilliseconds() -> Int? {
@@ -4750,6 +4804,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func stopFrameStream() {
+        stopMainActorResponsivenessMonitor()
         activeFrameStreamTask?.cancel()
         activeFramePump?.cancel()
         let frameApplicationQueue = activeFrameApplicationQueue

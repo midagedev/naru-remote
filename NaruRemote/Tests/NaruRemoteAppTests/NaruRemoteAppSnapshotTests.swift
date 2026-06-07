@@ -79,6 +79,8 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             operationMilliseconds: 260,
             timedOut: true
         )
+        stats.recordMainActorResponsivenessDelay(milliseconds: 12)
+        stats.recordMainActorResponsivenessDelay(milliseconds: 260)
 
         let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
         XCTAssertEqual(report.observedDurationBucket, DiagnosticDurationBucket.underOneSecond.rawValue)
@@ -162,6 +164,15 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             report.maxOutboundInputOperationTimingBucket,
             DiagnosticTimingBucket.stalled.rawValue
         )
+        XCTAssertEqual(report.mainActorResponsivenessSampleCount, 2)
+        XCTAssertEqual(
+            report.averageMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.lagging.rawValue
+        )
+        XCTAssertEqual(
+            report.maxMainActorResponsivenessDelayBucket,
+            DiagnosticTimingBucket.stalled.rawValue
+        )
         XCTAssertEqual(
             report.actualEncodingMix,
             RFBFramebufferEncodingMix(rawRectangles: 1, copyRectRectangles: 1, cursorRectangles: 1)
@@ -189,6 +200,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(stats.transportIdleTimeoutCount, 1)
         XCTAssertEqual(stats.adaptiveClientPressurePacingSampleCount, 0)
         XCTAssertEqual(stats.dirtyRectangleSampleCount, 0)
+        XCTAssertEqual(stats.mainActorResponsivenessSampleCount, 0)
         XCTAssertNil(stats.averageDirtyRectangleCount)
         XCTAssertNil(stats.averageDirtyAreaPermille)
         XCTAssertNil(stats.averageChangedPixelsPermille)

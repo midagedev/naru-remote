@@ -79,6 +79,9 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var outboundInputQueueDelayMillisecondsMax: Int
     public var outboundInputOperationMillisecondsTotal: Int
     public var outboundInputOperationMillisecondsMax: Int
+    public var mainActorResponsivenessSampleCount: Int
+    public var mainActorResponsivenessDelayMillisecondsTotal: Int
+    public var mainActorResponsivenessDelayMillisecondsMax: Int
     public var adaptiveClientPressurePacingSampleCount: Int
     public var startupPreflightRequestedHiddenFrameCount: Int
     public var startupPreflightConsumedHiddenFrameCount: Int
@@ -147,6 +150,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         outboundInputQueueDelayMillisecondsMax: Int = 0,
         outboundInputOperationMillisecondsTotal: Int = 0,
         outboundInputOperationMillisecondsMax: Int = 0,
+        mainActorResponsivenessSampleCount: Int = 0,
+        mainActorResponsivenessDelayMillisecondsTotal: Int = 0,
+        mainActorResponsivenessDelayMillisecondsMax: Int = 0,
         adaptiveClientPressurePacingSampleCount: Int = 0,
         startupPreflightRequestedHiddenFrameCount: Int = 0,
         startupPreflightConsumedHiddenFrameCount: Int = 0,
@@ -234,6 +240,15 @@ public struct SessionStreamStats: Equatable, Sendable {
         self.outboundInputQueueDelayMillisecondsMax = max(outboundInputQueueDelayMillisecondsMax, 0)
         self.outboundInputOperationMillisecondsTotal = max(outboundInputOperationMillisecondsTotal, 0)
         self.outboundInputOperationMillisecondsMax = max(outboundInputOperationMillisecondsMax, 0)
+        self.mainActorResponsivenessSampleCount = max(mainActorResponsivenessSampleCount, 0)
+        self.mainActorResponsivenessDelayMillisecondsTotal = max(
+            mainActorResponsivenessDelayMillisecondsTotal,
+            0
+        )
+        self.mainActorResponsivenessDelayMillisecondsMax = max(
+            mainActorResponsivenessDelayMillisecondsMax,
+            0
+        )
         self.adaptiveClientPressurePacingSampleCount = min(
             max(adaptiveClientPressurePacingSampleCount, 0),
             self.deliveredFrameCount
@@ -409,6 +424,14 @@ public struct SessionStreamStats: Equatable, Sendable {
         outboundInputEventTimingMax(outboundInputOperationMillisecondsMax)
     }
 
+    public var averageMainActorResponsivenessDelayMilliseconds: Int? {
+        averageMainActorResponsivenessDelay(mainActorResponsivenessDelayMillisecondsTotal)
+    }
+
+    public var maxMainActorResponsivenessDelayMilliseconds: Int? {
+        mainActorResponsivenessDelayMax(mainActorResponsivenessDelayMillisecondsMax)
+    }
+
     public var viewportGestureLongFramePermille: Int? {
         permille(viewportGestureLongFrameCount, of: viewportGestureSampleCount)
     }
@@ -516,6 +539,11 @@ public struct SessionStreamStats: Equatable, Sendable {
                 .bucket(milliseconds: averageOutboundInputOperationMilliseconds).rawValue,
             maxOutboundInputOperationTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: maxOutboundInputOperationMilliseconds).rawValue,
+            mainActorResponsivenessSampleCount: mainActorResponsivenessSampleCount,
+            averageMainActorResponsivenessDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: averageMainActorResponsivenessDelayMilliseconds).rawValue,
+            maxMainActorResponsivenessDelayBucket: DiagnosticTimingBucket
+                .bucket(milliseconds: maxMainActorResponsivenessDelayMilliseconds).rawValue,
             startupPreflightRequestedHiddenFrameCount: startupPreflightRequestedHiddenFrameCount,
             startupPreflightConsumedHiddenFrameCount: startupPreflightConsumedHiddenFrameCount,
             startupPreflightOutcome: startupPreflightOutcome.rawValue,
@@ -652,6 +680,16 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
     }
 
+    public mutating func recordMainActorResponsivenessDelay(milliseconds: Int) {
+        let milliseconds = max(milliseconds, 0)
+        mainActorResponsivenessSampleCount += 1
+        mainActorResponsivenessDelayMillisecondsTotal += milliseconds
+        mainActorResponsivenessDelayMillisecondsMax = max(
+            mainActorResponsivenessDelayMillisecondsMax,
+            milliseconds
+        )
+    }
+
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
         viewportInteractionCount += max(diagnostics.interactionCount, 0)
         viewportGestureSampleCount += max(diagnostics.gestureSampleCount, 0)
@@ -781,6 +819,13 @@ public struct SessionStreamStats: Equatable, Sendable {
         return total / outboundInputEventSampleCount
     }
 
+    private func averageMainActorResponsivenessDelay(_ total: Int) -> Int? {
+        guard mainActorResponsivenessSampleCount > 0 else {
+            return nil
+        }
+        return total / mainActorResponsivenessSampleCount
+    }
+
     private func timingMax(_ value: Int) -> Int? {
         guard receiveTimingSampleCount > 0 else {
             return nil
@@ -818,6 +863,13 @@ public struct SessionStreamStats: Equatable, Sendable {
 
     private func outboundInputEventTimingMax(_ value: Int) -> Int? {
         guard outboundInputEventSampleCount > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func mainActorResponsivenessDelayMax(_ value: Int) -> Int? {
+        guard mainActorResponsivenessSampleCount > 0 else {
             return nil
         }
         return value
