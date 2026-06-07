@@ -77,6 +77,7 @@ public struct NaruRemoteAppShell: View {
             model: model,
             snapshot: snapshot,
             frameStore: model.frameStore,
+            trackpadCursorStore: model.trackpadCursorStore,
             fillsAvailableHeight: fillsAvailableHeight
         )
     }
@@ -428,6 +429,7 @@ private struct SessionViewportFrameBridge: View {
     let model: NaruRemoteAppModel
     let snapshot: NaruRemoteAppSnapshot
     @ObservedObject var frameStore: SessionFrameStore
+    @ObservedObject var trackpadCursorStore: TrackpadCursorStore
     let fillsAvailableHeight: Bool
 
     var body: some View {
@@ -445,7 +447,7 @@ private struct SessionViewportFrameBridge: View {
             pipWatchStatusText: model.pipWatchStatusText,
             isPiPWatching: snapshot.pipWatchSession?.state == .watching,
             pointerControlMode: model.pointerControlMode,
-            trackpadCursor: model.trackpadCursor,
+            trackpadCursor: trackpadCursorStore.cursor,
             pipLayerHost: model.pipLayerHost,
             onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
             onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },

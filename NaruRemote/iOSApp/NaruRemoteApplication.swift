@@ -125,6 +125,7 @@ struct NaruRemoteApplication: App {
             // for the fixture, if any.  No-op when the env var is
             // unset.
             UXAuditFixtures.applyFixturePostInitMutations(to: model)
+            applyTestTrackpadCursorStorm(to: model)
         }
         return model
     }
@@ -181,6 +182,50 @@ struct NaruRemoteApplication: App {
               raw.lowercased() != "false"
         else { return }
         model.dismissDirectModeEntryWarning()
+    }
+
+    /// XCUITest responsiveness hook — when enabled on an active-session
+    /// fixture, continuously drives the model's trackpad cursor mirror while
+    /// the test types in Compose. This recreates the class of UI pressure that
+    /// used to make the input dock share invalidation with viewport movement.
+    @MainActor
+    private static func applyTestTrackpadCursorStorm(to model: NaruRemoteAppModel) {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_TRACKPAD_CURSOR_STORM"],
+              !raw.isEmpty,
+              raw != "0",
+              raw.lowercased() != "false"
+        else { return }
+        guard let framebuffer = model.latestFramebuffer else {
+            return
+        }
+        if !model.pointerControlMode.isTrackpad {
+            model.togglePointerControlMode()
+        }
+
+        let framebufferSize = CGSize(width: framebuffer.width, height: framebuffer.height)
+        Task { @MainActor in
+            for index in 0..<300 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                let transform = ViewportTransform(
+                    framebufferSize: framebufferSize,
+                    viewSize: CGSize(width: 390, height: 260),
+                    zoomScale: 2,
+                    panOffset: .zero
+                )
+                let horizontal: CGFloat = index.isMultiple(of: 2) ? 6 : -4
+                let vertical: CGFloat = index.isMultiple(of: 3) ? 2 : -1
+                _ = model.handleTrackpadGesture(
+                    .dragChanged(
+                        viewPoint: CGPoint(x: 195, y: 130),
+                        translation: CGSize(width: horizontal, height: vertical)
+                    ),
+                    transform: transform
+                )
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
     }
 
     /// XCUITest screenshot hook — `swift test` is fast enough to

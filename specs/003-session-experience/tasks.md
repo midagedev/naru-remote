@@ -93,6 +93,14 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   is no longer the primary result once helper insertion is ready. Covered by
   `NaruRemoteAppModelTests/testModelPrefersReachableHelperForComposePayloadsEvenWhenVNCPasteCouldRun`.
   **Done.**
+- [x] T015bd [B] Physical iPhone freeze correction: move continuous trackpad
+  cursor mirror publication out of the app model's `@Published` shell state and
+  into a viewport-local `TrackpadCursorStore`, then add a deterministic
+  active-session cursor-storm XCUITest proving focused compact Compose still
+  accepts the second Korean/CJK input step while the viewport cursor mirror is
+  under pressure. Covered by `TrackpadModeModelTests` and
+  `ComposeInputResponsivenessUITests/testFocusedActiveSessionComposeAcceptsKoreanDuringTrackpadCursorStorm`.
+  **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

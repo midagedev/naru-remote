@@ -58,6 +58,29 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         waitForEditor(editor, toContain: "입력")
     }
 
+    func testFocusedActiveSessionComposeAcceptsKoreanDuringTrackpadCursorStorm() {
+        let app = launchAppWithActiveSessionConfirmationUnavailableFixture(
+            trackpadCursorStorm: true
+        )
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "Viewport cursor mirror pressure must not collapse or freeze focused Compose input."
+        )
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
         let identified = app.descendants(matching: .any)["naru.input.editor"].firstMatch
         if identified.exists {
@@ -110,10 +133,15 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         return app
     }
 
-    private func launchAppWithActiveSessionConfirmationUnavailableFixture() -> XCUIApplication {
+    private func launchAppWithActiveSessionConfirmationUnavailableFixture(
+        trackpadCursorStorm: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-compose-confirmation-unavailable"
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
+        if trackpadCursorStorm {
+            app.launchEnvironment["NARU_TEST_TRACKPAD_CURSOR_STORM"] = "1"
+        }
         app.launch()
         return app
     }

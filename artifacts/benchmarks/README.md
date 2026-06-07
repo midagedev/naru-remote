@@ -1294,3 +1294,10 @@ Metal host pass its local hot cursor into the model resolver path, keeps the
 published SwiftUI cursor as a mirror, and caps zoomed edge-follow reveal below
 half the touch delta so the real cursor remains visibly finger-paced while the
 viewport pans.
+The trackpad cursor-store Compose pressure artifact is
+`2026-06-07-trackpad-cursor-store-compose-pressure-summary.md`; it reproduces
+the focused active-session input freeze under a deterministic
+`NARU_TEST_TRACKPAD_CURSOR_STORM=1` fixture. Continuous cursor mirror samples
+now publish through a viewport-local `TrackpadCursorStore`, not the whole app
+model, so SwiftUI cursor overlay updates cannot invalidate the compact Compose
+`UITextView` while the keyboard is composing Korean/CJK input.
