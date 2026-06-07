@@ -50,6 +50,10 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
             BenchmarkStreamShapeGatePreset.sustainedV2ConstrainedCellularAppLowTraffic.rawValue,
             "sustained-v2-constrained-cellular-app-low-traffic"
         )
+        XCTAssertEqual(
+            BenchmarkStreamShapeGatePreset.remoteDesktop10FPS.rawValue,
+            "remote-desktop-10fps"
+        )
     }
 
     func testUsageDescriptionListsSupportedPresets() {
@@ -63,7 +67,8 @@ final class BenchmarkStreamShapeGatePresetTests: XCTestCase {
                 + "sustained-v2-constrained-cellular-visible-startup|"
                 + "sustained-v2-constrained-cellular-visible-core-startup|"
                 + "sustained-v2-constrained-cellular-visible-focus-startup|"
-                + "sustained-v2-constrained-cellular-app-low-traffic"
+                + "sustained-v2-constrained-cellular-app-low-traffic|"
+                + "remote-desktop-10fps"
         )
     }
 }

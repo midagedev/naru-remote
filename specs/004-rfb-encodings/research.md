@@ -6185,6 +6185,43 @@ export host identity, credentials, ports, request coordinates, dimensions,
 pixels, byte counts, raw timing samples, command text, draft text, marked text,
 IME state, keysyms, or pointer coordinates.
 
+### D136 Add A Remote Desktop 10fps CLI Preset
+
+References:
+- D134 remote desktop 10fps target.
+- D135 remote desktop 10fps readiness dashboard.
+
+**Decision**: add `VNCLiveBenchmark --stream-shape-gate-preset
+remote-desktop-10fps` as a direct CLI alias for the fixed VNC gate used by
+`scripts/run-naru-live-benchmark.sh glance-025-10fps-duration-probe`.
+
+The preset applies the same constrained-cellular, request/response-only,
+`0.25` visible-glance, `local-low-latency-rgb565`, 12 second duration-only
+shape against `iphone-remote-desktop-10fps-v1`.
+
+**Why**:
+- The launchctl wrapper is the safest live path, but engineers also run
+  `VNCLiveBenchmark` directly while tuning profiles and request cadence.
+- Without a first-class preset, a direct run can accidentally use the older
+  sustained-usability or poor-network traffic target and make a sub-10fps
+  result look less severe than the current product bar.
+- Keeping the 10fps gate in `BenchmarkStreamShapeGatePreset` makes CLI help,
+  invalid-option messages, and benchmark JSON all carry the fixed preset label.
+
+**Evidence target**:
+- Gate-preset tests pin the new `remote-desktop-10fps` raw value and usage
+  string.
+- `swift run VNCLiveBenchmark --help` must list `remote-desktop-10fps`.
+- Focused `VNCLiveBenchmarkKit` tests and full package tests must pass before
+  merge.
+
+**Privacy rule**: this preset emits only existing fixed labels, aggregate
+counts, permille ratios, aggregate timings, and privacy-safe benchmark reports.
+It must not print or export host identity, credentials, ports, helper paths,
+executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
+coordinates, dimensions, pixels, byte counts, stimulus command text, draft
+text, marked text, or IME state.
+
 ### D135 Add A Remote Desktop 10fps Readiness Dashboard
 
 References:

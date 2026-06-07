@@ -156,7 +156,11 @@ default stream profile for poor-network startup.
 `local-low-latency-rgb565` candidate against the stricter
 `iphone-remote-desktop-10fps-v1` target, where content FPS below `10` is a
 failure. Use this as the product-grade sustained smoothness gate before
-claiming Chrome-Remote-like hand feel.
+claiming Chrome-Remote-like hand feel. Direct `VNCLiveBenchmark` runs can
+reproduce the same VNC gate with
+`--stream-shape-gate-preset remote-desktop-10fps`; prefer the script when
+using launchctl-managed live credentials, and the preset when iterating inside
+the benchmark tool.
 `remote-desktop-10fps-readiness` emits one JSON object that combines the fixed
 10fps VNC probe, helper capability/preflight, external synthetic helper-video,
 and external ScreenCaptureKit helper-video checks. Use it when deciding whether

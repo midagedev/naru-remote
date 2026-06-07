@@ -16,6 +16,7 @@ public enum BenchmarkStreamShapeGatePreset: String, Codable, Equatable, Sendable
         "sustained-v2-constrained-cellular-visible-focus-startup"
     case sustainedV2ConstrainedCellularAppLowTraffic =
         "sustained-v2-constrained-cellular-app-low-traffic"
+    case remoteDesktop10FPS = "remote-desktop-10fps"
 
     public static var usageDescription: String {
         allCases.map(\.rawValue).joined(separator: "|")
