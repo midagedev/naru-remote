@@ -372,6 +372,14 @@ without unsafe report fields.
   capability JSON, and routes granted results to the true helper-video live
   benchmark action. Covered by `screen-recording-watch-self-test` and a short
   live helper run that still reports `permissionMissing`. **Done.**
+- [x] T031L [US2] Upgrade helper-video benchmark reports to schema v2 with
+  fixed `readinessState` and `recommendedAction` labels, and make
+  `remote-desktop-10fps-readiness` require sustained synthetic helper-video
+  before physical iPhone promotion. Current live evidence reports sustained
+  synthetic helper-video pass/ready, true ScreenCaptureKit permission-blocked,
+  and VNC still below the 10fps iPhone product gate. Covered by helper-video
+  report tests, comparison/preflight tests, summary self-test, and launchctl
+  live helper/readiness probes. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

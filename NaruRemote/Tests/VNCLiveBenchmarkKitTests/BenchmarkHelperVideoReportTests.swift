@@ -87,7 +87,7 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         let decoded = try JSONDecoder().decode(BenchmarkHelperVideoReport.self, from: encoded)
 
         XCTAssertEqual(decoded, report)
-        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.schemaVersion, 2)
         XCTAssertEqual(decoded.visualTransport, .helperVideo)
         XCTAssertEqual(decoded.streamProtocolVersion, 1)
         XCTAssertEqual(decoded.codec, .h264)
@@ -103,6 +103,8 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(decoded.fallbackCountBucket, .none)
         XCTAssertEqual(decoded.verdict, .pass)
         XCTAssertEqual(decoded.issueCodes, [])
+        XCTAssertEqual(decoded.readinessState, .readyForPhysicalGate)
+        XCTAssertEqual(decoded.recommendedAction, .runPhysicalIPhoneHelperVideoGate)
     }
 
     func testHelperVideoReportDerivesFixedIssueCodesFromHealthBands() {
@@ -118,6 +120,8 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
 
         XCTAssertEqual(report.streamProtocolVersion, HelperVideoStreamDescriptor.minimumSupportedProtocolVersion)
         XCTAssertEqual(report.verdict, .fail)
+        XCTAssertEqual(report.readinessState, .startupBlocked)
+        XCTAssertEqual(report.recommendedAction, .inspectHelperVideoStartup)
         XCTAssertEqual(
             report.issueCodes,
             [
@@ -137,6 +141,8 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(report.streamState, .idle)
         XCTAssertEqual(report.verdict, .disabled)
         XCTAssertEqual(report.issueCodes, [.startupSlow, .streamDisabled])
+        XCTAssertEqual(report.readinessState, .disabled)
+        XCTAssertEqual(report.recommendedAction, .enableHelperVideo)
     }
 
     func testPermissionMissingIssueCodeUsesFixedSafeLabel() throws {
@@ -151,9 +157,42 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
 
         XCTAssertEqual(report.verdict, .fail)
         XCTAssertTrue(report.issueCodes.contains(.permissionMissing))
+        XCTAssertEqual(report.readinessState, .permissionBlocked)
+        XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
         XCTAssertTrue(json.contains("helper-video-permission-missing"))
+        XCTAssertTrue(json.contains("permissionBlocked"))
+        XCTAssertTrue(json.contains("grant-helper-video-app-screen-recording-permission"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("screenrecording"))
         XCTAssertFalse(json.localizedCaseInsensitiveContains("cgpreflight"))
+    }
+
+    func testPermissionMissingTakesPriorityOverIdleDisabledState() {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .idle,
+            startupBand: .notMeasured,
+            sustainedUpdateBand: .notMeasured,
+            issueCodes: [.permissionMissing]
+        )
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertTrue(report.issueCodes.contains(.streamDisabled))
+        XCTAssertEqual(report.readinessState, .permissionBlocked)
+        XCTAssertEqual(report.recommendedAction, .grantScreenRecordingPermission)
+    }
+
+    func testSustainedChoppyReportRoutesToSustainedCadenceInspection() {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: .choppy,
+            decodePressure: .low,
+            fallbackCountBucket: .none
+        )
+
+        XCTAssertEqual(report.verdict, .warning)
+        XCTAssertEqual(report.issueCodes, [.sustainedChoppy])
+        XCTAssertEqual(report.readinessState, .sustainedDegraded)
+        XCTAssertEqual(report.recommendedAction, .inspectHelperVideoSustainedCadence)
     }
 
     func testHelperVideoReportFixtureOmitsUnsafeFieldsAndPayloadSentinels() throws {

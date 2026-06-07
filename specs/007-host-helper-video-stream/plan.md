@@ -70,6 +70,10 @@ Use a dual-transport model:
 5. Health monitoring switches the visual source back to the VNC framebuffer on
    stall, permission loss, codec rejection, auth failure, or revocation.
 6. `VNCLiveBenchmark` adds a helper-video shape before product defaults change.
+   Helper-video reports use fixed `readinessState` and `recommendedAction`
+   labels so dashboards can route permission, transport, sustained cadence,
+   decode pressure, true capture, and physical iPhone gates without unsafe
+   payload details.
 
 ### Alternatives Considered
 

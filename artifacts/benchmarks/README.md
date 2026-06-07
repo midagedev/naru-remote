@@ -1265,6 +1265,15 @@ for the human-in-the-loop Screen Recording grant. The current short live run is
 still `timedOut` with `permissionMissing`, while the self-test proves a granted
 transition routes to `rerun-helper-readiness-sweep` and
 `run-true-helper-video-live-capture-benchmark`.
+The helper-video sustained readiness schema artifact is
+`2026-06-07-helper-video-sustained-readiness-schema-summary.md`; it upgrades
+helper-video benchmark reports to schema v2 with fixed `readinessState` and
+`recommendedAction` labels, then makes `remote-desktop-10fps-readiness` treat
+sustained synthetic helper-video as a required gate between smoke transport and
+physical iPhone promotion. The current live read still routes to Screen
+Recording setup: sustained synthetic helper-video is pass/ready, true
+ScreenCaptureKit is permission-blocked, and VNC remains below the 10fps product
+gate.
 The Compose input island artifact is
 `2026-06-07-compose-input-island-summary.md`; it records the active-session
 Korean Compose freeze hypothesis and fix. While the UIKit Compose editor owns

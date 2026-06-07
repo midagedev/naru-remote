@@ -178,6 +178,42 @@ VideoToolbox H.264 compression session only when
   prototype and should not change helper startup behavior.
 - Encode a real captured frame in the first encoder PR: rejected because the
   transport, payload handling, and privacy review need to land separately.
+
+## D8 - Report helper-video readiness as product-routing labels
+
+**Decision**: Helper-video benchmark reports should expose fixed
+`readinessState` and `recommendedAction` labels, and the combined
+`remote-desktop-10fps-readiness` dashboard should require sustained synthetic
+helper-video before physical iPhone promotion.
+
+**Rationale**:
+- The RFB protocol is demand-driven: framebuffer updates are sent in response
+  to explicit client requests and the update rate adapts downward when the
+  client or network is slow. Current live VNC evidence still fails the 10fps
+  iPhone product gate from receive-path latency, so VNC remains the
+  control/input/fallback path rather than the primary smoothness path.
+- Apple ScreenCaptureKit and VideoToolbox expose the real tuning surface for a
+  smooth visual path: capture frame interval, bounded stream queue depth,
+  realtime compression, expected frame rate, keyframe interval, bitrate/rate
+  limits, and hardware acceleration hints.
+- A smoke helper-video pass is too weak for sustained iPhone use. The report
+  must distinguish permission setup, helper transport, startup, sustained
+  cadence, and decode pressure before asking for physical iPhone hand-feel and
+  thermal verification.
+
+**Sources**:
+- RFB protocol: https://raw.githubusercontent.com/rfbproto/rfbproto/master/rfbproto.rst
+- Apple ScreenCaptureKit queue depth: https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/queuedepth
+- Apple VideoToolbox live streaming encoder settings: https://developer.apple.com/documentation/videotoolbox/encoding-video-for-live-streaming
+- Apple VideoToolbox compression properties: https://developer.apple.com/documentation/videotoolbox/compression-properties
+
+**Alternatives considered**:
+- Keep helper-video reports as pass/fail only: rejected because permission,
+  transport, sustained cadence, and decode failures require different next
+  actions.
+- Promote after synthetic smoke only: rejected because a two-frame/smoke path
+  does not prove sustained visual cadence for 30 minute to multi-hour iPhone
+  sessions.
 - Report dimensions, output size, or exact timing from the probe: rejected by
   the helper-video diagnostic privacy boundary.
 
