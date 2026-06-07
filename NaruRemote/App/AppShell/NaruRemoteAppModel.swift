@@ -522,6 +522,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// disconnect / fresh connect / profile change.  Constitution §IV:
     /// the cursor position is published for the overlay but never
     /// logged, persisted, or exported.
+    /// Viewport-local mirror for SwiftUI overlays. New UI that needs cursor
+    /// samples should observe this store directly instead of the app model.
     public let trackpadCursorStore: TrackpadCursorStore
     public var trackpadCursor: TrackpadCursor {
         trackpadCursorStore.cursor
