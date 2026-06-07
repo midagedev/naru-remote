@@ -41,6 +41,50 @@ final class HelperTextBridgeTests: XCTestCase {
         XCTAssertEqual(TextInjectionPath.helperTextBridge.rawValue, "helperTextBridge")
     }
 
+    func testCapabilitySummarySeparatesUnicodeNativeFromAXPermission() {
+        let response = NaruHelperCapabilityResponse(
+            availability: .reachable,
+            permissionState: NaruHelperPermissionState(
+                accessibility: "missing",
+                accessibilityValueInsert: "missing",
+                unicodeKeyboardEvent: "granted",
+                inputMonitoring: "notRequired",
+                pasteboardFallback: "missing",
+                activeUserSession: "available"
+            ),
+            supportedStrategies: [.nativeInsert]
+        )
+
+        let summary = HelperTextBridgeCapabilitySummary(response: response)
+
+        XCTAssertEqual(summary.nativeInsert, .available)
+        XCTAssertEqual(summary.accessibilityValueInsert, .missing)
+        XCTAssertEqual(summary.unicodeKeyboardEvent, .granted)
+        XCTAssertEqual(summary.pasteboardFallback, .missing)
+    }
+
+    func testCapabilitySummaryClampsUnknownPermissionCatalogValues() {
+        let response = NaruHelperCapabilityResponse(
+            availability: .permissionMissing,
+            permissionState: NaruHelperPermissionState(
+                accessibility: "raw AX error should not pass through",
+                accessibilityValueInsert: "raw AX detail",
+                unicodeKeyboardEvent: "raw event detail",
+                inputMonitoring: "notRequired",
+                pasteboardFallback: "raw pasteboard detail",
+                activeUserSession: "available"
+            ),
+            supportedStrategies: []
+        )
+
+        let summary = HelperTextBridgeCapabilitySummary(response: response)
+
+        XCTAssertEqual(summary.nativeInsert, .missing)
+        XCTAssertEqual(summary.accessibilityValueInsert, .unknown)
+        XCTAssertEqual(summary.unicodeKeyboardEvent, .unknown)
+        XCTAssertEqual(summary.pasteboardFallback, .unknown)
+    }
+
     func testHelperFailureMessagesStaySafeCatalogOnly() {
         XCTAssertEqual(
             HelperTextBridgeError.safeMessage(for: .permissionMissing),

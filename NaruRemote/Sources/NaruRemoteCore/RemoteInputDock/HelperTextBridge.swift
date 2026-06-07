@@ -57,25 +57,82 @@ public enum HelperTextPayloadSizeBucket: String, Codable, Equatable, CaseIterabl
     }
 }
 
+public enum HelperTextBridgeRouteCapability: String, Codable, Equatable, CaseIterable, Sendable {
+    case unknown
+    case available
+    case granted
+    case missing
+    case revoked
+    case disabled
+    case unsupported
+    case restoreUnsupported
+
+    public static func fixedCatalogValue(_ value: String?) -> HelperTextBridgeRouteCapability {
+        guard let value,
+              let catalogValue = HelperTextBridgeRouteCapability(rawValue: value)
+        else {
+            return .unknown
+        }
+        return catalogValue
+    }
+}
+
+public struct HelperTextBridgeCapabilitySummary: Codable, Equatable, Sendable {
+    public var nativeInsert: HelperTextBridgeRouteCapability
+    public var accessibilityValueInsert: HelperTextBridgeRouteCapability
+    public var unicodeKeyboardEvent: HelperTextBridgeRouteCapability
+    public var pasteboardFallback: HelperTextBridgeRouteCapability
+
+    public init(
+        nativeInsert: HelperTextBridgeRouteCapability = .unknown,
+        accessibilityValueInsert: HelperTextBridgeRouteCapability = .unknown,
+        unicodeKeyboardEvent: HelperTextBridgeRouteCapability = .unknown,
+        pasteboardFallback: HelperTextBridgeRouteCapability = .unknown
+    ) {
+        self.nativeInsert = nativeInsert
+        self.accessibilityValueInsert = accessibilityValueInsert
+        self.unicodeKeyboardEvent = unicodeKeyboardEvent
+        self.pasteboardFallback = pasteboardFallback
+    }
+
+    public init(response: NaruHelperCapabilityResponse) {
+        self.init(
+            nativeInsert: response.supportedStrategies.contains(.nativeInsert) ? .available : .missing,
+            accessibilityValueInsert: HelperTextBridgeRouteCapability.fixedCatalogValue(
+                response.permissionState.accessibilityValueInsert ?? response.permissionState.accessibility
+            ),
+            unicodeKeyboardEvent: HelperTextBridgeRouteCapability.fixedCatalogValue(
+                response.permissionState.unicodeKeyboardEvent
+            ),
+            pasteboardFallback: HelperTextBridgeRouteCapability.fixedCatalogValue(
+                response.permissionState.pasteboardFallback
+            )
+        )
+    }
+}
+
 public struct HelperTextBridgeProfileState: Codable, Equatable, Sendable {
     public var isEnabled: Bool
     public var pairingFingerprint: String?
     public var availability: HelperTextBridgeAvailability
     public var lastFailureCode: HelperTextBridgeFailureCode?
     public var lastCheckedBucket: HelperTextBridgeLastCheckedBucket
+    public var capabilitySummary: HelperTextBridgeCapabilitySummary?
 
     public init(
         isEnabled: Bool = false,
         pairingFingerprint: String? = nil,
         availability: HelperTextBridgeAvailability = .notConfigured,
         lastFailureCode: HelperTextBridgeFailureCode? = nil,
-        lastCheckedBucket: HelperTextBridgeLastCheckedBucket = .never
+        lastCheckedBucket: HelperTextBridgeLastCheckedBucket = .never,
+        capabilitySummary: HelperTextBridgeCapabilitySummary? = nil
     ) {
         self.isEnabled = isEnabled
         self.pairingFingerprint = pairingFingerprint
         self.availability = availability
         self.lastFailureCode = lastFailureCode
         self.lastCheckedBucket = lastCheckedBucket
+        self.capabilitySummary = capabilitySummary
     }
 }
 

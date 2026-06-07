@@ -96,9 +96,9 @@ A user who does not install the helper can still connect, view, pan, zoom, use D
 
 ### Key Entities *(include if feature involves data)*
 
-- **HelperTextBridgeProfileState**: Per-profile helper pairing and availability state. Key attributes: enabled flag, pairing fingerprint, helper state catalog value, last safe failure code, last checked bucket.
+- **HelperTextBridgeProfileState**: Per-profile helper pairing and availability state. Key attributes: enabled flag, pairing fingerprint, helper state catalog value, last safe failure code, last checked bucket, and fixed capability summary for native insert, Accessibility value insert, Unicode event insert, and pasteboard fallback.
 - **HelperTextInsertRequest**: One user-confirmed text insert operation. Key attributes: request ID, session/profile IDs, payload encoding class, approximate payload size bucket, injection strategy, and fixed result code. Raw text is process-local only.
-- **HelperPermissionState**: Mac-side permission summary for helper-native insert. Key attributes: accessibility permission state, input permission state if required, pasteboard fallback permission state, and revocation state.
+- **HelperPermissionState**: Mac-side permission summary for helper-native insert. Key attributes: accessibility value insert state, Unicode event insert state, input permission state if required, pasteboard fallback permission state, and revocation state.
 
 ## Acceptance Test Matrix *(mandatory)*
 

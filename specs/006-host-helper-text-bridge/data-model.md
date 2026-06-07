@@ -112,7 +112,9 @@ Fields:
 
 Rules:
 - The helper reports only catalog states to the app.
-- The app may use these states for UI and diagnostics.
+- The app stores a fixed `HelperTextBridgeCapabilitySummary` on the per-profile
+  helper state after capability probes and may use these states for UI and
+  diagnostics.
 - Clients that understand the granular fields should explain
   `accessibilityValueInsert`, `unicodeKeyboardEvent`, and `pasteboardFallback`
   separately so a fallback-only helper is not mistaken for a direct native

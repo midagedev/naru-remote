@@ -1187,6 +1187,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case helperTextBridgeAvailability
         case helperTextBridgeLastFailureCode
         case helperTextBridgeLastCheckedBucket
+        case helperTextBridgeNativeInsert
+        case helperTextBridgeAccessibilityValueInsert
+        case helperTextBridgeUnicodeKeyboardEvent
+        case helperTextBridgePasteboardFallback
         case latestInjectionPath
         case latestInjectionStatus
         case latestInjectionPasteCommand
@@ -1212,6 +1216,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let helperTextBridgeAvailability: String?
     public let helperTextBridgeLastFailureCode: String?
     public let helperTextBridgeLastCheckedBucket: String?
+    public let helperTextBridgeNativeInsert: String?
+    public let helperTextBridgeAccessibilityValueInsert: String?
+    public let helperTextBridgeUnicodeKeyboardEvent: String?
+    public let helperTextBridgePasteboardFallback: String?
     public let latestInjectionPath: String?
     public let latestInjectionStatus: String?
     public let latestInjectionPasteCommand: String?
@@ -1237,6 +1245,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         helperTextBridgeAvailability: String? = nil,
         helperTextBridgeLastFailureCode: String? = nil,
         helperTextBridgeLastCheckedBucket: String? = nil,
+        helperTextBridgeNativeInsert: String? = nil,
+        helperTextBridgeAccessibilityValueInsert: String? = nil,
+        helperTextBridgeUnicodeKeyboardEvent: String? = nil,
+        helperTextBridgePasteboardFallback: String? = nil,
         latestInjectionPath: String? = nil,
         latestInjectionStatus: String? = nil,
         latestInjectionPasteCommand: String? = nil,
@@ -1272,6 +1284,18 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         )
         self.helperTextBridgeLastCheckedBucket = Self.safeHelperTextBridgeLastCheckedBucket(
             helperTextBridgeLastCheckedBucket
+        )
+        self.helperTextBridgeNativeInsert = Self.safeHelperTextBridgeRouteCapability(
+            helperTextBridgeNativeInsert
+        )
+        self.helperTextBridgeAccessibilityValueInsert = Self.safeHelperTextBridgeRouteCapability(
+            helperTextBridgeAccessibilityValueInsert
+        )
+        self.helperTextBridgeUnicodeKeyboardEvent = Self.safeHelperTextBridgeRouteCapability(
+            helperTextBridgeUnicodeKeyboardEvent
+        )
+        self.helperTextBridgePasteboardFallback = Self.safeHelperTextBridgeRouteCapability(
+            helperTextBridgePasteboardFallback
         )
         self.latestInjectionPath = Self.safeInjectionPath(latestInjectionPath)
         self.latestInjectionStatus = Self.safeInjectionStatus(latestInjectionStatus)
@@ -1317,6 +1341,13 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             helperTextBridgeAvailability: helperTextBridgeState?.availability.rawValue,
             helperTextBridgeLastFailureCode: helperTextBridgeState?.lastFailureCode?.rawValue,
             helperTextBridgeLastCheckedBucket: helperTextBridgeState?.lastCheckedBucket.rawValue,
+            helperTextBridgeNativeInsert: helperTextBridgeState?.capabilitySummary?.nativeInsert.rawValue,
+            helperTextBridgeAccessibilityValueInsert: helperTextBridgeState?.capabilitySummary?
+                .accessibilityValueInsert.rawValue,
+            helperTextBridgeUnicodeKeyboardEvent: helperTextBridgeState?.capabilitySummary?
+                .unicodeKeyboardEvent.rawValue,
+            helperTextBridgePasteboardFallback: helperTextBridgeState?.capabilitySummary?
+                .pasteboardFallback.rawValue,
             latestInjectionPath: latestInjectionAttempt?.path.rawValue,
             latestInjectionStatus: latestInjectionAttempt?.status.rawValue,
             latestInjectionPasteCommand: latestInjectionAttempt?.pasteCommand?.rawValue,
@@ -1377,6 +1408,22 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             helperTextBridgeLastCheckedBucket: try container.decodeIfPresent(
                 String.self,
                 forKey: .helperTextBridgeLastCheckedBucket
+            ),
+            helperTextBridgeNativeInsert: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeNativeInsert
+            ),
+            helperTextBridgeAccessibilityValueInsert: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeAccessibilityValueInsert
+            ),
+            helperTextBridgeUnicodeKeyboardEvent: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgeUnicodeKeyboardEvent
+            ),
+            helperTextBridgePasteboardFallback: try container.decodeIfPresent(
+                String.self,
+                forKey: .helperTextBridgePasteboardFallback
             ),
             latestInjectionPath: try container.decodeIfPresent(String.self, forKey: .latestInjectionPath),
             latestInjectionStatus: try container.decodeIfPresent(String.self, forKey: .latestInjectionStatus),
@@ -1444,6 +1491,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
 
     private static func safeHelperTextBridgeLastCheckedBucket(_ value: String?) -> String? {
         safe(value, allowed: Set(HelperTextBridgeLastCheckedBucket.allCases.map(\.rawValue)))
+    }
+
+    private static func safeHelperTextBridgeRouteCapability(_ value: String?) -> String? {
+        safe(value, allowed: Set(HelperTextBridgeRouteCapability.allCases.map(\.rawValue)))
     }
 
     private static func safeInjectionPath(_ value: String?) -> String? {
@@ -2259,7 +2310,7 @@ public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 31
+    public static let currentSchemaVersion = 32
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

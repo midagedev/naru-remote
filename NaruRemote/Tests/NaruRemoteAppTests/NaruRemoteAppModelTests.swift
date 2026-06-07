@@ -3977,12 +3977,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 NaruHelperCapabilityResponse(
                     availability: .reachable,
                     permissionState: NaruHelperPermissionState(
-                        accessibility: "granted",
+                        accessibility: "missing",
+                        accessibilityValueInsert: "missing",
+                        unicodeKeyboardEvent: "granted",
                         inputMonitoring: "notRequired",
-                        pasteboardFallback: "available",
+                        pasteboardFallback: "missing",
                         activeUserSession: "available"
                     ),
-                    supportedStrategies: [.pasteboardPasteWithRestore]
+                    supportedStrategies: [.nativeInsert]
                 )
             },
             insertHandler: { request in
@@ -4025,6 +4027,47 @@ final class NaruRemoteAppModelTests: XCTestCase {
             model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
             HelperTextBridgeFailureCode.none
         )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.nativeInsert,
+            .available
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.accessibilityValueInsert,
+            .missing
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.unicodeKeyboardEvent,
+            .granted
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.pasteboardFallback,
+            .missing
+        )
+        XCTAssertEqual(model.snapshot.inputHelperStatusText, "Helper ready for Unicode text insert")
+
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let report = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(report.input?.helperTextBridgeNativeInsert, HelperTextBridgeRouteCapability.available.rawValue)
+        XCTAssertEqual(
+            report.input?.helperTextBridgeAccessibilityValueInsert,
+            HelperTextBridgeRouteCapability.missing.rawValue
+        )
+        XCTAssertEqual(
+            report.input?.helperTextBridgeUnicodeKeyboardEvent,
+            HelperTextBridgeRouteCapability.granted.rawValue
+        )
+        XCTAssertEqual(
+            report.input?.helperTextBridgePasteboardFallback,
+            HelperTextBridgeRouteCapability.missing.rawValue
+        )
+        XCTAssertFalse(json.contains("helper-fingerprint"))
     }
 
     func testHelperCapabilityRefreshKeepsVisibleStateWhileProbeIsInFlight() async throws {

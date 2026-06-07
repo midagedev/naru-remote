@@ -1122,12 +1122,32 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         case .checking:
             return "Checking helper text bridge"
         case .reachable:
-            return helperState.isEnabled
-                ? "Helper ready for multilingual Compose"
-                : "Helper disabled for this profile"
+            guard helperState.isEnabled else {
+                return "Helper disabled for this profile"
+            }
+            if let capability = helperState.capabilitySummary {
+                if capability.nativeInsert == .available {
+                    if capability.accessibilityValueInsert == .granted {
+                        return "Helper ready for direct text insert"
+                    }
+                    if capability.unicodeKeyboardEvent == .granted {
+                        return "Helper ready for Unicode text insert"
+                    }
+                    return "Helper ready for native text insert"
+                }
+                if capability.pasteboardFallback == .available {
+                    return "Helper fallback ready; direct insert unavailable"
+                }
+            }
+            return "Helper ready for multilingual Compose"
         case .unreachable:
             return "Helper not reachable"
         case .permissionMissing:
+            if let capability = helperState.capabilitySummary,
+               capability.nativeInsert == .missing,
+               capability.pasteboardFallback == .available {
+                return "Helper direct insert needs Mac permission"
+            }
             return "Helper needs Mac permission"
         case .revoked:
             return "Helper pairing revoked"
