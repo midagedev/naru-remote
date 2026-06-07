@@ -1820,3 +1820,51 @@ only fixed event labels, aggregate counts, fixed health buckets, and fixed
 failure codes. They must not export helper endpoints, credentials, tokens,
 frame payloads, pixels, dimensions, byte counts, exact frame timings, raw OS
 errors, Compose text, keysyms, or clipboard contents.
+
+## D49 - Make helper-video sources continuous, not only the transport
+
+**Decision**: Treat source-side batching as a reproduced performance bug. The
+helper-video transport can now carry an event stream, but a helper source that
+first captures `frameCount` pixel buffers, batch-encodes them, and then emits the
+array still creates visible stalls. The helper source boundary now supports
+sustained pixel-buffer streams feeding a callback-driven VideoToolbox H.264
+encoder. `NaruHelper --video-listen` defaults to continuous streaming; benchmark
+and smoke-test runs keep deterministic bounds by passing a positive
+`--video-frame-count`.
+
+**Rationale**:
+- The physical-device symptom was not only a VNC FPS problem. A finite helper
+  source means the visual path still alternates between work bursts and waits,
+  which can compete with input/UI even after the app runner is off MainActor.
+- ScreenCaptureKit is fundamentally an `SCStreamOutput` callback source. Keeping
+  a finite collector as the production path throws away the API's natural
+  streaming shape.
+- VideoToolbox compression also produces frames through callbacks. A streaming
+  encoder lets access units leave the helper as soon as the encoder emits them,
+  instead of waiting for `VTCompressionSessionCompleteFrames` after a whole
+  batch.
+- Sustained sessions need idle timeouts, not absolute stream timeouts. A stream
+  that keeps producing events should remain alive; a stream that goes silent
+  should fall back to VNC with fixed safe labels.
+
+**Evidence**:
+- `NaruHelperVideoEncoderPrototypeTests/testToolboxSyntheticAccessUnitStreamEmitsFinitePacedFrames`
+  proves synthetic pixel buffers flow through the streaming VideoToolbox encoder.
+- `NaruHelperVideoEncoderPrototypeTests/testToolboxSyntheticAccessUnitStreamCanRunUnboundedUntilClientStopsReading`
+  proves `frameCount=0` can keep producing access units until the client stops.
+- `NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitAccessUnitSourceStreamsInjectedPixelBuffers`
+  proves the ScreenCaptureKit access-unit source can consume a pixel-buffer
+  stream through the same encoder path without live TCC permission.
+- `NaruHelperVideoStreamNetworkServiceTests/testNetworkClientStreamTimeoutIsIdleTimeoutAcrossSustainedEvents`
+  proves the network client does not kill a healthy sustained stream merely
+  because total session time exceeds the initial timeout.
+- `NaruHelperVideoListenRuntimeTests/testExternalHelperProcessSendsSustainedSyntheticEncodedStream`
+  proves the external `NaruHelper --video-listen` process can serve sustained
+  synthetic H.264 events through the authenticated TCP path.
+
+**Privacy rule**: Source-side continuous streaming must preserve the same safe
+diagnostic boundary as the transport. Tests and reports may mention fixed
+source/codec/readiness labels and aggregate counts only. They must not include
+display IDs, dimensions, pixel contents, byte counts, frame payloads, helper
+paths, endpoints, tokens, hostnames, exact timings, raw OS errors, Compose text,
+keysyms, or clipboard contents.

@@ -25,7 +25,19 @@ public protocol NaruHelperVideoScreenCaptureKitPixelBufferProvider: Sendable {
     ) throws -> [CVPixelBuffer]
 }
 
+public protocol NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider:
+    NaruHelperVideoScreenCaptureKitPixelBufferProvider
+{
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error>
+}
+
 public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    /// A value of `0` means an unbounded stream for `accessUnitStream(...)`.
+    /// The legacy finite `accessUnits(...)` API still captures at least one
+    /// frame for smoke tests and fixture callers.
     public var frameCount: Int
     private let pixelBufferProvider: any NaruHelperVideoScreenCaptureKitPixelBufferProvider
 
@@ -40,15 +52,16 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         frameCount: Int = 2,
         pixelBufferProvider: any NaruHelperVideoScreenCaptureKitPixelBufferProvider
     ) {
-        self.frameCount = max(frameCount, 1)
+        self.frameCount = max(frameCount, 0)
         self.pixelBufferProvider = pixelBufferProvider
     }
 
     public func accessUnits(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> [NaruHelperVideoAccessUnit] {
+        let finiteFrameCount = max(frameCount, 1)
         let pixelBuffers = try pixelBufferProvider.pixelBuffers(
-            frameLimit: frameCount,
+            frameLimit: finiteFrameCount,
             frameRateBucket: request.maxFrameRateBucket
         )
         guard let first = pixelBuffers.first else {
@@ -66,15 +79,108 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
             width: width,
             height: height,
             frameRateBucket: request.maxFrameRateBucket,
-            keyFrameInterval: frameCount,
+            keyFrameInterval: finiteFrameCount,
             encodingMode: .lowLatencyRealtime
         )
         return try encoder.encode(pixelBuffers: pixelBuffers)
     }
+
+    public func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        guard let streamProvider = pixelBufferProvider
+            as? any NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider
+        else {
+            return try NaruHelperVideoAccessUnitSourceDefaultStreamAdapter
+                .stream(source: self, request: request)
+        }
+
+        let pixelBufferStream = try streamProvider.pixelBufferStream(
+            frameLimit: frameCount > 0 ? frameCount : nil,
+            frameRateBucket: request.maxFrameRateBucket
+        )
+        let pixelBufferStreamBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferStreamBox(
+            stream: pixelBufferStream
+        )
+        return AsyncThrowingStream { continuation in
+            let producer = Task.detached(priority: .userInitiated) {
+                do {
+                    let iteratorBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferIteratorBox(
+                        stream: pixelBufferStreamBox.stream
+                    )
+                    guard let first = try await iteratorBox.next() else {
+                        continuation.finish(
+                            throwing: NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+                                .noCapturedFrames
+                        )
+                        return
+                    }
+
+                    let width = Int32(CVPixelBufferGetWidth(first))
+                    let height = Int32(CVPixelBufferGetHeight(first))
+                    guard width > 0, height > 0 else {
+                        throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+                            .capturedFrameMissingImageBuffer
+                    }
+                    let firstBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferBox(
+                        pixelBuffer: first
+                    )
+
+                    let replayedPixelBuffers = AsyncThrowingStream<CVPixelBuffer, any Error> {
+                        replayContinuation in
+                        let replayProducer = Task.detached(priority: .userInitiated) {
+                            do {
+                                nonisolated(unsafe) let transferableFirst = firstBox.pixelBuffer
+                                replayContinuation.yield(transferableFirst)
+                                while let next = try await iteratorBox.next() {
+                                    try Task.checkCancellation()
+                                    nonisolated(unsafe) let transferableNext = next
+                                    replayContinuation.yield(transferableNext)
+                                }
+                                replayContinuation.finish()
+                            } catch is CancellationError {
+                                replayContinuation.finish()
+                            } catch {
+                                replayContinuation.finish(throwing: error)
+                            }
+                        }
+                        replayContinuation.onTermination = { _ in
+                            replayProducer.cancel()
+                        }
+                    }
+
+                    let keyFrameInterval = frameCount > 0
+                        ? frameCount
+                        : max(Int(request.maxFrameRateBucket.nominalFrameRate) * 2, 30)
+                    let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
+                        width: width,
+                        height: height,
+                        frameRateBucket: request.maxFrameRateBucket,
+                        keyFrameInterval: keyFrameInterval,
+                        encodingMode: .lowLatencyRealtime
+                    )
+                    let accessUnits = try encoder.encode(pixelBuffers: replayedPixelBuffers)
+                    for try await accessUnit in accessUnits {
+                        try Task.checkCancellation()
+                        continuation.yield(accessUnit)
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                producer.cancel()
+            }
+        }
+    }
 }
 
 private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
-    NaruHelperVideoScreenCaptureKitPixelBufferProvider
+    NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider
 {
     func pixelBuffers(
         frameLimit: Int,
@@ -107,6 +213,38 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
         }
         return try resultBox.value().get().map(\.pixelBuffer)
+    }
+
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
+        guard CGPreflightScreenCaptureAccess() else {
+            throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+                .screenRecordingPermissionMissing
+        }
+
+        return AsyncThrowingStream { continuation in
+            let producer = Task.detached(priority: .userInitiated) {
+                do {
+                    let capture = LiveNaruHelperVideoScreenCaptureKitStreamingCapture(
+                        frameLimit: frameLimit,
+                        frameRateBucket: frameRateBucket,
+                        continuation: continuation
+                    )
+                    try await capture.captureUntilFinished()
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                producer.cancel()
+            }
+        }
     }
 }
 
@@ -159,7 +297,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
         }
     }
 
-    private static func start(_ stream: SCStream) async throws {
+    fileprivate static func start(_ stream: SCStream) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             stream.startCapture { error in
                 if let error {
@@ -171,7 +309,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
         }
     }
 
-    private static func stop(_ stream: SCStream) async throws {
+    fileprivate static func stop(_ stream: SCStream) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             stream.stopCapture { error in
                 if let error {
@@ -180,6 +318,57 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
                     continuation.resume()
                 }
             }
+        }
+    }
+}
+
+private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
+    var frameLimit: Int?
+    var frameRateBucket: HelperVideoFrameRateBucket
+    let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
+
+    func captureUntilFinished() async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
+        guard let display = content.displays.first else {
+            throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+                .captureSourceUnavailable
+        }
+
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let configuration = SCStreamConfiguration()
+        configuration.width = max(display.width, 1)
+        configuration.height = max(display.height, 1)
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        configuration.queueDepth = 3
+        configuration.minimumFrameInterval = frameRateBucket.screenCaptureMinimumFrameInterval
+        configuration.capturesAudio = false
+        configuration.showsCursor = true
+
+        let collector = LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector(
+            frameLimit: frameLimit,
+            continuation: continuation
+        )
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: collector)
+        try stream.addStreamOutput(
+            collector,
+            type: .screen,
+            sampleHandlerQueue: DispatchQueue(label: "com.naruremote.helper-video-sck-stream-output")
+        )
+        try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.start(stream)
+
+        do {
+            try await withTaskCancellationHandler {
+                try await collector.waitUntilFinished()
+            } onCancel: {
+                collector.cancelWait()
+            }
+            try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.stop(stream)
+        } catch {
+            try? await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.stop(stream)
+            throw error
         }
     }
 }
@@ -245,7 +434,7 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
         semaphore.signal()
     }
 
-    private static func isDisplayableScreenFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+    fileprivate static func isDisplayableScreenFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(
             sampleBuffer,
             createIfNecessary: false
@@ -261,8 +450,117 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
     }
 }
 
+private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
+    NSObject,
+    SCStreamOutput,
+    SCStreamDelegate,
+    @unchecked Sendable
+{
+    private let frameLimit: Int?
+    private let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
+    private let lock = NSLock()
+    private var emittedFrameCount = 0
+    private var waitContinuation: CheckedContinuation<Void, any Error>?
+    private var completion: Result<Void, any Error>?
+
+    init(
+        frameLimit: Int?,
+        continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
+    ) {
+        self.frameLimit = frameLimit.map { max($0, 1) }
+        self.continuation = continuation
+    }
+
+    func waitUntilFinished() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let resultToResume: Result<Void, any Error>? = lock.withLock {
+                if let completion {
+                    return completion
+                }
+                waitContinuation = continuation
+                return nil
+            }
+            if let resultToResume {
+                continuation.resume(with: resultToResume)
+            }
+        }
+    }
+
+    func cancelWait() {
+        complete(.failure(CancellationError()))
+    }
+
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
+        guard type == .screen,
+              LiveNaruHelperVideoScreenCaptureKitFrameCollector
+                  .isDisplayableScreenFrame(sampleBuffer),
+              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else {
+            return
+        }
+
+        let shouldFinish: Bool = lock.withLock {
+            guard completion == nil else {
+                return false
+            }
+            emittedFrameCount += 1
+            return frameLimit.map { emittedFrameCount >= $0 } ?? false
+        }
+        nonisolated(unsafe) let transferableImageBuffer = imageBuffer
+        continuation.yield(transferableImageBuffer)
+        if shouldFinish {
+            complete(.success(()))
+        }
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: any Error) {
+        complete(
+            .failure(NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureFailed)
+        )
+    }
+
+    private func complete(_ result: Result<Void, any Error>) {
+        let continuationToResume: CheckedContinuation<Void, any Error>? = lock.withLock {
+            guard completion == nil else {
+                return nil
+            }
+            completion = result
+            let continuation = waitContinuation
+            waitContinuation = nil
+            return continuation
+        }
+        continuationToResume?.resume(with: result)
+    }
+}
+
 private struct CapturedPixelBuffer: @unchecked Sendable {
     var pixelBuffer: CVPixelBuffer
+}
+
+private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferStreamBox: @unchecked Sendable {
+    let stream: AsyncThrowingStream<CVPixelBuffer, any Error>
+}
+
+private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferBox: @unchecked Sendable {
+    let pixelBuffer: CVPixelBuffer
+}
+
+private final class LiveNaruHelperVideoScreenCaptureKitPixelBufferIteratorBox:
+    @unchecked Sendable
+{
+    private var iterator: AsyncThrowingStream<CVPixelBuffer, any Error>.Iterator
+
+    init(stream: AsyncThrowingStream<CVPixelBuffer, any Error>) {
+        self.iterator = stream.makeAsyncIterator()
+    }
+
+    func next() async throws -> CVPixelBuffer? {
+        try await iterator.next()
+    }
 }
 
 private final class LiveNaruHelperVideoScreenCaptureKitResultBox<T>: @unchecked Sendable {
@@ -299,7 +597,7 @@ extension HelperVideoFrameRateBucket {
         min(screenCaptureFrameCollectionTimeout(frameLimit: frameLimit) + 2.0, 12.0)
     }
 
-    private var nominalFrameRate: CMTimeScale {
+    var nominalFrameRate: CMTimeScale {
         switch self {
         case .unknown:
             return 30
@@ -307,6 +605,21 @@ extension HelperVideoFrameRateBucket {
             return 15
         case .upTo30:
             return 30
+        }
+    }
+}
+
+private enum NaruHelperVideoAccessUnitSourceDefaultStreamAdapter {
+    static func stream(
+        source: NaruHelperVideoScreenCaptureKitAccessUnitSource,
+        request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        let accessUnits = try source.accessUnits(for: request)
+        return AsyncThrowingStream { continuation in
+            for accessUnit in accessUnits {
+                continuation.yield(accessUnit)
+            }
+            continuation.finish()
         }
     }
 }

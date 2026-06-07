@@ -24,6 +24,9 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
     public var profileFingerprint: String
     public var port: UInt16
     public var sourceMode: NaruHelperVideoListenSourceMode
+    /// A value of `0` means the listen runtime serves a sustained stream until
+    /// the client disconnects. Benchmarks pass a positive value to keep runs
+    /// bounded and reproducible.
     public var frameCount: Int
 
     public init(
@@ -31,13 +34,13 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
         profileFingerprint: String,
         port: UInt16 = UInt16(naruHelperVideoStreamDefaultPort),
         sourceMode: NaruHelperVideoListenSourceMode = .screenCaptureKit,
-        frameCount: Int = 2
+        frameCount: Int = 0
     ) {
         self.pairingSecret = pairingSecret
         self.profileFingerprint = profileFingerprint
         self.port = port
         self.sourceMode = sourceMode
-        self.frameCount = max(frameCount, 1)
+        self.frameCount = max(frameCount, 0)
     }
 
     public static func parse(
@@ -80,7 +83,7 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
             missingValueError: .invalidFrameCount
         )
             .map(parseFrameCount)
-            ?? 2
+            ?? 0
 
         return NaruHelperVideoListenConfiguration(
             pairingSecret: pairingSecret,
@@ -178,7 +181,10 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
     }
 
     private static func parseFrameCount(_ rawValue: String) throws -> Int {
-        guard let frameCount = Int(rawValue), frameCount > 0 else {
+        if rawValue == "continuous" {
+            return 0
+        }
+        guard let frameCount = Int(rawValue), frameCount >= 0 else {
             throw NaruHelperVideoListenConfigurationError.invalidFrameCount
         }
         return frameCount

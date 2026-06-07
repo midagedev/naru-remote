@@ -21,7 +21,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.profileFingerprint, profileFingerprint)
         XCTAssertEqual(configuration.port, UInt16(naruHelperVideoStreamDefaultPort))
         XCTAssertEqual(configuration.sourceMode, .screenCaptureKit)
-        XCTAssertEqual(configuration.frameCount, 2)
+        XCTAssertEqual(configuration.frameCount, 0)
     }
 
     func testConfigurationParsesCustomPortSourceAndFrameCount() throws {
@@ -64,6 +64,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.pairingSecret, pairingSecret)
         XCTAssertEqual(configuration.profileFingerprint, profileFingerprint)
         XCTAssertEqual(configuration.port, UInt16(naruHelperVideoStreamDefaultPort))
+        XCTAssertEqual(configuration.frameCount, 0)
     }
 
     func testConfigurationRejectsUnsafeMissingOrInvalidArguments() {
@@ -218,6 +219,32 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
     }
 
+    func testConfigurationParsesContinuousFrameCount() throws {
+        let zeroFrameCount = try NaruHelperVideoListenConfiguration.parse(arguments: [
+            "NaruHelper",
+            "--video-listen",
+            "--token",
+            pairingSecret,
+            "--profile-fingerprint",
+            profileFingerprint,
+            "--video-frame-count",
+            "0"
+        ])
+        let namedFrameCount = try NaruHelperVideoListenConfiguration.parse(arguments: [
+            "NaruHelper",
+            "--video-listen",
+            "--token",
+            pairingSecret,
+            "--profile-fingerprint",
+            profileFingerprint,
+            "--video-frame-count",
+            "continuous"
+        ])
+
+        XCTAssertEqual(zeroFrameCount.frameCount, 0)
+        XCTAssertEqual(namedFrameCount.frameCount, 0)
+    }
+
     func testRuntimeServerReceivesAuthenticatedStartAndSendsAccessUnits() async throws {
         let parameterSetPayload = Data([0x00, 0x00, 0x00, 0x01, 0x67])
         let keyframePayload = Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
@@ -270,7 +297,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     }
 
     #if os(macOS) && canImport(VideoToolbox)
-    func testRuntimeServerSendsSustainedSyntheticEncodedBatch() async throws {
+    func testRuntimeServerSendsSustainedSyntheticEncodedStream() async throws {
         let frameCount = 6
         let configuration = NaruHelperVideoListenConfiguration(
             pairingSecret: pairingSecret,
@@ -296,17 +323,23 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
 
         XCTAssertEqual(result.startResponse.body.result, .accepted)
         XCTAssertNil(result.stall)
-        XCTAssertEqual(result.accessUnits.count, frameCount + 1)
-        XCTAssertEqual(result.accessUnits.map { $0.envelope.body.sequence }, Array(0...(frameCount)))
+        XCTAssertGreaterThanOrEqual(result.accessUnits.count, 4)
+        XCTAssertEqual(
+            result.accessUnits.map { $0.envelope.body.sequence },
+            Array(0..<result.accessUnits.count)
+        )
         XCTAssertEqual(result.accessUnits[0].envelope.body.kind, .parameterSet)
-        XCTAssertEqual(result.accessUnits.dropFirst().filter { $0.envelope.body.kind == .keyframe }.count, 1)
+        XCTAssertGreaterThanOrEqual(
+            result.accessUnits.dropFirst().filter { $0.envelope.body.kind == .keyframe }.count,
+            1
+        )
         XCTAssertGreaterThanOrEqual(
             result.accessUnits.dropFirst().filter { $0.envelope.body.kind == .delta }.count,
-            frameCount - 1
+            2
         )
     }
 
-    func testExternalHelperProcessSendsSustainedSyntheticEncodedBatch() async throws {
+    func testExternalHelperProcessSendsSustainedSyntheticEncodedStream() async throws {
         let frameCount = 6
         let helperPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/debug/NaruHelper")
@@ -356,11 +389,31 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             timeout: 3
         )
         do {
-            let result = try await client.startStream(maxServerFrames: frameCount + 2)
-            XCTAssertEqual(result.startResponse.body.result, .accepted)
-            XCTAssertNil(result.stall)
-            XCTAssertEqual(result.accessUnits.count, frameCount + 1)
-            XCTAssertEqual(result.accessUnits.map { $0.envelope.body.sequence }, Array(0...(frameCount)))
+            var startAccepted = false
+            var accessUnits:
+                [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>] = []
+            for try await event in client.streamEvents() {
+                switch event {
+                case .startResponse(let response):
+                    startAccepted = response.body.result == .accepted
+                case .accessUnit(let accessUnit):
+                    accessUnits.append(accessUnit)
+                    if accessUnits.count >= 4 {
+                        break
+                    }
+                case .stall:
+                    XCTFail("External helper stream stalled.")
+                    return
+                }
+            }
+
+            XCTAssertTrue(startAccepted)
+            XCTAssertGreaterThanOrEqual(accessUnits.count, 4)
+            XCTAssertEqual(
+                accessUnits.map { $0.envelope.body.sequence },
+                Array(0..<accessUnits.count)
+            )
+            XCTAssertEqual(accessUnits[0].envelope.body.kind, .parameterSet)
         } catch {
             process.terminate()
             process.waitUntilExit()

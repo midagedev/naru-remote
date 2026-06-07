@@ -386,6 +386,13 @@ without unsafe report fields.
   start/access-unit/stall events without a finite batch cap, and the app runner
   publishes healthy state once while continued access units flow only through
   the renderer. **Done.**
+- [x] T031N [US1] Replace helper-video source-side finite batches with
+  sustained source streams: VideoToolbox synthetic and ScreenCaptureKit
+  injected/live pixel-buffer paths now feed a streaming H.264 encoder, helper
+  `--video-listen` defaults to continuous streaming unless a benchmark passes a
+  positive `--video-frame-count`, and the client treats stream timeout as an
+  idle timeout refreshed by each event. Covered by encoder, ScreenCaptureKit
+  injected-stream, helper network, and listen-runtime tests. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

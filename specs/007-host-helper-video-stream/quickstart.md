@@ -79,10 +79,20 @@ silently remove the existing helper-video opt-in.
 ```bash
 swift build --product NaruHelper
 swift test --filter NaruHelperVideo
+swift test --filter NaruHelperVideoEncoderPrototypeTests
+swift test --filter NaruHelperVideoStreamNetworkServiceTests
+swift test --filter NaruHelperVideoListenRuntimeTests
 .build/debug/NaruHelper --video-capability
 .build/debug/NaruHelper --video-request-screen-recording-permission
 .build/debug/NaruHelper --video-capability
 ```
+
+`NaruHelper --video-listen` now defaults to a sustained helper-video stream.
+Use `--video-frame-count N` only for bounded benchmark or smoke runs; `0` and
+`continuous` both mean unbounded streaming until the client disconnects. The
+client stream timeout is an idle timeout refreshed by each helper-video event,
+so a slow but still-producing stream should not be treated as failed merely
+because total session time exceeded the initial timeout value.
 
 `--video-capability` emits only fixed catalog labels such as
 `permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.

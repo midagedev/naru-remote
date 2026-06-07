@@ -61,7 +61,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 maxServerFrames: max(maxServerFrames, 1),
                 continuation: continuation,
                 connection: connection,
-                timer: timer
+                timer: timer,
+                timeout: timeout
             )
 
             timer.schedule(deadline: .now() + timeout)
@@ -133,7 +134,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
             let eventStream = HelperVideoStreamNetworkEventStream(
                 continuation: continuation,
                 connection: connection,
-                timer: timer
+                timer: timer,
+                timeout: timeout
             )
 
             timer.schedule(deadline: .now() + timeout)
@@ -515,23 +517,27 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
         .Continuation
     private let connection: NWConnection
     private let timer: DispatchSourceTimer
+    private let timeout: TimeInterval
     private var isFinished = false
 
     init(
         continuation: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
             .Continuation,
         connection: NWConnection,
-        timer: DispatchSourceTimer
+        timer: DispatchSourceTimer,
+        timeout: TimeInterval
     ) {
         self.continuation = continuation
         self.connection = connection
         self.timer = timer
+        self.timeout = timeout
     }
 
     func yield(_ event: HelperVideoStreamNetworkEvent) {
         guard !hasFinished else {
             return
         }
+        refreshTimeout()
         continuation.yield(event)
     }
 
@@ -570,6 +576,10 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
             continuation.finish()
         }
     }
+
+    private func refreshTimeout() {
+        timer.schedule(deadline: .now() + timeout)
+    }
 }
 
 private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
@@ -585,19 +595,22 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
     private let continuation: CheckedContinuation<HelperVideoStreamNetworkStartResult, Error>
     private let connection: NWConnection
     private let timer: DispatchSourceTimer
+    private let timeout: TimeInterval
 
     init(
         requestID: UUID,
         maxServerFrames: Int,
         continuation: CheckedContinuation<HelperVideoStreamNetworkStartResult, Error>,
         connection: NWConnection,
-        timer: DispatchSourceTimer
+        timer: DispatchSourceTimer,
+        timeout: TimeInterval
     ) {
         self.requestID = requestID
         self.maxServerFrames = maxServerFrames
         self.continuation = continuation
         self.connection = connection
         self.timer = timer
+        self.timeout = timeout
     }
 
     var shouldReceiveMoreFrames: Bool {
@@ -616,6 +629,7 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
                 receivedFrameCount += 1
                 startResponse = response
             }
+            refreshTimeout()
         } catch {
             complete(.failure(HelperVideoStreamNetworkClientError.malformedFrame))
         }
@@ -632,6 +646,7 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
                 receivedFrameCount += 1
                 accessUnits.append(accessUnit)
             }
+            refreshTimeout()
         } catch {
             complete(.failure(HelperVideoStreamNetworkClientError.malformedFrame))
         }
@@ -647,6 +662,7 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
                 receivedFrameCount += 1
                 self.stall = stall
             }
+            refreshTimeout()
         } catch {
             complete(.failure(HelperVideoStreamNetworkClientError.malformedFrame))
         }
@@ -679,6 +695,10 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         timer.cancel()
         connection.cancel()
         continuation.resume(with: result)
+    }
+
+    private func refreshTimeout() {
+        timer.schedule(deadline: .now() + timeout)
     }
 }
 #endif
