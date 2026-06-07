@@ -92,6 +92,7 @@ scripts/run-naru-live-benchmark.sh preflight
 scripts/run-naru-live-benchmark.sh helper-synthetic-probe
 scripts/run-naru-live-benchmark.sh helper-screen-probe
 scripts/run-naru-live-benchmark.sh helper-readiness-sweep
+scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark
 scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh physical-device-preflight
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
@@ -120,6 +121,12 @@ the readiness gate remains repeatable. If a sub-step exits before returning
 JSON, the sweep emits only that step's fixed label and fixed safe failure code;
 it does not print raw helper stderr, credential values, helper paths,
 endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
+`helper-screen-app-bootstrap-benchmark` runs the opt-in app-runner smoke for
+ScreenCaptureKit access units through helper TCP framing, app-model
+helper-video bootstrap, and the H.264 sample-buffer factory. It emits fixed
+JSON only and hides raw XCTest output. A `skipped` result means the benchmark
+host still needs Screen Recording permission or capture setup before T031 can
+claim true live helper-video app decode evidence.
 `screen-recording-setup` checks helper capability, runs the explicit helper
 permission request, opens macOS Screen Recording settings, and checks helper
 capability again. It emits only fixed setup/status labels. In automation, set

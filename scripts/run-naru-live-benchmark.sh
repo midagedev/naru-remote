@@ -13,6 +13,7 @@ Modes:
   helper-synthetic-probe   Helper-video probe-only run with external synthetic H.264.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
+  helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -2331,6 +2332,58 @@ print_helper_readiness_sweep_report() {
   printf '\n}\n'
 }
 
+print_helper_screen_app_bootstrap_benchmark_report() {
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-screen-app-bootstrap.XXXXXX")"
+  local result_status="failed"
+  local issue_codes=()
+  local setup_actions=()
+
+  if NARU_RUN_SIM_BENCHMARKS=1 \
+    NARU_SIM_BENCHMARK_ITERATIONS=1 \
+    NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=2 \
+    swift test --filter \
+      HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke \
+      >"$output_file" 2>&1; then
+    if grep -q "Test skipped -" "$output_file"; then
+      result_status="skipped"
+      issue_codes=("screen-capturekit-app-bootstrap-skipped")
+      setup_actions=("grant-screen-recording-to-benchmark-host" "rerun-helper-screen-app-bootstrap-benchmark")
+    else
+      result_status="passed"
+    fi
+  else
+    result_status="failed"
+    issue_codes=("screen-capturekit-app-bootstrap-failed")
+    setup_actions=("inspect-screen-capturekit-app-bootstrap-benchmark")
+  fi
+  rm -f "$output_file"
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-screen-app-bootstrap-benchmark",\n'
+  printf '  "status": '
+  json_string "$result_status"
+  printf ',\n'
+  printf '  "sourceMode": "screen-capturekit",\n'
+  printf '  "transportPath": "helper-tcp-to-app-model",\n'
+  printf '  "decodePath": "h264-sample-buffer-factory",\n'
+  printf '  "iterationCount": 1,\n'
+  printf '  "requestedFrameCount": 2,\n'
+  printf '  "issueCodes": '
+  json_string_array "${issue_codes[@]}"
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  json_string_array "${setup_actions[@]}"
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "raw xctest output is not emitted",\n'
+  printf '    "frame payloads, pixels, dimensions, endpoints, helper paths, device ids, credentials, byte counts, and exact timings are not emitted",\n'
+  printf '    "only fixed benchmark labels, status labels, counts, issue codes, and setup action labels are emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
 remote_desktop_10fps_readiness() {
   reject_extra_args
   import_helper_env
@@ -2402,6 +2455,11 @@ case "$mode" in
     import_optional_live_env
     cd "$repo_root"
     print_helper_readiness_sweep_report
+    ;;
+  helper-screen-app-bootstrap-benchmark)
+    reject_extra_args
+    cd "$repo_root"
+    print_helper_screen_app_bootstrap_benchmark_report
     ;;
   short-live-comparison)
     import_helper_env

@@ -117,6 +117,27 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             )
         }
     }
+
+    func testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke() async throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let pairingSecret = "benchmark-helper-video-screen-secret"
+        let helperAccessUnits = try Self.screenCaptureKitHelperAccessUnits(configuration: configuration)
+        let server = try Self.makeHelperVideoNetworkServer(
+            accessUnits: helperAccessUnits,
+            pairingSecret: pairingSecret
+        )
+        server.start()
+        defer { server.cancel() }
+        let port = try await Self.waitForPort(server)
+
+        for iteration in 0..<configuration.iterations {
+            try await Self.runNetworkBackedHelperVideoBootstrapOnce(
+                iteration: iteration,
+                port: port,
+                pairingSecret: pairingSecret
+            )
+        }
+    }
     #endif
     #endif
 
@@ -324,6 +345,24 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             return try source.accessUnits(for: requestBody)
         } catch {
             throw XCTSkip("Toolbox synthetic helper-video source unavailable on this host.")
+        }
+    }
+
+    private static func screenCaptureKitHelperAccessUnits(
+        configuration: HelperVideoAppRunnerBenchmarkConfiguration
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        let requestBody = HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
+        let source = NaruHelperVideoScreenCaptureKitAccessUnitSource(
+            frameCount: configuration.displayableFrameCount
+        )
+        do {
+            return try source.accessUnits(for: requestBody)
+        } catch NaruHelperVideoScreenCaptureKitAccessUnitSourceError.screenRecordingPermissionMissing {
+            throw XCTSkip("Grant Screen Recording to the benchmark host before running this smoke.")
+        } catch NaruHelperVideoScreenCaptureKitAccessUnitSourceError.unsupportedPlatform {
+            throw XCTSkip("ScreenCaptureKit helper-video source unavailable on this host.")
+        } catch {
+            throw XCTSkip("ScreenCaptureKit helper-video source did not produce a finite access-unit batch.")
         }
     }
 
