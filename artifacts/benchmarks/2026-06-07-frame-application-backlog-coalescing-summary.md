@@ -38,8 +38,8 @@ Sources:
 ## Change
 
 - `SessionStreamFrameApplicationQueue` now coalesces pending work to at most:
-  the initial content frame needed for first-frame/session diagnostics, the
-  latest content frame, and the latest server-cursor update.
+  the initial non-incremental content frame needed for first-frame/session
+  diagnostics, the latest content frame, and the latest server-cursor update.
 - Liveness-only empty updates are dropped when content or cursor work is
   pending; when only liveness updates exist, only the latest one is retained.
 - Queue waiters now receive a wake signal, not a preselected frame, so a worker
@@ -59,9 +59,9 @@ swift test --filter NaruRemoteAppTests.NaruRemoteAppModelTests/testSessionStream
 
 Result: pass.
 
-The tests prove that a lagging queue keeps sequence 1 plus the latest content
-frame, and preserves the latest server-cursor update while dropping stale
-content and liveness-only empty updates.
+The tests prove that a lagging queue keeps the initial non-incremental frame
+plus the latest content frame, and preserves the latest server-cursor update
+while dropping stale content and liveness-only empty updates.
 
 Focused app-model/snapshot suite:
 

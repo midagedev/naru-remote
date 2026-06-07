@@ -29,11 +29,23 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let serverInit = Self.makeServerInit(width: 1, height: 1)
         let queue = SessionStreamFrameApplicationQueue()
 
-        for sequence in 1...6 {
+        await queue.enqueue(
+            Self.makeStreamFrameApplicationWork(
+                sequence: 41,
+                red: 41,
+                isIncremental: false,
+                serverInit: serverInit,
+                profile: profile,
+                sessionID: sessionID,
+                streamID: streamID
+            )
+        )
+        for sequence in 42...46 {
             await queue.enqueue(
                 Self.makeStreamFrameApplicationWork(
                     sequence: sequence,
-                    red: UInt8(sequence * 10),
+                    red: UInt8(sequence),
+                    isIncremental: true,
                     serverInit: serverInit,
                     profile: profile,
                     sessionID: sessionID,
@@ -53,8 +65,8 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let latest = await queue.next()
         let done = await queue.next()
 
-        XCTAssertEqual(first?.frame.sequence, 1)
-        XCTAssertEqual(latest?.frame.sequence, 6)
+        XCTAssertEqual(first?.frame.sequence, 41)
+        XCTAssertEqual(latest?.frame.sequence, 46)
         XCTAssertNil(done)
         XCTAssertEqual(SessionStreamFrameApplicationQueue.maximumPendingWorkCount, 3)
     }
@@ -5244,6 +5256,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         sequence: Int,
         red: UInt8,
         isEmptyUpdate: Bool = false,
+        isIncremental: Bool? = nil,
         serverCursor: RFBServerCursor? = nil,
         serverInit: RFBServerInit,
         profile: ConnectionProfile,
@@ -5264,7 +5277,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                     : [RFBFrameDamageRect(x: 0, y: 0, width: framebuffer.width, height: framebuffer.height)],
                 changedPixelCount: isEmptyUpdate ? 0 : framebuffer.width * framebuffer.height,
                 capturedAt: Date(timeIntervalSince1970: TimeInterval(sequence)),
-                isIncremental: sequence > 1,
+                isIncremental: isIncremental ?? (sequence > 1),
                 serverCursor: serverCursor
             ),
             serverInit: serverInit,

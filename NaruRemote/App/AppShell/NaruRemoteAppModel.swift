@@ -81,7 +81,7 @@ actor SessionStreamFrameApplicationQueue {
 
         let originalCount = pending.count
         let initialContentIndex = pending.indices.first {
-            pending[$0].frame.sequence == 1 && !pending[$0].isEmptyUpdate
+            !pending[$0].frame.isIncremental && !pending[$0].isEmptyUpdate
         }
         let latestContentIndex = pending.indices.last {
             !pending[$0].isEmptyUpdate
@@ -3443,7 +3443,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     let usesAdaptiveClientPressurePacing = streamPressurePacingState
                         .usesAdaptivePowerSaverPacing
-                    if frame.sequence == 1 {
+                    if !frame.isIncremental {
                         await self.scheduleActiveDiagnosticExportForTestingIfRequested()
                         let startupPreflightResult = await self.performStartupPreflightFrames(
                             policy: await self.currentStreamStartupPreflightPolicy(),
@@ -4054,7 +4054,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             framebuffer: frame.framebuffer,
             for: profile.id,
             capturedAt: frame.capturedAt,
-            forceDiskSave: frame.sequence == 1
+            forceDiskSave: !frame.isIncremental
         )
         // Only forward damage rectangles for incremental frames.  The
         // first frame in a stream is non-incremental and the renderer
@@ -4078,7 +4078,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             changeActivity: frame.changeActivity
         )
 
-        if frame.sequence == 1 {
+        if !frame.isIncremental {
             diagnosticRun = ConnectionDiagnosticRun(
                 profileID: profile.id,
                 startedAt: diagnosticRun?.startedAt ?? Date(),
