@@ -6104,6 +6104,54 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D134 Isolate The Input Dock From Stream Telemetry Re-renders
+
+References:
+- `artifacts/benchmarks/2026-06-07-input-dock-render-isolation-summary.md`
+- T473 input-dock render isolation gate.
+
+**Decision**: introduce a small Equatable `RemoteInputDockRenderState` and mount
+`RemoteInputDockView` through an Equatable host from the app shell. The state
+contains only the values that affect the visible input dock: Compose text/status,
+helper status, Direct-mode state, sticky modifiers, compact/standard layout, and
+Compose quick-key availability. Streaming telemetry, framebuffer metadata,
+renderer pressure, previews, and other active-session noise stay outside this
+state.
+
+**Why**:
+- Physical-device feedback reported that after a real VNC connection began,
+  gestures and the Compose keyboard could feel frozen. Prior work moved the
+  frame receive/apply path away from MainActor pressure, but the app shell can
+  still re-evaluate while stream diagnostics or frame metadata change.
+- The multilingual Compose editor is a UIKit `UITextView` bridge. During IME
+  composition, the best design is to avoid entering `updateUIView` unless the
+  visible input state truly changed; local UIKit text should remain the owner of
+  marked text and first-responder state.
+- This is a UI isolation gate, not a throughput claim. It prevents stream noise
+  from touching the input bridge while preserving real input invalidations.
+
+**Evidence**:
+- `swift test --filter RemoteInputDockRenderStateTests` passes.
+- The focused tests prove that stream stats, framebuffer presence, dirty-rect
+  metadata, changed-pixel counts, receive timing, renderer pressure, app-frame
+  apply timing, and MainActor responsiveness telemetry do not change the input
+  render state.
+- The same tests prove that Compose text changes and active-session quick-key
+  availability still change the render state.
+
+**Interpretation**:
+- Future regressions where frame/telemetry churn causes the Compose bridge to
+  update should break the render-state equality test before reaching a physical
+  iPhone session.
+- This complements the frame-application queue and worker pacing work; it does
+  not replace the remaining need for physical iPhone verification once Xcode can
+  see the device as available.
+
+**Privacy rule**: the render-state gate and tests use only fixed UI state and
+safe aggregate counters. They must not log/export host identity, credentials,
+request coordinates, dimensions, pixels, byte counts, raw timings, command text,
+draft text, marked text, IME state, keysyms, or pointer coordinates.
+
 ### D137 Add Server Cadence Diagnosis To 10fps Reports
 
 References:

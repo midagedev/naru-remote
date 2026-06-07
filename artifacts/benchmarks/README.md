@@ -420,14 +420,17 @@ the home screen. Pass signing as a command-line build setting rather than
 committing a personal team ID to `project.yml`.
 
 Current physical-device preflight artifact:
-`artifacts/benchmarks/2026-06-07-physical-device-team-inference-summary.md`.
+`artifacts/benchmarks/2026-06-07-physical-device-unavailable-preflight-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh physical-device-preflight` before the
 long physical UI gates. It reports only fixed labels for device selection,
 signing identity, development team, Xcode account, provisioning, and build-check
 status. The device-selection check is intentionally iPhone-only, so a connected
 iPad does not satisfy the T030/T031 gate. If exactly one local Apple
 Development team is available, the runner may use it for the captured build
-check and report only `developmentTeamStatus=inferred`.
+check and report only `developmentTeamStatus=inferred`. A paired but unavailable
+iPhone is now reported as `deviceDiscoveryStatus=unavailable` and skips the
+build check so the next action stays device setup rather than a generic Xcode
+build investigation.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.
@@ -1188,3 +1191,8 @@ post-receive MainActor apply queue so a busy iPhone UI keeps the initial
 diagnostic frame, latest framebuffer, and latest server cursor instead of
 replaying stale visual states after gestures or keyboard input have already
 fallen behind.
+The input-dock render isolation artifact is
+`2026-06-07-input-dock-render-isolation-summary.md`; it adds an Equatable
+render-state gate above the Compose/Direct dock so stream telemetry and
+framebuffer churn do not re-enter the UIKit `UITextView` bridge while local IME
+input owns the editor.
