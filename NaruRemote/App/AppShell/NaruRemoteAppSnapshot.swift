@@ -70,6 +70,7 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var powerSaverPacingSampleCount: Int
     public var emptyBackoffPacingSampleCount: Int
     public var viewportInteractionPacingSampleCount: Int
+    public var helperVideoPrimaryVNCSamplingPacingSampleCount: Int
     public var viewportInteractionRequestPauseCount: Int
     public var viewportInteractionRequestPausePollCount: Int
     public var viewportInteractionRequestPauseMillisecondsTotal: Int
@@ -141,6 +142,7 @@ public struct SessionStreamStats: Equatable, Sendable {
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
+        helperVideoPrimaryVNCSamplingPacingSampleCount: Int = 0,
         viewportInteractionRequestPauseCount: Int = 0,
         viewportInteractionRequestPausePollCount: Int = 0,
         viewportInteractionRequestPauseMillisecondsTotal: Int = 0,
@@ -220,6 +222,10 @@ public struct SessionStreamStats: Equatable, Sendable {
         )
         self.viewportInteractionPacingSampleCount = min(
             max(viewportInteractionPacingSampleCount, 0),
+            self.streamPacingDelaySampleCount
+        )
+        self.helperVideoPrimaryVNCSamplingPacingSampleCount = min(
+            max(helperVideoPrimaryVNCSamplingPacingSampleCount, 0),
             self.streamPacingDelaySampleCount
         )
         self.viewportInteractionRequestPauseCount = max(viewportInteractionRequestPauseCount, 0)
@@ -524,6 +530,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             powerSaverPacingSampleCount: powerSaverPacingSampleCount,
             emptyBackoffPacingSampleCount: emptyBackoffPacingSampleCount,
             viewportInteractionPacingSampleCount: viewportInteractionPacingSampleCount,
+            helperVideoPrimaryVNCSamplingPacingSampleCount: helperVideoPrimaryVNCSamplingPacingSampleCount,
             viewportInteractionRequestPauseCount: viewportInteractionRequestPauseCount,
             viewportInteractionRequestPausePollCount: viewportInteractionRequestPausePollCount,
             averageViewportInteractionRequestPauseBucket: DiagnosticTimingBucket
@@ -631,6 +638,9 @@ public struct SessionStreamStats: Equatable, Sendable {
         }
         if decision.usesViewportInteractionPacing {
             viewportInteractionPacingSampleCount += 1
+        }
+        if decision.usesHelperVideoPrimaryVNCSamplingPacing {
+            helperVideoPrimaryVNCSamplingPacingSampleCount += 1
         }
     }
 

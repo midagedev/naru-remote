@@ -428,6 +428,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case powerSaverPacingSampleCount
         case emptyBackoffPacingSampleCount
         case viewportInteractionPacingSampleCount
+        case helperVideoPrimaryVNCSamplingPacingSampleCount
         case viewportInteractionRequestPauseCount
         case viewportInteractionRequestPausePollCount
         case averageViewportInteractionRequestPauseBucket
@@ -506,6 +507,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let powerSaverPacingSampleCount: Int
     public let emptyBackoffPacingSampleCount: Int
     public let viewportInteractionPacingSampleCount: Int
+    public let helperVideoPrimaryVNCSamplingPacingSampleCount: Int
     public let viewportInteractionRequestPauseCount: Int
     public let viewportInteractionRequestPausePollCount: Int
     public let averageViewportInteractionRequestPauseBucket: String
@@ -584,6 +586,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
+        helperVideoPrimaryVNCSamplingPacingSampleCount: Int = 0,
         viewportInteractionRequestPauseCount: Int = 0,
         viewportInteractionRequestPausePollCount: Int = 0,
         averageViewportInteractionRequestPauseBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
@@ -736,6 +739,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         )
         self.viewportInteractionPacingSampleCount = min(
             max(viewportInteractionPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
+        self.helperVideoPrimaryVNCSamplingPacingSampleCount = min(
+            max(helperVideoPrimaryVNCSamplingPacingSampleCount, 0),
             streamPacingDelaySampleCount
         )
         let viewportInteractionRequestPauseCount = max(viewportInteractionRequestPauseCount, 0)
@@ -1015,6 +1022,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             viewportInteractionPacingSampleCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .viewportInteractionPacingSampleCount
+            ) ?? 0,
+            helperVideoPrimaryVNCSamplingPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .helperVideoPrimaryVNCSamplingPacingSampleCount
             ) ?? 0,
             viewportInteractionRequestPauseCount: try container.decodeIfPresent(
                 Int.self,

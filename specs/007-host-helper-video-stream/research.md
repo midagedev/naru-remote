@@ -2267,3 +2267,47 @@ mention only fixed cadence classes and pass/fail outcomes; they must not emit
 draft text, marked text, keysyms, pointer coordinates, host identity,
 credentials, ports, physical device identifiers, pixels, byte counts, raw
 timings, raw OS errors, or helper endpoints.
+
+## D57 - Treat VNC as a control plane while helper-video is primary
+
+**Decision**: When helper-video is the healthy foreground visual transport, keep
+the VNC session connected for pointer, keyboard, text, diagnostics, and visual
+fallback, but lower VNC framebuffer update requests to a fixed
+helper-primary fallback sampling cadence. If helper-video leaves healthy
+primary state or the stream/session changes, the pacing sleep wakes early and
+the next VNC request returns to ordinary VNC cadence.
+
+**Rationale**:
+- The 2026-06-08 live-safe reproduction separated the bottlenecks: simulator
+  Metal/framebuffer upload and synthetic helper-video H.264 runner paths were
+  fast, while Mac Screen Sharing VNC remained first-byte-wait/receive-path
+  dominated and failed the 10fps product gate even before network
+  conditioning.
+- Continuing high-rate VNC visual requests while helper-video owns the visible
+  layer wastes radio/Wi-Fi airtime, decode work, and device heat without
+  improving what the user sees.
+- Completely parking VNC visual reads would make a later helper-video fallback
+  stale. Low-rate fallback sampling keeps a recent VNC framebuffer and liveness
+  pressure while letting the video path carry smoothness.
+- The control path must stay live during the sampling sleep. Pointer/key/text
+  clients remain bound to VNC after `ServerInit`, including the pre-first-frame
+  helper-video window.
+
+**Evidence**:
+- `artifacts/benchmarks/2026-06-08-helper-primary-vnc-control-plane-summary.md`
+  records the live-safe reproduction, failed VNC cadence sweeps, passing local
+  renderer/helper synthetic benchmarks, and this routing decision.
+- `NaruRemoteAppModelTests/testHelperVideoPrimarySamplesVNCFallbackAndKeepsControlPathActive`
+  proves helper-video healthy state applies helper-primary VNC sampling, tap
+  input still goes through VNC, and stalled helper-video resumes normal VNC
+  cadence.
+- `NaruRemoteAppModelTests/testSessionStreamPacingPolicyUsesHelperVideoPrimaryVNCSamplingFloor`
+  pins the fixed cadence floor, including zero-delay test streams.
+- `NaruRemoteAppSnapshotTests/testSessionStreamStatsBuildSafeDiagnosticPerformanceReport`
+  pins the diagnostic aggregate
+  `helperVideoPrimaryVNCSamplingPacingSampleCount`.
+
+**Privacy rule**: Diagnostics may export only the fixed aggregate sample count
+showing that helper-primary VNC sampling was active. They must not export VNC
+byte counts, helper-video byte counts, frame dimensions, endpoints, display
+names, credentials, raw timings, pointer coordinates, pixels, or text payloads.

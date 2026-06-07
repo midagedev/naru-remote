@@ -132,6 +132,7 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(report.powerSaverPacingSampleCount, 1)
         XCTAssertEqual(report.emptyBackoffPacingSampleCount, 1)
         XCTAssertEqual(report.viewportInteractionPacingSampleCount, 1)
+        XCTAssertEqual(report.helperVideoPrimaryVNCSamplingPacingSampleCount, 0)
         XCTAssertEqual(report.viewportInteractionRequestPauseCount, 2)
         XCTAssertEqual(report.viewportInteractionRequestPausePollCount, 15)
         XCTAssertEqual(

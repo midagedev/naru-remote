@@ -12,6 +12,7 @@ struct SessionStreamPacingDecision: Equatable, Sendable {
     var usesPowerSaverPacing: Bool
     var usesEmptyBackoffPacing: Bool
     var usesViewportInteractionPacing: Bool = false
+    var usesHelperVideoPrimaryVNCSamplingPacing: Bool = false
 }
 
 struct SessionStreamPacingPolicy: Equatable, Sendable {
@@ -26,6 +27,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
         usesViewportInteractionPacing: Bool = false,
+        helperVideoPrimaryVNCSamplingInterval: TimeInterval? = nil,
         viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
         emptyUpdateStreak: Int = 1
     ) -> TimeInterval {
@@ -35,6 +37,7 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             thermalState: thermalState,
             usesPowerSaverPacing: usesPowerSaverPacing,
             usesViewportInteractionPacing: usesViewportInteractionPacing,
+            helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
             viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval,
             emptyUpdateStreak: emptyUpdateStreak
         ).delay
@@ -46,11 +49,15 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         thermalState: SessionStreamThermalState,
         usesPowerSaverPacing: Bool = false,
         usesViewportInteractionPacing: Bool = false,
+        helperVideoPrimaryVNCSamplingInterval: TimeInterval? = nil,
         viewportInteractionContentFrameInterval: TimeInterval = StreamPressurePacingDefaults.viewportInteractionContentFrameIntervalSeconds,
         emptyUpdateStreak: Int = 1
     ) -> SessionStreamPacingDecision {
         let configuredDelay = max(configuredDelay, 0)
-        guard configuredDelay > 0 else {
+        let helperVideoMinimum = minimumDelayForHelperVideoPrimaryVNCSampling(
+            interval: helperVideoPrimaryVNCSamplingInterval
+        )
+        guard configuredDelay > 0 || helperVideoMinimum > 0 else {
             // Explicit zero-delay streams are opt-in deterministic
             // fake/test paths; they bypass thermal and low-power floors.
             return SessionStreamPacingDecision(
@@ -58,15 +65,18 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
                 usesThermalPacing: false,
                 usesPowerSaverPacing: false,
                 usesEmptyBackoffPacing: false,
-                usesViewportInteractionPacing: false
+                usesViewportInteractionPacing: false,
+                usesHelperVideoPrimaryVNCSamplingPacing: false
             )
         }
 
-        let configuredDelayWithBackoff = backoffDelay(
-            for: event,
-            configuredDelay: configuredDelay,
-            emptyUpdateStreak: emptyUpdateStreak
-        )
+        let configuredDelayWithBackoff = configuredDelay > 0
+            ? backoffDelay(
+                for: event,
+                configuredDelay: configuredDelay,
+                emptyUpdateStreak: emptyUpdateStreak
+            )
+            : 0
         let thermalMinimum = minimumDelay(for: event, thermalState: thermalState)
         let powerSaverMinimum = minimumDelayForPowerSaverMode(
             for: event,
@@ -81,7 +91,8 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             configuredDelayWithBackoff,
             thermalMinimum,
             powerSaverMinimum,
-            viewportInteractionMinimum
+            viewportInteractionMinimum,
+            helperVideoMinimum
         )
         return SessionStreamPacingDecision(
             delay: effectiveDelay,
@@ -90,7 +101,9 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             usesEmptyBackoffPacing: configuredDelayWithBackoff > configuredDelay
                 && configuredDelayWithBackoff == effectiveDelay,
             usesViewportInteractionPacing: viewportInteractionMinimum > 0
-                && viewportInteractionMinimum == effectiveDelay
+                && viewportInteractionMinimum == effectiveDelay,
+            usesHelperVideoPrimaryVNCSamplingPacing: helperVideoMinimum > 0
+                && helperVideoMinimum == effectiveDelay
         )
     }
 
@@ -186,6 +199,15 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
         case .emptyUpdate:
             return StreamPressurePacingDefaults.viewportInteractionIdleFrameIntervalSeconds
         }
+    }
+
+    private static func minimumDelayForHelperVideoPrimaryVNCSampling(
+        interval: TimeInterval?
+    ) -> TimeInterval {
+        guard let interval else {
+            return 0
+        }
+        return max(interval, 0)
     }
 }
 
