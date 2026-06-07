@@ -21,6 +21,22 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         waitForEditor(editor, toContain: "입력")
     }
 
+    func testActiveSessionCompactComposeEditorAcceptsSecondKoreanSyllableAfterFirstInput() {
+        let app = launchAppWithActiveSessionFixture()
+        let editor = composeEditor(in: app)
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
         let identified = app.descendants(matching: .any)["naru.input.editor"].firstMatch
         if identified.exists {
@@ -61,6 +77,14 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
             [SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")],
             to: storeURL
         )
+        app.launch()
+        return app
+    }
+
+    private func launchAppWithActiveSessionFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-widescreen"
+        app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launch()
         return app
     }

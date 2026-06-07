@@ -1228,3 +1228,11 @@ fixed setup/status JSON. The current setup run proves the helper identity is
 now `appBundle`, synthetic and sustained helper-video still pass, and true
 ScreenCaptureKit helper-video remains blocked only on the fixed
 `grant-helper-video-app-screen-recording-permission` action.
+The Compose input island artifact is
+`2026-06-07-compose-input-island-summary.md`; it records the active-session
+Korean Compose freeze hypothesis and fix. While the UIKit Compose editor owns
+focus, the dock render identity now ignores model-mirrored draft/helper-status
+changes so debounced app-model mirrors and live frame churn do not invalidate
+the `UITextView` bridge. Send-result status still repaints while focused. The
+new active-session compact Compose XCUITest types `입` then `력` against the
+live-session dock and passes on the iPhone 17 Pro simulator.
