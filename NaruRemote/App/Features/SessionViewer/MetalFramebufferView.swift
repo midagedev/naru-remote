@@ -234,6 +234,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         )
         host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
         context.coordinator.prepareForSession(sessionID)
+        context.coordinator.bindStagedUploadReadyHandler(host: host)
         context.coordinator.bindFrameStore(frameStore, host: host)
         // The very first frame after the view is constructed must
         // perform a full upload — the texture has just been created
@@ -247,6 +248,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
     public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
         context.coordinator.prepareForSession(sessionID)
+        context.coordinator.bindStagedUploadReadyHandler(host: uiView)
         context.coordinator.bindFrameStore(frameStore, host: uiView)
         context.coordinator.updateUploadTimingHandler(onUploadTiming)
         let didEnqueueFramebuffer = context.coordinator.enqueue(
@@ -313,6 +315,12 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
         func updateUploadTimingHandler(_ handler: MetalFramebufferUploadTimingHandler?) {
             renderer?.uploadTimingHandler = handler
+        }
+
+        func bindStagedUploadReadyHandler(host: MetalFramebufferHostingView) {
+            renderer?.stagedUploadReadyHandler = { [weak host] in
+                host?.requestRedrawForIncomingFrame()
+            }
         }
 
         func bindFrameStore(_ frameStore: SessionFrameStore?, host: MetalFramebufferHostingView) {
