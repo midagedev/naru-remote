@@ -1333,14 +1333,19 @@ nested derived summary keeps schema `1` and includes
   permission missing, and VNC product failure together.
 - `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness > /tmp/naru-readiness-v2.json`
   emits schema `2` JSON that validates with `jq empty`.
-- Current live `readinessGateSummary`: `overallGateState=blockedByPhysicalIPhone`,
+- Current live `readinessGateSummary`: `overallGateState=blockedByHelperScreenCapture`,
+  `recommendedPrimaryAction=grant-helper-video-app-screen-recording-permission`,
   blocked labels `physical-iphone-gate-blocked`,
   `helper-video-screen-capture-gate-blocked`, and
   `vnc-10fps-product-gate-failed`.
 - Current VNC gate: wrapper status `passed`, product verdict `fail`,
-  `1.99` content FPS, `502` ms average update, `621` ms p95 update,
-  `618` ms first-byte wait p95, `0` ms payload-read p95, and `2` ms
+  `1.98` content FPS, `505` ms average update, `628` ms p95 update,
+  `619` ms first-byte wait p95, `0` ms payload-read p95, and `8` ms
   client-processing p95.
+- The readiness summary deliberately prioritizes helper Screen Recording setup
+  over physical iPhone preflight when both are blocked, because true
+  ScreenCaptureKit helper-video cannot be benchmarked until the helper app has
+  capture permission.
 
 **References**:
 - Apple ScreenCaptureKit `SCStreamConfiguration.queueDepth`:
@@ -1649,3 +1654,43 @@ credentials, ports, helper paths, executable paths, command lines, raw
 stdout/stderr, raw TCP/RFB errors, raw OS errors, coordinates, dimensions,
 pixels, byte counts, stimulus command text, Compose text, marked text, IME
 state, keysyms, helper endpoints, pairing material, or physical device IDs.
+
+## D46 - Prefer reachable helper text insertion over VNC clipboard paste
+
+**Decision**: When a helper text bridge is enabled, reachable, and matched by a
+reachable helper insert client or stored helper profile, Compose delivery uses
+`helperTextBridge` for every non-empty payload. This includes ASCII, Latin-1,
+and VNC UTF-8-supported payloads. VNC clipboard + paste remains the fallback
+when helper text insertion is absent, disabled, revoked, unreachable, or not yet
+known reachable; stored-helper probing remains allowed for UTF-8 payloads that
+VNC cannot send safely.
+
+**Rationale**:
+- The user-visible `Remote app confirmation unavailable` status is not a real
+  delivery guarantee. Physical feedback showed the app could report that state
+  while remote text still did not appear.
+- Clipboard + paste depends on remote focus, remote clipboard adoption timing,
+  VNC server UTF-8 behavior, and the remote app accepting the paste shortcut.
+  Those are useful compatibility fallbacks but too ambiguous for the primary
+  multilingual Compose path once helper insertion is ready.
+- Helper insertion is already the product direction for reliable local
+  composition. Making it helper-first aligns diagnostics, preflight, and actual
+  send behavior instead of reserving helper only for VNC UTF-8 failures.
+
+**Evidence**:
+- `swift test --filter
+  NaruRemoteAppModelTests/testModelPrefersReachableHelperForComposePayloadsEvenWhenVNCPasteCouldRun`
+  proves a reachable helper handles both ASCII and Korean/CJK/emoji Compose
+  payloads while VNC clipboard payloads and paste commands remain empty.
+- `swift test --filter NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed`
+  preserves the existing helper path for unconfirmed VNC UTF-8 support.
+- `swift test --filter NaruRemoteAppModelTests/testModelSendsComposedTextThroughActiveRFBTextClientAfterConnect`
+  preserves VNC clipboard + paste fallback when helper text insertion is not
+  configured.
+
+**Privacy rule**: Compose route diagnostics and tests may include only fixed
+route names, payload-encoding classes, helper availability classes, and
+aggregate pass/fail state. They must not export live Compose text, marked text,
+clipboard contents, keysyms, helper endpoints, pairing material, host identity,
+credentials, device identifiers, raw VNC/helper errors, pixels, dimensions, or
+byte counts.

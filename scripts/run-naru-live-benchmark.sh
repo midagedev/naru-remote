@@ -2843,17 +2843,17 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           if vnc_product_verdict != "pass" then "vnc-10fps-product-gate-failed" else empty end
         ];
       def overall_gate_state:
-        if physical_status != "connected" then "blockedByPhysicalIPhone"
-        elif helper_screen_verdict != "pass" then "blockedByHelperScreenCapture"
+        if helper_screen_verdict != "pass" then "blockedByHelperScreenCapture"
         elif helper_synthetic_verdict != "pass" then "blockedByHelperSyntheticTransport"
         elif vnc_product_verdict != "pass" then "vncFailedHelperVideoReadyForLiveGate"
+        elif physical_status != "connected" then "blockedByPhysicalIPhone"
         else "vnc10fpsReady"
         end;
       def recommended_action:
-        if physical_status != "connected" then "resolve-physical-iphone-preflight"
-        elif helper_screen_verdict != "pass" then "grant-helper-video-app-screen-recording-permission"
+        if helper_screen_verdict != "pass" then "grant-helper-video-app-screen-recording-permission"
         elif helper_synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif vnc_product_verdict != "pass" then "run-true-helper-video-live-capture-benchmark"
+        elif physical_status != "connected" then "resolve-physical-iphone-preflight"
         else "run-physical-iphone-helper-video-gate"
         end;
       {
@@ -2896,6 +2896,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           "outer-step-status-is-not-product-verdict",
           "physical-helper-vnc-gates-share-one-report",
           "first-byte-wait-routes-to-helper-video-not-profile-promotion",
+          "helper-screen-capture-permission-precedes-physical-iphone-gate",
           "screen-capture-permission-blocks-true-helper-video-live-gate"
         ]
       }
@@ -2955,7 +2956,8 @@ JSON
     has("readinessGateSummary") and
     .readinessGateSummary.schemaVersion == 1 and
     .readinessGateSummary.parentReadinessSchemaVersion == 2 and
-    .readinessGateSummary.overallGateState == "blockedByPhysicalIPhone" and
+    .readinessGateSummary.overallGateState == "blockedByHelperScreenCapture" and
+    .readinessGateSummary.recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
     (.readinessGateSummary.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     (.readinessGateSummary.primaryBlockedGateLabels | index("helper-video-screen-capture-gate-blocked")) and
     (.readinessGateSummary.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
@@ -3030,10 +3032,10 @@ remote_desktop_10fps_readiness() {
     "$vnc_file"
   printf ',\n'
   printf '  "nextActionLabels": [\n'
-  printf '    "resolve-physical-iphone-preflight",\n'
   printf '    "grant-helper-video-app-screen-recording-permission",\n'
   printf '    "rerun-helper-screen-probe",\n'
   printf '    "run-true-helper-video-live-capture-benchmark",\n'
+  printf '    "resolve-physical-iphone-preflight",\n'
   printf '    "run-physical-iphone-helper-video-gate"\n'
   printf '  ]\n'
   printf '}\n'

@@ -27,6 +27,10 @@ enum UXAuditFixtureToken: String {
     /// confirm the remote screen renders at the server's true aspect
     /// ratio instead of a hardcoded 4:3 box.
     case sessionActiveWidescreen = "session-active-widescreen"
+    /// Active session with a stale Compose send result, used to reproduce
+    /// the keyboard-safe-area transition that can happen after the next
+    /// focused Korean/CJK syllable clears that result.
+    case sessionActiveComposeConfirmationUnavailable = "session-active-compose-confirmation-unavailable"
     /// Active session in trackpad mode with a server-provided cursor
     /// shape so screenshots cover the "real remote cursor" overlay path.
     case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
@@ -59,6 +63,8 @@ enum UXAuditFixtures {
             return sidebarWithVerdictsSnapshot()
         case .sessionActiveWidescreen:
             return sessionActiveWidescreenSnapshot()
+        case .sessionActiveComposeConfirmationUnavailable:
+            return sessionActiveComposeConfirmationUnavailableSnapshot()
         case .sessionActiveTrackpadCursor:
             return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
         }
@@ -121,6 +127,8 @@ enum UXAuditFixtures {
             // Seed a connection-quality bucket so the header quality
             // chip renders in the capture — the production estimator is
             // fed by a live latency stream the fixture can't drive.
+            model.seedConnectionQualityForTesting(.good)
+        case .sessionActiveComposeConfirmationUnavailable:
             model.seedConnectionQualityForTesting(.good)
         case .sessionActiveTrackpadCursor:
             // Same active-session surface, but start in trackpad mode so
@@ -325,6 +333,42 @@ enum UXAuditFixtures {
             session: session,
             latestFramebuffer: framebuffer,
             latestServerCursor: serverCursor
+        )
+    }
+
+    private static func sessionActiveComposeConfirmationUnavailableSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 1600,
+            height: 900,
+            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
+        )
+        let draft = ComposeDraft(sessionID: session.id, text: "")
+        let attempt = TextInjectionAttempt(
+            draftID: draft.id,
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            pasteCommand: .commandV,
+            payloadEncoding: .ascii,
+            startedAt: fixedDate(offsetSeconds: 6),
+            finishedAt: fixedDate(offsetSeconds: 6),
+            status: .unknown,
+            clipboardSetStatus: .succeeded,
+            pasteCommandStatus: .succeeded,
+            safeMessage: "Remote app confirmation unavailable."
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: draft,
+            latestInjectionAttempt: attempt,
+            latestFramebuffer: framebuffer
         )
     }
 

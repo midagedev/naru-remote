@@ -76,10 +76,23 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T015au [B] Interaction baseline correction: keep the proven Metal gesture boundary (visible movement on the UIKit/Core Animation hot path, SwiftUI/PiP mirroring deferred until settle), document the larger iPhone interaction goal, and keep Compose Send in the bounded stabilization window after a recent marked-text commit even when UIKit has already cleared `markedTextRange`. Covered by `RemoteInputDockSyncPolicyTests`; physical iPhone retest remains T032/T033. **Done.**
 - [x] T015av [B] Physical iPhone follow-up: raise the zoomed trackpad follow-pan coupling again so the viewport follows the real cursor more closely during central drags, while preserving finger-paced visible cursor travel and existing tiny-sample no-snap guards. Covered by `PointerGestureResolverTests` and `TrackpadModeModelTests`. **Done.**
 - [x] T015aw [B] Physical iPhone freeze correction: stage incoming framebuffer pixels into a Metal buffer off the MainActor, then let the main draw callback perform only a short blit + present pass so first-frame/full-frame uploads do not monopolize touch tracking or the keyboard. Covered by `MetalFramebufferRendererTests`, focused frame-store/cursor tests, and iPhone simulator build verification. **Done.**
-- [x] T015ax [B] Physical iPhone Compose freeze correction: keep the focused compact Compose `UITextView` render identity isolated from model-mirrored draft/helper-status changes while active-session framebuffer churn continues, so the first Korean syllable cannot invalidate the UIKit editor before the second syllable is entered. Send-result status still repaints. Covered by `RemoteInputDockRenderStateTests` and active-session compact Compose XCUITest on iPhone 17 Pro simulator. **Done.**
+- [x] T015ax [B] Physical iPhone Compose freeze correction: keep the focused compact Compose `UITextView` render identity isolated from model-mirrored draft/helper-status changes while active-session framebuffer churn continues, so the first Korean syllable cannot invalidate the UIKit editor before the second syllable is entered. Send-result status is carried outside the hot editor identity in the follow-up T015bb path. Covered by `RemoteInputDockRenderStateTests` and active-session compact Compose XCUITest on iPhone 17 Pro simulator. **Done.**
 - [x] T015ay [B] Trackpad hot-cursor correction: make the Metal host's current visible cursor the source for the next trackpad resolver sample/click before the app model's coalesced published cursor mirror flushes, and cap zoomed edge-follow reveal below half the touch delta so phone-portrait wide-desktop samples keep visible cursor travel in phase with the finger. Covered by `TrackpadModeModelTests`, `PointerGestureResolverTests`, and `2026-06-07-trackpad-hot-cursor-summary.md`. **Done.**
 - [x] T015az [B] Physical iPhone input-lane correction: split outbound pointer and key dispatchers so bursty buttonless trackpad-move writes cannot queue Direct-mode keys or Compose quick keys behind pointer backlog, and pointer timeouts no longer cancel the keyboard lane. Covered by `DirectKeystrokeModeTests`, pointer/trackpad model tests, and the live transport-cadence drilldown artifact. **Done.**
 - [x] T015ba [B] Physical iPhone input-lane correction: add a `RFBBestEffortPointerEventClient` fast path for single buttonless trackpad cursor-follow moves so the app does not wait for socket `contentProcessed` on lossy/latest-value cursor samples; keep clicks, drags, scroll, and keys on reliable ordered writes. Covered by `DirectKeystrokeModeTests` and `FakeRFBServerIntegrationTests`. **Done.**
+- [x] T015bb [B] Physical iPhone Compose correction: keep the focused
+  Compose status sibling mounted while UIKit owns the editor so clearing a
+  previous `Remote app confirmation unavailable` result after the first
+  Korean/CJK syllable cannot collapse the keyboard safe-area stack. Covered by
+  `RemoteInputDockRenderStateTests` and the active-session confirmation-clear
+  Compose XCUITest on iPhone 17 Pro simulator. **Done.**
+- [x] T015bc [B] Compose delivery correction: prefer a reachable helper text
+  bridge for every non-empty Compose payload, not only UTF-8 payloads that VNC
+  cannot safely clipboard. VNC clipboard + paste remains a fallback when helper
+  is absent or not known reachable, so `Remote app confirmation unavailable`
+  is no longer the primary result once helper insertion is ready. Covered by
+  `NaruRemoteAppModelTests/testModelPrefersReachableHelperForComposePayloadsEvenWhenVNCPasteCouldRun`.
+  **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

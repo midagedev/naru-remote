@@ -28,8 +28,9 @@ mirrors must not invalidate the editor.
 - `RemoteInputDockRenderState` now carries `isComposeFieldFocused`.
 - While Compose is focused and Direct mode is inactive, render-state equality
   ignores model-mirrored `initialText` and helper-status changes.
-- Send-result status still invalidates the dock while focused, so users can see
-  confirmation/failure after tapping Send.
+- Send-result status is no longer part of the hot focused editor identity; a
+  sibling status line can carry confirmation/failure chrome without remounting
+  the `UITextView`.
 - Added an active-session compact Compose XCUITest fixture path that types
   `입` then `력` against the live-session dock, not only the pre-connect profile
   detail form.

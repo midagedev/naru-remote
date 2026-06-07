@@ -306,10 +306,12 @@ without unsafe report fields.
 - [x] T031B [US2] Upgrade `remote-desktop-10fps-readiness` to schema `2` with
   physical iPhone preflight and a product-oriented `readinessGateSummary` that
   separates wrapper execution success from the inner 10fps product verdict.
-  Current local run reports `blockedByPhysicalIPhone`,
+  Current local run now reports `blockedByHelperScreenCapture`,
   `helper-video-screen-capture-gate-blocked`, and
   `vnc-10fps-product-gate-failed`, with VNC still failing at about 2 content
-  FPS from first-byte wait dominance. **Done.**
+  FPS from first-byte wait dominance; T031I records the action-order
+  correction that made helper Screen Recording setup the primary next action.
+  **Done.**
 - [x] T030E [US1] Keep Direct key-event emission recoverable after a write
   timeout by recording timeout diagnostics without cancelling the active key
   event client or emitter; add a regression that a later key still emits
@@ -349,6 +351,20 @@ without unsafe report fields.
   first-byte wait, records that ContinuousUpdates fails before usable samples
   on the current Mac Screen Sharing target, and confirms Screen Recording
   permission is still missing for helper-video. **Done.**
+- [x] T031I [US2] Correct the `remote-desktop-10fps-readiness` primary action
+  order so helper ScreenCaptureKit permission failure reports
+  `blockedByHelperScreenCapture` and
+  `grant-helper-video-app-screen-recording-permission` before physical iPhone
+  setup. Current local run still records the physical iPhone and VNC 10fps
+  gates as blocked/failed, but routes the next practical benchmark step to
+  helper Screen Recording because true helper-video capture cannot run without
+  it. **Done.**
+- [x] T031J [US1] Re-evaluate Compose delivery after physical feedback showed
+  `Remote app confirmation unavailable` could still mean no remote text. A
+  reachable helper text bridge is now the first Compose delivery route for all
+  non-empty payloads; VNC clipboard + paste remains fallback only when helper is
+  absent or not known reachable. Covered by focused app-model routing tests.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

@@ -182,8 +182,11 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        if let focusedStatusText = focusedComposeStatusText(snapshot: snapshot) {
-                            FocusedComposeStatusLine(text: focusedStatusText)
+                        if let focusedStatusLine = FocusedComposeStatusLineState(
+                            snapshot: snapshot,
+                            isComposeFieldFocused: composeFieldFocused
+                        ) {
+                            FocusedComposeStatusLine(text: focusedStatusLine.text)
                         }
 
                         RemoteInputDockEquatableHost(
@@ -276,16 +279,6 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
-    private func focusedComposeStatusText(snapshot: NaruRemoteAppSnapshot) -> String? {
-        guard composeFieldFocused, !snapshot.directKeystrokeMode.isActive else {
-            return nil
-        }
-        return RemoteInputDockView.resolvedCompactStatusText(
-            hasStatus: snapshot.latestInjectionAttempt != nil,
-            statusText: snapshot.inputStatusText,
-            helperStatusText: snapshot.inputHelperStatusText
-        )
-    }
 }
 
 struct RemoteInputDockRenderState: Equatable, Sendable {
@@ -349,6 +342,25 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             && lhs.statusText == rhs.statusText
             && lhs.helperStatusText == rhs.helperStatusText
             && lhs.showsCompactStatusText == rhs.showsCompactStatusText
+    }
+}
+
+struct FocusedComposeStatusLineState: Equatable, Sendable {
+    var text: String
+
+    init?(
+        snapshot: NaruRemoteAppSnapshot,
+        isComposeFieldFocused: Bool
+    ) {
+        guard isComposeFieldFocused, !snapshot.directKeystrokeMode.isActive else {
+            return nil
+        }
+
+        // Focused Compose is a UIKit-owned transaction. Keep this sibling
+        // line mounted for the whole focus lifetime so clearing a stale
+        // send result after the first Korean/CJK syllable cannot collapse
+        // the safe-area inset above the active system keyboard.
+        self.text = snapshot.inputStatusText
     }
 }
 
