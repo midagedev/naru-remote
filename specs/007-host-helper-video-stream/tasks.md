@@ -342,6 +342,13 @@ without unsafe report fields.
   in a sibling focused-status line and verify simulator Compose still accepts a
   second Korean syllable in both profile-detail and active compact layouts.
   **Done.**
+- [x] T031H [US2] Add a fixed VNC transport-cadence drilldown before spending
+  more work on VNC profile flips. The new runner compares request/response and
+  ContinuousUpdates under the exact 10fps local `0.25` visible-glance shape,
+  records that request/response still fails at about 6 content FPS from
+  first-byte wait, records that ContinuousUpdates fails before usable samples
+  on the current Mac Screen Sharing target, and confirms Screen Recording
+  permission is still missing for helper-video. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

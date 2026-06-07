@@ -1602,3 +1602,50 @@ synthetic Korean text only. They must not export live Compose drafts, marked
 text, clipboard contents, keysyms, pointer coordinates, host identity,
 credentials, frame pixels, dimensions, byte counts, exact timings, raw OS
 errors, helper endpoints, or device identifiers.
+
+## D45 - Compare VNC request/response with ContinuousUpdates before more profile flips
+
+**Decision**: Add a fixed
+`scripts/run-naru-live-benchmark.sh remote-desktop-10fps-transport-cadence-drilldown`
+mode. The runner holds `local-low-latency-rgb565`, local network condition,
+phone-portrait viewport requests, `visible-glance`, `0.25` startup scale, depth
+`1`, and `iphone-remote-desktop-10fps-v1` fixed while comparing
+`request-response` against `continuous-updates`.
+
+**Rationale**:
+- Current VNC profile and server-cadence sweeps show the same pattern:
+  profile-only changes do not reach the 10fps bar, successful samples are
+  dominated by receive-path first-byte wait, and payload/client/renderer costs
+  are not the main constraint.
+- RFC 6143 makes request/response demand-driven, so first-byte wait can be a
+  protocol/server cadence ceiling rather than an app rendering problem.
+  ContinuousUpdates is the relevant RFB extension to test before assuming a
+  client-side transport flip can solve sustained smoothness.
+- If ContinuousUpdates cannot produce samples on the current Mac Screen
+  Sharing target, VNC remains control/input/fallback while the smooth visual
+  path needs helper-video Screen Recording approval and true helper-video live
+  capture evidence.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh --help` lists
+  `remote-desktop-10fps-transport-cadence-drilldown`.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-transport-cadence-drilldown -- --stream-shape-samples 1`
+  rejects extra arguments with a fixed mode error.
+- A live `remote-desktop-10fps-transport-cadence-drilldown` run exits `rc=0`
+  and emits JSON accepted by `jq empty`.
+- Live result: request/response fails the 10fps target with `5.97` content FPS,
+  `7.05` delivered FPS, `132` ms average update, `502` ms p95 update, and
+  `502` ms p95 first-byte wait. ContinuousUpdates fails before usable samples
+  with `probe-failed`.
+- `screen-recording-setup` reports `permissionMissing`, permission request
+  `notGranted`, settings status `opened`, and `permissionMissing` after the
+  request.
+
+**Privacy rule**: the runner and artifacts emit only fixed mode/candidate,
+profile, target, transport, network, request, setup, verdict, issue, and action
+labels plus aggregate benchmark values. They must not export host identity,
+credentials, ports, helper paths, executable paths, command lines, raw
+stdout/stderr, raw TCP/RFB errors, raw OS errors, coordinates, dimensions,
+pixels, byte counts, stimulus command text, Compose text, marked text, IME
+state, keysyms, helper endpoints, pairing material, or physical device IDs.

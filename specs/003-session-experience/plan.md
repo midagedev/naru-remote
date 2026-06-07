@@ -27,7 +27,7 @@ No new RFB boundary. Trackpad emits **absolute** `PointerEvent`s (RFC 6143 §7.5
 
 ## Data flow
 
-Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteAppModel` → `PointerGestureResolver.resolve(...)` using the current `ViewportTransform` + `TrackpadCursor` → returns updated cursor/transform (published → SwiftUI redraw of overlay/scale) + zero-or-more `RFBPointerCommand` → model dispatches each via `activePointerClient` (dropped silently if not `.active`). Zoom/pan return commands == `[]` (constitution §I). Frame arrival in the stream loop records a latency sample → `ConnectionQualityEstimator` → published bucket.
+Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteAppModel` → `PointerGestureResolver.resolve(...)` using the current `ViewportTransform` + `TrackpadCursor` → returns updated cursor/transform (published → SwiftUI redraw of overlay/scale) + zero-or-more `RFBPointerCommand` → model dispatches each via `activePointerClient` on the pointer outbound lane (dropped silently if not `.active`). Direct-mode and Compose quick-key `KeyEvent`s dispatch through a separate key outbound lane, so bursty buttonless trackpad-move writes cannot park keyboard input behind a pointer backlog. Zoom/pan return commands == `[]` (constitution §I). Frame arrival in the stream loop records a latency sample → `ConnectionQualityEstimator` → published bucket.
 
 ## Verification Matrix (constitution §III; iPhone before iPad)
 
@@ -37,7 +37,7 @@ Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteA
 | `TrackpadCursor` | relative move scaled by displayScale, clamp to bounds, centered() | Unit | iPhone sim |
 | `ConnectionQuality(+Estimator)` | bucket thresholds, EMA, reset, unknown on no sample | Unit | iPhone sim |
 | `PointerGestureResolver` | direct tap maps through zoom+pan; trackpad tap@cursor; 2-finger@cursor; tap-and-a-half; zoom/pan emit `[]` | Unit + Fake RFB | iPhone sim |
-| Model integration | mode/cursor/transform/quality reset on disconnect/profile-change; latency sampling | XCTest (`NaruRemoteAppTests`) | iPhone sim |
+| Model integration | mode/cursor/transform/quality reset on disconnect/profile-change; latency sampling; trackpad-move backlog does not block key lane | XCTest (`NaruRemoteAppTests`) | iPhone sim |
 | Screen-first layout, pointer-mode toggle, cursor overlay, quick keys | XCUITest + screenshots (vision-judge) | iPhone 17 Pro / iOS 26.2 | iPhone sim |
 | Graceful scaling | screenshots | iPad Pro 13" sim |
 | Real Mac VNC trackpad/zoom feel | Manual | iPhone physical — **residual risk** (no device in env), recorded per §III |

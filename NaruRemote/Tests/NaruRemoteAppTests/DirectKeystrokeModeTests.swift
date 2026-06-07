@@ -194,10 +194,12 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertFalse(events[3].isDown)
     }
 
-    func testKeyAndPointerEventsShareOneOutboundQueue() async throws {
-        // RFB key and pointer messages share one active socket. A
-        // delayed key emission must not allow a later pointer tap to
-        // overtake it on a separate detached queue.
+    func testTrackpadMoveBacklogDoesNotBlockDirectKeyLane() async throws {
+        // Live-device regression: trackpad movement can backlog while
+        // the user starts typing. Buttonless pointer moves may be
+        // delayed or dropped; keystrokes must use their own outbound
+        // lane so a stale cursor move cannot make the keyboard feel
+        // frozen after the first character.
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = KeyCapturingStreamingConnector(
             width: 80,
@@ -208,39 +210,38 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            keyEventDelay: .milliseconds(80)
+            pointerEventDelay: .seconds(10)
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
-            connectorFactory: { connector }
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(250)
         )
 
         await model.connectSelectedProfile()
         try await waitForConnectedDirectSession(model)
 
-        model.toggleDirectKeystrokeMode()
-        await model.tapDirectKey(.character("a"))
-        model.sendTapAt(
-            viewPoint: CGPoint(x: 10, y: 10),
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 20, y: 20),
+                translation: CGSize(width: 20, height: 20)
+            ),
             viewSize: CGSize(width: 80, height: 60)
         )
+        try await Task.sleep(for: .milliseconds(30))
+        model.toggleDirectKeystrokeMode()
+        await model.tapDirectKey(.character("a"))
 
-        try await Task.sleep(for: .milliseconds(40))
+        try await waitForKeyEvents(connector, count: 2, timeout: 1)
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.keysym },
+            [0x0061, 0x0061]
+        )
         XCTAssertTrue(
             connector.recordedPointerEvents.isEmpty,
-            "Pointer writes must not overtake a pending key operation"
-        )
-
-        try await waitForInputEvents(connector, count: 4)
-        XCTAssertEqual(
-            connector.recordedInputEvents,
-            [
-                .key(keysym: 0x0061, isDown: true),
-                .key(keysym: 0x0061, isDown: false),
-                .pointer(mask: 0x01, x: 10, y: 10),
-                .pointer(mask: 0x00, x: 10, y: 10)
-            ]
+            "The delayed trackpad move should still be pending or timed out; it must not block keys."
         )
     }
 
@@ -344,6 +345,52 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertEqual(
             connector.recordedKeyEvents.map { $0.isDown },
             [true, false]
+        )
+    }
+
+    func testTimedOutPointerInputDoesNotDisableLaterKeys() async throws {
+        // Pointer failures should narrow to the pointer lane. The same
+        // live session may still accept keyboard input through the key
+        // lane, which is the important recovery path for terminal work.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            ),
+            pointerEventDelay: .seconds(10)
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
+            connectorFactory: { connector },
+            outboundInputEventTimeout: .milliseconds(60)
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 10, y: 10),
+            viewSize: CGSize(width: 80, height: 60)
+        )
+        try await Task.sleep(for: .milliseconds(140))
+        XCTAssertTrue(
+            connector.recordedPointerEvents.isEmpty,
+            "The delayed pointer write should time out before recording"
+        )
+
+        model.toggleDirectKeystrokeMode()
+        await model.tapDirectKey(.character("b"))
+
+        try await waitForKeyEvents(connector, count: 2, timeout: 1)
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.keysym },
+            [0x0062, 0x0062]
         )
     }
 
@@ -708,6 +755,7 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
         var recordedInputEventsList: [RecordedInputEvent] = []
         var keyEventDelays: [Duration?]
+        var pointerEventDelays: [Duration?]
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -721,16 +769,20 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
         name: String,
         framebuffer: RFBRawFramebuffer,
         keyEventDelay: Duration? = nil,
-        keyEventDelays: [Duration?]? = nil
+        keyEventDelays: [Duration?]? = nil,
+        pointerEventDelay: Duration? = nil,
+        pointerEventDelays: [Duration?]? = nil
     ) {
         self.width = width
         self.height = height
         self.name = name
         let resolvedKeyEventDelays = keyEventDelays ?? [keyEventDelay]
+        let resolvedPointerEventDelays = pointerEventDelays ?? [pointerEventDelay]
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 framebuffers: [framebuffer, framebuffer, framebuffer],
-                keyEventDelays: resolvedKeyEventDelays
+                keyEventDelays: resolvedKeyEventDelays,
+                pointerEventDelays: resolvedPointerEventDelays
             )
         )
     }
@@ -798,6 +850,15 @@ private final class KeyCapturingStreamingConnector: RFBStreamingClient {
     func sendPasteCommand(_ command: PasteCommand) throws {}
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        let pointerEventDelay = recording.withLock { state -> Duration? in
+            if state.pointerEventDelays.count > 1 {
+                return state.pointerEventDelays.removeFirst()
+            }
+            return state.pointerEventDelays.first ?? nil
+        }
+        if let pointerEventDelay {
+            try await Task.sleep(for: pointerEventDelay)
+        }
         recording.withLock { state in
             state.recordedPointerEventsList.append((buttonMask, x, y))
             state.recordedInputEventsList.append(.pointer(mask: buttonMask, x: x, y: y))

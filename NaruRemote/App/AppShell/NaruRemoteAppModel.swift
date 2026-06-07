@@ -619,11 +619,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
     private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
-    /// Owns key/pointer wire serialization outside MainActor. The app
-    /// model captures the active session/client identity and returns to
-    /// SwiftUI; this dispatcher performs the ordered writes, timeout race,
-    /// and coarse diagnostics callbacks on detached tasks.
-    private let outboundInputDispatcher: OutboundInputEventDispatcher
+    /// Owns pointer wire serialization outside MainActor. Pointer move/drag
+    /// traffic can be bursty while a user pans or uses trackpad mode, so it
+    /// deliberately does not share a queue with keystrokes.
+    private let pointerInputDispatcher: OutboundInputEventDispatcher
+    /// Owns key wire serialization outside MainActor. Keyboard input must
+    /// remain responsive even when pointer movement is backlogged or times out.
+    private let keyInputDispatcher: OutboundInputEventDispatcher
     private var activeFramePump: RFBFramePump?
     private var activeFrameStreamTask: Task<Void, Never>?
     private var activeFrameApplicationTask: Task<Void, Never>?
@@ -826,7 +828,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
         self.streamPacingSleepOverride = streamPacingSleep
-        self.outboundInputDispatcher = OutboundInputEventDispatcher(
+        self.pointerInputDispatcher = OutboundInputEventDispatcher(
+            timeout: outboundInputEventTimeout
+        )
+        self.keyInputDispatcher = OutboundInputEventDispatcher(
             timeout: outboundInputEventTimeout
         )
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
@@ -4838,7 +4843,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerMoveFlushTask?.cancel()
         pointerMoveFlushTask = nil
         pendingPointerMove = nil
-        outboundInputDispatcher.cancelAll()
+        pointerInputDispatcher.cancelAll()
+        keyInputDispatcher.cancelAll()
+    }
+
+    private func cancelPointerInputEventQueue() {
+        pointerMoveFlushTask?.cancel()
+        pointerMoveFlushTask = nil
+        pendingPointerMove = nil
+        pointerInputDispatcher.cancelAll()
+    }
+
+    private func cancelKeyInputEventQueue() {
+        keyInputDispatcher.cancelAll()
     }
 
     /// Begin a long-lived receive loop that pulls `ServerCutText`
@@ -5366,7 +5383,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID?,
         operation: @escaping @Sendable () async throws -> Void
     ) {
-        outboundInputDispatcher.enqueue(
+        keyInputDispatcher.enqueue(
             operation: operation,
             validate: { [weak self, emitter, streamID, sessionID, profileID] in
                 await MainActor.run {
@@ -5411,6 +5428,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         operationMilliseconds: operationMilliseconds,
                         timedOut: timedOut
                     )
+                    self.cancelKeyInputEventQueue()
                 }
             }
         )
@@ -6559,7 +6577,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        outboundInputDispatcher.enqueue(
+        pointerInputDispatcher.enqueue(
             operation: { [pointerClient, commands] in
                 for command in commands {
                     guard !Task.isCancelled else {
@@ -6615,7 +6633,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         operationMilliseconds: operationMilliseconds,
                         timedOut: timedOut
                     )
-                    self.cancelOutboundInputEventQueues()
+                    self.cancelPointerInputEventQueue()
                     self.activePointerClient = nil
                     self.lastEmittedDragCoord = nil
                 }
