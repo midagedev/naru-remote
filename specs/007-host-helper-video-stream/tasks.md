@@ -380,6 +380,12 @@ without unsafe report fields.
   and VNC still below the 10fps iPhone product gate. Covered by helper-video
   report tests, comparison/preflight tests, summary self-test, and launchctl
   live helper/readiness probes. **Done.**
+- [x] T031M [US1] Replace the app's helper-video bootstrap fast path with a
+  long-lived authenticated event stream: the helper server can forward Async
+  access units as they are produced, the iOS client can consume
+  start/access-unit/stall events without a finite batch cap, and the app runner
+  publishes healthy state once while continued access units flow only through
+  the renderer. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

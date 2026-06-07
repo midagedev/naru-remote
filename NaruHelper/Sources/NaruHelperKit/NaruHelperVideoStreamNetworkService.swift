@@ -78,8 +78,10 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
                 }
 
                 do {
-                    let frames = try pipeline.frames(forStartStreamFrame: header + payload)
-                    send(frames[...], on: connection)
+                    let frames = try pipeline.frameStream(forStartStreamFrame: header + payload)
+                    Task.detached(priority: .userInitiated) {
+                        await send(frames, on: connection)
+                    }
                 } catch {
                     connection.cancel()
                 }
@@ -88,23 +90,42 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
     }
 
     private static func send(
-        _ frames: ArraySlice<Data>,
+        _ frames: AsyncThrowingStream<Data, any Error>,
         on connection: NWConnection
-    ) {
-        guard let frame = frames.first else {
+    ) async {
+        do {
+            for try await frame in frames {
+                try Task.checkCancellation()
+                try await sendFrame(frame, on: connection)
+            }
+            await complete(connection)
+        } catch {
+            connection.cancel()
+        }
+    }
+
+    private static func sendFrame(
+        _ frame: Data,
+        on connection: NWConnection
+    ) async throws {
+        let _: Void = try await withCheckedThrowingContinuation { continuation in
+            connection.send(content: frame, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            })
+        }
+    }
+
+    private static func complete(_ connection: NWConnection) async {
+        await withCheckedContinuation { continuation in
             connection.send(content: nil, isComplete: true, completion: .contentProcessed { _ in
                 connection.cancel()
+                continuation.resume()
             })
-            return
         }
-
-        connection.send(content: frame, completion: .contentProcessed { error in
-            guard error == nil else {
-                connection.cancel()
-                return
-            }
-            send(frames.dropFirst(), on: connection)
-        })
     }
 }
 

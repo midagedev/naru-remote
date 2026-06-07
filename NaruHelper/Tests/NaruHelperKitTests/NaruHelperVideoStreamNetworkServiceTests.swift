@@ -49,6 +49,59 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         XCTAssertEqual(result.accessUnits[1].binaryPayload, keyframePayload)
     }
 
+    func testNetworkClientStreamsStartResponseAndAccessUnitsFromHelperServer() async throws {
+        let parameterSetPayload = Data([0x00, 0x00, 0x00, 0x01, 0x67])
+        let keyframePayload = Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
+        let server = try makeServer(source: AsyncOnlyAccessUnitSource(accessUnits: [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .parameterSet,
+                binaryPayload: parameterSetPayload
+            ),
+            NaruHelperVideoAccessUnit(
+                sequence: 1,
+                kind: .keyframe,
+                binaryPayload: keyframePayload
+            )
+        ]))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        var events: [HelperVideoStreamNetworkEvent] = []
+        for try await event in client.streamEvents() {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events.count, 3)
+        guard case .startResponse(let response) = events[0] else {
+            XCTFail("Expected start response event.")
+            return
+        }
+        guard case .accessUnit(let parameterSet) = events[1] else {
+            XCTFail("Expected parameter set access unit event.")
+            return
+        }
+        guard case .accessUnit(let keyframe) = events[2] else {
+            XCTFail("Expected keyframe access unit event.")
+            return
+        }
+
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(parameterSet.envelope.body.sequence, 0)
+        XCTAssertEqual(parameterSet.binaryPayload, parameterSetPayload)
+        XCTAssertEqual(keyframe.envelope.body.sequence, 1)
+        XCTAssertEqual(keyframe.binaryPayload, keyframePayload)
+    }
+
     func testNetworkClientReceivesSafeStallWhenHelperHasNoAccessUnits() async throws {
         let server = try makeServer(accessUnits: [])
         server.start()
@@ -104,6 +157,12 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
     private func makeServer(
         accessUnits: [NaruHelperVideoAccessUnit]
     ) throws -> NaruHelperVideoStreamNetworkServer {
+        try makeServer(source: NaruHelperVideoStaticAccessUnitSource(accessUnits: accessUnits))
+    }
+
+    private func makeServer(
+        source: any NaruHelperVideoAccessUnitSource
+    ) throws -> NaruHelperVideoStreamNetworkServer {
         let requestHandler = NaruHelperVideoTransportRequestHandler(
             expectedPairingSecret: pairingSecret,
             expectedProfileFingerprint: profileFingerprint,
@@ -118,7 +177,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         )
         let pipeline = NaruHelperVideoStreamFramePipeline(
             requestHandler: requestHandler,
-            accessUnitSource: NaruHelperVideoStaticAccessUnitSource(accessUnits: accessUnits)
+            accessUnitSource: source
         )
         return try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
     }
@@ -134,5 +193,34 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         }
         return try XCTUnwrap(server.port)
     }
+}
+
+private struct AsyncOnlyAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var accessUnits: [NaruHelperVideoAccessUnit]
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        throw AsyncOnlyAccessUnitSourceError.finiteBatchPathUsed
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        AsyncThrowingStream { continuation in
+            let accessUnits = accessUnits
+            Task {
+                for accessUnit in accessUnits {
+                    continuation.yield(accessUnit)
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                continuation.finish()
+            }
+        }
+    }
+}
+
+private enum AsyncOnlyAccessUnitSourceError: Error {
+    case finiteBatchPathUsed
 }
 #endif

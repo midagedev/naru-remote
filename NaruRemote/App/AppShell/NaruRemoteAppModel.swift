@@ -420,6 +420,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         HelperVideoStartStreamRequestBody,
         Int
     ) async throws -> HelperVideoStreamNetworkStartResult
+    public typealias HelperVideoOpenStream = @Sendable (
+        ConnectionProfile,
+        String,
+        String,
+        HelperVideoStartStreamRequestBody
+    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
     public typealias HelperVideoRendererFactory = @MainActor @Sendable () -> any HelperVideoAccessUnitRendering
 
     /// macOS Screen Sharing and other VNC servers apply ClientCutText
@@ -561,6 +567,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let localClipboardWriter: (any LocalClipboardWriting)?
     private let helperTextInsertClient: (any HelperTextInsertClient)?
     private let helperVideoStartStream: HelperVideoStartStream?
+    private let helperVideoOpenStream: HelperVideoOpenStream?
     private let helperVideoRendererFactory: HelperVideoRendererFactory?
     private let streamStartupPreflightPolicyOverride: SessionStreamStartupPreflightPolicy?
     private let incomingClipboardReceiveTimeout: TimeInterval
@@ -733,6 +740,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         localClipboardWriter: (any LocalClipboardWriting)? = nil,
         helperTextInsertClient: (any HelperTextInsertClient)? = nil,
         helperVideoStartStream: HelperVideoStartStream? = nil,
+        helperVideoOpenStream: HelperVideoOpenStream? = nil,
         helperVideoRendererFactory: HelperVideoRendererFactory? = nil,
         streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
@@ -828,6 +836,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.localClipboardWriter = localClipboardWriter
         self.helperTextInsertClient = helperTextInsertClient
         self.helperVideoStartStream = helperVideoStartStream ?? Self.defaultHelperVideoStartStream()
+        self.helperVideoOpenStream = helperVideoOpenStream
+            ?? (helperVideoStartStream == nil ? Self.defaultHelperVideoOpenStream() : nil)
         self.helperVideoRendererFactory = helperVideoRendererFactory ?? Self.defaultHelperVideoRendererFactory()
         self.streamStartupPreflightPolicyOverride = streamStartupPreflightPolicy
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
@@ -856,6 +866,22 @@ public final class NaruRemoteAppModel: ObservableObject {
                 pairingSecret: pairingSecret
             )
             return try await client.startStream(requestBody, maxServerFrames: maxServerFrames)
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    private static func defaultHelperVideoOpenStream() -> HelperVideoOpenStream? {
+        #if canImport(Network)
+        return { profile, pairingSecret, pairingFingerprint, requestBody in
+            let client = HelperVideoStreamNetworkClient(
+                host: profile.host,
+                port: UInt16(naruHelperVideoStreamDefaultPort),
+                profileFingerprint: pairingFingerprint,
+                pairingSecret: pairingSecret
+            )
+            return client.streamEvents(requestBody)
         }
         #else
         return nil
@@ -1760,7 +1786,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             return
         }
-        guard let helperVideoStartStream else {
+        guard helperVideoStartStream != nil || helperVideoOpenStream != nil else {
             markHelperVideoBootstrapFailure(
                 .transportFailed,
                 profileID: profile.id,
@@ -1786,7 +1812,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: sessionID,
             pairingFingerprint: pairingFingerprint
         )
-        activeHelperVideoStreamTask = Task.detached(priority: .userInitiated) { [weak self, credentialStore, profile, secretRef, pairingFingerprint, sessionID, bootstrapID, helperVideoStartStream, helperVideoRendererFactory] in
+        activeHelperVideoStreamTask = Task.detached(priority: .userInitiated) { [weak self, credentialStore, profile, secretRef, pairingFingerprint, sessionID, bootstrapID, helperVideoStartStream, helperVideoOpenStream, helperVideoRendererFactory] in
             defer {
                 Task { @MainActor [weak self] in
                     self?.clearHelperVideoStreamBootstrap(id: bootstrapID)
@@ -1836,6 +1862,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 pairingSecret: pairingSecret,
                 pairingFingerprint: pairingFingerprint,
                 startStream: helperVideoStartStream,
+                openStream: helperVideoOpenStream,
                 rendererFactory: helperVideoRendererFactory
             )
         }
@@ -1863,7 +1890,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         bootstrapID: UUID,
         pairingSecret: String,
         pairingFingerprint: String,
-        startStream: @escaping HelperVideoStartStream,
+        startStream: HelperVideoStartStream?,
+        openStream: HelperVideoOpenStream?,
         rendererFactory: HelperVideoRendererFactory
     ) async {
         guard isCurrentHelperVideoBootstrap(
@@ -1879,18 +1907,41 @@ public final class NaruRemoteAppModel: ObservableObject {
             sessionID: sessionID,
             pairingFingerprint: pairingFingerprint
         )
-        let runner = HelperVideoStreamSessionRunner(
-            startStream: { requestBody, maxServerFrames in
-                try await startStream(
-                    profile,
-                    pairingSecret,
-                    pairingFingerprint,
-                    requestBody,
-                    maxServerFrames
-                )
-            },
-            renderer: rendererFactory()
-        )
+        let runner: HelperVideoStreamSessionRunner
+        if let openStream {
+            runner = HelperVideoStreamSessionRunner(
+                eventStream: { requestBody in
+                    openStream(
+                        profile,
+                        pairingSecret,
+                        pairingFingerprint,
+                        requestBody
+                    )
+                },
+                renderer: rendererFactory()
+            )
+        } else if let startStream {
+            runner = HelperVideoStreamSessionRunner(
+                startStream: { requestBody, maxServerFrames in
+                    try await startStream(
+                        profile,
+                        pairingSecret,
+                        pairingFingerprint,
+                        requestBody,
+                        maxServerFrames
+                    )
+                },
+                renderer: rendererFactory()
+            )
+        } else {
+            markHelperVideoBootstrapFailure(
+                .transportFailed,
+                profileID: profile.id,
+                sessionID: sessionID,
+                pairingFingerprint: pairingFingerprint
+            )
+            return
+        }
         _ = await runner.start(sessionID: sessionID, profileID: profile.id, model: self)
     }
 
