@@ -6147,12 +6147,25 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             sendingDraft.markSending(path: .vncClipboardPaste, at: now)
 
-            guard await Self.isCurrentTextInjection(
+            switch await Self.textInjectionCurrentness(
                 self,
                 draftID: draftID,
                 sessionID: sessionID,
                 clientBox: clientBox
-            ) else {
+            ) {
+            case .current:
+                break
+            case .staleDraft:
+                await Self.cancelTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    reason: .draftChanged
+                )
+                return
+            case .staleSession:
                 await Self.cancelTextInjection(
                     self,
                     draft: sendingDraft,
@@ -6188,12 +6201,25 @@ public final class NaruRemoteAppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: nanoseconds)
             }
 
-            guard await Self.isCurrentTextInjection(
+            switch await Self.textInjectionCurrentness(
                 self,
                 draftID: draftID,
                 sessionID: sessionID,
                 clientBox: clientBox
-            ) else {
+            ) {
+            case .current:
+                break
+            case .staleDraft:
+                await Self.cancelTextInjection(
+                    self,
+                    draft: sendingDraft,
+                    attempt: attempt,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    reason: .draftChanged
+                )
+                return
+            case .staleSession:
                 await Self.cancelTextInjection(
                     self,
                     draft: sendingDraft,
@@ -6829,21 +6855,46 @@ public final class NaruRemoteAppModel: ObservableObject {
         return result.safeFailureCode == .restoreFailed ? .failed : .succeeded
     }
 
-    private static func isCurrentTextInjection(
+    private enum TextInjectionCurrentness {
+        case current
+        case staleDraft
+        case staleSession
+    }
+
+    private enum TextInjectionCancellationReason {
+        case sessionChanged
+        case draftChanged
+
+        var message: String {
+            switch self {
+            case .sessionChanged:
+                "Text send cancelled because the remote session changed."
+            case .draftChanged:
+                "Text send cancelled because the compose draft changed."
+            }
+        }
+    }
+
+    private static func textInjectionCurrentness(
         _ model: NaruRemoteAppModel?,
         draftID: ComposeDraft.ID,
         sessionID: RemoteSession.ID,
         clientBox: RemoteClipboardTextClientBox
-    ) async -> Bool {
+    ) async -> TextInjectionCurrentness {
         await MainActor.run {
             guard let model,
                   model.session?.id == sessionID,
                   model.session?.state == .active,
                   clientBox.matches(model.activeTextClient)
             else {
-                return false
+                return .staleSession
             }
-            return true
+            guard model.composeDraft?.id == draftID,
+                  model.composeDraft?.sessionID == sessionID
+            else {
+                return .staleDraft
+            }
+            return .current
         }
     }
 
@@ -6962,11 +7013,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         draft: ComposeDraft,
         attempt: TextInjectionAttempt,
         draftID: ComposeDraft.ID,
-        sessionID: RemoteSession.ID
+        sessionID: RemoteSession.ID,
+        reason: TextInjectionCancellationReason = .sessionChanged
     ) async {
         var cancelledDraft = draft
         var cancelledAttempt = attempt
-        let message = "Text send cancelled because the remote session changed."
+        let message = reason.message
         let finishedAt = Date()
         cancelledDraft.markFailed(reason: message, at: finishedAt)
         cancelledAttempt.finishedAt = finishedAt

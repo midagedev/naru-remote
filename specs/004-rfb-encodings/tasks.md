@@ -1608,6 +1608,20 @@ iPhone) and ships as its own PR.
   endpoints, pairing material, or physical device IDs. Owns: app-model chrome
   publish coalescer, focused-input model tests, UI-test evidence, research
   note, and benchmark artifact. **Done.**
+- **T478** 10fps transport-cadence readiness gate: after live reproduction
+  showed request/response can still fail the 10fps target from first-byte wait
+  and ContinuousUpdates can fail before samples on the same Mac target, make
+  the `remote-desktop-10fps` preset and `remote-desktop-10fps-readiness`
+  dashboard record transport cadence explicitly. The readiness report must
+  include the transport drilldown artifact plus a compact summary of
+  request-response FPS/first-byte wait and ContinuousUpdates confirmation
+  status, while keeping helper-video as the primary smoothness candidate until
+  VNC reaches the product target. Emit/export no host identity, credentials,
+  ports, helper paths, executable paths, command lines, raw stdout/stderr, raw
+  TCP/RFB errors, raw OS errors, coordinates, dimensions, pixels, byte counts,
+  stimulus command text, draft text, marked text, IME state, keysyms, helper
+  endpoints, pairing material, or physical device IDs. Owns: benchmark preset,
+  readiness shell, self-test, research note, and live evidence. **Done.**
 
 ## Cross-cutting (every increment)
 

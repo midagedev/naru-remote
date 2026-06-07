@@ -3484,6 +3484,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
   local physical_file="$1"
   local helper_file="$2"
   local vnc_file="$3"
+  local transport_file="$4"
 
   if ! command -v jq >/dev/null 2>&1; then
     print_remote_desktop_10fps_readiness_summary_failure \
@@ -3494,7 +3495,8 @@ print_remote_desktop_10fps_readiness_gate_summary() {
   if ! jq -n \
     --slurpfile physical "$physical_file" \
     --slurpfile helper "$helper_file" \
-    --slurpfile vnc "$vnc_file" '
+    --slurpfile vnc "$vnc_file" \
+    --slurpfile transport "$transport_file" '
       def first($items): $items[0] // {};
       def hreport($key):
         (first($helper)[$key].visualTransportComparison.helperVideoReports[0] // {});
@@ -3502,6 +3504,13 @@ print_remote_desktop_10fps_readiness_gate_summary() {
       def vnc_summary: vnc_report.streamShapeProbe.summary // {};
       def vnc_assessment: vnc_summary.practicalAssessment // {};
       def latency($key): (vnc_summary[$key] // {});
+      def transport_doc: first($transport);
+      def transport_candidate($mode):
+        ((transport_doc.candidates // []) | map(select(.transportMode == $mode))[0] // {});
+      def transport_report($mode): transport_candidate($mode).report // {};
+      def transport_summary($mode): transport_report($mode).streamShapeProbe.summary // {};
+      def transport_diagnosis($mode):
+        transport_report($mode).streamShapeTransportCadenceDiagnosis // {};
       def physical_status: first($physical).deviceDiscoveryStatus // "unknown";
       def helper_synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
       def helper_sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
@@ -3574,13 +3583,45 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           payloadReadP95Milliseconds: (latency("payloadReadLatency").p95Milliseconds // null),
           clientProcessingP95Milliseconds: (latency("clientProcessingLatency").p95Milliseconds // null)
         },
+        transportCadenceGate: {
+          wrapperStatus: (transport_doc.status // "unknown"),
+          requestResponseCandidateStatus: (transport_candidate("request-response").status // "not-run"),
+          requestResponseProductVerdict: (
+            transport_summary("request-response").practicalAssessment.verdict // "unknown"
+          ),
+          requestResponseStatus: (
+            transport_diagnosis("request-response").requestResponseStatus // "unknown"
+          ),
+          requestResponseContentFramesPerSecond: (
+            transport_summary("request-response").contentFramesPerSecond // null
+          ),
+          requestResponseFirstByteWaitP95Milliseconds: (
+            transport_summary("request-response").firstByteWaitLatency.p95Milliseconds // null
+          ),
+          continuousUpdatesCandidateStatus: (
+            transport_candidate("continuous-updates").status // "not-run"
+          ),
+          continuousUpdatesProductVerdict: (
+            transport_summary("continuous-updates").practicalAssessment.verdict // "unknown"
+          ),
+          continuousUpdatesStatus: (
+            transport_diagnosis("continuous-updates").continuousUpdatesStatus // "unknown"
+          ),
+          continuousUpdatesFailureLabel: (
+            transport_summary("continuous-updates").failureLabel // null
+          ),
+          continuousUpdatesRecommendedNextAction: (
+            transport_diagnosis("continuous-updates").recommendedNextAction // "unknown"
+          )
+        },
         diagnosticDesignLabels: [
           "outer-step-status-is-not-product-verdict",
           "physical-helper-vnc-gates-share-one-report",
           "first-byte-wait-routes-to-helper-video-not-profile-promotion",
           "helper-screen-capture-permission-precedes-physical-iphone-gate",
           "sustained-synthetic-helper-video-precedes-physical-iphone-gate",
-          "screen-capture-permission-blocks-true-helper-video-live-gate"
+          "screen-capture-permission-blocks-true-helper-video-live-gate",
+          "transport-cadence-drilldown-is-reported-beside-vnc-product-verdict"
         ]
       }
     ' >/dev/stdout; then
@@ -3595,6 +3636,7 @@ remote_desktop_readiness_summary_self_test() {
   local physical_file
   local helper_file
   local vnc_file
+  local transport_file
   local summary_file
   local sustained_blocked_helper_file
   local sustained_blocked_summary_file
@@ -3602,6 +3644,7 @@ remote_desktop_readiness_summary_self_test() {
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
+  transport_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-transport.XXXXXX")"
   summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary.XXXXXX")"
   sustained_blocked_helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper-sustained.XXXXXX")"
   sustained_blocked_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-sustained.XXXXXX")"
@@ -3619,15 +3662,20 @@ JSON
   cat >"$vnc_file" <<'JSON'
 {"schemaVersion":1,"mode":"glance-025-10fps-duration-probe","status":"passed","report":{"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeProbe":{"summary":{"contentFramesPerSecond":1.9,"updateLatency":{"averageMilliseconds":503,"p95Milliseconds":632},"firstByteWaitLatency":{"p95Milliseconds":630},"payloadReadLatency":{"p95Milliseconds":0},"clientProcessingLatency":{"p95Milliseconds":2},"practicalAssessment":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed","primaryConstraint":"receivePath"}}}}}
 JSON
+  cat >"$transport_file" <<'JSON'
+{"schemaVersion":1,"mode":"remote-desktop-10fps-transport-cadence-drilldown","status":"completed","candidates":[{"transportMode":"request-response","status":"passed","report":{"streamShapeProbe":{"summary":{"contentFramesPerSecond":6.1,"firstByteWaitLatency":{"p95Milliseconds":501},"practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target","recommendedNextAction":"tuneTransportCadence"}}},{"transportMode":"continuous-updates","status":"passed","report":{"streamShapeProbe":{"summary":{"failureLabel":"stream-continuous-updates-continuous-updates-not-confirmed","practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"continuousUpdatesStatus":"failed-before-samples","recommendedNextAction":"inspectContinuousUpdatesConnection"}}}]}
+JSON
 
   print_remote_desktop_10fps_readiness_gate_summary \
     "$physical_file" \
     "$helper_file" \
-    "$vnc_file" >"$summary_file"
+    "$vnc_file" \
+    "$transport_file" >"$summary_file"
   print_remote_desktop_10fps_readiness_gate_summary \
     "$physical_file" \
     "$sustained_blocked_helper_file" \
-    "$vnc_file" >"$sustained_blocked_summary_file"
+    "$vnc_file" \
+    "$transport_file" >"$sustained_blocked_summary_file"
 
   {
     printf '{"schemaVersion":2,"mode":"remote-desktop-10fps-readiness","physicalDevicePreflight":'
@@ -3636,6 +3684,8 @@ JSON
     cat "$helper_file"
     printf ',"vnc10fpsProbe":'
     cat "$vnc_file"
+    printf ',"transportCadenceDrilldown":'
+    cat "$transport_file"
     printf ',"readinessGateSummary":'
     cat "$summary_file"
     printf '}'
@@ -3660,7 +3710,11 @@ JSON
     .readinessGateSummary.helperVideoGate.sustainedSyntheticVerdict == "pass" and
     .readinessGateSummary.helperVideoGate.screenCaptureReadinessState == "permissionBlocked" and
     .readinessGateSummary.helperVideoGate.screenCaptureRecommendedAction == "grant-helper-video-app-screen-recording-permission" and
-    .readinessGateSummary.helperVideoGate.screenRecordingPermission == "missing"
+    .readinessGateSummary.helperVideoGate.screenRecordingPermission == "missing" and
+    .readinessGateSummary.transportCadenceGate.requestResponseStatus == "below-target" and
+    .readinessGateSummary.transportCadenceGate.requestResponseContentFramesPerSecond == 6.1 and
+    .readinessGateSummary.transportCadenceGate.continuousUpdatesStatus == "failed-before-samples" and
+    .readinessGateSummary.transportCadenceGate.continuousUpdatesFailureLabel == "stream-continuous-updates-continuous-updates-not-confirmed"
   ' "$readiness_file" >/dev/null && jq -e '
     .overallGateState == "blockedByHelperSustainedSyntheticTransport" and
     .recommendedPrimaryAction == "inspect-helper-video-sustained-cadence" and
@@ -3670,7 +3724,8 @@ JSON
     .helperVideoGate.sustainedSyntheticReadinessState == "sustainedDegraded" and
     .helperVideoGate.sustainedSyntheticRecommendedAction == "inspect-helper-video-sustained-cadence" and
     .helperVideoGate.screenCaptureVerdict == "pass" and
-    .helperVideoGate.screenRecordingPermission == "granted"
+    .helperVideoGate.screenRecordingPermission == "granted" and
+    .transportCadenceGate.continuousUpdatesRecommendedNextAction == "inspectContinuousUpdatesConnection"
   ' "$sustained_blocked_summary_file" >/dev/null; then
     printf '{"schemaVersion":1,"mode":"remote-desktop-readiness-summary-self-test","status":"passed","summary":'
     cat "$summary_file"
@@ -3683,13 +3738,13 @@ JSON
     printf ',"sustainedBlockedSummary":'
     cat "$sustained_blocked_summary_file"
     printf '}\n'
-    rm -f "$physical_file" "$helper_file" "$vnc_file" "$summary_file" \
+    rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file" "$summary_file" \
       "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
       "$readiness_file"
     exit 1
   fi
 
-  rm -f "$physical_file" "$helper_file" "$vnc_file" "$summary_file" \
+  rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file" "$summary_file" \
     "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
     "$readiness_file"
 }
@@ -3704,9 +3759,11 @@ remote_desktop_10fps_readiness() {
   local physical_file
   local helper_file
   local vnc_file
+  local transport_file
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
+  transport_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-transport.XXXXXX")"
 
   json_step_or_fixed_failure \
     physicalDevicePreflight \
@@ -3720,6 +3777,10 @@ remote_desktop_10fps_readiness() {
     remoteDesktop10fpsProbe \
     benchmarkStep.remoteDesktop10fpsProbe.failed \
     run_glance_025_10fps_duration_probe >"$vnc_file"
+  json_step_or_fixed_failure \
+    remoteDesktop10fpsTransportCadence \
+    benchmarkStep.remoteDesktop10fpsTransportCadenceDrilldown.failed \
+    run_remote_desktop_10fps_transport_cadence_drilldown >"$transport_file"
 
   printf '{\n'
   printf '  "schemaVersion": 2,\n'
@@ -3740,11 +3801,15 @@ remote_desktop_10fps_readiness() {
   printf '  "vnc10fpsProbe": '
   cat "$vnc_file"
   printf ',\n'
+  printf '  "transportCadenceDrilldown": '
+  cat "$transport_file"
+  printf ',\n'
   printf '  "readinessGateSummary": '
   print_remote_desktop_10fps_readiness_gate_summary \
     "$physical_file" \
     "$helper_file" \
-    "$vnc_file"
+    "$vnc_file" \
+    "$transport_file"
   printf ',\n'
   printf '  "nextActionLabels": [\n'
   printf '    "grant-helper-video-app-screen-recording-permission",\n'
@@ -3755,7 +3820,7 @@ remote_desktop_10fps_readiness() {
   printf '  ]\n'
   printf '}\n'
 
-  rm -f "$physical_file" "$helper_file" "$vnc_file"
+  rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file"
 }
 
 case "$mode" in

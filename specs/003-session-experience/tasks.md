@@ -156,6 +156,13 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   `DirectKeystrokeModeTests/testTimedOutPointerInputDoesNotPermanentlyDisableLaterPointerInput`,
   `DirectKeystrokeModeTests`, `TrackpadModeModelTests`, and
   `PointerEventTapTests`. **Done.**
+- [x] T015bk [B] Physical iPhone Compose correction: reproduce the whole-suite
+  race where editing a Compose draft during the VNC clipboard settle window left
+  the old injection attempt timing-dependent, and cancel the pending paste
+  command when the draft identity changes so stale text cannot be pasted after
+  the user has started a new Korean/CJK draft. Covered by
+  `NaruRemoteAppModelTests/testEditingComposeDraftDuringSendCancelsStalePasteCommand`,
+  focused `NaruRemoteAppModelTests`, and full `swift test`. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

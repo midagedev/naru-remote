@@ -6104,6 +6104,65 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D142 Add Transport Cadence To Remote Desktop 10fps Readiness
+
+References:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- IANA RFB registry: https://www.iana.org/assignments/rfb/rfb.xhtml
+- TigerVNC viewer options: https://tigervnc.org/doc/vncviewer.html
+- D135 remote desktop 10fps readiness dashboard.
+
+**Decision**: make `remote-desktop-10fps` and
+`remote-desktop-10fps-readiness` reproduce transport cadence directly. The
+10fps preset now checks both request/response and ContinuousUpdates under the
+same fixed low-traffic VNC shape, and readiness reports include the transport
+drilldown beside the VNC product verdict.
+
+**Why**:
+- RFC 6143 allows an incremental `FramebufferUpdateRequest` to wait until the
+  requested area changes; an indefinite period may pass before the server sends
+  an update. A first-byte-wait-dominated report therefore points at server or
+  update cadence before it points at client decode, renderer upload, or SwiftUI.
+- IANA records TightVNC `EnableContinuousUpdates` / `EndOfContinuousUpdates`
+  as extension assignments, not the RFC baseline. Real-server support must be
+  confirmed per target before treating ContinuousUpdates as a product path.
+- TigerVNC exposes automatic encoding/pixel-format selection plus manual
+  compression controls. The product should keep testing transport, encoding,
+  pacing, and helper-video as a measured matrix instead of promoting a universal
+  VNC default from one partial result.
+
+**Live reproduction (2026-06-08 KST, local Mac Screen Sharing target)**:
+- `remote-desktop-10fps-transport-cadence-drilldown` request/response held the
+  current low-traffic VNC shape fixed and reached about `6.1` content FPS over
+  12 seconds. The product verdict still failed `iphone-remote-desktop-10fps-v1`;
+  the dominant phase remained network-read / first-byte wait, with payload read,
+  client processing, and renderer upload comparatively low.
+- The same drilldown's ContinuousUpdates candidate failed before usable samples
+  with `stream-continuous-updates-continuous-updates-not-confirmed`.
+- A subsequent readiness run kept the VNC product verdict failing, reported
+  request/response first-byte wait p95 in the same safe envelope, and left true
+  helper-video blocked on Screen Recording permission.
+
+**Interpretation**:
+- Do not spend the next large unit on another VNC profile-only promotion. The
+  current evidence says VNC request/response is server-cadence constrained
+  under macOS Screen Sharing, and ContinuousUpdates is not confirmed on this
+  target.
+- The best product architecture remains split-path: VNC for input/control and
+  fallback, plus helper-video as the primary smoothness route once permissions
+  and physical iPhone gates pass.
+- Keep the 10fps readiness dashboard as the merge gate for large rendering,
+  streaming, or input changes so regressions show up as product verdicts, not
+  as wrapper-only pass statuses.
+
+**Privacy rule**: readiness reports keep VNC 10fps product verdict,
+request-response cadence, and ContinuousUpdates extension confirmation in the
+same safe JSON envelope. They emit only fixed labels, aggregate FPS/timing
+summaries, and permille proxies; they must not emit host identity, credentials,
+ports, command lines, raw TCP/RFB errors, coordinates, dimensions, pixels, byte
+counts, draft text, marked text, IME state, keysyms, helper endpoints, pairing
+material, or physical device IDs.
+
 ### D141 Resolve CoreDevice IDs Before Physical iPhone Build Gates
 
 References:
