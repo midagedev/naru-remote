@@ -131,6 +131,7 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         self.fallbackCountBucket = fallbackCountBucket
         self.issueCodes = Self.safeIssueCodes(
             issueCodes + Self.derivedIssueCodes(
+                explicitIssueCodes: issueCodes,
                 streamState: streamState,
                 startupBand: startupBand,
                 sustainedUpdateBand: sustainedUpdateBand,
@@ -244,12 +245,17 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
     }
 
     private static func derivedIssueCodes(
+        explicitIssueCodes: [BenchmarkHelperVideoIssueCode],
         streamState: HelperVideoStreamState,
         startupBand: HelperVideoStartupBand,
         sustainedUpdateBand: HelperVideoSustainedUpdateBand,
         decodePressure: HelperVideoDecodePressure,
         fallbackCountBucket: HelperVideoFallbackCountBucket
     ) -> [BenchmarkHelperVideoIssueCode] {
+        if explicitIssueCodes.contains(.permissionMissing) {
+            return []
+        }
+
         var issues: [BenchmarkHelperVideoIssueCode] = []
 
         switch streamState {

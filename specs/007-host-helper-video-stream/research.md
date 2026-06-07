@@ -2428,3 +2428,41 @@ helper-video stream, but reports `sustainedUpdateBand=usable` and
 - Drop keyframes too when the display layer is full: rejected because recovery
   would depend on waiting for another keyframe and could make transient
   backpressure look like a stall.
+
+## D60 - Keep permission-blocked helper-video reports single-cause
+
+**Decision**: If a helper-video benchmark report has an explicit
+`helper-video-permission-missing` issue code, do not derive additional
+stream-health issue codes from placeholder failed/stalled health bands.
+Permission-missing means ScreenCaptureKit capture did not start, so the report
+should remain a setup blocker instead of implying that a real helper stream
+started and then became unhealthy.
+
+**Rationale**:
+- The current live readiness path is intentionally stopped by macOS Screen
+  Recording before true ScreenCaptureKit frames are collected. Reporting
+  `stream-unhealthy`, `startup-failed`, `sustained-stalled`, or
+  `fallback-observed` in that state makes the next action less clear.
+- The helper-video gate already carries fixed permission identity labels and a
+  fixed setup action. A single-cause permission report is more useful for the
+  human step: grant Screen Recording to the stable helper app bundle, relaunch,
+  and rerun the gate.
+- Once permission is granted, true stream health bands and fallback labels are
+  still derived normally from actual helper-video results.
+
+**Evidence**:
+- `swift test --filter BenchmarkHelperVideoReportTests`
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test`
+- `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test`
+- `scripts/run-naru-live-benchmark.sh helper-readiness-sweep` now reports
+  screen-capture issue codes as `helper-video-permission-missing` only.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` now shows
+  `screenCaptureIssueCodes=["helper-video-permission-missing"]`, while VNC
+  still fails the 10fps product gate from first-byte-wait dominated receive
+  cadence.
+
+**Privacy rule**: Permission-blocked helper-video reports may include only
+fixed permission, readiness, issue-code, and setup-action labels. They must not
+export raw OS errors, helper paths, endpoints, credentials, physical device
+identifiers, display dimensions, pixels, byte counts, exact timings, Compose
+text, marked text, keysyms, pointer coordinates, or clipboard contents.

@@ -591,8 +591,8 @@ the privacy boundary from `spec.md` and `research.md`.
 
 When Screen Recording permission is missing, `screen-capturekit-tcp` and
 `external-helper-screen-capturekit-tcp` report the fixed issue code
-`helper-video-permission-missing` and must not start capture or emit raw OS
-error text.
+`helper-video-permission-missing` only, and must not start capture, invent
+stream-health failure labels, or emit raw OS error text.
 
 ## Planned Physical Gate
 
