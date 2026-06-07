@@ -1573,6 +1573,19 @@ iPhone) and ships as its own PR.
   state, keysyms, helper endpoints, pairing material, or physical device IDs.
   Owns: launchctl runner, quickstart, research note, benchmark artifact, and
   live evidence. **Done.**
+- **T475** Focused Compose UIKit ownership gate: after physical iPhone feedback
+  still reported that Compose accepts one Korean syllable and then stops
+  responding, remove SwiftUI binding/model mirroring from the focused
+  `UITextView` hot path. While the editor is first responder, UIKit owns the
+  local draft and SwiftUI may only read the current snapshot at explicit
+  boundaries: Send, focus loss, or Direct-mode switch. Keep the Send command
+  available while focused without depending on mirrored SwiftUI text, and prove
+  the policy with focused sync tests plus the iPhone Compose responsiveness UI
+  suite. Emit/export no host identity, credentials, command text, draft text,
+  marked text, IME state, keysyms, pointer coordinates, pixels, dimensions,
+  byte counts, raw timings, or physical device IDs. Owns: RemoteInputDock
+  UIKit bridge, focused sync policy tests, UI-test evidence, and benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 

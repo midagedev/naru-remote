@@ -495,7 +495,11 @@ public struct RemoteInputDockView: View {
 
     private var isComposeSendDisabled: Bool {
         #if os(iOS) && canImport(UIKit)
-        isPreparingComposeSend || composeCommitController.readCurrentText(fallback: text).isEmpty
+        Self.composeSendDisabled(
+            isPreparingComposeSend: isPreparingComposeSend,
+            isComposeFieldFocused: composeFieldFocused,
+            currentText: composeCommitController.readCurrentText(fallback: text)
+        )
         #else
         text.isEmpty
         #endif
@@ -524,6 +528,9 @@ public struct RemoteInputDockView: View {
         #if os(iOS) && canImport(UIKit)
         composeSendNeedsMarkedCommitStabilization = true
         #endif
+        guard !composeFieldFocused else {
+            return
+        }
         if text != committedText {
             text = committedText
         }
@@ -746,9 +753,24 @@ public struct RemoteInputDockView: View {
     nonisolated static func shouldAdoptUIKitComposeTextChange(
         resolvedText: String,
         currentBindingText: String,
-        hasMarkedText: Bool = false
+        hasMarkedText: Bool = false,
+        isFirstResponder: Bool = false
     ) -> Bool {
-        !hasMarkedText && resolvedText != currentBindingText
+        !isFirstResponder && !hasMarkedText && resolvedText != currentBindingText
+    }
+
+    nonisolated static func composeSendDisabled(
+        isPreparingComposeSend: Bool,
+        isComposeFieldFocused: Bool,
+        currentText: String
+    ) -> Bool {
+        if isPreparingComposeSend {
+            return true
+        }
+        if isComposeFieldFocused {
+            return false
+        }
+        return currentText.isEmpty
     }
 
     nonisolated static func shouldDeferUIKitComposeBindingWrite(
@@ -1165,7 +1187,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             if RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
                 resolvedText: resolvedText,
                 currentBindingText: parent.text,
-                hasMarkedText: textView.markedTextRange != nil
+                hasMarkedText: textView.markedTextRange != nil,
+                isFirstResponder: textView.isFirstResponder
             ) {
                 parent.text = resolvedText
             }
@@ -1182,7 +1205,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
             ), RemoteInputDockView.shouldAdoptUIKitComposeTextChange(
                 resolvedText: resolvedText,
                 currentBindingText: parent.text,
-                hasMarkedText: textView.markedTextRange != nil
+                hasMarkedText: textView.markedTextRange != nil,
+                isFirstResponder: textView.isFirstResponder
             ) {
                 parent.text = resolvedText
             }
