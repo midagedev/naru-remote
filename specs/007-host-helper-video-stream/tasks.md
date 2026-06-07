@@ -320,6 +320,11 @@ without unsafe report fields.
   local run reports healthy/smooth/high-profile helper-video after the
   launchctl helper path is refreshed to the current SwiftPM helper artifact.
   **Done.**
+- [x] T031D [US2] Add a privacy-safe `helper-dev-app-setup` runner that
+  installs the stable dev helper app wrapper, sets launchctl helper executable,
+  requests Screen Recording, and emits only fixed setup/status labels. Current
+  local run reports app-bundle identity, synthetic/sustained helper-video pass,
+  and Screen Recording permission still missing. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

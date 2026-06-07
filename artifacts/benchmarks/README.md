@@ -1220,3 +1220,11 @@ labels, and keeps Direct key emission recoverable after write timeout. The
 launchctl-backed sustained synthetic helper-video probe now reports
 healthy/fast/smooth/high-profile with empty issue codes when pointed at the
 current SwiftPM helper artifact.
+The helper dev app setup artifact is
+`2026-06-07-helper-dev-app-setup-gate-summary.md`; it adds a
+`helper-dev-app-setup` runner mode that installs the stable development helper
+app wrapper, sets launchctl, requests Screen Recording, and emits privacy-safe
+fixed setup/status JSON. The current setup run proves the helper identity is
+now `appBundle`, synthetic and sustained helper-video still pass, and true
+ScreenCaptureKit helper-video remains blocked only on the fixed
+`grant-helper-video-app-screen-recording-permission` action.
