@@ -239,8 +239,11 @@ target: content FPS below `10` is a failure, not a warning. Use
 current `0.25` + `local-low-latency-rgb565` candidate against that stricter
 target. Direct `VNCLiveBenchmark` runs can use
 `--stream-shape-gate-preset remote-desktop-10fps` to reproduce the same fixed
-VNC gate without hand-copying the launchctl wrapper's option list. The current
-live run records `1.97` content FPS, `508` ms average
+VNC gate without hand-copying the launchctl wrapper's option list. Current
+preset verification is recorded in
+`artifacts/benchmarks/2026-06-07-remote-desktop-10fps-preset-summary.md`; the
+D134 target artifact's original live run records `1.97` content FPS,
+`508` ms average
 update, `627` ms p95 update, `626` ms first-byte wait p95, and a `fail`
 decision with `content-fps-failed`, `average-update-failed`,
 `p95-update-failed`, `first-byte-wait-failed`, and
