@@ -35,8 +35,10 @@ struct StreamFrameApplicationWork: Sendable {
 
 struct SessionFrameApplicationWorkerPacing: Equatable, Sendable {
     static let visualContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
-    static let viewportNavigationContentFrameMinimumInterval: TimeInterval = 0.05
-    static let textInputContentFrameMinimumInterval: TimeInterval = 0.10
+    static let viewportNavigationContentFrameMinimumInterval: TimeInterval =
+        StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds
+    static let textInputContentFrameMinimumInterval: TimeInterval =
+        StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds
     static let defaultContentFrameMinimumInterval: TimeInterval =
         visualContentFrameMinimumInterval
 
@@ -3860,7 +3862,16 @@ public final class NaruRemoteAppModel: ObservableObject {
         let usesPowerSaverPacing = lowPowerModeProvider()
             || appSettings.streamPowerMode == .powerSaver
             || usesAdaptiveClientPressurePacing
-        let usesViewportInteractionPacing = isViewportInteractionActive
+        let frameDeliveryPriority = frameDeliveryPriority(for: frameDeliveryInteractionReasons)
+        let usesActiveInputPacing = frameDeliveryPriority == .textInput
+            || (frameDeliveryPriority == .viewportNavigation && !isViewportInteractionActive)
+        let activeInputPacingInterval = usesActiveInputPacing
+            ? SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(
+                for: frameDeliveryPriority
+            )
+            : nil
+        let usesViewportInteractionPacing = frameDeliveryPriority == .viewportNavigation
+            && isViewportInteractionActive
         let helperVideoPrimaryVNCSamplingInterval = isHelperVideoHealthyPrimaryVisualTransport
             ? StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds
             : nil
@@ -3881,6 +3892,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 configuredDelay: configuration.idleFrameInterval,
                 thermalState: thermalState,
                 usesPowerSaverPacing: usesPowerSaverPacing,
+                activeInputPacingInterval: activeInputPacingInterval,
                 usesViewportInteractionPacing: usesViewportInteractionPacing,
                 helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
                 emptyUpdateStreak: emptyUpdateStreak
@@ -3890,6 +3902,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 configuredDelay: configuration.frameInterval,
                 thermalState: thermalState,
                 usesPowerSaverPacing: usesPowerSaverPacing,
+                activeInputPacingInterval: activeInputPacingInterval,
                 usesViewportInteractionPacing: usesViewportInteractionPacing,
                 helperVideoPrimaryVNCSamplingInterval: helperVideoPrimaryVNCSamplingInterval,
                 viewportInteractionContentFrameInterval: viewportInteractionContentFrameInterval

@@ -518,6 +518,52 @@ and the external helper process reports `permissionMissing` from its own
 - Blocking external-helper capture on the benchmark process permission would
   keep live helper-video benchmarking broken even after the helper process has
   Screen Recording permission.
+
+## D17 - Apply input-aware pacing before VNC request/decode work
+
+**Decision**: Use the same active-session service level that protects frame
+application (`visual`, `viewportNavigation`, `textInput`) to also pace the next
+VNC `FramebufferUpdateRequest`. Focused Compose gets a 10 Hz-class request
+floor; transient direct-key/pointer/trackpad activity gets a 20 Hz-class floor;
+viewport gestures keep the existing viewport-aware full/partial frame policy.
+
+**Rationale**:
+- Physical feedback showed that the UI could still feel frozen even after
+  frame application moved off the main shell path. The missing split was earlier:
+  VNC request/decode work could still run at the ordinary visual cadence while
+  UIKit IME or pointer gestures needed the device.
+- RFC 6143 describes RFB updates as client-demand-driven and explicitly notes
+  that fast clients may regulate incremental `FramebufferUpdateRequest` rate to
+  avoid excessive traffic. Pacing the request loop during input therefore uses
+  the protocol's intended backpressure point instead of merely dropping already
+  received frames later.
+- Helper-video remains the primary smooth visual path once ScreenCaptureKit
+  permission is available. Until then, VNC should behave like a control/fallback
+  visual source during input-heavy moments, not like an unbounded video stream.
+- Diagnostics need to prove this happened without exporting coordinates,
+  keysyms, text, pixels, dimensions, endpoints, byte counts, or exact timings;
+  a fixed `activeInputPacingSampleCount` is sufficient.
+
+**Sources**:
+- RFC 6143: https://www.rfc-editor.org/rfc/rfc6143
+- Apple ScreenCaptureKit `SCStreamConfiguration.queueDepth`:
+  https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/queuedepth
+- Apple ScreenCaptureKit `SCStreamConfiguration.minimumFrameInterval`:
+  https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/minimumframeinterval
+- Apple VideoToolbox live streaming guidance:
+  https://developer.apple.com/documentation/videotoolbox/encoding-video-for-live-streaming
+- Apple `AVSampleBufferDisplayLayer`:
+  https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer
+
+**Alternatives considered**:
+- Only coalesce frame application after frames are received: rejected because it
+  still spends network, decode, and queue work during IME/gesture contention.
+- Stop VNC framebuffer requests entirely during focused input: rejected because
+  cursor/liveness/fallback freshness still matter, especially before true
+  helper-video capture is available.
+- Treat all interactions as viewport gestures: rejected because Compose focus
+  needs the strongest protection, while direct pointer/key activity benefits
+  from a faster remote-echo cadence.
 - The helper runtime already preflights Screen Recording before touching
   `SCShareableContent`, so delegating the check preserves the privacy boundary
   while testing the real process that will capture frames.

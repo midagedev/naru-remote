@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "mode": "helper-video-live-gate",
+  "screenRecordingWatch": {
+    "schemaVersion": 1,
+    "mode": "screen-recording-watch",
+    "watchStatus": "timedOut",
+    "maxPolls": 45,
+    "pollIntervalSeconds": "2",
+    "pollsAttempted": 45,
+    "settingsOpenStatus": "opened",
+    "capabilityBefore": {
+      "availability": "permissionMissing",
+      "captureAPI": "screenCaptureKit",
+      "captureSourceState": "notChecked",
+      "permissionIdentity": {
+        "grantHint": "grantAppBundle",
+        "processKind": "appBundle"
+      },
+      "safeFailureCode": "helperVideo.permissionMissing",
+      "schemaVersion": 2,
+      "screenRecordingPermission": "missing"
+    },
+    "permissionRequest": {
+      "availability": "permissionMissing",
+      "captureAPI": "screenCaptureKit",
+      "permissionIdentity": {
+        "grantHint": "grantAppBundle",
+        "processKind": "appBundle"
+      },
+      "requestResult": "notGranted",
+      "safeFailureCode": "helperVideo.permissionMissing",
+      "schemaVersion": 2,
+      "screenRecordingPermission": "missing"
+    },
+    "finalCapability": {
+      "availability": "permissionMissing",
+      "captureAPI": "screenCaptureKit",
+      "captureSourceState": "notChecked",
+      "permissionIdentity": {
+        "grantHint": "grantAppBundle",
+        "processKind": "appBundle"
+      },
+      "safeFailureCode": "helperVideo.permissionMissing",
+      "schemaVersion": 2,
+      "screenRecordingPermission": "missing"
+    },
+    "finalPermissionStatus": "missing",
+    "finalAvailability": "permissionMissing",
+    "permissionProcessKind": "appBundle",
+    "permissionGrantHint": "grantAppBundle",
+    "postPermissionChangeRequiresRelaunch": true,
+    "issueCodes": [
+      "helper-video-permission-missing"
+    ],
+    "setupActionLabels": [
+      "grant-helper-video-app-screen-recording-permission",
+      "quit-and-relaunch-helper-after-permission-change",
+      "rerun-screen-recording-watch"
+    ],
+    "safety": [
+      "screen-recording-watch emits fixed status, issue, and action labels plus helper safe capability JSON only",
+      "helper executable paths, endpoints, credentials, raw OS errors, pixels, dimensions, byte counts, and exact helper timings are not emitted"
+    ]
+  },
+  "helperReadinessSweep": {
+    "schemaVersion": 1,
+    "mode": "helper-readiness-sweep",
+    "status": "skipped",
+    "skipReason": "screenRecordingPermissionMissing",
+    "issueCodes": [
+      "helper-video-permission-missing"
+    ],
+    "setupActionLabels": [
+      "grant-helper-video-app-screen-recording-permission",
+      "rerun-helper-video-live-gate"
+    ],
+    "safety": [
+      "readiness sweep skipped before helper capture; no helper paths, endpoints, credentials, pixels, byte counts, dimensions, raw OS errors, or exact timings are emitted"
+    ]
+  },
+  "appBootstrapBenchmark": {
+    "schemaVersion": 1,
+    "mode": "helper-screen-app-bootstrap-benchmark",
+    "status": "skipped",
+    "sourceMode": "screen-capturekit",
+    "transportPath": "helper-tcp-to-app-model",
+    "decodePath": "h264-sample-buffer-factory",
+    "skipReason": "screenRecordingPermissionMissing",
+    "issueCodes": [
+      "helper-video-permission-missing"
+    ],
+    "setupActionLabels": [
+      "grant-helper-video-app-screen-recording-permission",
+      "rerun-helper-video-live-gate"
+    ],
+    "safety": [
+      "app bootstrap skipped before helper capture; no raw xctest output, frame payloads, pixels, dimensions, endpoints, helper paths, device ids, credentials, byte counts, or exact timings are emitted"
+    ]
+  },
+  "physicalDevicePreflight": {
+    "schemaVersion": 1,
+    "mode": "physical-device-preflight",
+    "deviceDiscoveryStatus": "connected",
+    "deviceSelectionSource": "environment",
+    "deviceIDResolutionStatus": "environmentXcodebuildUDID",
+    "codeSigningIdentityStatus": "available",
+    "developmentTeamStatus": "environment",
+    "xcodeAccountStatus": "missing",
+    "provisioningProfileStatus": "missing",
+    "buildCheckStatus": "failed",
+    "issueCodes": [
+      "xcode-account-missing",
+      "ios-provisioning-profile-missing"
+    ],
+    "setupActionLabels": [
+      "add-xcode-account",
+      "create-ios-development-provisioning-profile"
+    ]
+  },
+  "gateSummary": {
+    "schemaVersion": 1,
+    "mode": "helper-video-live-gate-summary",
+    "overallGateState": "blockedByScreenRecordingPermission",
+    "primaryBlockedGateLabels": [
+      "screen-recording-permission-gate-blocked",
+      "physical-iphone-gate-blocked"
+    ],
+    "recommendedPrimaryAction": "grant-helper-video-app-screen-recording-permission",
+    "setupActionLabels": [
+      "grant-helper-video-app-screen-recording-permission",
+      "quit-and-relaunch-helper-after-permission-change",
+      "rerun-screen-recording-watch",
+      "rerun-helper-video-live-gate",
+      "add-xcode-account",
+      "create-ios-development-provisioning-profile"
+    ],
+    "screenRecordingGate": {
+      "watchStatus": "timedOut",
+      "finalPermissionStatus": "missing",
+      "finalAvailability": "permissionMissing",
+      "issueCodes": [
+        "helper-video-permission-missing"
+      ],
+      "setupActionLabels": [
+        "grant-helper-video-app-screen-recording-permission",
+        "quit-and-relaunch-helper-after-permission-change",
+        "rerun-screen-recording-watch"
+      ]
+    },
+    "helperVideoGate": {
+      "syntheticVerdict": "unknown",
+      "sustainedSyntheticVerdict": "unknown",
+      "screenCaptureVerdict": "unknown",
+      "screenCaptureReadinessState": "unknown",
+      "screenCaptureRecommendedAction": "unknown",
+      "screenCaptureIssueCodes": []
+    },
+    "appBootstrapGate": {
+      "status": "skipped",
+      "sourceMode": "screen-capturekit",
+      "transportPath": "helper-tcp-to-app-model",
+      "decodePath": "h264-sample-buffer-factory",
+      "issueCodes": [
+        "helper-video-permission-missing"
+      ],
+      "setupActionLabels": [
+        "grant-helper-video-app-screen-recording-permission",
+        "rerun-helper-video-live-gate"
+      ]
+    },
+    "physicalIPhoneGate": {
+      "deviceDiscoveryStatus": "connected",
+      "deviceSelectionSource": "environment",
+      "deviceIDResolutionStatus": "environmentXcodebuildUDID",
+      "codeSigningIdentityStatus": "available",
+      "developmentTeamStatus": "environment",
+      "xcodeAccountStatus": "missing",
+      "provisioningProfileStatus": "missing",
+      "buildCheckStatus": "failed",
+      "issueCodes": [
+        "xcode-account-missing",
+        "ios-provisioning-profile-missing"
+      ],
+      "setupActionLabels": [
+        "add-xcode-account",
+        "create-ios-development-provisioning-profile"
+      ]
+    },
+    "diagnosticDesignLabels": [
+      "screen-recording-watch-precedes-true-helper-video-gates",
+      "physical-preflight-runs-even-when-screen-recording-is-blocked",
+      "permission-missing-skips-expensive-helper-video-gates",
+      "helper-readiness-and-app-bootstrap-share-one-report",
+      "ready-state-routes-to-physical-iphone-gate"
+    ]
+  },
+  "safety": [
+    "helper-video-live-gate emits fixed status, issue, action, transport, and physical readiness labels plus existing safe subreports only",
+    "helper executable paths, endpoints, credentials, raw OS errors, pixels, dimensions, byte counts, physical device ids, raw xctest output, and exact helper timings are not emitted"
+  ]
+}

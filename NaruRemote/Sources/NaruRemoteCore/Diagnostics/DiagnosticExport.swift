@@ -427,6 +427,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case thermalPacingSampleCount
         case powerSaverPacingSampleCount
         case emptyBackoffPacingSampleCount
+        case activeInputPacingSampleCount
         case viewportInteractionPacingSampleCount
         case helperVideoPrimaryVNCSamplingPacingSampleCount
         case viewportInteractionRequestPauseCount
@@ -506,6 +507,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let thermalPacingSampleCount: Int
     public let powerSaverPacingSampleCount: Int
     public let emptyBackoffPacingSampleCount: Int
+    public let activeInputPacingSampleCount: Int
     public let viewportInteractionPacingSampleCount: Int
     public let helperVideoPrimaryVNCSamplingPacingSampleCount: Int
     public let viewportInteractionRequestPauseCount: Int
@@ -585,6 +587,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         thermalPacingSampleCount: Int = 0,
         powerSaverPacingSampleCount: Int = 0,
         emptyBackoffPacingSampleCount: Int = 0,
+        activeInputPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
         helperVideoPrimaryVNCSamplingPacingSampleCount: Int = 0,
         viewportInteractionRequestPauseCount: Int = 0,
@@ -735,6 +738,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         )
         self.emptyBackoffPacingSampleCount = min(
             max(emptyBackoffPacingSampleCount, 0),
+            streamPacingDelaySampleCount
+        )
+        self.activeInputPacingSampleCount = min(
+            max(activeInputPacingSampleCount, 0),
             streamPacingDelaySampleCount
         )
         self.viewportInteractionPacingSampleCount = min(
@@ -1018,6 +1025,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             emptyBackoffPacingSampleCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .emptyBackoffPacingSampleCount
+            ) ?? 0,
+            activeInputPacingSampleCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .activeInputPacingSampleCount
             ) ?? 0,
             viewportInteractionPacingSampleCount: try container.decodeIfPresent(
                 Int.self,
@@ -2322,7 +2333,7 @@ public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 32
+    public static let currentSchemaVersion = 33
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

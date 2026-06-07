@@ -685,6 +685,33 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertTrue(idleDecision.usesHelperVideoPrimaryVNCSamplingPacing)
     }
 
+    func testSessionStreamPacingPolicyUsesActiveInputFloor() {
+        let interval = StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds
+        let contentDecision = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            thermalState: .nominal,
+            activeInputPacingInterval: interval
+        )
+
+        XCTAssertEqual(contentDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertTrue(contentDecision.usesActiveInputPacing)
+        XCTAssertFalse(contentDecision.usesViewportInteractionPacing)
+        XCTAssertFalse(contentDecision.usesHelperVideoPrimaryVNCSamplingPacing)
+
+        let emptyDecision = SessionStreamPacingPolicy.decision(
+            for: .emptyUpdate,
+            configuredDelay: 0.05,
+            thermalState: .nominal,
+            activeInputPacingInterval: interval,
+            emptyUpdateStreak: 1
+        )
+
+        XCTAssertEqual(emptyDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertTrue(emptyDecision.usesActiveInputPacing)
+        XCTAssertFalse(emptyDecision.usesEmptyBackoffPacing)
+    }
+
     func testSessionStreamPacingDecisionClassifiesActiveFloor() {
         let thermal = SessionStreamPacingPolicy.decision(
             for: .contentFrame,
@@ -5933,6 +5960,165 @@ final class NaruRemoteAppModelTests: XCTestCase {
             framebuffers.last,
             "After the input-aware pacing slot opens, only the newest queued content frame should apply."
         )
+    }
+
+    func testComposeFocusPacesVNCRequestsBeforeDecodeWork() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let thirdFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer, thirdFramebuffer]
+        )
+        let pacingGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 3,
+                frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                try await pacingGate.sleep(delay)
+            }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(1)
+        var delays = await pacingGate.delays
+        XCTAssertEqual(
+            try XCTUnwrap(delays.first),
+            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+
+        model.setComposeInputEditingActive(true)
+        model.updateComposeDraftText("입")
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(2)
+
+        delays = await pacingGate.delays
+        XCTAssertEqual(
+            try XCTUnwrap(delays.dropFirst().first),
+            StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds,
+            accuracy: 0.0001,
+            "Focused Compose must lower VNC request/decode cadence before frames can compete with UIKit IME."
+        )
+        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
+
+        model.updateComposeDraftText("입력")
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "입력")
+
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != thirdFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "입력")
+    }
+
+    func testTransientInputPacesVNCRequestsBeforeDecodeWork() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let thirdFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 30, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer, thirdFramebuffer]
+        )
+        let pacingGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 3,
+                frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                try await pacingGate.sleep(delay)
+            }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(1)
+        var delays = await pacingGate.delays
+        XCTAssertEqual(
+            try XCTUnwrap(delays.first),
+            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            accuracy: 0.0001
+        )
+
+        model.markTransientFrameDeliveryInteractionActivityForTesting()
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(2)
+
+        delays = await pacingGate.delays
+        XCTAssertEqual(
+            try XCTUnwrap(delays.dropFirst().first),
+            StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds,
+            accuracy: 0.0001,
+            "Pointer/direct-key interaction should cap VNC request/decode work before visual frames can crowd input."
+        )
+        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
+
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != thirdFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
     }
 
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {

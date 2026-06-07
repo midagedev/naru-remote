@@ -8,6 +8,14 @@ import Foundation
 /// when sustained-session tuning changes.
 public enum StreamPressurePacingDefaults {
     public static let balancedContentFrameIntervalSeconds: Double = 1.0 / 30.0
+    /// While the user is actively composing text, VNC visual updates are
+    /// control/fallback work. Keep request/decode pressure at a 10 Hz-class
+    /// ceiling so UIKit IME and the keyboard remain the primary workload.
+    public static let textInputContentFrameIntervalSeconds: Double = 0.10
+    /// Direct keys, pointer taps, and trackpad moves need faster remote echo
+    /// than focused IME, but still should not let VNC visual reads compete with
+    /// the local interaction path at an unbounded cadence.
+    public static let transientInputContentFrameIntervalSeconds: Double = 0.05
     /// Localized terminal/cursor/editor damage can be sampled more often during
     /// viewport gestures without paying the full-frame upload cost. This keeps
     /// remote echo alive while the local compositor path owns pinch/pan.
