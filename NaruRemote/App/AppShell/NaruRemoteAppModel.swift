@@ -1387,6 +1387,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         state.availability = .disabled
         state.lastFailureCode = .disabled
         state.lastCheckedBucket = .recent
+        state.capabilitySummary = nil
         helperTextBridgeState[profileID] = state
     }
 
@@ -1401,6 +1402,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         state.availability = .revoked
         state.lastFailureCode = .revoked
         state.lastCheckedBucket = .recent
+        state.capabilitySummary = nil
         helperTextBridgeState[profileID] = state
     }
 
@@ -2870,7 +2872,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profileID: profile.id,
                 state: helperTextBridgeProbeState(
                     for: profile,
-                    availability: capability.availability
+                    capability: capability
                 )
             )
         } catch {
@@ -6016,12 +6018,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let capability = try await client.capability(
                     profilePairingFingerprint: helperState.pairingFingerprint
                 )
+                let capabilityState = Self.helperTextBridgeProbeState(
+                    for: profile,
+                    capability: capability
+                )
                 guard capability.availability == .reachable else {
                     await Self.finishStoredHelperFailure(
                         self,
                         draft: draft,
                         attempt: attempt,
-                        helperState: helperState,
+                        helperState: capabilityState,
                         failureCode: Self.failureCode(for: capability.availability),
                         profileID: profileID,
                         draftID: draftID,
@@ -6030,12 +6036,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     return
                 }
+                let readyState = Self.updatedHelperTextBridgeState(
+                    capabilityState,
+                    failureCode: .none
+                )
                 await Self.publishHelperTextBridgeState(
                     self,
-                    state: Self.updatedHelperTextBridgeState(
-                        helperState,
-                        failureCode: .none
-                    ),
+                    state: readyState,
                     profileID: profileID
                 )
 
@@ -6046,7 +6053,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 attempt.safeMessage = message
                 attempt.remoteClipboardRestore = Self.remoteClipboardRestoreStatus(for: result)
                 let nextState = Self.updatedHelperTextBridgeState(
-                    helperState,
+                    readyState,
                     result: result
                 )
 
@@ -6259,6 +6266,24 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperTextBridgeProbeState(
             for: profile,
             failureCode: failureCode(for: availability)
+        )
+    }
+
+    nonisolated private static func helperTextBridgeProbeState(
+        for profile: ConnectionProfile,
+        capability: NaruHelperCapabilityResponse
+    ) -> HelperTextBridgeProfileState {
+        let configuration = profile.helperTextBridge
+        let availability = capability.availability
+        return HelperTextBridgeProfileState(
+            isEnabled: availability != .disabled &&
+                availability != .notConfigured &&
+                availability != .revoked,
+            pairingFingerprint: availability == .revoked ? nil : configuration?.pairingFingerprint,
+            availability: availability,
+            lastFailureCode: failureCode(for: availability),
+            lastCheckedBucket: .recent,
+            capabilitySummary: HelperTextBridgeCapabilitySummary(response: capability)
         )
     }
 

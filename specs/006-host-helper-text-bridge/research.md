@@ -182,6 +182,11 @@ separately when event posting for Command-V is available.
 - `NaruHelperTextBridgeProtocolTests/testCapabilityResponseDecodesLegacyPermissionStateWithoutGranularFields`
   proves older capability responses remain decodable after adding the granular
   fields.
+- `HelperTextBridgeTests/testCapabilitySummarySeparatesUnicodeNativeFromAXPermission`,
+  `NaruRemoteAppSnapshotTests/testInputHelperStatusUsesGranularHelperCapabilitySummary`,
+  and `NaruRemoteAppModelTests/testStoredHelperCapabilityProbeMarksReachableWithoutSendingText`
+  prove the app preserves granular capability detail for user-visible status
+  and diagnostic export without leaking helper fingerprints.
 
 **Residual risk**:
 - Physical iPhone + Mac verification is still required. Accessibility direct

@@ -104,6 +104,10 @@ description: "Tasks: Host Helper Text Bridge"
   Accessibility value insertion, bounded Unicode event insertion, and
   pasteboard-restore fallback are reported separately while preserving legacy
   capability decoding. Verify with helper protocol/capability tests. **Done.**
+- [x] T034C [US2] Preserve the helper's granular capability summary in app
+  state, user-visible helper status text, and diagnostic export so fallback-only
+  helpers are not shown as direct native insert endpoints. Verify with helper
+  state, app snapshot, app model, and diagnostic export tests. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct

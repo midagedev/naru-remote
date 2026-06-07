@@ -344,6 +344,53 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.inputHelperStatusText, "Helper ready for multilingual Compose")
     }
 
+    func testInputHelperStatusUsesGranularHelperCapabilitySummary() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+
+        let unicodeOnly = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            helperTextBridgeState: [
+                profile.id: HelperTextBridgeProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper-pairing",
+                    availability: .reachable,
+                    lastCheckedBucket: .recent,
+                    capabilitySummary: HelperTextBridgeCapabilitySummary(
+                        nativeInsert: .available,
+                        accessibilityValueInsert: .missing,
+                        unicodeKeyboardEvent: .granted,
+                        pasteboardFallback: .missing
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(unicodeOnly.inputHelperStatusText, "Helper ready for Unicode text insert")
+
+        let fallbackOnly = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            helperTextBridgeState: [
+                profile.id: HelperTextBridgeProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper-pairing",
+                    availability: .reachable,
+                    lastCheckedBucket: .recent,
+                    capabilitySummary: HelperTextBridgeCapabilitySummary(
+                        nativeInsert: .missing,
+                        accessibilityValueInsert: .missing,
+                        unicodeKeyboardEvent: .missing,
+                        pasteboardFallback: .available
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(fallbackOnly.inputHelperStatusText, "Helper fallback ready; direct insert unavailable")
+    }
+
     func testDiagnosticRowsExposeSafeStageText() {
         let profileID = UUID()
         let run = ConnectionDiagnosticRun(
