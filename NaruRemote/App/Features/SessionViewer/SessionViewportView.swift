@@ -33,6 +33,7 @@ public struct SessionViewportView: View {
     private let isPiPWatchAvailable: Bool
     private let pipWatchStatusText: String
     private let isPiPWatching: Bool
+    private let usesHelperVideoPrimaryPreview: Bool
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onDisconnect: (() -> Void)?
@@ -116,6 +117,7 @@ public struct SessionViewportView: View {
     private let fillsAvailableHeight: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     private let pipLayerHost: PiPLayerHost?
+    private let helperVideoLayerHost: HelperVideoLayerHost?
     #endif
 
     /// Local view-only zoom scale driven by pinch.  Constitution §I:
@@ -156,6 +158,8 @@ public struct SessionViewportView: View {
     /// trackpad drag, used to derive the per-event delta `TrackpadCursor`
     /// expects.  `nil` between drags.
     @State private var trackpadDragPrevious: CGSize?
+    @State private var directTouchDragStarted: Bool = false
+    @State private var directTouchDragMovedFar: Bool = false
 
     /// Drives the title vs. action-row split.  iPhone (`.compact`)
     /// drops the action pills onto their own row below the title so
@@ -184,9 +188,11 @@ public struct SessionViewportView: View {
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
+        usesHelperVideoPrimaryPreview: Bool = false,
         pointerControlMode: PointerControlMode = .directTouch,
         trackpadCursor: TrackpadCursor = TrackpadCursor(),
         pipLayerHost: PiPLayerHost? = nil,
+        helperVideoLayerHost: HelperVideoLayerHost? = nil,
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
@@ -234,9 +240,11 @@ public struct SessionViewportView: View {
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
+        self.usesHelperVideoPrimaryPreview = usesHelperVideoPrimaryPreview
         self.pointerControlMode = pointerControlMode
         self.trackpadCursor = trackpadCursor
         self.pipLayerHost = pipLayerHost
+        self.helperVideoLayerHost = helperVideoLayerHost
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
@@ -279,6 +287,7 @@ public struct SessionViewportView: View {
         isPiPWatchAvailable: Bool = false,
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
+        usesHelperVideoPrimaryPreview: Bool = false,
         pointerControlMode: PointerControlMode = .directTouch,
         trackpadCursor: TrackpadCursor = TrackpadCursor(),
         onRunChecks: (() -> Void)? = nil,
@@ -328,6 +337,7 @@ public struct SessionViewportView: View {
         self.isPiPWatchAvailable = isPiPWatchAvailable
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
+        self.usesHelperVideoPrimaryPreview = usesHelperVideoPrimaryPreview
         self.pointerControlMode = pointerControlMode
         self.trackpadCursor = trackpadCursor
         self.onRunChecks = onRunChecks
@@ -467,6 +477,8 @@ public struct SessionViewportView: View {
 
             if let framebuffer {
                 framebufferLayer(framebuffer)
+            } else if usesHelperVideoPrimaryPreview {
+                helperVideoLayerPreviewWithoutFramebuffer()
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "display")
@@ -1015,6 +1027,43 @@ public struct SessionViewportView: View {
         .accessibilityIdentifier("naru.session.trackpadSurface")
     }
 
+    private func directTouchGestureSurface(framebuffer: RFBRawFramebuffer) -> some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let movedFar = abs(value.translation.width) > 6
+                                || abs(value.translation.height) > 6
+                            guard movedFar || directTouchDragStarted else {
+                                return
+                            }
+                            directTouchDragMovedFar = true
+                            if directTouchDragStarted {
+                                onFramebufferPointerMove?(value.location, size)
+                            } else {
+                                directTouchDragStarted = true
+                                onFramebufferPointerDown?(value.location, size)
+                            }
+                        }
+                        .onEnded { value in
+                            defer {
+                                directTouchDragStarted = false
+                                directTouchDragMovedFar = false
+                            }
+                            guard directTouchDragMovedFar else {
+                                onFramebufferTap?(value.location, size)
+                                return
+                            }
+                            onFramebufferPointerUp?(value.location, size)
+                        }
+                )
+        }
+        .accessibilityIdentifier("naru.session.directTouchSurface")
+    }
+
     private func dispatchTrackpadGesture(
         _ gesture: PointerGesture,
         framebuffer: RFBRawFramebuffer,
@@ -1133,6 +1182,16 @@ public struct SessionViewportView: View {
                 minimumZoomScale: minimumZoomScale
             )
                 .frame(width: displaySize.width, height: displaySize.height)
+                .overlay {
+                    if Self.usesSwiftUIDirectTouchInputOverlay(
+                        isPiPWatching: isPiPWatching,
+                        usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+                        pointerControlMode: pointerControlMode,
+                        metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+                    ) {
+                        directTouchGestureSurface(framebuffer: framebuffer)
+                    }
+                }
                 // Trackpad gesture surface — a transparent layer that
                 // intercepts one-finger drag + tap ONLY in trackpad mode
                 // and forwards them as `PointerGesture`s.  Keeping this
@@ -1142,6 +1201,7 @@ public struct SessionViewportView: View {
                 .overlay {
                     if Self.usesSwiftUITrackpadInputOverlay(
                         isPiPWatching: isPiPWatching,
+                        usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
                         pointerControlMode: pointerControlMode,
                         metalFramebufferInputSupported: Self.metalFramebufferInputSupported
                     ) {
@@ -1159,6 +1219,7 @@ public struct SessionViewportView: View {
                     ),
                        !Self.usesMetalHotTrackpadCursor(
                         isPiPWatching: isPiPWatching,
+                        usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
                         pointerControlMode: pointerControlMode,
                         metalFramebufferInputSupported: Self.metalFramebufferInputSupported
                     ) {
@@ -1201,14 +1262,24 @@ public struct SessionViewportView: View {
         minimumZoomScale: CGFloat
     ) -> some View {
         #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
-        if isPiPWatching, let pipLayerHost {
+        if usesHelperVideoPrimaryPreview, let helperVideoLayerHost {
+            sampleBufferLayerPreview(
+                framebuffer: framebuffer,
+                aspectRatio: aspectRatio,
+                layer: helperVideoLayerHost.layer,
+                accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
+                accessibilityLabel: "Remote helper video"
+            )
+        } else if isPiPWatching, let pipLayerHost {
             // Active system PiP — render through the shared
             // AVSampleBufferDisplayLayer so the in-app preview and the
             // PiP content source share one renderer (PR #5).
-            pipLayerPreview(
+            sampleBufferLayerPreview(
                 framebuffer: framebuffer,
                 aspectRatio: aspectRatio,
-                layerHost: pipLayerHost
+                layer: pipLayerHost.layer,
+                accessibilityIdentifier: "naru.session.pipDisplayLayer",
+                accessibilityLabel: "Remote framebuffer in Picture-in-Picture display layer"
             )
         } else {
             metalOrSampledPreview(
@@ -1226,13 +1297,19 @@ public struct SessionViewportView: View {
     }
 
     #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
-    private func pipLayerPreview(
+    private func sampleBufferLayerPreview(
         framebuffer: RFBRawFramebuffer,
         aspectRatio: CGFloat,
-        layerHost: PiPLayerHost
+        layer: AVSampleBufferDisplayLayer,
+        accessibilityIdentifier: String,
+        accessibilityLabel: String
     ) -> some View {
         GeometryReader { proxy in
-            PiPSampleBufferDisplayLayerView(layerHost: layerHost)
+            PiPSampleBufferDisplayLayerView(
+                layer: layer,
+                accessibilityIdentifier: accessibilityIdentifier,
+                accessibilityLabel: accessibilityLabel
+            )
                 .contentShape(Rectangle())
                 .simultaneousGesture(pipMagnificationGesture(framebuffer: framebuffer, viewSize: proxy.size))
                 .simultaneousGesture(pipPanGesture(framebuffer: framebuffer, viewSize: proxy.size))
@@ -1253,6 +1330,47 @@ public struct SessionViewportView: View {
         .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
         .aspectRatio(aspectRatio, contentMode: .fit)
         .accessibilityIdentifier("naru.session.framebufferPreview")
+    }
+
+    @ViewBuilder
+    private func helperVideoLayerPreviewWithoutFramebuffer() -> some View {
+        if let helperVideoLayerHost {
+            PiPSampleBufferDisplayLayerView(
+                layer: helperVideoLayerHost.layer,
+                accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
+                accessibilityLabel: "Remote helper video"
+            )
+            .overlay(alignment: .bottom) {
+                Text("Preparing control channel")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .background(Color.black.opacity(0.38))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(10)
+            }
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "display")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(viewportText)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+    }
+    #else
+    private func helperVideoLayerPreviewWithoutFramebuffer() -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "display")
+                .font(.system(size: 32, weight: .medium))
+                .foregroundStyle(.white.opacity(0.7))
+            Text(viewportText)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white.opacity(0.85))
+        }
     }
     #endif
 
@@ -1733,24 +1851,37 @@ public struct SessionViewportView: View {
 
     static func usesSwiftUITrackpadInputOverlay(
         isPiPWatching: Bool,
+        usesHelperVideoPrimaryPreview: Bool = false,
         pointerControlMode: PointerControlMode,
         metalFramebufferInputSupported: Bool
     ) -> Bool {
         allowsTrackpadInputOverlay(
             isPiPWatching: isPiPWatching,
             pointerControlMode: pointerControlMode
-        ) && !metalFramebufferInputSupported
+        ) && (usesHelperVideoPrimaryPreview || !metalFramebufferInputSupported)
+    }
+
+    static func usesSwiftUIDirectTouchInputOverlay(
+        isPiPWatching: Bool,
+        usesHelperVideoPrimaryPreview: Bool,
+        pointerControlMode: PointerControlMode,
+        metalFramebufferInputSupported: Bool
+    ) -> Bool {
+        !isPiPWatching
+            && pointerControlMode == .directTouch
+            && (usesHelperVideoPrimaryPreview || !metalFramebufferInputSupported)
     }
 
     static func usesMetalHotTrackpadCursor(
         isPiPWatching: Bool,
+        usesHelperVideoPrimaryPreview: Bool = false,
         pointerControlMode: PointerControlMode,
         metalFramebufferInputSupported: Bool
     ) -> Bool {
         allowsTrackpadInputOverlay(
             isPiPWatching: isPiPWatching,
             pointerControlMode: pointerControlMode
-        ) && metalFramebufferInputSupported
+        ) && metalFramebufferInputSupported && !usesHelperVideoPrimaryPreview
     }
 
     private static var metalFramebufferInputSupported: Bool {

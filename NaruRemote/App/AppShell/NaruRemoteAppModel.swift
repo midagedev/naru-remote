@@ -580,6 +580,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let allowsAdaptiveEncodingRenegotiation: Bool
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public let pipLayerHost: PiPLayerHost
+    public let helperVideoLayerHost: HelperVideoLayerHost
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
     private var activePointerClient: RFBPointerEventClient?
@@ -830,6 +831,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
             self.streamConnectorFactoryAppliesPreferences = true
         }
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        let defaultHelperVideoLayerHost = HelperVideoLayerHost()
+        #endif
         self.reachabilityProbeTimeout = reachabilityProbeTimeout
         self.reachabilityProbeMaximumConcurrency = max(1, reachabilityProbeMaximumConcurrency)
         self.pipWatchController = pipWatchController
@@ -838,7 +842,17 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.helperVideoStartStream = helperVideoStartStream ?? Self.defaultHelperVideoStartStream()
         self.helperVideoOpenStream = helperVideoOpenStream
             ?? (helperVideoStartStream == nil ? Self.defaultHelperVideoOpenStream() : nil)
-        self.helperVideoRendererFactory = helperVideoRendererFactory ?? Self.defaultHelperVideoRendererFactory()
+        if let helperVideoRendererFactory {
+            self.helperVideoRendererFactory = helperVideoRendererFactory
+        } else {
+            #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+            self.helperVideoRendererFactory = {
+                defaultHelperVideoLayerHost.renderer
+            }
+            #else
+            self.helperVideoRendererFactory = nil
+            #endif
+        }
         self.streamStartupPreflightPolicyOverride = streamStartupPreflightPolicy
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
@@ -853,6 +867,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.allowsAdaptiveEncodingRenegotiation = allowsAdaptiveEncodingRenegotiation
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         self.pipLayerHost = PiPLayerHost()
+        self.helperVideoLayerHost = defaultHelperVideoLayerHost
         #endif
     }
 
@@ -882,16 +897,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                 pairingSecret: pairingSecret
             )
             return client.streamEvents(requestBody)
-        }
-        #else
-        return nil
-        #endif
-    }
-
-    private static func defaultHelperVideoRendererFactory() -> HelperVideoRendererFactory? {
-        #if canImport(AVFoundation) && canImport(CoreMedia)
-        return {
-            HelperVideoH264SampleBufferRenderer()
         }
         #else
         return nil
@@ -1226,7 +1231,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard selectedProfileID == activeSession.profileID else {
             return .profileMismatch
         }
-        guard activeSession.state == .active else {
+        switch activeSession.state {
+        case .connecting, .authenticating, .active, .degraded, .reconnecting(_, _):
+            break
+        case .failed, .closed:
             return .sessionInactive
         }
         guard let activeProfile = profiles.first(where: { $0.id == activeSession.profileID }) else {
@@ -3264,6 +3272,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        startHelperVideoStreamIfConfigured(profile: profile, sessionID: nextSession.id)
+
         let initialEncodingPreference = initialStreamEncodingPreference()
         let initialPixelFormatPreference = initialStreamPixelFormatPreference()
         let connector = streamConnectorFactory(
@@ -3361,8 +3371,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                     ]
                 )
                 recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
-                startHelperVideoStreamIfConfigured(profile: profile, sessionID: nextSession.id)
             } catch {
+                stopHelperVideoStreamBootstrap()
                 activeTextClient = nil
                 activePointerClient = nil
                 lastEmittedDragCoord = nil
@@ -4303,7 +4313,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                 ]
             )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
-            startHelperVideoStreamIfConfigured(profile: profile, sessionID: activeSession.id)
         }
     }
 
@@ -4654,6 +4663,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             updatedSession.markFailed("Connection lost. Please reconnect.")
             clearSessionFrame()
             resetSessionStreamStats()
+            stopHelperVideoStreamBootstrap()
             resetVisualTransportState()
             session = updatedSession
             activeStreamProfile = nil
@@ -4703,6 +4713,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         updatedSession.markFailed(failure.safeTitle)
         clearSessionFrame()
         resetSessionStreamStats()
+        stopHelperVideoStreamBootstrap()
         resetVisualTransportState()
         session = updatedSession
         activeStreamProfile = nil

@@ -58,6 +58,33 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testHelperVideoPrimaryForcesSwiftUIInputOverlaysEvenWhenMetalIsAvailable() {
+        XCTAssertTrue(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: true
+            )
+        )
+        XCTAssertTrue(
+            SessionViewportView.usesSwiftUIDirectTouchInputOverlay(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                pointerControlMode: .directTouch,
+                metalFramebufferInputSupported: true
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.usesMetalHotTrackpadCursor(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: true
+            )
+        )
+    }
+
     func testTrackpadHotDragKeepsImmediateCursorOverPublishedSnapshot() {
         XCTAssertFalse(
             TrackpadCursorSnapshotPolicy.shouldAdoptPublishedCursor(

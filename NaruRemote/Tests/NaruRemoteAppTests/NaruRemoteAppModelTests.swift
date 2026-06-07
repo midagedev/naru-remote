@@ -3137,7 +3137,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
-    func testHelperVideoBootstrapStartsAfterVNCFirstFrameWithoutDroppingControl() async throws {
+    func testHelperVideoBootstrapKeepsVNCControlPathActive() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
             displayName: "Desk",
@@ -3200,6 +3200,72 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
         XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, nil)
         XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+    }
+
+    func testHelperVideoBootstrapStartsBeforeSlowVNCFirstFrame() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffer: framebuffer,
+            frameUpdateDelay: 0.4
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .high),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoStartCalls(helperRecorder, count: 1)
+
+        XCTAssertNil(
+            model.snapshot.latestFramebuffer,
+            "Helper video should no longer wait for the VNC first framebuffer before starting."
+        )
+        XCTAssertEqual(model.snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(model.snapshot.helperVideoStreamDescriptor?.codecProfile, .high)
+        XCTAssertEqual(model.snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+
+        try await waitForLatestFramebuffer(model)
+        model.disconnect()
     }
 
     func testHelperVideoBootstrapPrefersContinuousOpenStreamAfterVNCFirstFrame() async throws {
@@ -6008,6 +6074,38 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    private func waitForHelperVideoStartCalls(
+        _ recorder: HelperVideoStartRecorder,
+        count expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if await recorder.recordedCallSnapshot().count >= expectedCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let calls = await recorder.recordedCallSnapshot()
+        XCTAssertEqual(calls.count, expectedCount, file: file, line: line)
+    }
+
+    private func waitForLatestFramebuffer(
+        _ model: NaruRemoteAppModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.latestFramebuffer != nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotNil(model.snapshot.latestFramebuffer, file: file, line: line)
+    }
+
     private func waitForPointerEvents(
         _ connector: FakeStreamingConnector,
         count expectedCount: Int,
@@ -6603,6 +6701,8 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
     private let width: Int
     private let height: Int
     private let name: String
+    private let connectDelay: TimeInterval
+    private let frameUpdateDelay: TimeInterval
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
@@ -6632,11 +6732,15 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         height: Int,
         name: String,
         framebuffer: RFBRawFramebuffer,
-        canEnableContinuousUpdates: Bool = false
+        canEnableContinuousUpdates: Bool = false,
+        connectDelay: TimeInterval = 0,
+        frameUpdateDelay: TimeInterval = 0
     ) {
         self.width = width
         self.height = height
         self.name = name
+        self.connectDelay = max(connectDelay, 0)
+        self.frameUpdateDelay = max(frameUpdateDelay, 0)
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: [.fullFrame(framebuffer: framebuffer)],
@@ -6650,11 +6754,15 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         height: Int,
         name: String,
         framebuffers: [RFBRawFramebuffer],
-        canEnableContinuousUpdates: Bool = false
+        canEnableContinuousUpdates: Bool = false,
+        connectDelay: TimeInterval = 0,
+        frameUpdateDelay: TimeInterval = 0
     ) {
         self.width = width
         self.height = height
         self.name = name
+        self.connectDelay = max(connectDelay, 0)
+        self.frameUpdateDelay = max(frameUpdateDelay, 0)
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: framebuffers.map { .fullFrame(framebuffer: $0) },
@@ -6668,11 +6776,15 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         height: Int,
         name: String,
         updateResults: [RFBFramebufferUpdateResult],
-        canEnableContinuousUpdates: Bool = false
+        canEnableContinuousUpdates: Bool = false,
+        connectDelay: TimeInterval = 0,
+        frameUpdateDelay: TimeInterval = 0
     ) {
         self.width = width
         self.height = height
         self.name = name
+        self.connectDelay = max(connectDelay, 0)
+        self.frameUpdateDelay = max(frameUpdateDelay, 0)
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: updateResults,
@@ -6736,6 +6848,9 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         credential: RFBConnectionCredential,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
+        if connectDelay > 0 {
+            Thread.sleep(forTimeInterval: connectDelay)
+        }
         recording.withLock { state in
             state.recordedSessionRequests.append(FakeFirstFrameConnector.Request(host: host, port: port))
             state.recordedCredentials.append(credential)
@@ -6786,6 +6901,9 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         timeout: TimeInterval,
         region: RFBFramebufferUpdateRegion?
     ) throws -> RFBFramebufferUpdateResult {
+        if frameUpdateDelay > 0 {
+            Thread.sleep(forTimeInterval: frameUpdateDelay)
+        }
         let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.recordedFrameUpdateRequests.append(incremental)
             state.recordedFrameUpdateRegions.append(region)
@@ -6800,6 +6918,9 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
     }
 
     func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        if frameUpdateDelay > 0 {
+            Thread.sleep(forTimeInterval: frameUpdateDelay)
+        }
         let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.receivedFrameCount += 1
             return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
