@@ -119,6 +119,14 @@ description: "Tasks: Host Helper Text Bridge"
   X11 Unicode keysyms (`0x01000000 | codepoint`) for future live compatibility
   probes. Hangul jamo/remote-IME decomposition remains rejected by default.
   Verify with `TextKeystrokeTranscoderTests`. **Done.**
+- [x] T034F [US1] Add a privacy-safe `VNCLiveBenchmark`
+  `--text-keystroke-probe-only` mode for live VNC compatibility evidence.
+  The probe connects, requests a first frame, and enqueues fixed committed-text
+  KeyEvent payloads using the transcoder without enabling the route as the
+  app's default Compose send behavior. Reports omit raw text, keysyms, target
+  identity, credentials, bytes, dimensions, pixels, raw errors, and exact
+  timings. Verify with `BenchmarkTextKeystrokeProbeReportTests` and
+  `swift build --product VNCLiveBenchmark`. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct

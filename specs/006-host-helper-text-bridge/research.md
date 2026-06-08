@@ -84,6 +84,17 @@ evidence proves the target server accepts those keysyms.
   (`https://xkbcommon.org/doc/current/group__keysyms.html`) describes the same
   U+0100...U+10FFFF to `0x01000100`...`0x0110FFFF` range.
 
+**Verification**:
+- `TextKeystrokeTranscoderTests` proves committed Unicode text maps to X11
+  Unicode keysyms without Hangul jamo decomposition.
+- `BenchmarkTextKeystrokeProbeReportTests` proves the live benchmark report
+  uses fixed payload labels, encoding labels, stage labels, and event-count
+  buckets without exporting raw text or keysyms.
+- `VNCLiveBenchmark --text-keystroke-probe-only` is a probe-only command. A
+  `sent` result means key events were enqueued on the RFB transport after a
+  first-frame handshake; it does not claim remote editor insertion and does not
+  enable Compose text key events as the app default.
+
 **Alternatives considered**:
 - Default Hangul jamo decomposition: rejected until an explicit remote IME
   profile can verify layout and input-source state on the target host.

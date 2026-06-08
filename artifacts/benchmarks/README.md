@@ -84,6 +84,14 @@ synthetic helper-video is smooth, and true ScreenCaptureKit helper-video is
 blocked by the helper app bundle's missing Screen Recording permission. The
 paired app slice surfaces helper-video readiness on connection-grid cards and
 preserves helper-video opt-in when a profile is edited.
+Current text-keystroke live probe artifact:
+`artifacts/benchmarks/2026-06-09-text-keystroke-live-probe-summary.md`.
+That run adds a probe-only live VNC KeyEvent check for fixed committed-text
+payloads. The current Mac target reaches `sent` for the `unicode-hangul`
+payload after connect and first frame, which proves RFB enqueue only; it does
+not prove remote editor insertion. The same probe under constrained-cellular
+conditioning connects but times out before first frame, so poor-network startup
+remains a separate gate before key-event text promotion.
 Current remote desktop transport cadence artifact:
 `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-transport-cadence-drilldown-summary.md`.
 That run adds a fixed request-response versus ContinuousUpdates drilldown under

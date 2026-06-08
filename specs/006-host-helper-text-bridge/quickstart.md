@@ -24,8 +24,10 @@ swift test --filter NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughRea
 swift test --filter NaruRemoteAppModelTests/testModelRejectsMismatchedHelperInsertResultID
 swift test --filter NaruRemoteAppModelTests/testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed
 swift test --filter TextKeystrokeTranscoderTests
+swift test --filter BenchmarkTextKeystrokeProbeReportTests
 swift test --filter NaruRemoteAppModelTests
 swift test --filter DiagnosticExportTests
+swift build --product VNCLiveBenchmark
 ```
 
 Expected:
@@ -34,7 +36,29 @@ Expected:
 - Compose text key-event fallback remains a bounded foundation/probe: Hangul
   syllables produce X11 Unicode keysyms, not remote-IME jamo decomposition, and
   the route is not enabled as the default Compose send behavior.
+- The live benchmark text-keystroke probe emits only fixed payload labels,
+  encoding labels, stage labels, and event-count buckets. It omits raw text,
+  keysyms, target identity, credentials, bytes, dimensions, pixels, raw errors,
+  and exact timings.
 - Diagnostics export helper state and fixed failure codes without raw text.
+
+## Probe-Only Unicode KeyEvent Compatibility
+
+Run only when a live private VNC target is intentionally configured through
+`NARU_LIVE_MAC_HOST` and `NARU_LIVE_MAC_PASSWORD` or `--ask-password`:
+
+```bash
+scripts/run-naru-live-benchmark.sh text-keystroke-probe
+scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --text-keystroke-probe-payload ascii
+scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --network-condition constrained-cellular
+```
+
+Expected:
+- `status: sent` in text output or `"status": "sent"` in JSON means the fixed
+  payload's KeyEvent down/up sequence was enqueued after a successful live VNC
+  first-frame handshake.
+- The command does not confirm the remote editor inserted text and does not
+  enable key-event text as the app's default Compose route.
 
 ## Future macOS Helper Slice
 
