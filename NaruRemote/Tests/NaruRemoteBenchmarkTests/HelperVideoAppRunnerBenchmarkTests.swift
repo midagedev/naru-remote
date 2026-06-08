@@ -128,6 +128,7 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
         let process = try Self.startExternalHelperVideoServer(
             helperExecutableURL: helperExecutableURL,
             pairingSecret: pairingSecret,
+            profileFingerprint: Self.profileFingerprint,
             frameCount: configuration.displayableFrameCount
         )
         defer { Self.terminateExternalHelperVideoServer(process.process) }
@@ -452,6 +453,7 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
     private static func startExternalHelperVideoServer(
         helperExecutableURL: URL,
         pairingSecret: String,
+        profileFingerprint: String,
         frameCount: Int
     ) throws -> ExternalHelperVideoProcess {
         let port = UInt16.random(in: UInt16(49_152)...UInt16.max)
