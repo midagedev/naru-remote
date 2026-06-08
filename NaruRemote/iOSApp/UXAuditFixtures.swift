@@ -95,6 +95,7 @@ enum UXAuditFixtures {
         let hostKind = env["NARU_TEST_SEED_PROFILE_HOST_KIND"]
             .flatMap(ConnectionProfile.HostKind.init(rawValue:)) ?? .privateAddress
         let credentialRef = env["NARU_TEST_SEED_PROFILE_CREDENTIAL_REF"]?.trimmedNonEmpty
+        let helperVideo = Self.seedHelperVideoConfiguration(from: env)
 
         guard let profile = try? ConnectionProfile(
             id: id,
@@ -102,7 +103,8 @@ enum UXAuditFixtures {
             host: host,
             port: port,
             credentialRef: credentialRef,
-            hostKind: hostKind
+            hostKind: hostKind,
+            helperVideo: helperVideo
         ) else {
             return nil
         }
@@ -110,6 +112,20 @@ enum UXAuditFixtures {
         return NaruRemoteAppSnapshot(
             profiles: [profile],
             selectedProfileID: profile.id
+        )
+    }
+
+    private static func seedHelperVideoConfiguration(
+        from env: [String: String]
+    ) -> HelperVideoConnectionConfiguration? {
+        guard env.isTruthy("NARU_TEST_SEED_HELPER_VIDEO_ENABLED") else {
+            return nil
+        }
+
+        return HelperVideoConnectionConfiguration(
+            isEnabled: true,
+            pairingSecretRef: env["NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF"]?.trimmedNonEmpty,
+            pairingFingerprint: env["NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT"]?.trimmedNonEmpty
         )
     }
 
@@ -512,5 +528,14 @@ private extension String {
     var trimmedNonEmpty: String? {
         let value = trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
+    }
+}
+
+private extension Dictionary where Key == String, Value == String {
+    func isTruthy(_ key: String) -> Bool {
+        guard let raw = self[key]?.trimmedNonEmpty?.lowercased() else {
+            return false
+        }
+        return raw == "1" || raw == "true" || raw == "yes"
     }
 }

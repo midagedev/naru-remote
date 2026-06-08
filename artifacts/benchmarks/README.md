@@ -556,14 +556,14 @@ labels, candidate labels, xcodebuild test status, and a summarized final
 
 For the larger sustained candidate gate, keep the same target variables and run
 the opt-in sustained UI test. The recommended production-promotion duration is
-600 seconds. The three candidate labels below are required; the test fails
-configuration early rather than silently running with the phone's existing
-settings or defaults. The fourth label, startup glance scale, is required so
-low-traffic RGB565 candidates can compare 0.45/0.35/0.25 first-useful-paint
-quality without rebuilding. The test injects only fixed candidate labels into
-the app, performs viewport pinch/pan, trackpad movement, and a Compose send
-attempt, then keeps the session alive while the app emits a delayed diagnostic
-JSON block through the safe `makeDiagnosticExport()` path.
+600 seconds. The stream, startup, and helper-video pairing labels below are
+required; the test fails configuration early rather than silently running with
+the phone's existing settings, defaults, or a VNC-only profile. The startup
+glance scale label lets low-traffic RGB565 candidates compare 0.45/0.35/0.25
+first-useful-paint quality without rebuilding. The test injects only fixed
+candidate labels into the app, performs viewport pinch/pan, trackpad movement,
+and a Compose send attempt, then keeps the session alive while the app emits a
+delayed diagnostic JSON block through the safe `makeDiagnosticExport()` path.
 
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
@@ -576,11 +576,21 @@ export NARU_PHYSICAL_E2E_STREAM_POWER_MODE=balanced
 export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=local-low-latency-rgb565
 export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=one-hidden-frame
 export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE=glance-025
+read -rs NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
+export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
+export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT=sha256:<saved-profile-fingerprint>
 
 scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate
 
 unset NARU_PHYSICAL_E2E_PASSWORD
+unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
 ```
+
+If the Mac-side helper listener already uses `NARU_HELPER_VIDEO_TOKEN` and
+`NARU_HELPER_VIDEO_PROFILE_FINGERPRINT`, the runner imports those values from
+the current shell or `launchctl` and maps them into the physical E2E pairing
+variables. The safe report exposes only `candidateLabels.helperVideoProfileMode`
+(`configured`, `incomplete`, or `missing`), never the token or fingerprint.
 
 Use the last `NARU_DIAGNOSTIC_EXPORT_BEGIN` / `NARU_DIAGNOSTIC_EXPORT_END`
 block from the xcodebuild log as the diagnostic evidence. The production

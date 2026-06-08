@@ -97,6 +97,33 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         )
     }
 
+    func testLaunchEnvironmentSeedProfileCanEnableHelperVideo() {
+        XCUIDevice.shared.orientation = .portrait
+
+        let helperVideoSecretRef = "helper-video-token:\(UUID().uuidString)"
+        let app = launchAppWithProfileStore(
+            launchEnvironment: [
+                "NARU_TEST_SKIP_PROFILE_STORE_LOAD": "1",
+                "NARU_TEST_SEED_PROFILE_NAME": "Physical E2E Mac",
+                "NARU_TEST_SEED_PROFILE_HOST": "studio.tailnet.ts.net",
+                "NARU_TEST_SEED_PROFILE_HOST_KIND": "magicDNS",
+                "NARU_TEST_SEED_HELPER_VIDEO_ENABLED": "1",
+                "NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF": helperVideoSecretRef,
+                "NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT": "sha256:physical-e2e-helper-video",
+                "NARU_TEST_INJECT_HELPER_VIDEO_KEYCHAIN_REF": helperVideoSecretRef,
+                "NARU_TEST_INJECT_HELPER_VIDEO_KEYCHAIN_PASSWORD": "redacted-helper-video-token"
+            ]
+        )
+
+        XCTAssertTrue(app.staticTexts["Connections"].waitForExistence(timeout: 8))
+        let card = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            card.label.localizedCaseInsensitiveContains("helper video"),
+            "Seeded physical E2E profiles with helper-video pairing must not launch as VNC-only cards"
+        )
+    }
+
     private func launchAppWithEmptyProfileStore() -> XCUIApplication {
         launchAppWithProfileStore()
     }

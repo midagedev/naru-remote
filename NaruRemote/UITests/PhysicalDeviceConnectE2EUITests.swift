@@ -16,7 +16,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         guard expectsSeededProfile || !isRunningInSimulator else {
             throw XCTSkip("Physical E2E requires an injected profile when running on a simulator")
         }
-        forwardSeededPhysicalProfileIfPresent(to: app)
+        try forwardSeededPhysicalProfileIfPresent(to: app)
         app.launch()
 
         if app.staticTexts["Connections"].waitForExistence(timeout: 8) {
@@ -81,7 +81,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             Self.secondsString(sustainedDuration)
         app.launchEnvironment["NARU_TEST_SKIP_SETTINGS_STORE_LOAD"] = "1"
         try forwardRequiredCandidateSettings(to: app)
-        forwardSeededPhysicalProfileIfPresent(to: app)
+        try forwardSeededPhysicalProfileIfPresent(to: app)
         app.launch()
 
         XCTAssertTrue(
@@ -176,7 +176,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         return env["SIMULATOR_UDID"] != nil || env["SIMULATOR_DEVICE_NAME"] != nil
     }
 
-    private func forwardSeededPhysicalProfileIfPresent(to app: XCUIApplication) {
+    private func forwardSeededPhysicalProfileIfPresent(to app: XCUIApplication) throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["NARU_PHYSICAL_E2E_HOST"], !host.isEmpty,
               let password = env["NARU_PHYSICAL_E2E_PASSWORD"], !password.isEmpty
@@ -186,6 +186,10 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
 
         let profileID = UUID()
         let credentialRef = "vnc-password:\(profileID.uuidString)"
+        let helperVideoSeed = try helperVideoSeedConfiguration(
+            profileID: profileID,
+            environment: env
+        )
         app.launchEnvironment["NARU_TEST_SEED_PROFILE_ID"] = profileID.uuidString
         app.launchEnvironment["NARU_TEST_SEED_PROFILE_NAME"] = env["NARU_PHYSICAL_E2E_NAME"] ?? "Physical E2E Mac"
         app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = host
@@ -195,6 +199,42 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_REF"] = credentialRef
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"] = password
+
+        if let helperVideoSeed {
+            app.launchEnvironment["NARU_TEST_SEED_HELPER_VIDEO_ENABLED"] = "1"
+            app.launchEnvironment["NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF"] = helperVideoSeed.secretRef
+            app.launchEnvironment["NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT"] =
+                helperVideoSeed.pairingFingerprint
+            app.launchEnvironment["NARU_TEST_INJECT_HELPER_VIDEO_KEYCHAIN_REF"] = helperVideoSeed.secretRef
+            app.launchEnvironment["NARU_TEST_INJECT_HELPER_VIDEO_KEYCHAIN_PASSWORD"] =
+                helperVideoSeed.pairingSecret
+        }
+    }
+
+    private func helperVideoSeedConfiguration(
+        profileID: UUID,
+        environment env: [String: String]
+    ) throws -> HelperVideoSeedConfiguration? {
+        let secret = env["NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET"]?.trimmedNonEmpty
+        let fingerprint = env["NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT"]?.trimmedNonEmpty
+        guard secret != nil || fingerprint != nil else {
+            return nil
+        }
+        guard let secret, let fingerprint else {
+            XCTFail(
+                "NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET and " +
+                    "NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT must be set together"
+            )
+            throw PhysicalSustainedGateConfigurationError.invalidSetting(
+                "helper-video-pairing"
+            )
+        }
+
+        return HelperVideoSeedConfiguration(
+            secretRef: "helper-video-token:\(profileID.uuidString)",
+            pairingSecret: secret,
+            pairingFingerprint: fingerprint
+        )
     }
 
     private func sustainedCandidateDuration() throws -> TimeInterval {
@@ -416,4 +456,17 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
 private enum PhysicalSustainedGateConfigurationError: Error {
     case missingSetting(String)
     case invalidSetting(String)
+}
+
+private struct HelperVideoSeedConfiguration {
+    let secretRef: String
+    let pairingSecret: String
+    let pairingFingerprint: String
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 }
