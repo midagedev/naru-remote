@@ -6164,6 +6164,59 @@ raw OS errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, IME state, keysyms, helper endpoints, pairing
 material, or physical device IDs.
 
+### D144 Keep Request Pipeline Depth At 1 After Longer Stability
+
+References:
+- `artifacts/benchmarks/2026-06-09-request-pipeline-stability-summary.md`
+- D143 request pipeline usefulness diagnosis.
+- D137 server cadence diagnosis.
+
+**Decision**: add `scripts/run-naru-live-benchmark.sh
+request-pipeline-stability`, a longer depth 1 versus depth 3 gate that expands
+the app-low-traffic VNC shape explicitly instead of using a preset. Keep
+production request pipeline depth at 1, and route below-target stability
+results to `run-helper-video-live-gate`.
+
+**Why**:
+- D143 showed a short-run depth 3 FPS improvement, but also marked the result
+  `below10fpsTarget` / `benchmarkOnlyNeedsLongerStability`.
+- The existing preset path overwrites sample/duration options, so the longer
+  stability runner must spell out the shape directly to really collect a
+  12-sample / 10-second request-response run.
+- The product goal is Chrome-Remote-like sustained iPhone smoothness. If a
+  longer VNC request pipeline remains near 2fps, investing in production
+  pipeline depth would preserve the wrong end state.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh request-pipeline-stability-self-test`
+  passes.
+- `request-pipeline-stability -- --stream-shape-request-pipeline-depth 2`
+  rejects the caller-provided depth override.
+- Live `request-pipeline-stability` completed with:
+  - depth 1: `1.78` content FPS, `656` ms first-byte-wait p95, `1100` ms p95
+    update.
+  - depth 3: `1.83` content FPS, `657` ms first-byte-wait p95, `1370` ms p95
+    update.
+  - `pipelineHelpfulness=notHelpful`, `targetReadiness=below10fpsTarget`,
+    `promotionReadiness=benchmarkOnlyNoPromotion`,
+    `recommendedNextAction=run-helper-video-live-gate`.
+
+**Interpretation**:
+- Depth 3 does not survive the longer stability check. The short-run
+  improvement was not enough to justify a production or opt-in app behavior
+  change.
+- First-byte wait and p95 update tail remain the sustained blocker. Continue to
+  keep VNC as the input/control/fallback path and move the smooth visual path to
+  helper-video once Screen Recording permission is granted.
+
+**Privacy rule**: the stability runner emits only fixed labels and aggregate
+benchmark metrics. It must not print or export host identity, credentials,
+ports, helper paths, executable paths, command lines, raw stdout/stderr, raw
+TCP/RFB errors, raw OS errors, coordinates, dimensions, pixels, byte counts,
+stimulus command text, draft text, marked text, IME state, keysyms, helper
+endpoints, pairing material, or physical device IDs.
+
 ### D142 Add Transport Cadence To Remote Desktop 10fps Readiness
 
 References:

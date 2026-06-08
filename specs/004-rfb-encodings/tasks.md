@@ -1635,6 +1635,20 @@ iPhone) and ships as its own PR.
   text, draft text, marked text, IME state, keysyms, helper endpoints, pairing
   material, or physical device IDs. Owns: launchctl runner, self-test, research
   note, benchmark README, and live evidence. **Done.**
+- **T480** Request pipeline stability gate: after the short diagnosis showed
+  depth 3 could look helpful but still below the 10fps target, add a longer
+  `request-pipeline-stability` runner that explicitly expands the app-low-traffic
+  VNC shape without a preset, compares depth 1 versus depth 3 for a 12-sample /
+  10-second request-response run, and reuses the fixed compact diagnosis schema.
+  If the longer run remains below target, route the next action to the
+  helper-video live gate rather than promoting request pipeline depth. Keep
+  production request pipeline depth at 1. Emit/export no host identity,
+  credentials, ports, helper paths, executable paths, command lines, raw
+  stdout/stderr, raw TCP/RFB errors, raw OS errors, coordinates, dimensions,
+  pixels, byte counts, stimulus command text, draft text, marked text, IME
+  state, keysyms, helper endpoints, pairing material, or physical device IDs.
+  Owns: launchctl runner, self-test, research note, benchmark README, and live
+  evidence. **Done.**
 
 ## Cross-cutting (every increment)
 
