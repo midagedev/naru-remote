@@ -1622,6 +1622,19 @@ iPhone) and ships as its own PR.
   stimulus command text, draft text, marked text, IME state, keysyms, helper
   endpoints, pairing material, or physical device IDs. Owns: benchmark preset,
   readiness shell, self-test, research note, and live evidence. **Done.**
+- **T479** Request pipeline usefulness diagnosis: after the 10fps readiness
+  loop kept surfacing first-byte-wait/server-cadence failures, add a compact
+  launchctl-backed `request-pipeline-sweep-diagnosis` mode that runs the fixed
+  depth 1/2/3 VNC sweep and emits one aggregate summary with baseline depth,
+  best depth, FPS improvement, first-byte-wait p95 delta, usefulness label, and
+  recommended next action. Keep `request-pipeline-sweep` itself compatible and
+  keep depth >1 benchmark-only unless a later longer stability pass reaches the
+  10fps product gate. Emit/export no host identity, credentials, ports, helper
+  paths, executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
+  raw OS errors, coordinates, dimensions, pixels, byte counts, stimulus command
+  text, draft text, marked text, IME state, keysyms, helper endpoints, pairing
+  material, or physical device IDs. Owns: launchctl runner, self-test, research
+  note, benchmark README, and live evidence. **Done.**
 
 ## Cross-cutting (every increment)
 

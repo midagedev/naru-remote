@@ -33,6 +33,8 @@ Modes:
   screen-recording-watch Request helper Screen Recording, open Settings, and poll safe capability.
   screen-recording-watch-self-test Fast regression for screen-recording-watch labels.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
+  request-pipeline-sweep-diagnosis Summarize depth 1/2/3 as a fixed pipeline usefulness gate.
+  request-pipeline-sweep-diagnosis-self-test Fast regression for request pipeline diagnosis labels.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
   bounded-vnc-candidate-stability Repeat bounded warning-candidate VNC sweep.
@@ -3904,6 +3906,260 @@ print_remote_desktop_10fps_readiness_gate_summary() {
   fi
 }
 
+print_request_pipeline_sweep_diagnosis_failure() {
+  local failure_code="$1"
+  printf '{"schemaVersion":1,"mode":"request-pipeline-sweep-diagnosis","status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"pipelineHelpfulness":"inconclusive","recommendedNextAction":"inspect-request-pipeline-diagnosis"}'
+}
+
+print_request_pipeline_sweep_diagnosis() {
+  local sweep_file="$1"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    print_request_pipeline_sweep_diagnosis_failure \
+      benchmarkStep.requestPipelineSweepDiagnosis.jqUnavailable
+    return
+  fi
+
+  if ! jq -e '
+    def n($value): if ($value | type) == "number" then $value else null end;
+    def rounded($value): if $value == null then null else ($value + 0.5 | floor) end;
+    def fps($report):
+      n($report.streamShapeRequestCadenceHealth.averageContentFramesPerSecond //
+        $report.streamShapeProbe.summary.contentFramesPerSecond);
+    def avg_update($report):
+      n($report.streamShapeRequestCadenceHealth.averageUpdateMilliseconds //
+        $report.streamShapeProbe.summary.updateLatency.averageMilliseconds);
+    def p95_update($report):
+      n($report.streamShapeRequestCadenceHealth.maxP95UpdateMilliseconds //
+        $report.streamShapeProbe.summary.updateLatency.p95Milliseconds);
+    def first_byte_p95($report):
+      n($report.streamShapeRequestCadenceHealth.maxFirstByteWaitP95Milliseconds //
+        $report.streamShapeProbe.summary.firstByteWaitLatency.p95Milliseconds);
+    def verdict($report):
+      $report.streamShapeOptimizationDecision.verdict //
+      $report.streamShapeProbe.summary.practicalAssessment.verdict //
+      "unknown";
+    def issue($report):
+      $report.streamShapeOptimizationDecision.primaryIssueCode //
+      $report.streamShapeProbe.summary.practicalAssessment.primaryIssueCode //
+      "unknown";
+    def rows:
+      [
+        .[]? | {
+          depth: (.streamShapeRequestPipelineDepth // null),
+          contentFramesPerSecond: fps(.),
+          averageUpdateMilliseconds: avg_update(.),
+          p95UpdateMilliseconds: p95_update(.),
+          firstByteWaitP95Milliseconds: first_byte_p95(.),
+          productVerdict: verdict(.),
+          primaryIssueCode: issue(.),
+          serverCadenceStatus: (.streamShapeServerCadenceDiagnosis.status // "unknown"),
+          transportCadenceStatus:
+            (.streamShapeTransportCadenceDiagnosis.requestResponseStatus // "unknown")
+        }
+      ] | map(select(.depth != null));
+    rows as $rows |
+    ($rows | map(select(.depth == 1))[0] // null) as $baseline |
+    ($rows | map(select(.contentFramesPerSecond != null)) | sort_by(.contentFramesPerSecond) | last // null) as $best |
+    ($baseline.contentFramesPerSecond // null) as $baselineFps |
+    ($best.contentFramesPerSecond // null) as $bestFps |
+    ($baseline.firstByteWaitP95Milliseconds // null) as $baselineFirstByteP95 |
+    ($best.firstByteWaitP95Milliseconds // null) as $bestFirstByteP95 |
+    (
+      if $baselineFps == null or $baselineFps <= 0 or $bestFps == null then null
+      else rounded((($bestFps - $baselineFps) / $baselineFps) * 1000)
+      end
+    ) as $fpsImprovementPermille |
+    (
+      if $baselineFirstByteP95 == null or $bestFirstByteP95 == null then null
+      else $bestFirstByteP95 - $baselineFirstByteP95
+      end
+    ) as $firstByteDelta |
+    (
+      if ($rows | length) < 2 or $baseline == null or $best == null then "inconclusive"
+      elif ($best.depth // 1) == 1 then "notHelpful"
+      elif ($bestFps // 0) >= 10 then "targetReady"
+      elif ($fpsImprovementPermille // 0) >= 300 and ($firstByteDelta // 0) <= 100 then "helpful"
+      elif ($fpsImprovementPermille // 0) >= 100 and ($firstByteDelta // 0) <= 150 then "marginal"
+      elif ($firstByteDelta // 0) > 150 then "regressed"
+      else "notHelpful"
+      end
+    ) as $helpfulness |
+    (
+      if $helpfulness == "targetReady" then "run-physical-iphone-pipeline-gate"
+      elif $helpfulness == "helpful" then "rerun-request-pipeline-sweep-with-longer-samples"
+      elif $helpfulness == "marginal" then "inspectServerUpdateCadence"
+      elif $helpfulness == "notHelpful" then "inspectServerUpdateCadence"
+      else "inspect-request-pipeline-diagnosis"
+      end
+    ) as $nextAction |
+    (
+      if $helpfulness == "targetReady" and ($best.productVerdict // "unknown") == "pass" then
+        "meets10fpsTarget"
+      else
+        "below10fpsTarget"
+      end
+    ) as $targetReadiness |
+    (
+      if $targetReadiness == "meets10fpsTarget" then "requiresPhysicalIPhoneGate"
+      elif $helpfulness == "helpful" or $helpfulness == "marginal" then
+        "benchmarkOnlyNeedsLongerStability"
+      else
+        "benchmarkOnlyNoPromotion"
+      end
+    ) as $promotionReadiness |
+    {
+      schemaVersion: 1,
+      mode: "request-pipeline-sweep-diagnosis",
+      status: (if ($rows | length) > 0 then "completed" else "failed" end),
+      parentSweepMode: "request-pipeline-sweep",
+      depthCount: ($rows | length),
+      baselineDepth: ($baseline.depth // null),
+      bestDepth: ($best.depth // null),
+      baselineContentFramesPerSecond: $baselineFps,
+      bestContentFramesPerSecond: $bestFps,
+      contentFpsImprovementPermille: $fpsImprovementPermille,
+      baselineFirstByteWaitP95Milliseconds: $baselineFirstByteP95,
+      bestFirstByteWaitP95Milliseconds: $bestFirstByteP95,
+      firstByteWaitP95DeltaMilliseconds: $firstByteDelta,
+      bestAverageUpdateMilliseconds: ($best.averageUpdateMilliseconds // null),
+      bestP95UpdateMilliseconds: ($best.p95UpdateMilliseconds // null),
+      bestProductVerdict: ($best.productVerdict // "unknown"),
+      bestPrimaryIssueCode: ($best.primaryIssueCode // "unknown"),
+      pipelineHelpfulness: $helpfulness,
+      targetReadiness: $targetReadiness,
+      promotionReadiness: $promotionReadiness,
+      recommendedNextAction: $nextAction,
+      candidateRows: $rows,
+      diagnosticDesignLabels: [
+        "pipeline-depth-summary-uses-aggregate-metrics-only",
+        "pipeline-helpfulness-is-not-a-production-default-promotion",
+        "below-10fps-pipeline-results-route-to-server-cadence-or-helper-video-work",
+        "raw-hosts-coordinates-pixels-bytes-and-errors-are-not-emitted"
+      ]
+    }
+  ' "$sweep_file"; then
+    print_request_pipeline_sweep_diagnosis_failure \
+      benchmarkStep.requestPipelineSweepDiagnosis.failed
+  fi
+}
+
+run_request_pipeline_sweep_reports() {
+  printf '[\n'
+  local first_report=1
+  for depth in 1 2 3; do
+    if ((first_report)); then
+      first_report=0
+    else
+      printf ',\n'
+    fi
+    run_benchmark_with_extra \
+      --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
+      --visual-transport vnc \
+      --first-frame-profiles none \
+      --full-refresh-samples 0 \
+      --continuous-update-samples 0 \
+      --stream-shape-samples 2 \
+      --stream-shape-duration-seconds 3 \
+      --stream-shape-request-pipeline-depth "$depth" \
+      --json
+  done
+  printf '\n]\n'
+}
+
+request_pipeline_sweep_diagnosis_self_test() {
+  reject_extra_args
+
+  local marginal_file
+  local target_file
+  local flat_file
+  marginal_file="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-marginal.XXXXXX")"
+  target_file="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-target.XXXXXX")"
+  flat_file="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-flat.XXXXXX")"
+
+  cat >"$marginal_file" <<'JSON'
+[
+  {"streamShapeRequestPipelineDepth":1,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.0,"averageUpdateMilliseconds":500,"maxP95UpdateMilliseconds":627,"maxFirstByteWaitP95Milliseconds":626},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}},
+  {"streamShapeRequestPipelineDepth":2,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.05,"averageUpdateMilliseconds":488,"maxP95UpdateMilliseconds":608,"maxFirstByteWaitP95Milliseconds":606},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}},
+  {"streamShapeRequestPipelineDepth":3,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.45,"averageUpdateMilliseconds":452,"maxP95UpdateMilliseconds":617,"maxFirstByteWaitP95Milliseconds":616},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}}
+]
+JSON
+  cat >"$target_file" <<'JSON'
+[
+  {"streamShapeRequestPipelineDepth":1,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":6.0,"averageUpdateMilliseconds":166,"maxP95UpdateMilliseconds":250,"maxFirstByteWaitP95Milliseconds":240},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"content-fps-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}},
+  {"streamShapeRequestPipelineDepth":2,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":10.4,"averageUpdateMilliseconds":96,"maxP95UpdateMilliseconds":130,"maxFirstByteWaitP95Milliseconds":120},"streamShapeOptimizationDecision":{"verdict":"pass","primaryIssueCode":"none"},"streamShapeServerCadenceDiagnosis":{"status":"balanced"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"pass"}}
+]
+JSON
+  cat >"$flat_file" <<'JSON'
+[
+  {"streamShapeRequestPipelineDepth":1,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.2,"averageUpdateMilliseconds":454,"maxP95UpdateMilliseconds":610,"maxFirstByteWaitP95Milliseconds":600},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}},
+  {"streamShapeRequestPipelineDepth":2,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.1,"averageUpdateMilliseconds":476,"maxP95UpdateMilliseconds":630,"maxFirstByteWaitP95Milliseconds":620},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}}
+]
+JSON
+
+  local marginal_summary
+  local target_summary
+  local flat_summary
+  marginal_summary="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-marginal-summary.XXXXXX")"
+  target_summary="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-target-summary.XXXXXX")"
+  flat_summary="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-flat-summary.XXXXXX")"
+
+  print_request_pipeline_sweep_diagnosis "$marginal_file" >"$marginal_summary"
+  print_request_pipeline_sweep_diagnosis "$target_file" >"$target_summary"
+  print_request_pipeline_sweep_diagnosis "$flat_file" >"$flat_summary"
+
+  if jq -e '
+    .schemaVersion == 1 and
+    .status == "completed" and
+    .pipelineHelpfulness == "marginal" and
+    .recommendedNextAction == "inspectServerUpdateCadence" and
+    .baselineDepth == 1 and
+    .bestDepth == 3 and
+    .contentFpsImprovementPermille == 225 and
+    .firstByteWaitP95DeltaMilliseconds == -10 and
+    .targetReadiness == "below10fpsTarget" and
+    .promotionReadiness == "benchmarkOnlyNeedsLongerStability" and
+    (.diagnosticDesignLabels | index("pipeline-depth-summary-uses-aggregate-metrics-only"))
+  ' "$marginal_summary" >/dev/null && jq -e '
+    .pipelineHelpfulness == "targetReady" and
+    .targetReadiness == "meets10fpsTarget" and
+    .promotionReadiness == "requiresPhysicalIPhoneGate" and
+    .recommendedNextAction == "run-physical-iphone-pipeline-gate" and
+    .bestDepth == 2 and
+    .bestContentFramesPerSecond == 10.4
+  ' "$target_summary" >/dev/null && jq -e '
+    .pipelineHelpfulness == "notHelpful" and
+    .targetReadiness == "below10fpsTarget" and
+    .promotionReadiness == "benchmarkOnlyNoPromotion" and
+    .recommendedNextAction == "inspectServerUpdateCadence" and
+    .bestDepth == 1
+  ' "$flat_summary" >/dev/null; then
+    printf '{"schemaVersion":1,"mode":"request-pipeline-sweep-diagnosis-self-test","status":"passed","marginalSummary":'
+    cat "$marginal_summary"
+    printf ',"targetSummary":'
+    cat "$target_summary"
+    printf ',"flatSummary":'
+    cat "$flat_summary"
+    printf '}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"request-pipeline-sweep-diagnosis-self-test","status":"failed","marginalSummary":'
+    cat "$marginal_summary"
+    printf ',"targetSummary":'
+    cat "$target_summary"
+    printf ',"flatSummary":'
+    cat "$flat_summary"
+    printf '}\n'
+    rm -f "$marginal_file" "$target_file" "$flat_file" \
+      "$marginal_summary" "$target_summary" "$flat_summary"
+    exit 1
+  fi
+
+  rm -f "$marginal_file" "$target_file" "$flat_file" \
+    "$marginal_summary" "$target_summary" "$flat_summary"
+}
+
 remote_desktop_readiness_summary_self_test() {
   reject_extra_args
 
@@ -4238,26 +4494,19 @@ case "$mode" in
     import_live_env
     reject_extra_flag --stream-shape-request-pipeline-depth
     cd "$repo_root"
-    printf '[\n'
-    first_report=1
-    for depth in 1 2 3; do
-      if ((first_report)); then
-        first_report=0
-      else
-        printf ',\n'
-      fi
-      run_benchmark_with_extra \
-        --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
-        --visual-transport vnc \
-        --first-frame-profiles none \
-        --full-refresh-samples 0 \
-        --continuous-update-samples 0 \
-        --stream-shape-samples 2 \
-        --stream-shape-duration-seconds 3 \
-        --stream-shape-request-pipeline-depth "$depth" \
-        --json
-    done
-    printf '\n]\n'
+    run_request_pipeline_sweep_reports
+    ;;
+  request-pipeline-sweep-diagnosis)
+    import_live_env
+    reject_extra_flag --stream-shape-request-pipeline-depth
+    cd "$repo_root"
+    sweep_file="$(mktemp "${TMPDIR:-/tmp}/naru-request-pipeline-sweep.XXXXXX")"
+    run_request_pipeline_sweep_reports >"$sweep_file"
+    print_request_pipeline_sweep_diagnosis "$sweep_file"
+    rm -f "$sweep_file"
+    ;;
+  request-pipeline-sweep-diagnosis-self-test)
+    request_pipeline_sweep_diagnosis_self_test
     ;;
   bounded-vnc-profile-sweep)
     import_live_env

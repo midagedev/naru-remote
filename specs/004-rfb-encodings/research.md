@@ -6104,6 +6104,66 @@ credentials, ports, executable paths, command lines, raw stdout/stderr, raw
 TCP/RFB errors, coordinates, dimensions, pixels, byte counts, stimulus command
 text, draft text, marked text, or IME state.
 
+### D143 Add A Request Pipeline Usefulness Diagnosis
+
+References:
+- `artifacts/benchmarks/2026-06-09-request-pipeline-diagnosis-summary.md`
+- D117 request/response outstanding-request pipeline benchmark.
+- D118 launchctl request-pipeline sweep runner.
+- D137 server cadence diagnosis.
+- RFC 6143 framebuffer update request flow:
+  https://www.rfc-editor.org/rfc/rfc6143
+- IANA RFB registry for Fence/ContinuousUpdates extension labels:
+  https://www.iana.org/assignments/rfb/rfb.xhtml
+
+**Decision**: add `scripts/run-naru-live-benchmark.sh
+request-pipeline-sweep-diagnosis` as a compact fixed-label summary on top of
+the existing depth 1/2/3 `request-pipeline-sweep`. Keep the raw sweep output
+compatible, and keep production request pipeline depth at 1 until a longer
+stability run reaches the 10fps product target.
+
+**Why**:
+- The user-facing symptom is still much lower than the 10fps bar. We need a
+  quick way to tell whether outstanding incremental requests are a real
+  candidate or another shallow improvement.
+- RFC 6143 allows a single framebuffer update to answer several update
+  requests, so bounded outstanding requests are protocol-plausible. However,
+  the same RFC keeps normal updates client-requested, and the IANA registry
+  records ContinuousUpdates/Fence as extension labels. On the current Mac
+  Screen Sharing target, ContinuousUpdates is still not confirmed, so
+  benchmark evidence must decide whether pipelining helps the request/response
+  fallback enough.
+- Previous request-pipeline artifacts were too large for fast triage. The
+  diagnosis mode reduces the sweep to baseline depth, best depth, aggregate FPS
+  improvement, first-byte-wait p95 delta, a usefulness label, and a next action
+  without exposing unsafe details.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh request-pipeline-sweep-diagnosis-self-test`
+  passes.
+- Live `request-pipeline-sweep-diagnosis` completed with depth 1 at `1.68`
+  content FPS and depth 3 at `2.36` content FPS, a `403` permille FPS
+  improvement.
+- The same live run still failed the product target: depth 3 first-byte-wait
+  p95 was `618` ms versus depth 1 at `614` ms, and depth 3 p95 update stayed
+  at `1119` ms. The diagnosis therefore reports `below10fpsTarget` and
+  `benchmarkOnlyNeedsLongerStability`.
+
+**Interpretation**:
+- Depth 3 is worth a longer benchmark-only stability pass, but it is not a
+  production default candidate yet.
+- Since first-byte wait does not improve materially and the product verdict is
+  still fail, the next smoothness path remains helper-video once Screen
+  Recording permission is granted, with VNC kept as input/control/fallback.
+
+**Privacy rule**: the diagnosis emits only fixed labels and aggregate benchmark
+metrics. It must not print or export host identity, credentials, ports, helper
+paths, executable paths, command lines, raw stdout/stderr, raw TCP/RFB errors,
+raw OS errors, coordinates, dimensions, pixels, byte counts, stimulus command
+text, draft text, marked text, IME state, keysyms, helper endpoints, pairing
+material, or physical device IDs.
+
 ### D142 Add Transport Cadence To Remote Desktop 10fps Readiness
 
 References:
