@@ -52,6 +52,45 @@
 - Always use general pasteboard + Command-V: acceptable only as fallback with restore evidence.
 - Key-event streaming for characters: rejected for multilingual Compose.
 
+## D3A - Bound Compose text key-event fallback to Unicode keysym probes
+
+**Decision**: Do not decompose committed Korean/CJK Compose text into remote
+IME-specific jamo/kana keystrokes by default. If Naru experiments with a
+Compose text key-event route, the first supported shape is a bounded X11
+Unicode-keysym transcoder: ASCII and Latin-1 map to their keysym values,
+`Tab`/line breaks map to named keysyms, and U+0100...U+10FFFF maps to
+`0x01000000 | codepoint`. This route stays probe-only until live Mac VNC
+evidence proves the target server accepts those keysyms.
+
+**Rationale**:
+- Jamo or kana decomposition depends on the remote OS input source, keyboard
+  layout, two-set/three-set Hangul choice, and current Korean/English toggle
+  state. That is exactly the remote IME state Compose & Send is meant to avoid.
+- X11's Unicode keysym convention represents committed characters without
+  pretending to know the remote keyboard layout. It is still a server
+  compatibility question, so helper-native insertion remains the default
+  reliable path and VNC clipboard remains the compatibility fallback when
+  confirmed.
+- The transcoder is useful even before product enablement because it gives live
+  benchmarks a deterministic byte sequence for "can this VNC server accept
+  Unicode keysyms for text?" without exporting raw Compose text.
+
+**Sources**:
+- X.Org `keysymdef.h`
+  (`https://cgit.freedesktop.org/xorg/proto/xproto/tree/keysymdef.h`)
+  documents Unicode keysyms as the character's Unicode number plus
+  `0x01000000`.
+- libxkbcommon keysyms documentation
+  (`https://xkbcommon.org/doc/current/group__keysyms.html`) describes the same
+  U+0100...U+10FFFF to `0x01000100`...`0x0110FFFF` range.
+
+**Alternatives considered**:
+- Default Hangul jamo decomposition: rejected until an explicit remote IME
+  profile can verify layout and input-source state on the target host.
+- Enable Unicode-keyevent text send as the normal Compose fallback now:
+  rejected until physical/live benchmarks show Apple Screen Sharing and target
+  apps accept the sequence.
+
 ## D4 - Permission states must be fixed-catalog and visible
 
 **Decision**: Helper availability and failure reporting must use fixed catalog states such as `notConfigured`, `reachable`, `permissionMissing`, `revoked`, `focusUnavailable`, and `insertFailed`.

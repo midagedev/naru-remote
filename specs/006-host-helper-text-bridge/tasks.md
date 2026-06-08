@@ -113,6 +113,12 @@ description: "Tasks: Host Helper Text Bridge"
   not receive raw Compose text when automatic requests are `nativeInsert`-only.
   Verify active-helper and stored-helper app-model paths plus user-visible
   permission status text. **Done.**
+- [x] T034E [US1] Add a bounded Compose text key-event transcoder foundation
+  without enabling it as the default send route. ASCII/Latin-1 use direct
+  keysyms, tab/newlines use named keysyms, and non-ASCII committed scalars use
+  X11 Unicode keysyms (`0x01000000 | codepoint`) for future live compatibility
+  probes. Hangul jamo/remote-IME decomposition remains rejected by default.
+  Verify with `TextKeystrokeTranscoderTests`. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
