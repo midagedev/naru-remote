@@ -1185,13 +1185,19 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                     return "Helper ready for native text insert"
                 }
                 if capability.pasteboardFallback == .available {
-                    return "Helper fallback ready; direct insert unavailable"
+                    return "Helper direct insert needs Mac permission"
                 }
             }
             return "Helper ready for multilingual Compose"
         case .unreachable:
             return "Helper not reachable"
         case .permissionMissing:
+            if let capability = helperState.capabilitySummary,
+               capability.nativeInsert == .missing,
+               capability.accessibilityValueInsert == .missing,
+               capability.unicodeKeyboardEvent == .missing {
+                return "Grant Mac Accessibility or Input Monitoring for Compose"
+            }
             if let capability = helperState.capabilitySummary,
                capability.nativeInsert == .missing,
                capability.pasteboardFallback == .available {

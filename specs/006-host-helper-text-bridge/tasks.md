@@ -108,6 +108,11 @@ description: "Tasks: Host Helper Text Bridge"
   state, user-visible helper status text, and diagnostic export so fallback-only
   helpers are not shown as direct native insert endpoints. Verify with helper
   state, app snapshot, app model, and diagnostic export tests. **Done.**
+- [x] T034D [US2] Gate automatic Compose helper routing on known native insert
+  capability so a reachable helper that only advertises pasteboard fallback does
+  not receive raw Compose text when automatic requests are `nativeInsert`-only.
+  Verify active-helper and stored-helper app-model paths plus user-visible
+  permission status text. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct

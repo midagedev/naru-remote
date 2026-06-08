@@ -109,6 +109,12 @@ public struct HelperTextBridgeCapabilitySummary: Codable, Equatable, Sendable {
             )
         )
     }
+
+    public var supportsNativeInsert: Bool {
+        nativeInsert == .available ||
+            accessibilityValueInsert == .granted ||
+            unicodeKeyboardEvent == .granted
+    }
 }
 
 public struct HelperTextBridgeProfileState: Codable, Equatable, Sendable {
@@ -133,6 +139,10 @@ public struct HelperTextBridgeProfileState: Codable, Equatable, Sendable {
         self.lastFailureCode = lastFailureCode
         self.lastCheckedBucket = lastCheckedBucket
         self.capabilitySummary = capabilitySummary
+    }
+
+    public var supportsNativeInsertWhenKnown: Bool {
+        capabilitySummary?.supportsNativeInsert ?? true
     }
 }
 

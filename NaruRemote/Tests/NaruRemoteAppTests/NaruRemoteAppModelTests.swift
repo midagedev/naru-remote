@@ -4677,6 +4677,78 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("helper-pairing"))
     }
 
+    func testReachableHelperWithoutNativeInsertPermissionDoesNotReceiveComposePayload() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent,
+                        capabilitySummary: HelperTextBridgeCapabilitySummary(
+                            nativeInsert: .missing,
+                            accessibilityValueInsert: .missing,
+                            unicodeKeyboardEvent: .missing,
+                            pasteboardFallback: .available
+                        )
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("한글과 English 😊")
+        let preflightJSON = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        let preflightReport = try JSONDecoder().decode(
+            DiagnosticCollectionReport.self,
+            from: Data(preflightJSON.utf8)
+        )
+        XCTAssertNil(preflightReport.input?.composePlannedPath)
+        XCTAssertEqual(
+            preflightReport.input?.composeRouteBlocker,
+            DiagnosticComposeRouteBlocker.helperPermissionMissing.rawValue
+        )
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(helper.requests.isEmpty)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .vncClipboardPaste)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge needs permission on the Mac."
+        )
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .permissionMissing)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .permissionMissing)
+    }
+
     func testModelRoutesUTF8ComposeThroughStoredHelperProfileTransport() async throws {
         let helperSecretRef = "helper-token:desk"
         let recorder = NetworkHelperInsertRecorder()
@@ -4755,6 +4827,94 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(
             model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
             HelperTextBridgeFailureCode.none
+        )
+    }
+
+    func testStoredHelperReachableButNativeInsertMissingBlocksComposeBeforePayloadSend() async throws {
+        let helperSecretRef = "helper-token:desk"
+        let recorder = NetworkHelperInsertRecorder()
+        let handler = NaruHelperNetworkRequestHandler(
+            expectedPairingSecret: "helper-secret",
+            capabilityProvider: {
+                NaruHelperCapabilityResponse(
+                    availability: .reachable,
+                    permissionState: NaruHelperPermissionState(
+                        accessibility: "missing",
+                        accessibilityValueInsert: "missing",
+                        unicodeKeyboardEvent: "missing",
+                        inputMonitoring: "notRequired",
+                        pasteboardFallback: "available",
+                        activeUserSession: "available"
+                    ),
+                    supportedStrategies: [.pasteboardPasteWithRestore]
+                )
+            },
+            insertHandler: { request in
+                recorder.record(request)
+                return NaruHelperInsertTextResponse(
+                    requestID: request.requestID,
+                    status: .sent,
+                    strategyUsed: .pasteboardPasteWithRestore
+                )
+            }
+        )
+        let server = try NaruHelperNetworkServer(handler: handler)
+        server.start()
+        defer { server.cancel() }
+        let helperPort = try await waitForHelperServerPort(server)
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                host: "127.0.0.1",
+                port: Int(helperPort),
+                pairingSecretRef: helperSecretRef,
+                pairingFingerprint: "sha256:helper-fingerprint"
+            )
+        )
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [helperSecretRef: "helper-secret"])
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
+        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.path, .vncClipboardPaste)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Text clipboard unavailable: This VNC server reported that UTF-8 clipboard support is unavailable, so Korean/CJK/emoji Compose text cannot be sent reliably. Helper text bridge needs permission on the Mac."
+        )
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.availability, .permissionMissing)
+        XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .permissionMissing)
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.nativeInsert,
+            .missing
+        )
+        XCTAssertEqual(
+            model.snapshot.helperTextBridgeState[profile.id]?.capabilitySummary?.pasteboardFallback,
+            .available
         )
     }
 
