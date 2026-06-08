@@ -511,6 +511,17 @@ without unsafe report fields.
   capture starts. Covered by helper-video report tests, readiness summary
   self-test, helper live-gate self-test, and current launchctl-backed readiness
   runs. **Done.**
+- [x] T031AD [US2] Make the ScreenCaptureKit app bootstrap smoke use the
+  selected external helper executable instead of capturing inside the XCTest
+  benchmark host. The smoke now preflights the helper app's Screen Recording
+  capability, launches `--video-listen --video-source screen-capturekit`, and
+  drives the app-model TCP/decode/bootstrap path against that process. The
+  launchctl runner imports `NARU_HELPER_EXECUTABLE` for standalone bootstrap
+  runs and maps skipped output to fixed helper-executable or helper app Screen
+  Recording setup actions rather than asking for benchmark-host capture
+  permission. Current granted live run reports true ScreenCaptureKit
+  helper-video and app bootstrap passing; the remaining blocker is the physical
+  iPhone signing/provisioning gate. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

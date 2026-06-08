@@ -1333,9 +1333,9 @@ live VNC target or printing raw XCTest output.
 - `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
   emits schema `1` JSON and validates with `jq empty`.
 - The first local run reports `status=skipped` with fixed
-  `screen-capturekit-app-bootstrap-skipped`, which means the benchmark host
-  still needs Screen Recording/capture setup before this can become T031 pass
-  evidence.
+  `screen-capturekit-app-bootstrap-skipped`. D61 later moves the capture side
+  of this smoke from the benchmark host to the selected external helper app
+  bundle so a single helper Screen Recording grant can unblock the live gate.
 
 **Privacy rule**: the runner must emit only fixed mode/source/path/status
 labels, fixed issue/action labels, and small configured counts. It must not
@@ -2470,3 +2470,47 @@ fixed permission, readiness, issue-code, and setup-action labels. They must not
 export raw OS errors, helper paths, endpoints, credentials, physical device
 identifiers, display dimensions, pixels, byte counts, exact timings, Compose
 text, marked text, keysyms, pointer coordinates, or clipboard contents.
+
+## D61 - Run ScreenCaptureKit app bootstrap through the external helper app
+
+**Decision**: Change the opt-in
+`HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke`
+path so ScreenCaptureKit capture happens in the selected external helper
+executable, not inside the XCTest benchmark host. The smoke first runs the
+helper's fixed `--video-capability` report, skips with fixed setup text if the
+helper app lacks Screen Recording, then launches
+`--video-listen --video-source screen-capturekit` and drives the app-model
+helper-video TCP/decode/bootstrap path against that process.
+
+**Rationale**:
+- The product path grants Screen Recording to the stable `NaruHelperDev.app`
+  bundle and then streams from that helper into the iOS app. Asking the XCTest
+  benchmark host for Screen Recording after the helper app is granted creates a
+  second, artificial blocker.
+- The live gate already imports `NARU_HELPER_EXECUTABLE`; the standalone
+  bootstrap runner should do the same so both commands exercise the same helper
+  permission identity.
+- A capability preflight keeps permission-missing runs as clean benchmark skips
+  with fixed setup actions, while a granted run validates the real helper app
+  capture, TCP framing, app-model bootstrap, and H.264 sample-buffer path.
+
+**Evidence**:
+- `swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke`
+  compiles and skips by default when opt-in benchmark env is absent.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test` covers
+  the granted-but-bootstrap-skipped summary routing.
+- After the helper app bundle reported Screen Recording `granted`,
+  `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  returned `status=passed`.
+- The granted `scripts/run-naru-live-benchmark.sh helper-video-live-gate` run
+  reports external synthetic helper-video `pass`, sustained synthetic
+  helper-video `pass`, true ScreenCaptureKit helper-video `pass`, app bootstrap
+  `passed`, and `blockedByPhysicalIPhoneGate` due to Xcode account /
+  provisioning setup.
+
+**Privacy rule**: The smoke and runner may emit only fixed mode/source/path,
+status, issue, and setup-action labels plus small configured counts. They must
+not emit helper executable paths, endpoints, tokens, raw XCTest output, raw
+helper stdout/stderr, raw OS errors, display dimensions, pixels, byte counts,
+exact timings, physical device identifiers, Compose text, marked text, keysyms,
+pointer coordinates, or clipboard contents.
