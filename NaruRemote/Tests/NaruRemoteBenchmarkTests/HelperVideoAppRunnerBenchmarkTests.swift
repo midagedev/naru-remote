@@ -121,19 +121,22 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
     func testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke() async throws {
         let configuration = try requireBenchmarkConfiguration()
         let pairingSecret = "benchmark-helper-video-screen-secret"
-        let helperAccessUnits = try Self.screenCaptureKitHelperAccessUnits(configuration: configuration)
-        let server = try Self.makeHelperVideoNetworkServer(
-            accessUnits: helperAccessUnits,
-            pairingSecret: pairingSecret
+        let helperExecutableURL = try Self.requireExternalHelperExecutableURL()
+        try Self.requireExternalHelperScreenCaptureCapability(
+            helperExecutableURL: helperExecutableURL
         )
-        server.start()
-        defer { server.cancel() }
-        let port = try await Self.waitForPort(server)
+        let process = try Self.startExternalHelperVideoServer(
+            helperExecutableURL: helperExecutableURL,
+            pairingSecret: pairingSecret,
+            profileFingerprint: Self.profileFingerprint,
+            frameCount: configuration.displayableFrameCount
+        )
+        defer { Self.terminateExternalHelperVideoServer(process.process) }
 
         for iteration in 0..<configuration.iterations {
             try await Self.runNetworkBackedHelperVideoBootstrapOnce(
                 iteration: iteration,
-                port: port,
+                port: process.port,
                 pairingSecret: pairingSecret
             )
         }
@@ -348,24 +351,6 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
         }
     }
 
-    private static func screenCaptureKitHelperAccessUnits(
-        configuration: HelperVideoAppRunnerBenchmarkConfiguration
-    ) throws -> [NaruHelperVideoAccessUnit] {
-        let requestBody = HelperVideoStartStreamRequestBody(maxFrameRateBucket: .upTo15)
-        let source = NaruHelperVideoScreenCaptureKitAccessUnitSource(
-            frameCount: configuration.displayableFrameCount
-        )
-        do {
-            return try source.accessUnits(for: requestBody)
-        } catch NaruHelperVideoScreenCaptureKitAccessUnitSourceError.screenRecordingPermissionMissing {
-            throw XCTSkip("Grant Screen Recording to the benchmark host before running this smoke.")
-        } catch NaruHelperVideoScreenCaptureKitAccessUnitSourceError.unsupportedPlatform {
-            throw XCTSkip("ScreenCaptureKit helper-video source unavailable on this host.")
-        } catch {
-            throw XCTSkip("ScreenCaptureKit helper-video source did not produce a finite access-unit batch.")
-        }
-    }
-
     #if canImport(Network)
     private static func makeHelperVideoNetworkServer(
         accessUnits: [NaruHelperVideoAccessUnit],
@@ -400,6 +385,141 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         return try XCTUnwrap(server.port)
+    }
+
+    private static func requireExternalHelperExecutableURL() throws -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        guard let helperExecutable = environment["NARU_HELPER_EXECUTABLE"],
+              !helperExecutable.isEmpty
+        else {
+            throw XCTSkip("Set NARU_HELPER_EXECUTABLE before running this smoke.")
+        }
+
+        guard FileManager.default.isExecutableFile(atPath: helperExecutable) else {
+            throw XCTSkip("Configured external helper executable is unavailable.")
+        }
+
+        return URL(fileURLWithPath: helperExecutable)
+    }
+
+    private static func requireExternalHelperScreenCaptureCapability(
+        helperExecutableURL: URL
+    ) throws {
+        let process = Process()
+        process.executableURL = helperExecutableURL
+        process.arguments = ["--video-capability"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            throw XCTSkip("External helper capability is unavailable.")
+        }
+
+        guard waitForProcessExit(process, timeout: 3) else {
+            throw XCTSkip("External helper capability timed out.")
+        }
+        guard process.terminationStatus == 0 else {
+            throw XCTSkip("External helper capability is unavailable.")
+        }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let response: NaruHelperVideoCaptureCapabilityResponse
+        do {
+            response = try JSONDecoder().decode(
+                NaruHelperVideoCaptureCapabilityResponse.self,
+                from: data
+            )
+        } catch {
+            throw XCTSkip("External helper capability is unavailable.")
+        }
+
+        guard response.availability == .available,
+              response.screenRecordingPermission == .granted
+        else {
+            throw XCTSkip(
+                "Grant Screen Recording to the external helper app before running this smoke."
+            )
+        }
+    }
+
+    private struct ExternalHelperVideoProcess {
+        var process: Process
+        var port: UInt16
+    }
+
+    private static func startExternalHelperVideoServer(
+        helperExecutableURL: URL,
+        pairingSecret: String,
+        profileFingerprint: String,
+        frameCount: Int
+    ) throws -> ExternalHelperVideoProcess {
+        let port = UInt16.random(in: UInt16(49_152)...UInt16.max)
+        let process = Process()
+        process.executableURL = helperExecutableURL
+        process.arguments = [
+            "--video-listen",
+            "--token-env",
+            "NARU_HELPER_VIDEO_APP_BENCHMARK_TOKEN",
+            "--profile-fingerprint-env",
+            "NARU_HELPER_VIDEO_APP_BENCHMARK_PROFILE_FINGERPRINT",
+            "--port",
+            "\(port)",
+            "--video-source",
+            NaruHelperVideoListenSourceMode.screenCaptureKit.rawValue,
+            "--video-frame-count",
+            "\(max(frameCount, 1))"
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["NARU_HELPER_VIDEO_APP_BENCHMARK_TOKEN"] = pairingSecret
+        environment["NARU_HELPER_VIDEO_APP_BENCHMARK_PROFILE_FINGERPRINT"] = profileFingerprint
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            throw XCTSkip("External helper video server is unavailable.")
+        }
+
+        Thread.sleep(forTimeInterval: 0.25)
+        guard process.isRunning else {
+            throw XCTSkip("External helper video server is unavailable.")
+        }
+        return ExternalHelperVideoProcess(process: process, port: port)
+    }
+
+    private static func terminateExternalHelperVideoServer(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        _ = waitForProcessExit(process, timeout: 1)
+    }
+
+    private static func waitForProcessExit(
+        _ process: Process,
+        timeout: TimeInterval
+    ) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            semaphore.signal()
+        }
+        if !process.isRunning {
+            process.terminationHandler = nil
+            return true
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.terminationHandler = nil
+            return false
+        }
+        process.terminationHandler = nil
+        return true
     }
 
     private static func runNetworkBackedHelperVideoBootstrapOnce(

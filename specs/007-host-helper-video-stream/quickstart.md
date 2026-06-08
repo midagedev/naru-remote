@@ -185,11 +185,14 @@ JSON, the sweep emits only that step's fixed label and fixed safe failure code;
 it does not print raw helper stderr, credential values, helper paths,
 endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
 `helper-screen-app-bootstrap-benchmark` runs the opt-in app-runner smoke for
-ScreenCaptureKit access units through helper TCP framing, app-model
-helper-video bootstrap, and the H.264 sample-buffer factory. It emits fixed
-JSON only and hides raw XCTest output. A `skipped` result means the benchmark
-host still needs Screen Recording permission or capture setup before T031 can
-claim true live helper-video app decode evidence.
+ScreenCaptureKit access units from the selected external helper app through
+helper TCP framing, app-model helper-video bootstrap, and the H.264
+sample-buffer factory. It imports the same `NARU_HELPER_EXECUTABLE` helper app
+bundle as the live gate, emits fixed JSON only, and hides raw XCTest output. A
+`skipped` result now maps to fixed setup actions such as
+`configure-helper-video-executable` or
+`grant-helper-video-app-screen-recording-permission` before T031 can claim true
+live helper-video app decode evidence.
 `helper-video-live-gate` chains the Screen Recording watch, helper readiness
 sweep, and app bootstrap smoke into one privacy-safe report. If Screen
 Recording is still missing, the readiness and bootstrap subreports are skipped

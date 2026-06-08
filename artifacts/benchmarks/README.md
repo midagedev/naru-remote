@@ -346,11 +346,18 @@ missing Screen Recording permission for the helper app bundle.
 Current helper ScreenCaptureKit app-bootstrap benchmark artifact:
 `artifacts/benchmarks/2026-06-07-helper-screen-app-bootstrap-benchmark-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
-to run the opt-in ScreenCaptureKit access-unit path through helper TCP framing,
-app-model helper-video bootstrap, and the H.264 sample-buffer factory while
-emitting only fixed JSON labels. The first local run returns `skipped` with
-`screen-capturekit-app-bootstrap-skipped`, so it proves the gate is runnable
-but not yet that true ScreenCaptureKit frames pass the app decode path.
+to run the opt-in external-helper ScreenCaptureKit path through helper TCP
+framing, app-model helper-video bootstrap, and the H.264 sample-buffer factory
+while emitting only fixed JSON labels. The runner now uses the selected helper
+app bundle instead of requiring Screen Recording permission for the XCTest
+benchmark host.
+Current granted helper-video live gate artifact:
+`artifacts/benchmarks/2026-06-09-helper-video-live-gate-granted-summary.md`.
+After `NaruHelperDev.app` Screen Recording was granted, the live gate reports
+external synthetic, sustained synthetic, and true ScreenCaptureKit helper-video
+all `pass`, with app bootstrap `passed`. The remaining blocker is the physical
+iPhone gate: `xcode-account-missing` and
+`ios-provisioning-profile-missing`.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps

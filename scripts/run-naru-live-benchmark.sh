@@ -3383,7 +3383,7 @@ print_helper_video_live_gate_summary() {
         elif screen_verdict != "pass" then "rerun-helper-screen-probe"
         elif bootstrap_status == "passed" and physical_ready then "run-physical-iphone-helper-video-gate"
         elif bootstrap_status == "passed" then (physical_setup_actions[0] // "inspect-physical-iphone-preflight")
-        elif bootstrap_status == "skipped" then "grant-screen-recording-to-benchmark-host"
+        elif bootstrap_status == "skipped" then ((first($bootstrap).setupActionLabels // [])[0] // "inspect-screen-capturekit-app-bootstrap-benchmark")
         elif bootstrap_status == "failed" then "inspect-screen-capturekit-app-bootstrap-benchmark"
         else "inspect-helper-video-live-gate"
         end;
@@ -3554,6 +3554,7 @@ helper_video_live_gate_self_test() {
   local physical_blocked="$tmpdir/physical-blocked.json"
   local physical_ready="$tmpdir/physical-ready.json"
   local summary_blocked="$tmpdir/summary-blocked.json"
+  local summary_bootstrap_skipped="$tmpdir/summary-bootstrap-skipped.json"
   local summary_physical_blocked="$tmpdir/summary-physical-blocked.json"
   local summary_ready="$tmpdir/summary-ready.json"
 
@@ -3586,6 +3587,11 @@ JSON
   print_helper_video_live_gate_summary \
     "$watch_ready" \
     "$readiness_ready" \
+    "$bootstrap_blocked" \
+    "$physical_ready" >"$summary_bootstrap_skipped"
+  print_helper_video_live_gate_summary \
+    "$watch_ready" \
+    "$readiness_ready" \
     "$bootstrap_ready" \
     "$physical_blocked" >"$summary_physical_blocked"
   print_helper_video_live_gate_summary \
@@ -3610,6 +3616,13 @@ JSON
     .appBootstrapGate.status == "skipped" and
     .physicalIPhoneGate.xcodeAccountStatus == "missing"
   ' "$summary_blocked" >/dev/null && jq -e '
+    .overallGateState == "blockedByAppBootstrapPermission" and
+    .recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
+    (.primaryBlockedGateLabels | index("helper-video-app-bootstrap-skipped")) and
+    .screenRecordingGate.finalPermissionStatus == "granted" and
+    .appBootstrapGate.status == "skipped" and
+    .physicalIPhoneGate.buildCheckStatus == "passed"
+  ' "$summary_bootstrap_skipped" >/dev/null && jq -e '
     .overallGateState == "blockedByPhysicalIPhoneGate" and
     .recommendedPrimaryAction == "add-xcode-account" and
     (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
@@ -3627,6 +3640,8 @@ JSON
   ' "$summary_ready" >/dev/null; then
     printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"passed","blockedSummary":'
     cat "$summary_blocked"
+    printf ',"bootstrapSkippedSummary":'
+    cat "$summary_bootstrap_skipped"
     printf ',"physicalBlockedSummary":'
     cat "$summary_physical_blocked"
     printf ',"readySummary":'
@@ -3635,6 +3650,8 @@ JSON
   else
     printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"failed","blockedSummary":'
     cat "$summary_blocked"
+    printf ',"bootstrapSkippedSummary":'
+    cat "$summary_bootstrap_skipped"
     printf ',"physicalBlockedSummary":'
     cat "$summary_physical_blocked"
     printf ',"readySummary":'
@@ -3714,8 +3731,19 @@ print_helper_screen_app_bootstrap_benchmark_report() {
       >"$output_file" 2>&1; then
     if grep -q "Test skipped -" "$output_file"; then
       result_status="skipped"
-      issue_codes=("screen-capturekit-app-bootstrap-skipped")
-      setup_actions=("grant-screen-recording-to-benchmark-host" "rerun-helper-screen-app-bootstrap-benchmark")
+      if grep -q "Set NARU_HELPER_EXECUTABLE\\|Configured external helper executable is unavailable" "$output_file"; then
+        issue_codes=("helper-video-external-helper-unavailable")
+        setup_actions=("configure-helper-video-executable" "rerun-helper-screen-app-bootstrap-benchmark")
+      elif grep -q "External helper capability\\|External helper video server" "$output_file"; then
+        issue_codes=("helper-video-external-helper-failed")
+        setup_actions=("inspect-helper-video-capability" "rerun-helper-screen-app-bootstrap-benchmark")
+      elif grep -q "Grant Screen Recording to the external helper app" "$output_file"; then
+        issue_codes=("helper-video-permission-missing")
+        setup_actions=("grant-helper-video-app-screen-recording-permission" "quit-and-relaunch-helper-after-permission-change" "rerun-helper-screen-app-bootstrap-benchmark")
+      else
+        issue_codes=("screen-capturekit-app-bootstrap-skipped")
+        setup_actions=("inspect-screen-capturekit-app-bootstrap-benchmark")
+      fi
     else
       result_status="passed"
     fi
@@ -3738,10 +3766,18 @@ print_helper_screen_app_bootstrap_benchmark_report() {
   printf '  "iterationCount": 1,\n'
   printf '  "requestedFrameCount": 2,\n'
   printf '  "issueCodes": '
-  json_string_array "${issue_codes[@]}"
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "setupActionLabels": '
-  json_string_array "${setup_actions[@]}"
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "safety": [\n'
   printf '    "raw xctest output is not emitted",\n'
@@ -4514,12 +4550,15 @@ case "$mode" in
     ;;
   helper-screen-app-bootstrap-benchmark)
     reject_extra_args
+    import_env NARU_HELPER_EXECUTABLE optional
+    import_env NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT optional
     cd "$repo_root"
     print_helper_screen_app_bootstrap_benchmark_report
     ;;
   helper-video-live-gate)
     reject_extra_args
     import_helper_env
+    import_optional_live_env
     cd "$repo_root"
     print_helper_video_live_gate_report
     ;;
