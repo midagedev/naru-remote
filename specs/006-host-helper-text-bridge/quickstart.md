@@ -1,6 +1,8 @@
 # Quickstart: Host Helper Text Bridge
 
-This feature is not implemented yet. These commands define the expected verification flow for implementation PRs.
+This feature is implemented in slices. These commands define the expected
+verification flow for helper text bridge changes and for the bounded
+key-event-text probe foundation.
 
 ## Spec Validation
 
@@ -21,6 +23,7 @@ swift test --filter TextInjectionAdapterTests
 swift test --filter NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed
 swift test --filter NaruRemoteAppModelTests/testModelRejectsMismatchedHelperInsertResultID
 swift test --filter NaruRemoteAppModelTests/testModelRejectsUTF8ComposeWhenClipboardSupportIsUnconfirmed
+swift test --filter TextKeystrokeTranscoderTests
 swift test --filter NaruRemoteAppModelTests
 swift test --filter DiagnosticExportTests
 ```
@@ -28,6 +31,9 @@ swift test --filter DiagnosticExportTests
 Expected:
 - UTF-8 Compose with unconfirmed VNC clipboard routes to fake helper when reachable.
 - The same payload fails safely and retains the draft when helper is unavailable.
+- Compose text key-event fallback remains a bounded foundation/probe: Hangul
+  syllables produce X11 Unicode keysyms, not remote-IME jamo decomposition, and
+  the route is not enabled as the default Compose send behavior.
 - Diagnostics export helper state and fixed failure codes without raw text.
 
 ## Future macOS Helper Slice
