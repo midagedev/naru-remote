@@ -356,6 +356,15 @@ Current launchctl request pipeline sweep:
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps
 every depth below the poor-network target, so request pipelining remains
 benchmark-only.
+Current request pipeline diagnosis:
+`artifacts/benchmarks/2026-06-09-request-pipeline-diagnosis-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh request-pipeline-sweep-diagnosis` for a
+compact fixed-label summary of the same depth 1/2/3 sweep. The current live run
+marks depth 3 as `helpful` versus depth 1 (`1.68` to `2.36` content FPS), but it
+still reports `below10fpsTarget` / `benchmarkOnlyNeedsLongerStability` with
+`1119` ms p95 update and unchanged first-byte-wait p95, so depth >1 stays
+benchmark-only until a longer stability pass proves it can approach the 10fps
+gate.
 Current trackpad follow coupling tuning artifact:
 `artifacts/benchmarks/2026-06-07-trackpad-follow-coupling-tuning-summary.md`.
 Zoomed trackpad follow-pan coupling is raised while keeping visible cursor
