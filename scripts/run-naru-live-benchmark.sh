@@ -35,6 +35,8 @@ Modes:
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
   request-pipeline-sweep-diagnosis Summarize depth 1/2/3 as a fixed pipeline usefulness gate.
   request-pipeline-sweep-diagnosis-self-test Fast regression for request pipeline diagnosis labels.
+  request-pipeline-stability Longer depth 1 vs 3 VNC pipeline stability gate.
+  request-pipeline-stability-self-test Fast regression for request pipeline stability labels.
   bounded-vnc-profile-sweep Short bounded VNC profile candidate sweep.
   bounded-vnc-profile-drilldown Per-profile bounded VNC candidate drilldown.
   bounded-vnc-candidate-stability Repeat bounded warning-candidate VNC sweep.
@@ -3908,21 +3910,31 @@ print_remote_desktop_10fps_readiness_gate_summary() {
 
 print_request_pipeline_sweep_diagnosis_failure() {
   local failure_code="$1"
-  printf '{"schemaVersion":1,"mode":"request-pipeline-sweep-diagnosis","status":"failed","safeFailureCode":'
+  local report_mode="${2:-request-pipeline-sweep-diagnosis}"
+  printf '{"schemaVersion":1,"mode":'
+  json_string "$report_mode"
+  printf ',"status":"failed","safeFailureCode":'
   json_string "$failure_code"
   printf ',"pipelineHelpfulness":"inconclusive","recommendedNextAction":"inspect-request-pipeline-diagnosis"}'
 }
 
 print_request_pipeline_sweep_diagnosis() {
   local sweep_file="$1"
+  local report_mode="${2:-request-pipeline-sweep-diagnosis}"
+  local parent_mode="${3:-request-pipeline-sweep}"
+  local below_target_next_action="${4:-}"
 
   if ! command -v jq >/dev/null 2>&1; then
     print_request_pipeline_sweep_diagnosis_failure \
-      benchmarkStep.requestPipelineSweepDiagnosis.jqUnavailable
+      benchmarkStep.requestPipelineSweepDiagnosis.jqUnavailable \
+      "$report_mode"
     return
   fi
 
-  if ! jq -e '
+  if ! jq -e \
+    --arg report_mode "$report_mode" \
+    --arg parent_mode "$parent_mode" \
+    --arg below_target_next_action "$below_target_next_action" '
     def n($value): if ($value | type) == "number" then $value else null end;
     def rounded($value): if $value == null then null else ($value + 0.5 | floor) end;
     def fps($report):
@@ -3989,6 +4001,11 @@ print_request_pipeline_sweep_diagnosis() {
     ) as $helpfulness |
     (
       if $helpfulness == "targetReady" then "run-physical-iphone-pipeline-gate"
+      elif $below_target_next_action != "" and (
+        $helpfulness == "helpful" or
+        $helpfulness == "marginal" or
+        $helpfulness == "notHelpful"
+      ) then $below_target_next_action
       elif $helpfulness == "helpful" then "rerun-request-pipeline-sweep-with-longer-samples"
       elif $helpfulness == "marginal" then "inspectServerUpdateCadence"
       elif $helpfulness == "notHelpful" then "inspectServerUpdateCadence"
@@ -4012,9 +4029,9 @@ print_request_pipeline_sweep_diagnosis() {
     ) as $promotionReadiness |
     {
       schemaVersion: 1,
-      mode: "request-pipeline-sweep-diagnosis",
+      mode: $report_mode,
       status: (if ($rows | length) > 0 then "completed" else "failed" end),
-      parentSweepMode: "request-pipeline-sweep",
+      parentSweepMode: $parent_mode,
       depthCount: ($rows | length),
       baselineDepth: ($baseline.depth // null),
       bestDepth: ($best.depth // null),
@@ -4042,7 +4059,8 @@ print_request_pipeline_sweep_diagnosis() {
     }
   ' "$sweep_file"; then
     print_request_pipeline_sweep_diagnosis_failure \
-      benchmarkStep.requestPipelineSweepDiagnosis.failed
+      benchmarkStep.requestPipelineSweepDiagnosis.failed \
+      "$report_mode"
   fi
 }
 
@@ -4064,6 +4082,51 @@ run_request_pipeline_sweep_reports() {
       --stream-shape-samples 2 \
       --stream-shape-duration-seconds 3 \
       --stream-shape-request-pipeline-depth "$depth" \
+      --json
+  done
+  printf '\n]\n'
+}
+
+run_request_pipeline_stability_reports() {
+  printf '[\n'
+  local first_report=1
+  local depth
+  for depth in 1 3; do
+    if ((first_report)); then
+      first_report=0
+    else
+      printf ',\n'
+    fi
+    run_benchmark_with_extra \
+      --attempts 1 \
+      --network-condition constrained-cellular \
+      --visual-transport vnc \
+      --first-frame-profiles none \
+      --full-refresh-samples 0 \
+      --continuous-update-samples 0 \
+      --stream-shape-samples 12 \
+      --stream-shape-duration-seconds 10 \
+      --stream-shape-frame-interval 0 \
+      --stream-shape-idle-frame-interval 0.05 \
+      --stream-shape-empty-backoff app \
+      --stream-shape-power-mode normal \
+      --stream-shape-client-pressure app \
+      --stream-shape-viewport-interaction off \
+      --stream-shape-stimulus external-command \
+      --stream-shape-stimulus-warmup-seconds 0.25 \
+      --stream-shape-stimulus-frame-interval 0.0833333333 \
+      --stream-shape-preflight-frames 0 \
+      --stream-shape-practical-target iphone-remote-desktop-10fps-v1 \
+      --stream-shape-transport request-response \
+      --stream-shape-request-region viewport-phone-portrait \
+      --stream-shape-first-frame-request visible-glance \
+      --stream-shape-first-frame-visible-glance-scale 0.45 \
+      --stream-shape-request-pipeline-depth "$depth" \
+      --stream-shape-profiles app-low-traffic \
+      --stream-shape-profile-order fixed \
+      --stream-shape-profile-iterations 1 \
+      --timeout 30 \
+      --idle-timeout 5 \
       --json
   done
   printf '\n]\n'
@@ -4158,6 +4221,53 @@ JSON
 
   rm -f "$marginal_file" "$target_file" "$flat_file" \
     "$marginal_summary" "$target_summary" "$flat_summary"
+}
+
+request_pipeline_stability_self_test() {
+  reject_extra_args
+
+  local stability_file
+  local stability_summary
+  stability_file="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-stability.XXXXXX")"
+  stability_summary="$(mktemp "${TMPDIR:-/tmp}/naru-pipeline-stability-summary.XXXXXX")"
+
+  cat >"$stability_file" <<'JSON'
+[
+  {"streamShapeRequestPipelineDepth":1,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.0,"averageUpdateMilliseconds":500,"maxP95UpdateMilliseconds":627,"maxFirstByteWaitP95Milliseconds":626},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}},
+  {"streamShapeRequestPipelineDepth":3,"streamShapeRequestCadenceHealth":{"averageContentFramesPerSecond":2.6,"averageUpdateMilliseconds":384,"maxP95UpdateMilliseconds":590,"maxFirstByteWaitP95Milliseconds":610},"streamShapeOptimizationDecision":{"verdict":"fail","primaryIssueCode":"content-fps-failed"},"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target"}}
+]
+JSON
+
+  print_request_pipeline_sweep_diagnosis \
+    "$stability_file" \
+    request-pipeline-stability \
+    request-pipeline-depth1-vs-depth3-stability \
+    run-helper-video-live-gate >"$stability_summary"
+
+  if jq -e '
+    .schemaVersion == 1 and
+    .mode == "request-pipeline-stability" and
+    .parentSweepMode == "request-pipeline-depth1-vs-depth3-stability" and
+    .depthCount == 2 and
+    .baselineDepth == 1 and
+    .bestDepth == 3 and
+    .pipelineHelpfulness == "helpful" and
+    .targetReadiness == "below10fpsTarget" and
+    .promotionReadiness == "benchmarkOnlyNeedsLongerStability" and
+    .recommendedNextAction == "run-helper-video-live-gate"
+  ' "$stability_summary" >/dev/null; then
+    printf '{"schemaVersion":1,"mode":"request-pipeline-stability-self-test","status":"passed","summary":'
+    cat "$stability_summary"
+    printf '}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"request-pipeline-stability-self-test","status":"failed","summary":'
+    cat "$stability_summary"
+    printf '}\n'
+    rm -f "$stability_file" "$stability_summary"
+    exit 1
+  fi
+
+  rm -f "$stability_file" "$stability_summary"
 }
 
 remote_desktop_readiness_summary_self_test() {
@@ -4507,6 +4617,22 @@ case "$mode" in
     ;;
   request-pipeline-sweep-diagnosis-self-test)
     request_pipeline_sweep_diagnosis_self_test
+    ;;
+  request-pipeline-stability)
+    import_live_env
+    reject_bounded_vnc_profile_flags
+    cd "$repo_root"
+    sweep_file="$(mktemp "${TMPDIR:-/tmp}/naru-request-pipeline-stability.XXXXXX")"
+    run_request_pipeline_stability_reports >"$sweep_file"
+    print_request_pipeline_sweep_diagnosis \
+      "$sweep_file" \
+      request-pipeline-stability \
+      request-pipeline-depth1-vs-depth3-stability \
+      run-helper-video-live-gate
+    rm -f "$sweep_file"
+    ;;
+  request-pipeline-stability-self-test)
+    request_pipeline_stability_self_test
     ;;
   bounded-vnc-profile-sweep)
     import_live_env

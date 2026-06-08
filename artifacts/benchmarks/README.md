@@ -365,6 +365,14 @@ still reports `below10fpsTarget` / `benchmarkOnlyNeedsLongerStability` with
 `1119` ms p95 update and unchanged first-byte-wait p95, so depth >1 stays
 benchmark-only until a longer stability pass proves it can approach the 10fps
 gate.
+Current request pipeline stability:
+`artifacts/benchmarks/2026-06-09-request-pipeline-stability-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh request-pipeline-stability` after a
+short sweep hints at depth >1. The current longer depth 1 vs 3 run reports
+`pipelineHelpfulness=notHelpful`: depth 3 reaches only `1.83` content FPS,
+keeps first-byte-wait p95 essentially unchanged (`657` ms), and worsens p95
+update to `1370` ms. Request pipeline depth therefore stays at 1, and the next
+smoothness action returns to `run-helper-video-live-gate`.
 Current trackpad follow coupling tuning artifact:
 `artifacts/benchmarks/2026-06-07-trackpad-follow-coupling-tuning-summary.md`.
 Zoomed trackpad follow-pan coupling is raised while keeping visible cursor
