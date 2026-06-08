@@ -94,6 +94,13 @@ evidence proves the target server accepts those keysyms.
   `sent` result means key events were enqueued on the RFB transport after a
   first-frame handshake; it does not claim remote editor insertion and does not
   enable Compose text key events as the app default.
+- `VNCLiveBenchmark --text-keystroke-observed-probe-only` launches a controlled
+  local AppKit text target and requires a fixed-label `matched` observation
+  before reporting `observed-inserted`. Current local Apple Screen Sharing
+  evidence reaches connect, first frame, and send for both `ascii` and
+  `unicode-hangul`, but the controlled target reports `no-input`. This means
+  raw RFB KeyEvent enqueue is not a reliable Compose text insertion route on
+  the founder Mac path.
 
 **Alternatives considered**:
 - Default Hangul jamo decomposition: rejected until an explicit remote IME

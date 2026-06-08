@@ -28,6 +28,7 @@ swift test --filter BenchmarkTextKeystrokeProbeReportTests
 swift test --filter NaruRemoteAppModelTests
 swift test --filter DiagnosticExportTests
 swift build --product VNCLiveBenchmark
+swift build --product VNCLiveStimulusWindow
 ```
 
 Expected:
@@ -40,6 +41,9 @@ Expected:
   encoding labels, stage labels, and event-count buckets. It omits raw text,
   keysyms, target identity, credentials, bytes, dimensions, pixels, raw errors,
   and exact timings.
+- The observed text-keystroke probe separates "RFB KeyEvent enqueued" from
+  "focused editor inserted text" by using a controlled local AppKit text target
+  that emits only fixed observation labels.
 - Diagnostics export helper state and fixed failure codes without raw text.
 
 ## Probe-Only Unicode KeyEvent Compatibility
@@ -51,12 +55,18 @@ Run only when a live private VNC target is intentionally configured through
 scripts/run-naru-live-benchmark.sh text-keystroke-probe
 scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --text-keystroke-probe-payload ascii
 scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --network-condition constrained-cellular
+scripts/run-naru-live-benchmark.sh text-keystroke-observed-probe -- --text-keystroke-probe-payload ascii
+scripts/run-naru-live-benchmark.sh text-keystroke-observed-probe -- --text-keystroke-probe-payload unicode-hangul
 ```
 
 Expected:
 - `status: sent` in text output or `"status": "sent"` in JSON means the fixed
   payload's KeyEvent down/up sequence was enqueued after a successful live VNC
   first-frame handshake.
+- `status: observed-inserted` requires the controlled local text target to
+  report `"observationStatus": "matched"`. A send-only pass with
+  `"observationStatus": "no-input"` is evidence against promoting raw VNC
+  KeyEvents as a Compose text route on that target.
 - The command does not confirm the remote editor inserted text and does not
   enable key-event text as the app's default Compose route.
 

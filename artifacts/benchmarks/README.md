@@ -92,6 +92,12 @@ payload after connect and first frame, which proves RFB enqueue only; it does
 not prove remote editor insertion. The same probe under constrained-cellular
 conditioning connects but times out before first frame, so poor-network startup
 remains a separate gate before key-event text promotion.
+Current observed text-keystroke probe artifact:
+`artifacts/benchmarks/2026-06-09-text-keystroke-observed-probe-summary.md`.
+That run adds a controlled local AppKit text target and proves the current
+Apple Screen Sharing path reaches connect/first-frame/send but records
+`no-input` for both ASCII and Hangul payloads. Raw VNC KeyEvents should remain
+probe-only; helper-native insertion remains the Compose reliability path.
 Current remote desktop transport cadence artifact:
 `artifacts/benchmarks/2026-06-07-remote-desktop-10fps-transport-cadence-drilldown-summary.md`.
 That run adds a fixed request-response versus ContinuousUpdates drilldown under

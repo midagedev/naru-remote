@@ -127,6 +127,16 @@ description: "Tasks: Host Helper Text Bridge"
   identity, credentials, bytes, dimensions, pixels, raw errors, and exact
   timings. Verify with `BenchmarkTextKeystrokeProbeReportTests` and
   `swift build --product VNCLiveBenchmark`. **Done.**
+- [x] T034G [US1] Add a controlled observed text-keystroke probe using
+  `VNCLiveStimulusWindow --text-probe` plus
+  `VNCLiveBenchmark --text-keystroke-observed-probe-only`. The observed mode
+  reports `observed-inserted` only when the local AppKit text target returns a
+  fixed-label `matched` result, and current live evidence records `no-input`
+  for both ASCII and Hangul payloads after connect/first-frame/send pass.
+  Verify with `BenchmarkTextKeystrokeProbeReportTests`,
+  `swift build --product VNCLiveBenchmark`, `swift build --product
+  VNCLiveStimulusWindow`, and live `text-keystroke-observed-probe` runs.
+  **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
