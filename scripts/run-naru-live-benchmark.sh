@@ -18,6 +18,8 @@ Modes:
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
+  helper-text-permission-watch Request helper text permissions and poll native insert readiness.
+  helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -42,6 +44,8 @@ Modes:
   screen-recording-setup   Request helper Screen Recording and open Settings.
   helper-capability        Run the selected helper's safe --video-capability.
   request-screen-recording Run the selected helper's explicit permission request.
+  helper-text-capability   Run the selected helper's safe --capability.
+  request-helper-text-permission Run the selected helper's explicit text permission request.
 
 Launchctl variables used when present:
   NARU_HELPER_EXECUTABLE
@@ -56,6 +60,9 @@ Launchctl variables used when present:
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
   NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS
   NARU_HELPER_SCREEN_RECORDING_WATCH_INTERVAL_SECONDS
+  NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip
+  NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS
+  NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS
 
 The script never prints environment values. It passes through the benchmark's
 privacy-safe JSON/report output.
@@ -3037,6 +3044,273 @@ FAKE_HELPER
   printf '%s\n' "$report"
 }
 
+open_text_permission_settings_status() {
+  if [[ "${NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN:-}" == "skip" ]]; then
+    printf 'skipped'
+    return
+  fi
+
+  if ! command -v open >/dev/null 2>&1; then
+    printf 'unsupported'
+    return
+  fi
+
+  local accessibility_status="failed"
+  local input_monitoring_status="failed"
+  if open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" \
+    >/dev/null 2>&1; then
+    accessibility_status="opened"
+  fi
+  if open "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent" \
+    >/dev/null 2>&1; then
+    input_monitoring_status="opened"
+  fi
+
+  if [[ "$accessibility_status" == "opened" && "$input_monitoring_status" == "opened" ]]; then
+    printf 'opened'
+  elif [[ "$accessibility_status" == "opened" || "$input_monitoring_status" == "opened" ]]; then
+    printf 'partiallyOpened'
+  else
+    printf 'failed'
+  fi
+}
+
+helper_text_permission_watch_max_polls() {
+  local raw="${NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS:-45}"
+  if [[ "$raw" =~ ^[0-9]+$ ]] && ((raw >= 1 && raw <= 300)); then
+    printf '%s' "$raw"
+  else
+    printf '45'
+  fi
+}
+
+helper_text_permission_watch_interval_seconds() {
+  local raw="${NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS:-2}"
+  if [[ "$raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf '%s' "$raw"
+  else
+    printf '2'
+  fi
+}
+
+helper_text_capability_has_native_insert() {
+  local capability_json="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '(.supportedStrategies // []) | index("nativeInsert") != null' \
+      <<<"$capability_json" >/dev/null 2>&1
+    return
+  fi
+  grep -q '"nativeInsert"' <<<"$capability_json"
+}
+
+print_helper_text_permission_watch_report() {
+  local helper_executable="${NARU_HELPER_EXECUTABLE:-}"
+  local max_polls
+  local interval_seconds
+  max_polls="$(helper_text_permission_watch_max_polls)"
+  interval_seconds="$(helper_text_permission_watch_interval_seconds)"
+
+  local capability_before
+  local permission_request
+  local settings_open_status
+  capability_before="$(
+    json_step_or_fixed_failure \
+      helperTextCapabilityBefore \
+      benchmarkStep.helperTextCapabilityBefore.failed \
+      "$helper_executable" --capability
+  )"
+  permission_request="$(
+    json_step_or_fixed_failure \
+      helperTextPermissionRequest \
+      benchmarkStep.helperTextPermissionRequest.failed \
+      "$helper_executable" --request-text-permission
+  )"
+  settings_open_status="$(open_text_permission_settings_status)"
+
+  local final_capability="$capability_before"
+  local watch_status="timedOut"
+  local polls_attempted=0
+  local poll
+  for ((poll = 1; poll <= max_polls; poll++)); do
+    polls_attempted="$poll"
+    final_capability="$(
+      json_step_or_fixed_failure \
+        helperTextCapabilityPoll \
+        benchmarkStep.helperTextCapabilityPoll.failed \
+        "$helper_executable" --capability
+    )"
+    if helper_text_capability_has_native_insert "$final_capability"; then
+      watch_status="granted"
+      break
+    fi
+    if ((poll < max_polls)); then
+      sleep "$interval_seconds"
+    fi
+  done
+
+  local final_availability
+  local final_step_status
+  local final_accessibility_value_insert
+  local final_unicode_keyboard_event
+  local final_pasteboard_fallback
+  local permission_request_result
+  local permission_process_kind
+  local permission_grant_hint
+  final_availability="$(json_value_or_unknown "$final_capability" '.availability')"
+  final_step_status="$(json_value_or_unknown "$final_capability" '.status')"
+  final_accessibility_value_insert="$(
+    json_value_or_unknown "$final_capability" '.permissionState.accessibilityValueInsert'
+  )"
+  final_unicode_keyboard_event="$(
+    json_value_or_unknown "$final_capability" '.permissionState.unicodeKeyboardEvent'
+  )"
+  final_pasteboard_fallback="$(
+    json_value_or_unknown "$final_capability" '.permissionState.pasteboardFallback'
+  )"
+  permission_request_result="$(json_value_or_unknown "$permission_request" '.requestResult')"
+  permission_process_kind="$(json_value_or_unknown "$permission_request" '.permissionIdentity.processKind')"
+  permission_grant_hint="$(json_value_or_unknown "$permission_request" '.permissionIdentity.grantHint')"
+
+  local issue_codes=()
+  local setup_actions=()
+  if [[ "$watch_status" == "granted" ]]; then
+    append_unique setup_actions "rerun-helper-readiness-sweep"
+    append_unique setup_actions "retry-compose-native-insert-on-physical-device"
+  elif [[ "$final_step_status" == "failed" ]]; then
+    watch_status="failed"
+    append_unique issue_codes "helper-text-capability-failed"
+    append_unique setup_actions "inspect-helper-text-capability"
+  else
+    append_unique issue_codes "helper-text-permission-missing"
+    append_unique setup_actions "grant-helper-text-accessibility-or-input-monitoring-permission"
+    append_unique setup_actions "quit-and-relaunch-helper-after-permission-change"
+    append_unique setup_actions "rerun-helper-text-permission-watch"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-text-permission-watch",\n'
+  printf '  "watchStatus": '
+  json_string "$watch_status"
+  printf ',\n'
+  printf '  "maxPolls": %s,\n' "$max_polls"
+  printf '  "pollIntervalSeconds": '
+  json_string "$interval_seconds"
+  printf ',\n'
+  printf '  "pollsAttempted": %s,\n' "$polls_attempted"
+  printf '  "settingsOpenStatus": '
+  json_string "$settings_open_status"
+  printf ',\n'
+  printf '  "capabilityBefore": %s,\n' "$capability_before"
+  printf '  "permissionRequest": %s,\n' "$permission_request"
+  printf '  "finalCapability": %s,\n' "$final_capability"
+  printf '  "finalAvailability": '
+  json_string "$final_availability"
+  printf ',\n'
+  printf '  "finalAccessibilityValueInsert": '
+  json_string "$final_accessibility_value_insert"
+  printf ',\n'
+  printf '  "finalUnicodeKeyboardEvent": '
+  json_string "$final_unicode_keyboard_event"
+  printf ',\n'
+  printf '  "finalPasteboardFallback": '
+  json_string "$final_pasteboard_fallback"
+  printf ',\n'
+  printf '  "permissionRequestResult": '
+  json_string "$permission_request_result"
+  printf ',\n'
+  printf '  "permissionProcessKind": '
+  json_string "$permission_process_kind"
+  printf ',\n'
+  printf '  "permissionGrantHint": '
+  json_string "$permission_grant_hint"
+  printf ',\n'
+  printf '  "postPermissionChangeRequiresRelaunch": true,\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "helper-text-permission-watch emits fixed status, issue, and action labels plus helper safe capability JSON only",\n'
+  printf '    "helper executable paths, endpoints, credentials, raw OS errors, text payloads, clipboard bytes, pixels, dimensions, byte counts, and exact helper timings are not emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
+helper_text_permission_watch_self_test() {
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-helper-text-watch-test.XXXXXX")"
+  local fake_helper="$tmpdir/fake-helper"
+  local state_file="$tmpdir/state"
+  cat >"$fake_helper" <<'FAKE_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  --capability)
+    count="$(cat "$NARU_FAKE_HELPER_STATE" 2>/dev/null || printf '0')"
+    count=$((count + 1))
+    printf '%s' "$count" >"$NARU_FAKE_HELPER_STATE"
+    if ((count >= 3)); then
+      printf '{"schemaVersion":1,"availability":"reachable","permissionState":{"accessibility":"missing","accessibilityValueInsert":"missing","unicodeKeyboardEvent":"granted","inputMonitoring":"notRequired","pasteboardFallback":"available","activeUserSession":"available"},"supportedStrategies":["nativeInsert"]}\n'
+    else
+      printf '{"schemaVersion":1,"availability":"permissionMissing","permissionState":{"accessibility":"missing","accessibilityValueInsert":"missing","unicodeKeyboardEvent":"missing","inputMonitoring":"notRequired","pasteboardFallback":"missing","activeUserSession":"available"},"supportedStrategies":[]}\n'
+    fi
+    ;;
+  --request-text-permission)
+    printf '{"schemaVersion":1,"availability":"permissionMissing","accessibilityValueInsert":"missing","unicodeKeyboardEvent":"missing","pasteboardFallback":"missing","requestResult":"notGranted","permissionIdentity":{"processKind":"appBundle","grantHint":"grantAppBundle"},"safeFailureCode":"helper.permissionMissing"}\n'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+FAKE_HELPER
+  chmod +x "$fake_helper"
+
+  local report
+  report="$(
+    NARU_HELPER_EXECUTABLE="$fake_helper" \
+    NARU_FAKE_HELPER_STATE="$state_file" \
+    NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip \
+    NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS=4 \
+    NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS=0 \
+    print_helper_text_permission_watch_report
+  )"
+  rm -rf "$tmpdir"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$report"
+    return
+  fi
+
+  jq -e '
+    .schemaVersion == 1 and
+    .mode == "helper-text-permission-watch" and
+    .watchStatus == "granted" and
+    .finalAvailability == "reachable" and
+    .finalUnicodeKeyboardEvent == "granted" and
+    .finalPasteboardFallback == "available" and
+    .permissionRequestResult == "notGranted" and
+    .permissionProcessKind == "appBundle" and
+    .permissionGrantHint == "grantAppBundle" and
+    .postPermissionChangeRequiresRelaunch == true and
+    .pollsAttempted == 2 and
+    (.setupActionLabels | index("rerun-helper-readiness-sweep")) and
+    (.setupActionLabels | index("retry-compose-native-insert-on-physical-device")) and
+    (.issueCodes | length == 0)
+  ' <<<"$report" >/dev/null
+  printf '%s\n' "$report"
+}
+
 print_helper_video_live_gate_summary_failure() {
   local failure_code="$1"
   printf '{"schemaVersion":1,"mode":"helper-video-live-gate-summary","overallGateState":"unknown","safeFailureCode":'
@@ -3887,6 +4161,15 @@ case "$mode" in
     reject_extra_args
     helper_video_live_gate_self_test
     ;;
+  helper-text-permission-watch)
+    reject_extra_args
+    import_helper_env
+    print_helper_text_permission_watch_report
+    ;;
+  helper-text-permission-watch-self-test)
+    reject_extra_args
+    helper_text_permission_watch_self_test
+    ;;
   short-live-comparison)
     import_helper_env
     import_live_env
@@ -4090,6 +4373,16 @@ case "$mode" in
     reject_extra_args
     import_helper_env
     "$NARU_HELPER_EXECUTABLE" --video-request-screen-recording-permission
+    ;;
+  helper-text-capability)
+    reject_extra_args
+    import_helper_env
+    "$NARU_HELPER_EXECUTABLE" --capability
+    ;;
+  request-helper-text-permission)
+    reject_extra_args
+    import_helper_env
+    "$NARU_HELPER_EXECUTABLE" --request-text-permission
     ;;
   *)
     printf 'Unknown mode: %s\n' "$mode" >&2

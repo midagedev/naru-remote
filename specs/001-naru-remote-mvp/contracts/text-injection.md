@@ -50,6 +50,16 @@ pasteboard fallback must report that fixed strategy value separately from native
 insert so field logs can distinguish real text-event insertion from paste
 shortcut dispatch.
 
+Native helper insertion requires at least one host-side permission route to be
+available:
+
+- Accessibility value insertion (`accessibilityValueInsert=granted`)
+- Unicode keyboard events (`unicodeKeyboardEvent=granted`)
+
+If neither is available, Compose diagnostics and setup tooling should surface a
+fixed `helper-text-permission-missing` style action rather than silently falling
+back to an unconfirmed VNC paste path.
+
 Current automated coverage verifies outgoing legacy `ClientCutText`, Extended
 Clipboard caps/provide negotiation, zlib-wrapped UTF-8 payloads, and paste key
 events against the fake RFB server. It does not yet prove that every real VNC
