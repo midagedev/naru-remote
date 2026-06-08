@@ -235,6 +235,14 @@ requests permission, opens Settings unless skipped, polls the helper's safe
 capability labels, and emits either the permission-missing follow-up or the
 `run-true-helper-video-live-capture-benchmark` action after the grant is
 detected.
+Current helper text permission watch artifact:
+`artifacts/benchmarks/2026-06-08-helper-text-permission-watch-summary.md`.
+The launchctl runner now has `helper-text-capability`,
+`request-helper-text-permission`, and `helper-text-permission-watch` modes.
+The current stable helper app bundle reports missing Accessibility and Unicode
+post-event permissions, so Compose native insertion is blocked by
+`helper-text-permission-missing` until the helper app is granted Accessibility
+or Input Monitoring permission and relaunched.
 Current launchctl startup glance scale sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-sweep-runner-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh glance-scale-sweep` to compare
@@ -1274,6 +1282,13 @@ for the human-in-the-loop Screen Recording grant. The current short live run is
 still `timedOut` with `permissionMissing`, while the self-test proves a granted
 transition routes to `rerun-helper-readiness-sweep` and
 `run-true-helper-video-live-capture-benchmark`.
+The helper text permission watch artifact is
+`2026-06-08-helper-text-permission-watch-summary.md`; it adds a bounded polling
+mode for the human-in-the-loop Accessibility/Input Monitoring grant needed by
+Compose native text insertion. The current stable helper app bundle still
+reports `permissionMissing` for `nativeInsert`, while the self-test proves a
+granted transition routes to `rerun-helper-readiness-sweep` and
+`retry-compose-native-insert-on-physical-device`.
 The helper-video sustained readiness schema artifact is
 `2026-06-07-helper-video-sustained-readiness-schema-summary.md`; it upgrades
 helper-video benchmark reports to schema v2 with fixed `readinessState` and

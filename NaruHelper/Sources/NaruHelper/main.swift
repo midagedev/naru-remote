@@ -20,6 +20,11 @@ private enum NaruHelperCLI {
             return
         }
 
+        if CommandLine.arguments.contains("--request-text-permission") {
+            try writeTextPermissionRequestResponse()
+            return
+        }
+
         if CommandLine.arguments.contains("--video-capability") {
             try await writeVideoCapabilityResponse()
             return
@@ -43,6 +48,11 @@ private enum NaruHelperCLI {
 
     private static func writeCapabilityResponse() throws {
         try writeJSON(capabilityResponse())
+    }
+
+    private static func writeTextPermissionRequestResponse() throws {
+        let response = NaruHelperTextPermissionRequester.live().request()
+        try writeJSON(response)
     }
 
     private static func writeVideoCapabilityResponse() async throws {
