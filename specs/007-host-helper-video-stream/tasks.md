@@ -530,8 +530,18 @@ without unsafe report fields.
   labels explicitly, runs physical preflight first, launches the sustained
   iPhone UI/input gate only after signing/provisioning is ready, and summarizes
   the final safe `sustainedSessionAssessment` instead of printing raw xcodebuild
-  logs. Current live run with explicit candidate labels is blocked only by
+  logs. Its initial live run with explicit candidate labels was blocked only by
   `xcode-account-missing` and `ios-provisioning-profile-missing`. **Done.**
+- [x] T031AF [US1] Make the physical helper-video gate seed a helper-video
+  configured app profile instead of accepting a VNC-only visual path. The
+  runner now requires helper-video pairing secret/fingerprint input, maps the
+  Mac-side `NARU_HELPER_VIDEO_TOKEN` /
+  `NARU_HELPER_VIDEO_PROFILE_FINGERPRINT` into physical E2E variables when
+  needed, exposes only `helperVideoProfileMode` as a safe candidate label, and
+  the iOS launch hook writes both VNC and helper-video credentials into the test
+  keychain before starting from the connection grid. Current live runner output
+  is blocked by `physical-e2e-helper-video-pairing-missing`,
+  `xcode-account-missing`, and `ios-provisioning-profile-missing`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

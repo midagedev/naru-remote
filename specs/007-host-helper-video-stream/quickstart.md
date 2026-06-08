@@ -243,15 +243,19 @@ and explicit-environment branches without invoking `security` or `xcodebuild`.
 Mac-side readiness into physical iPhone evidence. It imports
 `NARU_PHYSICAL_E2E_*` values, falling back to the launchctl-backed
 `NARU_LIVE_MAC_*` host/password when explicit physical E2E values are absent,
-requires the sustained candidate labels to be set explicitly, runs
-`physical-device-preflight`, and only if signing/provisioning is ready launches
-`PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate` on the
-selected iPhone. Output is a fixed JSON report containing candidate labels,
+and falling back from `NARU_HELPER_VIDEO_TOKEN` /
+`NARU_HELPER_VIDEO_PROFILE_FINGERPRINT` to the physical helper-video pairing
+variables when needed. It requires the sustained candidate labels and helper
+video pairing to be set explicitly, runs `physical-device-preflight`, and only
+if signing/provisioning is ready launches
+`PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate` on
+the selected iPhone. Output is a fixed JSON report containing candidate labels,
 preflight status, xcodebuild test status, and a summarized final
 `sustainedSessionAssessment` if the app emitted a diagnostic export. It must not
 print raw xcodebuild logs, device identifiers, host values, passwords, helper
-paths, screenshots, full diagnostic payloads, Compose text, keysyms, pointer
-coordinates, pixels, byte counts, or exact timings.
+tokens, pairing fingerprints, helper paths, screenshots, full diagnostic
+payloads, Compose text, keysyms, pointer coordinates, pixels, byte counts, or
+exact timings.
 `glance-scale-sweep` is a fixed short VNC/helper synthetic candidate sweep for
 the benchmark-only first-frame visible-glance scales `0.45`, `0.35`, and
 `0.25`. It rejects extra arguments to keep the candidate comparison repeatable.

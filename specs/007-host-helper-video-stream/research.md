@@ -2559,3 +2559,39 @@ candidate, xcodebuild status, and summarized diagnostic labels. It must not emit
 raw xcodebuild logs, physical device identifiers, host values, passwords, helper
 paths, screenshots, full diagnostic payloads, Compose text, marked text, keysyms,
 pointer coordinates, framebuffer pixels, byte counts, or exact timings.
+
+## D63 - Require helper-video seeded profiles for the physical iPhone gate
+
+**Decision**: Treat `physical-iphone-helper-video-gate` as a helper-video
+profile gate, not merely a VNC sustained UI gate. The runner now requires a
+helper-video pairing secret and pairing fingerprint before launching the
+physical iPhone test, imports the Mac-side helper listener values
+(`NARU_HELPER_VIDEO_TOKEN` and `NARU_HELPER_VIDEO_PROFILE_FINGERPRINT`) as
+fallbacks, and exposes only the safe candidate label
+`helperVideoProfileMode` (`configured`, `incomplete`, or `missing`). The iOS
+launch hooks seed `ConnectionProfile.helperVideo` and write the helper-video
+token to the test keychain alongside the VNC credential.
+
+**Rationale**:
+- The Mac-side helper live gate can pass while the physical app still launches a
+  VNC-only profile if the app seed path does not include helper-video config.
+  That would make FPS, thermal, and hand-feel evidence ambiguous.
+- Pairing secret and fingerprint must be present together; partial pairing now
+  fails fast with fixed setup labels rather than falling back to VNC silently.
+- Keeping the report at `helperVideoProfileMode` preserves the privacy contract:
+  no host, password, token, pairing fingerprint, raw xcodebuild output, pixels,
+  exact timings, or input payloads leave the local run.
+
+**Evidence**:
+- `NaruRemote/UITests/NaruRemoteLaunchUITests.swift` covers launch-environment
+  seeded helper-video profiles reaching the connection grid as helper-video
+  configured cards.
+- `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate-self-test`
+  covers missing, fallback, invalid-port, valid helper-video profile, and final
+  diagnostic summary branches without invoking xcodebuild.
+- With the 10 minute physical candidate labels set locally,
+  `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate` now
+  reports `status=blocked`, `xcodebuildTestStatus=notRun`,
+  `candidateLabels.helperVideoProfileMode=missing`, and the setup issues
+  `physical-e2e-helper-video-pairing-missing`, `xcode-account-missing`, and
+  `ios-provisioning-profile-missing`.
