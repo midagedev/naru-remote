@@ -62,6 +62,7 @@ final class HelperTextBridgeTests: XCTestCase {
         XCTAssertEqual(summary.accessibilityValueInsert, .missing)
         XCTAssertEqual(summary.unicodeKeyboardEvent, .granted)
         XCTAssertEqual(summary.pasteboardFallback, .missing)
+        XCTAssertTrue(summary.supportsNativeInsert)
     }
 
     func testCapabilitySummaryClampsUnknownPermissionCatalogValues() {
@@ -84,6 +85,27 @@ final class HelperTextBridgeTests: XCTestCase {
         XCTAssertEqual(summary.accessibilityValueInsert, .unknown)
         XCTAssertEqual(summary.unicodeKeyboardEvent, .unknown)
         XCTAssertEqual(summary.pasteboardFallback, .unknown)
+        XCTAssertFalse(summary.supportsNativeInsert)
+    }
+
+    func testProfileStateKeepsNativeInsertUnknownCompatibleButBlocksKnownMissingNativeRoutes() {
+        let legacyReachable = HelperTextBridgeProfileState(
+            isEnabled: true,
+            availability: .reachable
+        )
+        let knownMissingNative = HelperTextBridgeProfileState(
+            isEnabled: true,
+            availability: .reachable,
+            capabilitySummary: HelperTextBridgeCapabilitySummary(
+                nativeInsert: .missing,
+                accessibilityValueInsert: .missing,
+                unicodeKeyboardEvent: .missing,
+                pasteboardFallback: .available
+            )
+        )
+
+        XCTAssertTrue(legacyReachable.supportsNativeInsertWhenKnown)
+        XCTAssertFalse(knownMissingNative.supportsNativeInsertWhenKnown)
     }
 
     func testHelperFailureMessagesStaySafeCatalogOnly() {

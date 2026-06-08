@@ -6625,6 +6625,20 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     return
                 }
+                guard capabilityState.supportsNativeInsertWhenKnown else {
+                    await Self.finishStoredHelperFailure(
+                        self,
+                        draft: draft,
+                        attempt: attempt,
+                        helperState: capabilityState,
+                        failureCode: .permissionMissing,
+                        profileID: profileID,
+                        draftID: draftID,
+                        sessionID: sessionID,
+                        now: now
+                    )
+                    return
+                }
                 let readyState = Self.updatedHelperTextBridgeState(
                     capabilityState,
                     failureCode: .none
@@ -6719,7 +6733,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     ) -> Bool {
         state.isEnabled &&
             state.availability == .reachable &&
-            client.availability == .reachable
+            client.availability == .reachable &&
+            state.supportsNativeInsertWhenKnown
     }
 
     nonisolated private static func canRouteThroughStoredHelperTextBridge(
@@ -6732,7 +6747,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         return state.isEnabled &&
             state.availability == .reachable &&
             configuration.isEnabled &&
-            configuration.pairingSecretRef != nil
+            configuration.pairingSecretRef != nil &&
+            state.supportsNativeInsertWhenKnown
     }
 
     nonisolated private static func canAttemptStoredHelperTextBridge(
@@ -6749,8 +6765,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             return false
         }
         switch state.availability {
-        case .checking, .reachable:
+        case .checking:
             return true
+        case .reachable:
+            return state.supportsNativeInsertWhenKnown
         case .notConfigured, .disabled, .revoked:
             return false
         case .unreachable, .permissionMissing, .versionUnsupported:
@@ -6778,6 +6796,9 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         switch state.availability {
         case .reachable:
+            guard state.supportsNativeInsertWhenKnown else {
+                return .permissionMissing
+            }
             return client?.availability == .reachable ? .none : .unreachable
         case .notConfigured:
             return .notConfigured

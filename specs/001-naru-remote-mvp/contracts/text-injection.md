@@ -60,6 +60,13 @@ If neither is available, Compose diagnostics and setup tooling should surface a
 fixed `helper-text-permission-missing` style action rather than silently falling
 back to an unconfirmed VNC paste path.
 
+If a cached or freshly probed helper capability summary is present, automatic
+Compose routing must treat `nativeInsert` as unavailable unless that summary
+advertises native insert or one of the native permission routes above is
+granted. A helper that is reachable only for `pasteboardPasteWithRestore` must
+not receive an automatic Compose payload while the request preference is
+`nativeInsert`-only.
+
 Current automated coverage verifies outgoing legacy `ClientCutText`, Extended
 Clipboard caps/provide negotiation, zlib-wrapped UTF-8 payloads, and paste key
 events against the fake RFB server. It does not yet prove that every real VNC

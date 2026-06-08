@@ -243,6 +243,12 @@ The current stable helper app bundle reports missing Accessibility and Unicode
 post-event permissions, so Compose native insertion is blocked by
 `helper-text-permission-missing` until the helper app is granted Accessibility
 or Input Monitoring permission and relaunched.
+Current helper text native gate artifact:
+`artifacts/benchmarks/2026-06-08-helper-text-native-gate-summary.md`.
+The app route gate now treats known missing `nativeInsert` capability as
+`helper.permissionMissing` before sending raw Compose text to the helper, and
+the input status line names the Mac Accessibility/Input Monitoring permission
+family.
 Current launchctl startup glance scale sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-glance-scale-sweep-runner-summary.md`.
 Use `scripts/run-naru-live-benchmark.sh glance-scale-sweep` to compare
@@ -1289,6 +1295,11 @@ Compose native text insertion. The current stable helper app bundle still
 reports `permissionMissing` for `nativeInsert`, while the self-test proves a
 granted transition routes to `rerun-helper-readiness-sweep` and
 `retry-compose-native-insert-on-physical-device`.
+The helper text native gate artifact is
+`2026-06-08-helper-text-native-gate-summary.md`; it connects the permission
+watch result back into app routing so known missing native insert capability
+blocks automatic helper Compose before raw text reaches the helper insert
+request path.
 The helper-video sustained readiness schema artifact is
 `2026-06-07-helper-video-sustained-readiness-schema-summary.md`; it upgrades
 helper-video benchmark reports to schema v2 with fixed `readinessState` and

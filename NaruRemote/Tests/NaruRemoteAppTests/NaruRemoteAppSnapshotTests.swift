@@ -391,7 +391,37 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(fallbackOnly.inputHelperStatusText, "Helper fallback ready; direct insert unavailable")
+        XCTAssertEqual(fallbackOnly.inputHelperStatusText, "Helper direct insert needs Mac permission")
+    }
+
+    func testInputHelperStatusNamesMissingMacTextPermissions() throws {
+        let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "한글과 English"),
+            helperTextBridgeState: [
+                profile.id: HelperTextBridgeProfileState(
+                    isEnabled: true,
+                    pairingFingerprint: "sha256:helper-pairing",
+                    availability: .permissionMissing,
+                    lastFailureCode: .permissionMissing,
+                    lastCheckedBucket: .recent,
+                    capabilitySummary: HelperTextBridgeCapabilitySummary(
+                        nativeInsert: .missing,
+                        accessibilityValueInsert: .missing,
+                        unicodeKeyboardEvent: .missing,
+                        pasteboardFallback: .missing
+                    )
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            snapshot.inputHelperStatusText,
+            "Grant Mac Accessibility or Input Monitoring for Compose"
+        )
     }
 
     func testDiagnosticRowsExposeSafeStageText() {
