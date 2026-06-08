@@ -21,6 +21,7 @@ public enum BenchmarkTextKeystrokeProbePayload: String, Codable, Equatable, Case
 }
 
 public enum BenchmarkTextKeystrokeProbeStatus: String, Codable, Equatable, Sendable {
+    case observedInserted = "observed-inserted"
     case sent
     case blocked
     case failed
@@ -53,8 +54,74 @@ public enum BenchmarkTextKeystrokeProbeEventCountBucket: String, Codable, Equata
     }
 }
 
-public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
+public enum BenchmarkTextKeystrokeObservationStatus: String, Codable, Equatable, Sendable {
+    case notRun = "not-run"
+    case targetReady = "target-ready"
+    case matched
+    case mismatched
+    case noInput = "no-input"
+    case targetUnavailable = "target-unavailable"
+    case timedOut = "timed-out"
+    case failed
+}
+
+public struct BenchmarkTextKeystrokeObservationTargetResult: Codable, Equatable, Sendable {
     public static let schemaVersion = 1
+
+    public let schemaVersion: Int
+    public let mode: String
+    public let payload: BenchmarkTextKeystrokeProbePayload
+    public let observationStatus: BenchmarkTextKeystrokeObservationStatus
+    public let observedScalarCountBucket: BenchmarkTextKeystrokeProbeEventCountBucket
+
+    public init(
+        schemaVersion: Int = Self.schemaVersion,
+        mode: String = "text-keystroke-observation-target",
+        payload: BenchmarkTextKeystrokeProbePayload,
+        observationStatus: BenchmarkTextKeystrokeObservationStatus,
+        observedScalarCountBucket: BenchmarkTextKeystrokeProbeEventCountBucket
+    ) {
+        self.schemaVersion = schemaVersion
+        self.mode = mode
+        self.payload = payload
+        self.observationStatus = observationStatus
+        self.observedScalarCountBucket = observedScalarCountBucket
+    }
+
+    public static func make(
+        payload: BenchmarkTextKeystrokeProbePayload,
+        observedText: String
+    ) -> BenchmarkTextKeystrokeObservationTargetResult {
+        let observedScalarCount = observedText.unicodeScalars.count
+        let status: BenchmarkTextKeystrokeObservationStatus
+        if observedText == payload.probeText {
+            status = .matched
+        } else if observedText.isEmpty {
+            status = .noInput
+        } else {
+            status = .mismatched
+        }
+
+        return BenchmarkTextKeystrokeObservationTargetResult(
+            payload: payload,
+            observationStatus: status,
+            observedScalarCountBucket: .bucket(for: observedScalarCount)
+        )
+    }
+
+    public static func ready(
+        payload: BenchmarkTextKeystrokeProbePayload
+    ) -> BenchmarkTextKeystrokeObservationTargetResult {
+        BenchmarkTextKeystrokeObservationTargetResult(
+            payload: payload,
+            observationStatus: .targetReady,
+            observedScalarCountBucket: .zero
+        )
+    }
+}
+
+public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
+    public static let schemaVersion = 2
 
     public let schemaVersion: Int
     public let mode: String
@@ -68,6 +135,7 @@ public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
     public let firstFrameStatus: BenchmarkTextKeystrokeProbeStageStatus
     public let transcodeStatus: BenchmarkTextKeystrokeProbeStageStatus
     public let sendStatus: BenchmarkTextKeystrokeProbeStageStatus
+    public let observationStatus: BenchmarkTextKeystrokeObservationStatus
     public let failureLabel: String?
     public let safety: [String]
 
@@ -84,6 +152,7 @@ public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
         firstFrameStatus: BenchmarkTextKeystrokeProbeStageStatus,
         transcodeStatus: BenchmarkTextKeystrokeProbeStageStatus,
         sendStatus: BenchmarkTextKeystrokeProbeStageStatus,
+        observationStatus: BenchmarkTextKeystrokeObservationStatus = .notRun,
         failureLabel: String?,
         safety: [String] = Self.defaultSafety
     ) {
@@ -99,13 +168,14 @@ public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
         self.firstFrameStatus = firstFrameStatus
         self.transcodeStatus = transcodeStatus
         self.sendStatus = sendStatus
+        self.observationStatus = observationStatus
         self.failureLabel = failureLabel
         self.safety = safety
     }
 
     public static let defaultSafety = [
         "text-keystroke probe reports omit raw text, keysyms, target identity, credentials, byte counts, framebuffer dimensions, pixels, raw OS errors, and exact timings",
-        "text-keystroke probe reports emit fixed payload labels, encoding labels, stage labels, event-count buckets, network-condition labels, and safe failure labels only",
-        "sent means key events were enqueued on the RFB transport; it does not confirm remote editor insertion"
+        "text-keystroke probe reports emit fixed payload labels, encoding labels, stage labels, event-count buckets, network-condition labels, observation labels, and safe failure labels only",
+        "sent means key events were enqueued on the RFB transport; observed-inserted additionally requires a controlled local target to report a fixed-label match"
     ]
 }

@@ -40,6 +40,7 @@ final class BenchmarkTextKeystrokeProbeReportTests: XCTestCase {
             firstFrameStatus: .passed,
             transcodeStatus: .passed,
             sendStatus: .passed,
+            observationStatus: .matched,
             failureLabel: nil
         )
 
@@ -49,10 +50,54 @@ final class BenchmarkTextKeystrokeProbeReportTests: XCTestCase {
         XCTAssertTrue(json.contains("\"unicode-hangul\""))
         XCTAssertTrue(json.contains("\"utf8ExtensionRequired\""))
         XCTAssertTrue(json.contains("\"constrained-cellular\""))
+        XCTAssertTrue(json.contains("\"matched\""))
         XCTAssertFalse(json.contains(BenchmarkTextKeystrokeProbePayload.unicodeHangul.probeText))
         XCTAssertFalse(json.contains("0x"))
         XCTAssertFalse(json.contains("D55C"))
         XCTAssertFalse(json.contains("AE00"))
+    }
+
+    func testObservationTargetResultUsesOnlyFixedLabels() throws {
+        let result = BenchmarkTextKeystrokeObservationTargetResult.make(
+            payload: .unicodeHangul,
+            observedText: BenchmarkTextKeystrokeProbePayload.unicodeHangul.probeText
+        )
+
+        XCTAssertEqual(result.observationStatus, .matched)
+        XCTAssertEqual(result.observedScalarCountBucket, .oneToFive)
+
+        let data = try JSONEncoder().encode(result)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertTrue(json.contains("\"text-keystroke-observation-target\""))
+        XCTAssertTrue(json.contains("\"unicode-hangul\""))
+        XCTAssertTrue(json.contains("\"matched\""))
+        XCTAssertFalse(json.contains(BenchmarkTextKeystrokeProbePayload.unicodeHangul.probeText))
+        XCTAssertFalse(json.contains("D55C"))
+        XCTAssertFalse(json.contains("AE00"))
+    }
+
+    func testObservationTargetResultClassifiesMissingAndMismatchedInputSafely() {
+        XCTAssertEqual(
+            BenchmarkTextKeystrokeObservationTargetResult.make(
+                payload: .unicodeHangul,
+                observedText: ""
+            ).observationStatus,
+            .noInput
+        )
+        XCTAssertEqual(
+            BenchmarkTextKeystrokeObservationTargetResult.make(
+                payload: .unicodeHangul,
+                observedText: "Naru"
+            ).observationStatus,
+            .mismatched
+        )
+        XCTAssertEqual(
+            BenchmarkTextKeystrokeObservationTargetResult.ready(
+                payload: .unicodeHangul
+            ).observationStatus,
+            .targetReady
+        )
     }
 
     func testEventCountBucketsUseCoarseFixedBands() {

@@ -23,6 +23,7 @@ Modes:
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
   text-keystroke-probe    Live VNC KeyEvent probe; override payload after --.
+  text-keystroke-observed-probe Live VNC KeyEvent probe with controlled local text target.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -88,6 +89,7 @@ Launchctl variables used when present:
 
 Text probe payload labels: ascii, latin1, unicode-hangul. Override with:
   scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --text-keystroke-probe-payload LABEL
+  scripts/run-naru-live-benchmark.sh text-keystroke-observed-probe -- --text-keystroke-probe-payload LABEL
 
 The script never prints environment values. It passes through the benchmark's
 privacy-safe JSON/report output.
@@ -5393,12 +5395,29 @@ case "$mode" in
   text-keystroke-probe)
     reject_extra_flag --environment-preflight
     reject_extra_flag --helper-video-probe-only
+    reject_extra_flag --text-keystroke-observed-probe-only
     reject_extra_flag --visual-transport
     reject_extra_flag --helper-video-probe
     import_live_env
     cd "$repo_root"
     run_benchmark_with_extra \
       --text-keystroke-probe-only \
+      --text-keystroke-probe-payload unicode-hangul \
+      --json
+    ;;
+  text-keystroke-observed-probe)
+    reject_extra_flag --environment-preflight
+    reject_extra_flag --helper-video-probe-only
+    reject_extra_flag --text-keystroke-probe-only
+    reject_extra_flag --text-keystroke-observed-probe-only
+    reject_extra_flag --visual-transport
+    reject_extra_flag --helper-video-probe
+    import_live_env
+    cd "$repo_root"
+    swift build --quiet --product VNCLiveStimulusWindow
+    export NARU_TEXT_KEYSTROKE_OBSERVATION_TARGET_EXECUTABLE="$repo_root/.build/debug/VNCLiveStimulusWindow"
+    run_benchmark_with_extra \
+      --text-keystroke-observed-probe-only \
       --text-keystroke-probe-payload unicode-hangul \
       --json
     ;;

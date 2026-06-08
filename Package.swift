@@ -65,6 +65,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "VNCLiveStimulusWindow",
+            dependencies: ["VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tools/VNCLiveStimulusWindow"
         ),
         .target(

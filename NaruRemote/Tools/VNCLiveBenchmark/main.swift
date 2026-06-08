@@ -43,7 +43,7 @@ enum VNCLiveBenchmark {
                 }
                 return
             }
-            if options.textKeystrokeProbeOnly {
+            if options.textKeystrokeProbeOnly || options.textKeystrokeObservedProbeOnly {
                 let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
                 guard let configuration = LiveTargetConfiguration.fromEnvironment(
                     passwordOverride: passwordOverride
@@ -64,7 +64,9 @@ enum VNCLiveBenchmark {
                     configuration: configuration.conditioned(by: proxy),
                     networkConditionProfile: options.networkConditionProfile,
                     payload: options.textKeystrokeProbePayload,
-                    timeout: options.timeout
+                    timeout: options.timeout,
+                    observesInsertion: options.textKeystrokeObservedProbeOnly,
+                    observationTimeout: options.textKeystrokeObservationTimeout
                 )
                 progressReporter.record(.reportRendering)
                 if options.json {
@@ -242,7 +244,9 @@ enum VNCLiveBenchmark {
         configuration: LiveTargetConfiguration,
         networkConditionProfile: BenchmarkNetworkConditionProfile,
         payload: BenchmarkTextKeystrokeProbePayload,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        observesInsertion: Bool,
+        observationTimeout: TimeInterval
     ) async -> BenchmarkTextKeystrokeProbeReport {
         let transcoding = TextKeystrokeTranscoder.transcode(payload.probeText)
         let eventCountBucket = BenchmarkTextKeystrokeProbeEventCountBucket.bucket(
@@ -262,6 +266,36 @@ enum VNCLiveBenchmark {
                 sendStatus: .notRun,
                 failureLabel: textKeystrokeTranscodeFailureLabel(transcoding.failureCode)
             )
+        }
+
+        let observationTarget: RunningTextKeystrokeObservationTarget?
+        if observesInsertion {
+            let start = startTextKeystrokeObservationTarget(
+                payload: payload,
+                observationTimeout: observationTimeout
+            )
+            guard start.failureLabel == nil, let target = start.target else {
+                return BenchmarkTextKeystrokeProbeReport(
+                    status: .failed,
+                    payload: payload,
+                    networkConditionProfile: networkConditionProfile,
+                    payloadEncoding: transcoding.payloadEncoding,
+                    usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                    eventCountBucket: eventCountBucket,
+                    connectStatus: .notRun,
+                    firstFrameStatus: .notRun,
+                    transcodeStatus: .passed,
+                    sendStatus: .notRun,
+                    observationStatus: .targetUnavailable,
+                    failureLabel: start.failureLabel
+                )
+            }
+            observationTarget = target
+        } else {
+            observationTarget = nil
+        }
+        defer {
+            observationTarget?.stop()
         }
 
         let client = RFBNetworkClient(encodingPreference: .localLowLatency)
@@ -288,11 +322,13 @@ enum VNCLiveBenchmark {
                 failureLabel: safeFailureLabel(for: error, phase: .textProbeConnect)
             )
         }
+        defer {
+            client.disconnect()
+        }
 
         do {
             _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
         } catch {
-            client.disconnect()
             return BenchmarkTextKeystrokeProbeReport(
                 status: .failed,
                 payload: payload,
@@ -313,22 +349,7 @@ enum VNCLiveBenchmark {
                 try await client.sendKeyEvent(keysym: event.keysym, isDown: true)
                 try await client.sendKeyEvent(keysym: event.keysym, isDown: false)
             }
-            client.disconnect()
-            return BenchmarkTextKeystrokeProbeReport(
-                status: .sent,
-                payload: payload,
-                networkConditionProfile: networkConditionProfile,
-                payloadEncoding: transcoding.payloadEncoding,
-                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
-                eventCountBucket: eventCountBucket,
-                connectStatus: .passed,
-                firstFrameStatus: .passed,
-                transcodeStatus: .passed,
-                sendStatus: .passed,
-                failureLabel: nil
-            )
         } catch {
-            client.disconnect()
             return BenchmarkTextKeystrokeProbeReport(
                 status: .failed,
                 payload: payload,
@@ -343,6 +364,60 @@ enum VNCLiveBenchmark {
                 failureLabel: safeFailureLabel(for: error, phase: .textProbeSend)
             )
         }
+
+        guard let observationTarget else {
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .sent,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                transcodeStatus: .passed,
+                sendStatus: .passed,
+                failureLabel: nil
+            )
+        }
+
+        let observation = waitForTextKeystrokeObservation(
+            observationTarget,
+            payload: payload,
+            timeout: observationTimeout
+        )
+        switch observation.observationStatus {
+        case .matched:
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .observedInserted,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                transcodeStatus: .passed,
+                sendStatus: .passed,
+                observationStatus: .matched,
+                failureLabel: nil
+            )
+        case .noInput, .mismatched, .timedOut, .targetUnavailable, .failed, .targetReady, .notRun:
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .failed,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                transcodeStatus: .passed,
+                sendStatus: .passed,
+                observationStatus: observation.observationStatus,
+                failureLabel: textKeystrokeObservationFailureLabel(observation.observationStatus)
+            )
+        }
     }
 
     private static func textKeystrokeTranscodeFailureLabel(
@@ -355,6 +430,162 @@ enum VNCLiveBenchmark {
             return "text-probe-transcode-unsupported-control-scalar"
         case nil:
             return "text-probe-transcode-unexpected"
+        }
+    }
+
+    private static func startTextKeystrokeObservationTarget(
+        payload: BenchmarkTextKeystrokeProbePayload,
+        observationTimeout: TimeInterval
+    ) -> TextKeystrokeObservationStart {
+        guard
+            let executable = ProcessInfo.processInfo.environment[textKeystrokeObservationTargetExecutableKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !executable.isEmpty,
+            FileManager.default.isExecutableFile(atPath: executable)
+        else {
+            return TextKeystrokeObservationStart(
+                target: nil,
+                failureLabel: textKeystrokeObservationTargetMissingLabel
+            )
+        }
+
+        let resultURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-text-keystroke-observation-\(UUID().uuidString).json")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = [
+            "--text-probe",
+            "--text-probe-payload",
+            payload.rawValue,
+            "--result-file",
+            resultURL.path,
+            "--duration",
+            formatSeconds(max(observationTimeout + 1.0, 1.0))
+        ]
+        process.environment = minimalTextKeystrokeObservationEnvironment()
+        let nullOutput = FileHandle(forWritingAtPath: "/dev/null")
+        process.standardOutput = nullOutput
+        process.standardError = nullOutput
+
+        do {
+            try process.run()
+        } catch {
+            try? nullOutput?.close()
+            return TextKeystrokeObservationStart(
+                target: nil,
+                failureLabel: textKeystrokeObservationTargetLaunchFailedLabel
+            )
+        }
+
+        let target = RunningTextKeystrokeObservationTarget(
+            process: process,
+            resultURL: resultURL,
+            nullOutput: nullOutput
+        )
+        guard waitForTextKeystrokeObservationTargetReady(
+            target,
+            timeout: min(max(observationTimeout, 0.25), 2.0)
+        ) else {
+            target.stop()
+            return TextKeystrokeObservationStart(
+                target: nil,
+                failureLabel: textKeystrokeObservationTargetNotReadyLabel
+            )
+        }
+
+        return TextKeystrokeObservationStart(target: target, failureLabel: nil)
+    }
+
+    private static func waitForTextKeystrokeObservationTargetReady(
+        _ target: RunningTextKeystrokeObservationTarget,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let result = target.readResult() {
+                if result.observationStatus == .targetReady || result.observationStatus == .matched {
+                    return true
+                }
+                return false
+            }
+            if !target.isRunning {
+                return false
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return false
+    }
+
+    private static func waitForTextKeystrokeObservation(
+        _ target: RunningTextKeystrokeObservationTarget,
+        payload: BenchmarkTextKeystrokeProbePayload,
+        timeout: TimeInterval
+    ) -> BenchmarkTextKeystrokeObservationTargetResult {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastResult: BenchmarkTextKeystrokeObservationTargetResult?
+        while Date() < deadline {
+            if let result = target.readResult() {
+                lastResult = result
+                if result.observationStatus != .targetReady {
+                    return result
+                }
+            }
+            if !target.isRunning, let lastResult {
+                return lastResult
+            }
+            if !target.isRunning {
+                return BenchmarkTextKeystrokeObservationTargetResult(
+                    payload: payload,
+                    observationStatus: .targetUnavailable,
+                    observedScalarCountBucket: .zero
+                )
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return lastResult.map {
+            BenchmarkTextKeystrokeObservationTargetResult(
+                payload: $0.payload,
+                observationStatus: .timedOut,
+                observedScalarCountBucket: $0.observedScalarCountBucket
+            )
+        } ?? BenchmarkTextKeystrokeObservationTargetResult(
+            payload: payload,
+            observationStatus: .timedOut,
+            observedScalarCountBucket: .zero
+        )
+    }
+
+    private static func minimalTextKeystrokeObservationEnvironment() -> [String: String] {
+        var environment: [String: String] = [:]
+        let parent = ProcessInfo.processInfo.environment
+        for key in ["PATH", "HOME", "TMPDIR", "__CF_USER_TEXT_ENCODING"] {
+            if let value = parent[key] {
+                environment[key] = value
+            }
+        }
+        return environment
+    }
+
+    private static func textKeystrokeObservationFailureLabel(
+        _ status: BenchmarkTextKeystrokeObservationStatus
+    ) -> String {
+        switch status {
+        case .matched:
+            return "none"
+        case .notRun:
+            return "text-probe-observation-not-run"
+        case .targetReady:
+            return "text-probe-observation-target-still-ready"
+        case .mismatched:
+            return "text-probe-observation-mismatched"
+        case .noInput:
+            return "text-probe-observation-no-input"
+        case .targetUnavailable:
+            return "text-probe-observation-target-unavailable"
+        case .timedOut:
+            return "text-probe-observation-timed-out"
+        case .failed:
+            return "text-probe-observation-failed"
         }
     }
 
@@ -1581,7 +1812,9 @@ private struct BenchmarkOptions: Equatable {
     var environmentPreflight = false
     var helperVideoProbeOnly = false
     var textKeystrokeProbeOnly = false
+    var textKeystrokeObservedProbeOnly = false
     var textKeystrokeProbePayload: BenchmarkTextKeystrokeProbePayload = .unicodeHangul
+    var textKeystrokeObservationTimeout: TimeInterval = 2.0
     var json = false
     var showHelp = false
     var safeProgressLabelFile: String?
@@ -1614,6 +1847,9 @@ private struct BenchmarkOptions: Equatable {
             case "--text-keystroke-probe-only":
                 options.textKeystrokeProbeOnly = true
                 index = arguments.index(after: index)
+            case "--text-keystroke-observed-probe-only":
+                options.textKeystrokeObservedProbeOnly = true
+                index = arguments.index(after: index)
             case "--text-keystroke-probe-payload":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 guard let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) else {
@@ -1624,6 +1860,10 @@ private struct BenchmarkOptions: Equatable {
                     )
                 }
                 options.textKeystrokeProbePayload = payload
+                index = arguments.index(index, offsetBy: 2)
+            case "--text-keystroke-observation-timeout":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.textKeystrokeObservationTimeout = try positiveTimeInterval(value, option: argument)
                 index = arguments.index(index, offsetBy: 2)
             case "--network-condition":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -1877,7 +2117,8 @@ private struct BenchmarkOptions: Equatable {
         let oneShotModeCount = [
             environmentPreflight,
             helperVideoProbeOnly,
-            textKeystrokeProbeOnly
+            textKeystrokeProbeOnly,
+            textKeystrokeObservedProbeOnly
         ].filter { $0 }.count
         if oneShotModeCount > 1 {
             throw UsageError("choose only one one-shot mode.")
@@ -2307,9 +2548,20 @@ private let streamShapeStimulusCommandMissingLabel = "stream-stimulus-command-mi
 private let streamShapeStimulusCommandLaunchFailedLabel = "stream-stimulus-command-launch-failed"
 private let streamShapeStimulusTerminationGraceSeconds: TimeInterval = 0.1
 private let streamShapeStimulusTerminationPollSeconds: TimeInterval = 0.01
+private let textKeystrokeObservationTargetExecutableKey =
+    "NARU_TEXT_KEYSTROKE_OBSERVATION_TARGET_EXECUTABLE"
+private let textKeystrokeObservationTargetMissingLabel = "text-probe-observation-target-missing"
+private let textKeystrokeObservationTargetLaunchFailedLabel =
+    "text-probe-observation-target-launch-failed"
+private let textKeystrokeObservationTargetNotReadyLabel = "text-probe-observation-target-not-ready"
 
 private struct StreamShapeStimulusStart {
     let runningStimulus: RunningStreamShapeStimulus?
+    let failureLabel: String?
+}
+
+private struct TextKeystrokeObservationStart {
+    let target: RunningTextKeystrokeObservationTarget?
     let failureLabel: String?
 }
 
@@ -2334,6 +2586,44 @@ private final class RunningStreamShapeStimulus {
             kill(process.processIdentifier, SIGKILL)
         }
         try? nullOutput?.close()
+    }
+}
+
+private final class RunningTextKeystrokeObservationTarget {
+    private let process: Process
+    private let resultURL: URL
+    private let nullOutput: FileHandle?
+
+    init(process: Process, resultURL: URL, nullOutput: FileHandle?) {
+        self.process = process
+        self.resultURL = resultURL
+        self.nullOutput = nullOutput
+    }
+
+    var isRunning: Bool {
+        process.isRunning
+    }
+
+    func readResult() -> BenchmarkTextKeystrokeObservationTargetResult? {
+        guard let data = try? Data(contentsOf: resultURL), !data.isEmpty else {
+            return nil
+        }
+        return try? JSONDecoder().decode(BenchmarkTextKeystrokeObservationTargetResult.self, from: data)
+    }
+
+    func stop() {
+        if process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(streamShapeStimulusTerminationGraceSeconds)
+            while process.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: streamShapeStimulusTerminationPollSeconds)
+            }
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        try? nullOutput?.close()
+        try? FileManager.default.removeItem(at: resultURL)
     }
 }
 
@@ -3863,6 +4153,7 @@ private func renderText(_ report: BenchmarkTextKeystrokeProbeReport) {
     print("first frame: \(report.firstFrameStatus.rawValue)")
     print("transcode: \(report.transcodeStatus.rawValue)")
     print("send: \(report.sendStatus.rawValue)")
+    print("observation: \(report.observationStatus.rawValue)")
     print("failure: \(report.failureLabel ?? "none")")
     print(
         "safety: raw text, keysyms, target identity, credentials, byte counts, dimensions, pixels, raw errors, and exact timings are redacted"
@@ -3931,7 +4222,7 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--text-keystroke-probe-only] [--text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--text-keystroke-probe-only] [--text-keystroke-observed-probe-only] [--text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)] [--text-keystroke-observation-timeout SECONDS] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
 
     Options:
       --environment-preflight
@@ -3940,8 +4231,12 @@ private func printUsage() {
                             Run only the selected helper-video probe and emit a privacy-safe helper-video report without requiring live VNC target credentials.
       --text-keystroke-probe-only
                             Connect to the live VNC target, request a first frame, and enqueue a fixed committed-text KeyEvent probe without enabling it as the app's default Compose send route.
+      --text-keystroke-observed-probe-only
+                            Launch a controlled local text target, connect to the live VNC target, enqueue the fixed KeyEvent payload, and require a fixed-label target match before reporting observed-inserted. Requires \(textKeystrokeObservationTargetExecutableKey) to point at VNCLiveStimulusWindow.
       --text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)
                             Fixed privacy-safe payload class for --text-keystroke-probe-only. Defaults to unicode-hangul.
+      --text-keystroke-observation-timeout SECONDS
+                            Observation wait for --text-keystroke-observed-probe-only. Defaults to 2 seconds.
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)

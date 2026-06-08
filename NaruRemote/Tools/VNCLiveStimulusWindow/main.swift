@@ -1,21 +1,32 @@
 import AppKit
 import Foundation
+import VNCLiveBenchmarkKit
 
 @MainActor
 @main
 enum VNCLiveStimulusWindow {
-    private static var controller: StimulusController?
+    private static var controller: NSObject?
 
     static func main() {
+        let app = NSApplication.shared
         let options = StimulusOptions.parse(CommandLine.arguments.dropFirst())
-        DispatchQueue.main.async { run(options: options) }
-        NSApplication.shared.run()
+        DispatchQueue.main.async { run(options: options, app: app) }
+        // Both animation and text-probe modes rely on the AppKit run loop;
+        // their controllers call `app.terminate(nil)` when the probe ends.
+        app.run()
     }
 
-    private static func run(options: StimulusOptions) {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+    private static func run(options: StimulusOptions, app: NSApplication) {
+        switch options.mode {
+        case .animation:
+            runAnimation(options: options, app: app)
+        case .textProbe:
+            runTextProbe(options: options, app: app)
+        }
+    }
 
+    private static func runAnimation(options: StimulusOptions, app: NSApplication) {
+        app.setActivationPolicy(.accessory)
         let view = StimulusView(frame: NSRect(origin: .zero, size: options.size))
         let window = NSWindow(
             contentRect: NSRect(origin: options.origin, size: options.size),
@@ -31,14 +42,59 @@ enum VNCLiveStimulusWindow {
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
 
-        controller = StimulusController(
+        let animationController = StimulusController(
             app: app,
             window: window,
             view: view,
             frameInterval: options.frameInterval,
             duration: options.duration
         )
-        controller?.start()
+        controller = animationController
+        animationController.start()
+    }
+
+    private static func runTextProbe(options: StimulusOptions, app: NSApplication) {
+        app.setActivationPolicy(.regular)
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: options.size.width, height: options.size.height))
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindPanel = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.font = NSFont.monospacedSystemFont(ofSize: 22, weight: .regular)
+        textView.string = ""
+
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: options.size))
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+
+        let window = TextProbeWindow(
+            contentRect: NSRect(origin: options.origin, size: options.size),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Naru Text Probe"
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.contentView = scrollView
+
+        let textProbeController = TextProbeController(
+            app: app,
+            window: window,
+            textView: textView,
+            payload: options.textProbePayload,
+            resultFilePath: options.resultFilePath,
+            duration: options.duration
+        )
+        controller = textProbeController
+        textProbeController.start()
     }
 }
 
@@ -95,24 +151,152 @@ private final class StimulusController: NSObject {
     }
 }
 
+@MainActor
+private final class TextProbeController: NSObject, NSTextViewDelegate {
+    private let app: NSApplication
+    private let window: NSWindow
+    private let textView: NSTextView
+    private let payload: BenchmarkTextKeystrokeProbePayload
+    private let resultFilePath: String?
+    private let duration: TimeInterval
+    private var stopTimer: Timer?
+    private var focusTimer: Timer?
+    private var didMatch = false
+
+    init(
+        app: NSApplication,
+        window: NSWindow,
+        textView: NSTextView,
+        payload: BenchmarkTextKeystrokeProbePayload,
+        resultFilePath: String?,
+        duration: TimeInterval
+    ) {
+        self.app = app
+        self.window = window
+        self.textView = textView
+        self.payload = payload
+        self.resultFilePath = resultFilePath
+        self.duration = duration
+    }
+
+    func start() {
+        textView.delegate = self
+        focus()
+        write(BenchmarkTextKeystrokeObservationTargetResult.ready(payload: payload))
+        focusTimer = Timer.scheduledTimer(
+            timeInterval: 0.1,
+            target: self,
+            selector: #selector(refocus),
+            userInfo: nil,
+            repeats: true
+        )
+        stopTimer = Timer.scheduledTimer(
+            timeInterval: duration,
+            target: self,
+            selector: #selector(stop),
+            userInfo: nil,
+            repeats: false
+        )
+    }
+
+    @objc private func refocus() {
+        focus()
+    }
+
+    private func focus() {
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        app.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(textView)
+    }
+
+    func textDidChange(_ notification: Notification) {
+        let result = BenchmarkTextKeystrokeObservationTargetResult.make(
+            payload: payload,
+            observedText: textView.string
+        )
+        write(result)
+        if result.observationStatus == .matched {
+            didMatch = true
+            stopTimer?.invalidate()
+            stopTimer = Timer.scheduledTimer(
+                timeInterval: 0.05,
+                target: self,
+                selector: #selector(stop),
+                userInfo: nil,
+                repeats: false
+            )
+        }
+    }
+
+    @objc private func stop() {
+        focusTimer?.invalidate()
+        stopTimer?.invalidate()
+        if !didMatch {
+            write(BenchmarkTextKeystrokeObservationTargetResult.make(
+                payload: payload,
+                observedText: textView.string
+            ))
+        }
+        window.orderOut(nil)
+        app.terminate(nil)
+    }
+
+    private func write(_ result: BenchmarkTextKeystrokeObservationTargetResult) {
+        guard let resultFilePath else {
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(result) else {
+            return
+        }
+        try? data.write(to: URL(fileURLWithPath: resultFilePath), options: [.atomic])
+    }
+}
+
+private final class TextProbeWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 private struct StimulusOptions {
+    var mode: StimulusMode
     var duration: TimeInterval
     var frameInterval: TimeInterval
     var size: NSSize
     var origin: NSPoint
+    var textProbePayload: BenchmarkTextKeystrokeProbePayload
+    var resultFilePath: String?
 
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
+            mode: .animation,
             duration: environmentDuration() ?? 12,
             frameInterval: environmentFrameInterval() ?? 1.0 / 12.0,
             size: NSSize(width: 420, height: 240),
-            origin: NSPoint(x: 72, y: 72)
+            origin: NSPoint(x: 72, y: 72),
+            textProbePayload: .unicodeHangul,
+            resultFilePath: nil
         )
         var index = arguments.startIndex
 
         while index < arguments.endIndex {
             let argument = arguments[index]
             switch argument {
+            case "--text-probe":
+                options.mode = .textProbe
+                index = arguments.index(after: index)
+            case "--text-probe-payload":
+                if let value = value(after: index, in: arguments),
+                   let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) {
+                    options.textProbePayload = payload
+                }
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
+            case "--result-file":
+                options.resultFilePath = value(after: index, in: arguments)
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--duration":
                 if let value = value(after: index, in: arguments).flatMap(TimeInterval.init), value > 0 {
                     options.duration = value
@@ -151,6 +335,10 @@ private struct StimulusOptions {
         options.frameInterval = min(max(options.frameInterval, 1.0 / 60.0), 1)
         options.size.width = min(max(options.size.width, 160), 960)
         options.size.height = min(max(options.size.height, 120), 720)
+        if options.mode == .textProbe {
+            options.size.width = max(options.size.width, 360)
+            options.size.height = max(options.size.height, 140)
+        }
         return options
     }
 
@@ -175,6 +363,11 @@ private struct StimulusOptions {
         }
         return arguments[valueIndex]
     }
+}
+
+private enum StimulusMode {
+    case animation
+    case textProbe
 }
 
 private final class StimulusView: NSView {
