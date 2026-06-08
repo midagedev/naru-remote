@@ -522,6 +522,16 @@ without unsafe report fields.
   permission. Current granted live run reports true ScreenCaptureKit
   helper-video and app bootstrap passing; the remaining blocker is the physical
   iPhone signing/provisioning gate. **Done.**
+- [x] T031AE [US1] Add a privacy-safe
+  `physical-iphone-helper-video-gate` runner that turns the current manual
+  physical-device xcodebuild recipe into a repeatable handoff from helper-video
+  readiness. The runner imports launchctl/current-shell physical E2E values,
+  falls back to live VNC host/password when needed, requires sustained candidate
+  labels explicitly, runs physical preflight first, launches the sustained
+  iPhone UI/input gate only after signing/provisioning is ready, and summarizes
+  the final safe `sustainedSessionAssessment` instead of printing raw xcodebuild
+  logs. Current live run with explicit candidate labels is blocked only by
+  `xcode-account-missing` and `ios-provisioning-profile-missing`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

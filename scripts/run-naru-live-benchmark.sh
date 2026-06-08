@@ -18,6 +18,8 @@ Modes:
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
+  physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
+  physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
@@ -59,6 +61,16 @@ Launchctl variables used when present:
   NARU_LIVE_STIMULUS_COMMAND
   NARU_PHYSICAL_IOS_DEVICE_ID
   NARU_XCODE_DEVELOPMENT_TEAM
+  NARU_PHYSICAL_E2E_HOST
+  NARU_PHYSICAL_E2E_PORT
+  NARU_PHYSICAL_E2E_HOST_KIND
+  NARU_PHYSICAL_E2E_PASSWORD
+  NARU_PHYSICAL_E2E_SUSTAINED_SECONDS
+  NARU_PHYSICAL_E2E_STREAM_POWER_MODE
+  NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE
+  NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE
+  NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE
+  NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
   NARU_HELPER_DEV_APP_ROOT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
@@ -155,6 +167,39 @@ import_optional_live_env() {
 import_physical_device_env() {
   import_env NARU_PHYSICAL_IOS_DEVICE_ID optional
   import_env NARU_XCODE_DEVELOPMENT_TEAM optional
+}
+
+apply_physical_e2e_live_fallbacks() {
+  if [[ -z "${NARU_PHYSICAL_E2E_HOST:-}" && -n "${NARU_LIVE_MAC_HOST:-}" ]]; then
+    export NARU_PHYSICAL_E2E_HOST="$NARU_LIVE_MAC_HOST"
+  fi
+  if [[ -z "${NARU_PHYSICAL_E2E_PORT:-}" && -n "${NARU_LIVE_MAC_PORT:-}" ]]; then
+    export NARU_PHYSICAL_E2E_PORT="$NARU_LIVE_MAC_PORT"
+  fi
+  if [[ -z "${NARU_PHYSICAL_E2E_PASSWORD:-}" && -n "${NARU_LIVE_MAC_PASSWORD:-}" ]]; then
+    export NARU_PHYSICAL_E2E_PASSWORD="$NARU_LIVE_MAC_PASSWORD"
+  fi
+  if [[ -z "${NARU_PHYSICAL_E2E_HOST_KIND:-}" ]]; then
+    export NARU_PHYSICAL_E2E_HOST_KIND="privateAddress"
+  fi
+}
+
+import_physical_e2e_env() {
+  import_env NARU_PHYSICAL_E2E_HOST optional
+  import_env NARU_PHYSICAL_E2E_PORT optional
+  import_env NARU_PHYSICAL_E2E_HOST_KIND optional
+  import_env NARU_PHYSICAL_E2E_PASSWORD optional
+  import_env NARU_PHYSICAL_E2E_NAME optional
+  import_env NARU_PHYSICAL_E2E_SUSTAINED_SECONDS optional
+  import_env NARU_PHYSICAL_E2E_STREAM_POWER_MODE optional
+  import_env NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE optional
+  import_env NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE optional
+  import_env NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE optional
+  import_env NARU_PHYSICAL_E2E_COMPOSE_TEXT optional
+  import_env NARU_PHYSICAL_E2E_SKIP_COMPOSE optional
+  import_env NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS optional
+
+  apply_physical_e2e_live_fallbacks
 }
 
 run_benchmark() {
@@ -2676,6 +2721,519 @@ physical_preflight() {
   printf '\n}\n'
 }
 
+physical_iphone_gate_collect_configuration_issues() {
+  PHYSICAL_GATE_ISSUE_CODES=()
+  PHYSICAL_GATE_SETUP_ACTIONS=()
+
+  if [[ -z "${NARU_PHYSICAL_E2E_HOST:-}" ]]; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-host-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-host"
+  fi
+  if [[ -z "${NARU_PHYSICAL_E2E_PASSWORD:-}" ]]; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-password-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-password"
+  fi
+  local raw_port="${NARU_PHYSICAL_E2E_PORT:-}"
+  if [[ -n "$raw_port" ]]; then
+    if ! [[ "$raw_port" =~ ^[0-9]+$ ]] || ((raw_port < 1 || raw_port > 65535)); then
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-port-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-port"
+    fi
+  fi
+
+  local raw_duration="${NARU_PHYSICAL_E2E_SUSTAINED_SECONDS:-}"
+  if [[ -z "$raw_duration" ]]; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-duration-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-sustained-seconds"
+  elif ! [[ "$raw_duration" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+    ! awk "BEGIN { exit !($raw_duration > 0) }" >/dev/null 2>&1; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-duration-invalid"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-sustained-seconds"
+  fi
+
+  case "${NARU_PHYSICAL_E2E_STREAM_POWER_MODE:-}" in
+    balanced|power-saver) ;;
+    "")
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-stream-power-mode-missing"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-stream-power-mode"
+      ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-stream-power-mode-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-stream-power-mode"
+      ;;
+  esac
+
+  case "${NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE:-}" in
+    standard|local-low-latency-rgb565|zrle-compression-0|zrle-compression-0-rgb565|adaptive-good-full) ;;
+    "")
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-stream-encoding-mode-missing"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-stream-encoding-mode"
+      ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-stream-encoding-mode-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-stream-encoding-mode"
+      ;;
+  esac
+
+  case "${NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE:-}" in
+    disabled|one-hidden-frame) ;;
+    "")
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-startup-preflight-mode-missing"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-startup-preflight-mode"
+      ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-startup-preflight-mode-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-startup-preflight-mode"
+      ;;
+  esac
+
+  case "${NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE:-}" in
+    standard-045|minimal-035|glance-025) ;;
+    "")
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-startup-glance-scale-mode-missing"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-startup-glance-scale-mode"
+      ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-startup-glance-scale-mode-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-startup-glance-scale-mode"
+      ;;
+  esac
+}
+
+physical_iphone_gate_compose_payload_class() {
+  if [[ "${NARU_PHYSICAL_E2E_SKIP_COMPOSE:-}" == "1" ]]; then
+    printf 'disabled'
+  elif [[ -z "${NARU_PHYSICAL_E2E_COMPOSE_TEXT:-}" ]]; then
+    printf 'default-ascii'
+  elif LC_ALL=C printf '%s' "$NARU_PHYSICAL_E2E_COMPOSE_TEXT" | grep -q '[^ -~]'; then
+    printf 'unicode'
+  else
+    printf 'ascii'
+  fi
+}
+
+physical_iphone_gate_duration_label() {
+  local raw="${NARU_PHYSICAL_E2E_SUSTAINED_SECONDS:-}"
+  if [[ "$raw" == "600" || "$raw" == "600.0" ]]; then
+    printf 'ten-minutes'
+  elif [[ -n "$raw" ]]; then
+    printf 'custom'
+  else
+    printf 'missing'
+  fi
+}
+
+physical_iphone_gate_wall_timeout_seconds() {
+  if [[ -n "${NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS:-}" ]]; then
+    printf '%s' "$NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS"
+    return
+  fi
+
+  local sustained="${NARU_PHYSICAL_E2E_SUSTAINED_SECONDS:-0}"
+  if [[ "$sustained" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    awk "BEGIN { printf \"%d\", int($sustained + 300) }"
+  else
+    printf '900'
+  fi
+}
+
+physical_iphone_gate_xcodebuild() {
+  local device_id="$1"
+  local output_file="$2"
+  local timeout_seconds
+  timeout_seconds="$(physical_iphone_gate_wall_timeout_seconds)"
+  local args=(
+    xcodebuild
+    -project NaruRemote.xcodeproj
+    -scheme NaruRemote
+    -destination "platform=iOS,id=$device_id"
+    -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate
+    test
+  )
+  if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+    args+=(DEVELOPMENT_TEAM="$NARU_XCODE_DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates)
+  fi
+
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$timeout_seconds" "${args[@]}" >"$output_file" 2>&1; then
+    printf 'passed'
+  elif [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    printf 'timedOut'
+  else
+    printf 'failed'
+  fi
+}
+
+physical_iphone_gate_classify_xcodebuild_failure() {
+  local output_file="$1"
+  local xcodebuild_status="$2"
+
+  if [[ "$xcodebuild_status" == "timedOut" ]]; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-iphone-helper-video-gate-timed-out"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-physical-iphone-gate-timeout"
+  fi
+  if grep -q "No Accounts" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "xcode-account-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "add-xcode-account"
+  fi
+  if grep -q "No profiles for" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "ios-provisioning-profile-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "create-ios-development-provisioning-profile"
+  fi
+  if grep -q "requires a development team" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "ios-development-team-missing"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-xcode-development-team"
+  fi
+  if grep -qi "locked" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-ios-device-locked"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "unlock-physical-iphone"
+  fi
+  if grep -q "XCTSkip" "$output_file" || grep -q "Test skipped" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-iphone-helper-video-gate-skipped"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-physical-iphone-gate-configuration"
+  fi
+
+  if ((${#PHYSICAL_GATE_ISSUE_CODES[@]} == 0)); then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-iphone-helper-video-gate-failed"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-physical-iphone-helper-video-gate-log"
+  fi
+}
+
+physical_iphone_gate_extract_last_diagnostic_export() {
+  local output_file="$1"
+  awk '
+    /NARU_DIAGNOSTIC_EXPORT_BEGIN/ {
+      capture = 1
+      block = ""
+      next
+    }
+    /NARU_DIAGNOSTIC_EXPORT_END/ {
+      if (capture) {
+        last = block
+        capture = 0
+      }
+      next
+    }
+    capture {
+      block = block $0 "\n"
+    }
+    END {
+      if (length(last) > 0) {
+        printf "%s", last
+      }
+    }
+  ' "$output_file"
+}
+
+physical_iphone_gate_print_diagnostic_summary() {
+  local diagnostic_file="$1"
+  if [[ ! -s "$diagnostic_file" ]]; then
+    printf '{"status":"missing"}'
+    return
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"status":"captured","summaryStatus":"jqUnavailable"}'
+    return
+  fi
+  if ! jq empty "$diagnostic_file" >/dev/null 2>&1; then
+    printf '{"status":"invalid"}'
+    return
+  fi
+
+  jq -c '
+    {
+      status: "captured",
+      schemaVersion: (.schemaVersion // null),
+      appVerdict: (.verdict // "unknown"),
+      viewerStreamPowerMode: (.viewerStreamPowerMode // "unknown"),
+      viewerStreamEncodingMode: (.viewerStreamEncodingMode // "unknown"),
+      viewerStartupPreflightMode: (.viewerStartupPreflightMode // "unknown"),
+      viewerStartupGlanceScaleMode: (.viewerStartupGlanceScaleMode // "unknown"),
+      sustainedSessionAssessment: (
+        if .sustainedSessionAssessment then {
+          verdict: (.sustainedSessionAssessment.verdict // "unknown"),
+          physicalGateVerdict: (.sustainedSessionAssessment.physicalGateVerdict // "unknown"),
+          primaryIssueCode: (.sustainedSessionAssessment.primaryIssueCode // "none"),
+          primaryConstraint: (.sustainedSessionAssessment.primaryConstraint // "unknown"),
+          recommendedNextProbe: (.sustainedSessionAssessment.recommendedNextProbe // "unknown"),
+          issueCodes: (.sustainedSessionAssessment.issueCodes // [])
+        } else {
+          status: "missing"
+        } end
+      ),
+      streamPerformance: (
+        if .streamPerformance then {
+          observedDurationBucket: (.streamPerformance.observedDurationBucket // "unknown"),
+          deliveredFramesPerSecondBucket: (.streamPerformance.deliveredFramesPerSecondBucket // "unknown"),
+          contentFramesPerSecondBucket: (.streamPerformance.contentFramesPerSecondBucket // "unknown"),
+          thermalState: (.streamPerformance.thermalState // "unknown")
+        } else {
+          status: "missing"
+        } end
+      ),
+      input: (
+        if .input then {
+          composeRouteBlocker: (.input.composeRouteBlocker // "unknown"),
+          latestComposeSendPreparationDurationBucket: (.input.latestComposeSendPreparationDurationBucket // "unknown")
+        } else {
+          status: "missing"
+        } end
+      )
+    }
+  ' "$diagnostic_file"
+}
+
+physical_iphone_gate_print_candidate_labels() {
+  printf '{'
+  printf '"targetLabel":"iphone-sustained-usability-v2",'
+  printf '"durationLabel":'
+  json_string "$(physical_iphone_gate_duration_label)"
+  printf ',"streamPowerMode":'
+  json_string "${NARU_PHYSICAL_E2E_STREAM_POWER_MODE:-missing}"
+  printf ',"streamEncodingMode":'
+  json_string "${NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE:-missing}"
+  printf ',"startupPreflightMode":'
+  json_string "${NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE:-missing}"
+  printf ',"startupGlanceScaleMode":'
+  json_string "${NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE:-missing}"
+  printf ',"composePayloadClass":'
+  json_string "$(physical_iphone_gate_compose_payload_class)"
+  printf '}'
+}
+
+physical_iphone_gate_print_report() {
+  local status="$1"
+  local preflight_file="$2"
+  local xcodebuild_status="$3"
+  local diagnostic_file="$4"
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-iphone-helper-video-gate",\n'
+  printf '  "status": '
+  json_string "$status"
+  printf ',\n'
+  printf '  "xcodebuildTestStatus": '
+  json_string "$xcodebuild_status"
+  printf ',\n'
+  printf '  "candidateLabels": '
+  physical_iphone_gate_print_candidate_labels
+  printf ',\n'
+  printf '  "physicalDevicePreflight": '
+  cat "$preflight_file"
+  printf ',\n'
+  printf '  "diagnosticExportSummary": '
+  physical_iphone_gate_print_diagnostic_summary "$diagnostic_file"
+  printf ',\n'
+  printf '  "issueCodes": '
+  json_string_array "${PHYSICAL_GATE_ISSUE_CODES[@]}"
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  json_string_array "${PHYSICAL_GATE_SETUP_ACTIONS[@]}"
+  printf '\n}\n'
+}
+
+physical_iphone_helper_video_gate() {
+  reject_extra_args
+  import_physical_device_env
+  import_optional_live_env
+  import_physical_e2e_env
+  cd "$repo_root"
+
+  local preflight_file
+  local output_file
+  local diagnostic_file
+  preflight_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-preflight.XXXXXX")"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-xcodebuild.XXXXXX")"
+  diagnostic_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-diagnostic.XXXXXX")"
+
+  physical_preflight >"$preflight_file"
+  physical_iphone_gate_collect_configuration_issues
+
+  local build_check_status="unknown"
+  local device_id="$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
+  if command -v jq >/dev/null 2>&1 && jq empty "$preflight_file" >/dev/null 2>&1; then
+    build_check_status="$(jq -r '.buildCheckStatus // "unknown"' "$preflight_file")"
+    while IFS= read -r issue_code; do
+      [[ -n "$issue_code" ]] && append_unique PHYSICAL_GATE_ISSUE_CODES "$issue_code"
+    done < <(jq -r '.issueCodes[]?' "$preflight_file")
+    while IFS= read -r setup_action; do
+      [[ -n "$setup_action" ]] && append_unique PHYSICAL_GATE_SETUP_ACTIONS "$setup_action"
+    done < <(jq -r '.setupActionLabels[]?' "$preflight_file")
+  else
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-device-preflight-unreadable"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-physical-device-preflight"
+  fi
+
+  if [[ "$build_check_status" != "passed" || ${#PHYSICAL_GATE_ISSUE_CODES[@]} -gt 0 ]]; then
+    physical_iphone_gate_print_report "blocked" "$preflight_file" "notRun" "$diagnostic_file"
+    rm -f "$preflight_file" "$output_file" "$diagnostic_file"
+    return
+  fi
+
+  local xcodebuild_status
+  xcodebuild_status="$(physical_iphone_gate_xcodebuild "$device_id" "$output_file")"
+  physical_iphone_gate_extract_last_diagnostic_export "$output_file" >"$diagnostic_file"
+  if [[ "$xcodebuild_status" == "passed" ]]; then
+    physical_iphone_gate_print_report "passed" "$preflight_file" "$xcodebuild_status" "$diagnostic_file"
+  else
+    physical_iphone_gate_classify_xcodebuild_failure "$output_file" "$xcodebuild_status"
+    physical_iphone_gate_print_report "failed" "$preflight_file" "$xcodebuild_status" "$diagnostic_file"
+  fi
+
+  rm -f "$preflight_file" "$output_file" "$diagnostic_file"
+}
+
+physical_iphone_helper_video_gate_self_test() {
+  reject_extra_args
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"skipped","issueCodes":["jq-unavailable"]}\n'
+    return
+  fi
+
+  local saved_host="${NARU_PHYSICAL_E2E_HOST:-}"
+  local saved_port="${NARU_PHYSICAL_E2E_PORT:-}"
+  local saved_host_kind="${NARU_PHYSICAL_E2E_HOST_KIND:-}"
+  local saved_password="${NARU_PHYSICAL_E2E_PASSWORD:-}"
+  local saved_duration="${NARU_PHYSICAL_E2E_SUSTAINED_SECONDS:-}"
+  local saved_power="${NARU_PHYSICAL_E2E_STREAM_POWER_MODE:-}"
+  local saved_encoding="${NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE:-}"
+  local saved_preflight="${NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE:-}"
+  local saved_glance="${NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE:-}"
+  local saved_compose="${NARU_PHYSICAL_E2E_COMPOSE_TEXT:-}"
+  local saved_live_host="${NARU_LIVE_MAC_HOST:-}"
+  local saved_live_port="${NARU_LIVE_MAC_PORT:-}"
+  local saved_live_password="${NARU_LIVE_MAC_PASSWORD:-}"
+
+  unset NARU_PHYSICAL_E2E_HOST
+  unset NARU_PHYSICAL_E2E_PASSWORD
+  unset NARU_PHYSICAL_E2E_PORT
+  unset NARU_PHYSICAL_E2E_HOST_KIND
+  unset NARU_PHYSICAL_E2E_SUSTAINED_SECONDS
+  unset NARU_PHYSICAL_E2E_STREAM_POWER_MODE
+  unset NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE
+  unset NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE
+  unset NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE
+  unset NARU_PHYSICAL_E2E_COMPOSE_TEXT
+
+  physical_iphone_gate_collect_configuration_issues
+  local missing_status="failed"
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-host-missing "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-password-missing "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-e2e-stream-encoding-mode "* ]]; then
+    missing_status="passed"
+  fi
+
+  export NARU_LIVE_MAC_HOST="live-fallback-host"
+  export NARU_LIVE_MAC_PORT="5900"
+  export NARU_LIVE_MAC_PASSWORD="REDACTED-LIVE"
+  unset NARU_PHYSICAL_E2E_HOST
+  unset NARU_PHYSICAL_E2E_PORT
+  unset NARU_PHYSICAL_E2E_PASSWORD
+  unset NARU_PHYSICAL_E2E_HOST_KIND
+  apply_physical_e2e_live_fallbacks
+  local fallback_status="failed"
+  if [[ "${NARU_PHYSICAL_E2E_HOST:-}" == "live-fallback-host" &&
+        "${NARU_PHYSICAL_E2E_PORT:-}" == "5900" &&
+        "${NARU_PHYSICAL_E2E_PASSWORD:-}" == "REDACTED-LIVE" &&
+        "${NARU_PHYSICAL_E2E_HOST_KIND:-}" == "privateAddress" ]]; then
+    fallback_status="passed"
+  fi
+
+  export NARU_PHYSICAL_E2E_HOST="127.0.0.1"
+  export NARU_PHYSICAL_E2E_PORT="70000"
+  export NARU_PHYSICAL_E2E_PASSWORD="REDACTED"
+  export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS="600"
+  export NARU_PHYSICAL_E2E_STREAM_POWER_MODE="balanced"
+  export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE="local-low-latency-rgb565"
+  export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE="one-hidden-frame"
+  export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE="glance-025"
+  physical_iphone_gate_collect_configuration_issues
+  local port_status="failed"
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-port-invalid "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-e2e-port "* ]]; then
+    port_status="passed"
+  fi
+
+  export NARU_PHYSICAL_E2E_HOST="127.0.0.1"
+  export NARU_PHYSICAL_E2E_PORT="5900"
+  export NARU_PHYSICAL_E2E_PASSWORD="REDACTED"
+  export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS="600"
+  export NARU_PHYSICAL_E2E_STREAM_POWER_MODE="balanced"
+  export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE="local-low-latency-rgb565"
+  export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE="one-hidden-frame"
+  export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE="glance-025"
+  export NARU_PHYSICAL_E2E_COMPOSE_TEXT="한글"
+  physical_iphone_gate_collect_configuration_issues
+  local valid_status="failed"
+  if ((${#PHYSICAL_GATE_ISSUE_CODES[@]} == 0)) &&
+    [[ "$(physical_iphone_gate_compose_payload_class)" == "unicode" ]] &&
+    [[ "$(physical_iphone_gate_duration_label)" == "ten-minutes" ]]; then
+    valid_status="passed"
+  fi
+
+  local log_file
+  local diagnostic_file
+  local summary_file
+  log_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-log.XXXXXX")"
+  diagnostic_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-diagnostic.XXXXXX")"
+  summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-summary.XXXXXX")"
+  cat >"$log_file" <<'LOG'
+noise
+NARU_DIAGNOSTIC_EXPORT_BEGIN
+{"schemaVersion":34,"verdict":"passed","viewerStreamPowerMode":"balanced","viewerStreamEncodingMode":"standard","viewerStartupPreflightMode":"disabled","viewerStartupGlanceScaleMode":"standard-045","streamPerformance":{"observedDurationBucket":"overTenSeconds","deliveredFramesPerSecondBucket":"fiveToFifteen","contentFramesPerSecondBucket":"underFive","thermalState":"nominal"},"input":{"composeRouteBlocker":"emptyDraft"},"sustainedSessionAssessment":{"verdict":"fail","physicalGateVerdict":"blocked","primaryIssueCode":"contentFrameRateFailed","primaryConstraint":"contentCadence","recommendedNextProbe":"runSustainedV2ProfileGate","issueCodes":["contentFrameRateFailed"]}}
+NARU_DIAGNOSTIC_EXPORT_END
+NARU_DIAGNOSTIC_EXPORT_BEGIN
+{"schemaVersion":34,"verdict":"passed","viewerStreamPowerMode":"balanced","viewerStreamEncodingMode":"local-low-latency-rgb565","viewerStartupPreflightMode":"one-hidden-frame","viewerStartupGlanceScaleMode":"glance-025","streamPerformance":{"observedDurationBucket":"overTenSeconds","deliveredFramesPerSecondBucket":"fifteenToTwentyFour","contentFramesPerSecondBucket":"fiveToFifteen","thermalState":"nominal"},"input":{"composeRouteBlocker":"emptyDraft"},"sustainedSessionAssessment":{"verdict":"pass","physicalGateVerdict":"pass","primaryConstraint":"none","recommendedNextProbe":"none","issueCodes":[]}}
+NARU_DIAGNOSTIC_EXPORT_END
+LOG
+  physical_iphone_gate_extract_last_diagnostic_export "$log_file" >"$diagnostic_file"
+  physical_iphone_gate_print_diagnostic_summary "$diagnostic_file" >"$summary_file"
+  local diagnostic_status="failed"
+  if jq -e '
+    .status == "captured" and
+    .viewerStreamEncodingMode == "local-low-latency-rgb565" and
+    .sustainedSessionAssessment.physicalGateVerdict == "pass" and
+    .sustainedSessionAssessment.primaryConstraint == "none" and
+    .streamPerformance.contentFramesPerSecondBucket == "fiveToFifteen"
+  ' "$summary_file" >/dev/null; then
+    diagnostic_status="passed"
+  fi
+
+  rm -f "$log_file" "$diagnostic_file" "$summary_file"
+
+  if [[ -n "$saved_host" ]]; then export NARU_PHYSICAL_E2E_HOST="$saved_host"; else unset NARU_PHYSICAL_E2E_HOST; fi
+  if [[ -n "$saved_port" ]]; then export NARU_PHYSICAL_E2E_PORT="$saved_port"; else unset NARU_PHYSICAL_E2E_PORT; fi
+  if [[ -n "$saved_host_kind" ]]; then export NARU_PHYSICAL_E2E_HOST_KIND="$saved_host_kind"; else unset NARU_PHYSICAL_E2E_HOST_KIND; fi
+  if [[ -n "$saved_password" ]]; then export NARU_PHYSICAL_E2E_PASSWORD="$saved_password"; else unset NARU_PHYSICAL_E2E_PASSWORD; fi
+  if [[ -n "$saved_duration" ]]; then export NARU_PHYSICAL_E2E_SUSTAINED_SECONDS="$saved_duration"; else unset NARU_PHYSICAL_E2E_SUSTAINED_SECONDS; fi
+  if [[ -n "$saved_power" ]]; then export NARU_PHYSICAL_E2E_STREAM_POWER_MODE="$saved_power"; else unset NARU_PHYSICAL_E2E_STREAM_POWER_MODE; fi
+  if [[ -n "$saved_encoding" ]]; then export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE="$saved_encoding"; else unset NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE; fi
+  if [[ -n "$saved_preflight" ]]; then export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE="$saved_preflight"; else unset NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE; fi
+  if [[ -n "$saved_glance" ]]; then export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE="$saved_glance"; else unset NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE; fi
+  if [[ -n "$saved_compose" ]]; then export NARU_PHYSICAL_E2E_COMPOSE_TEXT="$saved_compose"; else unset NARU_PHYSICAL_E2E_COMPOSE_TEXT; fi
+  if [[ -n "$saved_live_host" ]]; then export NARU_LIVE_MAC_HOST="$saved_live_host"; else unset NARU_LIVE_MAC_HOST; fi
+  if [[ -n "$saved_live_port" ]]; then export NARU_LIVE_MAC_PORT="$saved_live_port"; else unset NARU_LIVE_MAC_PORT; fi
+  if [[ -n "$saved_live_password" ]]; then export NARU_LIVE_MAC_PASSWORD="$saved_live_password"; else unset NARU_LIVE_MAC_PASSWORD; fi
+
+  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","diagnosticSummaryCase":"passed"}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"failed","configurationMissingCase":'
+    json_string "$missing_status"
+    printf ',"liveFallbackCase":'
+    json_string "$fallback_status"
+    printf ',"portValidationCase":'
+    json_string "$port_status"
+    printf ',"configurationValidCase":'
+    json_string "$valid_status"
+    printf ',"diagnosticSummaryCase":'
+    json_string "$diagnostic_status"
+    printf '}\n'
+    exit 1
+  fi
+}
+
 open_screen_recording_settings_status() {
   if [[ "${NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN:-}" == "skip" ]]; then
     printf 'skipped'
@@ -4565,6 +5123,12 @@ case "$mode" in
   helper-video-live-gate-self-test)
     reject_extra_args
     helper_video_live_gate_self_test
+    ;;
+  physical-iphone-helper-video-gate)
+    physical_iphone_helper_video_gate
+    ;;
+  physical-iphone-helper-video-gate-self-test)
+    physical_iphone_helper_video_gate_self_test
     ;;
   helper-text-permission-watch)
     reject_extra_args
