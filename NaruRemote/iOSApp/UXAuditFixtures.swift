@@ -122,10 +122,20 @@ enum UXAuditFixtures {
             return nil
         }
 
+        guard let pairingSecretRef = env["NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF"]?.trimmedNonEmpty,
+              let pairingFingerprint = env["NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT"]?.trimmedNonEmpty
+        else {
+            preconditionFailure(
+                "NARU_TEST_SEED_HELPER_VIDEO_ENABLED requires " +
+                    "NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF and " +
+                    "NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT"
+            )
+        }
+
         return HelperVideoConnectionConfiguration(
             isEnabled: true,
-            pairingSecretRef: env["NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF"]?.trimmedNonEmpty,
-            pairingFingerprint: env["NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT"]?.trimmedNonEmpty
+            pairingSecretRef: pairingSecretRef,
+            pairingFingerprint: pairingFingerprint
         )
     }
 
