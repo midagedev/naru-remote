@@ -2514,3 +2514,48 @@ not emit helper executable paths, endpoints, tokens, raw XCTest output, raw
 helper stdout/stderr, raw OS errors, display dimensions, pixels, byte counts,
 exact timings, physical device identifiers, Compose text, marked text, keysyms,
 pointer coordinates, or clipboard contents.
+
+## D62 - Standardize the physical iPhone sustained UI/input gate runner
+
+**Decision**: Add `scripts/run-naru-live-benchmark.sh
+physical-iphone-helper-video-gate` as the handoff from Mac-side helper-video
+readiness to real iPhone evidence. The runner imports physical E2E values from
+the current shell or launchctl, falls back to `NARU_LIVE_MAC_*` for host/password
+when explicit physical E2E values are absent, requires sustained candidate
+labels explicitly, runs `physical-device-preflight`, and only if the preflight
+passes launches
+`PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate` on
+the selected physical iPhone.
+
+**Rationale**:
+- The current helper-video live gate can now pass true ScreenCaptureKit capture
+  and app bootstrap on the Mac side, so the next product evidence has to come
+  from a physical iPhone session that exercises viewport zoom/pan, trackpad
+  movement, Compose input, and delayed diagnostic export.
+- Hand-running xcodebuild made it too easy to lose the exact candidate labels or
+  accidentally paste raw logs into artifacts. A fixed runner keeps setup blockers
+  (`xcode-account-missing`, `ios-provisioning-profile-missing`) separate from
+  actual app session failures.
+- The final app diagnostic export is already sanitized; the runner summarizes
+  only the `sustainedSessionAssessment`, stream-performance buckets, and input
+  buckets needed to choose the next PR axis.
+- Candidate defaults are not silently invented. Missing duration, power,
+  encoding, startup preflight, or startup glance labels block the run with fixed
+  setup actions so physical evidence stays comparable.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh`
+- `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate-self-test`
+  verifies missing/valid candidate-label branches and final diagnostic block
+  summarization.
+- With the current live host/password and explicit candidate labels,
+  `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate` reports
+  `status=blocked`, `xcodebuildTestStatus=notRun`,
+  `candidateLabels.durationLabel=ten-minutes`, and the only issue codes
+  `xcode-account-missing` plus `ios-provisioning-profile-missing`.
+
+**Privacy rule**: The runner may emit only fixed status, issue, setup-action,
+candidate, xcodebuild status, and summarized diagnostic labels. It must not emit
+raw xcodebuild logs, physical device identifiers, host values, passwords, helper
+paths, screenshots, full diagnostic payloads, Compose text, marked text, keysyms,
+pointer coordinates, framebuffer pixels, byte counts, or exact timings.

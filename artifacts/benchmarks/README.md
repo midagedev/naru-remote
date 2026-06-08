@@ -545,23 +545,14 @@ still fail overall; `tight-first` is the better working candidate, but it is not
 ready for production-default promotion because it has zero pass runs and a
 client-decode primary constraint.
 
-```bash
-read -rs NARU_PHYSICAL_E2E_PASSWORD
-export NARU_PHYSICAL_E2E_PASSWORD
-export NARU_PHYSICAL_E2E_HOST=<private Mac address or MagicDNS name>
-export NARU_PHYSICAL_E2E_PORT=5900
-export NARU_PHYSICAL_E2E_HOST_KIND=privateAddress
-
-xcodebuild \
-  -project NaruRemote.xcodeproj \
-  -scheme NaruRemote \
-  -destination 'platform=iOS,id=<physical-device-id>' \
-  -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests \
-  DEVELOPMENT_TEAM=<local-development-team-id> \
-  test
-
-unset NARU_PHYSICAL_E2E_PASSWORD
-```
+Current physical iPhone gate runner artifact:
+`artifacts/benchmarks/2026-06-09-physical-iphone-gate-runner-summary.md`.
+Prefer `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate`
+over hand-running xcodebuild. The script imports launchctl/current-shell
+credentials, requires the candidate labels below to be explicit, runs
+`physical-device-preflight`, and emits a fixed JSON report with only setup
+labels, candidate labels, xcodebuild test status, and a summarized final
+`sustainedSessionAssessment` when the app emits one.
 
 For the larger sustained candidate gate, keep the same target variables and run
 the opt-in sustained UI test. The recommended production-promotion duration is
@@ -586,13 +577,7 @@ export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=local-low-latency-rgb565
 export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=one-hidden-frame
 export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE=glance-025
 
-xcodebuild \
-  -project NaruRemote.xcodeproj \
-  -scheme NaruRemote \
-  -destination 'platform=iOS,id=<physical-device-id>' \
-  -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate \
-  DEVELOPMENT_TEAM=<local-development-team-id> \
-  test
+scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate
 
 unset NARU_PHYSICAL_E2E_PASSWORD
 ```
