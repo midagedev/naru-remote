@@ -73,6 +73,7 @@ Launchctl variables used when present:
   NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS
   NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
   NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
+  NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=auto|manual
   NARU_HELPER_VIDEO_TOKEN
   NARU_HELPER_VIDEO_PROFILE_FINGERPRINT
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
@@ -196,6 +197,60 @@ apply_physical_e2e_live_fallbacks() {
   fi
 }
 
+random_hex_32() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32 2>/dev/null && return
+  fi
+  if command -v uuidgen >/dev/null 2>&1; then
+    printf '%s%s' "$(uuidgen | tr -d '-')" "$(uuidgen | tr -d '-')" |
+      tr '[:upper:]' '[:lower:]' |
+      cut -c 1-64
+    return
+  fi
+  printf '%064x' "$RANDOM$RANDOM"
+}
+
+physical_iphone_gate_listener_mode() {
+  printf '%s' "${NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE:-auto}"
+}
+
+physical_iphone_gate_prepare_helper_video_pairing() {
+  local mode
+  mode="$(physical_iphone_gate_listener_mode)"
+  case "$mode" in
+    auto|manual) ;;
+    *)
+      export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="invalid"
+      return
+      ;;
+  esac
+
+  if [[ "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-}" == "generated" &&
+        -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" &&
+        -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]]; then
+    return
+  fi
+
+  if [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" &&
+        -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]]; then
+    export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="configured"
+    return
+  fi
+  if [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" ||
+        -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]]; then
+    export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="incomplete"
+    return
+  fi
+  if [[ "$mode" == "auto" ]]; then
+    export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET="generated-$(random_hex_32)"
+    export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT="sha256:$(random_hex_32)"
+    export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="generated"
+    return
+  fi
+
+  export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="missing"
+}
+
 import_physical_e2e_env() {
   import_env NARU_PHYSICAL_E2E_HOST optional
   import_env NARU_PHYSICAL_E2E_PORT optional
@@ -212,10 +267,13 @@ import_physical_e2e_env() {
   import_env NARU_PHYSICAL_E2E_WALL_TIMEOUT_SECONDS optional
   import_env NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET optional
   import_env NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT optional
+  import_env NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE optional
+  import_env NARU_HELPER_EXECUTABLE optional
   import_env NARU_HELPER_VIDEO_TOKEN optional
   import_env NARU_HELPER_VIDEO_PROFILE_FINGERPRINT optional
 
   apply_physical_e2e_live_fallbacks
+  physical_iphone_gate_prepare_helper_video_pairing
 }
 
 run_benchmark() {
@@ -2740,6 +2798,7 @@ physical_preflight() {
 physical_iphone_gate_collect_configuration_issues() {
   PHYSICAL_GATE_ISSUE_CODES=()
   PHYSICAL_GATE_SETUP_ACTIONS=()
+  physical_iphone_gate_prepare_helper_video_pairing
 
   if [[ -z "${NARU_PHYSICAL_E2E_HOST:-}" ]]; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-host-missing"
@@ -2815,17 +2874,34 @@ physical_iphone_gate_collect_configuration_issues() {
       ;;
   esac
 
-  local helper_secret_status="missing"
-  local helper_fingerprint_status="missing"
-  [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" ]] && helper_secret_status="present"
-  [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]] && helper_fingerprint_status="present"
-  if [[ "$helper_secret_status" == "missing" && "$helper_fingerprint_status" == "missing" ]]; then
-    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-pairing-missing"
-    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-helper-video-pairing"
-  elif [[ "$helper_secret_status" != "$helper_fingerprint_status" ]]; then
-    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-pairing-incomplete"
-    append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-helper-video-pairing"
-  fi
+  local listener_mode
+  listener_mode="$(physical_iphone_gate_listener_mode)"
+  case "$listener_mode" in
+    auto)
+      if [[ -z "${NARU_HELPER_EXECUTABLE:-}" || ! -x "${NARU_HELPER_EXECUTABLE:-}" ]]; then
+        append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-listener-unavailable"
+        append_unique PHYSICAL_GATE_SETUP_ACTIONS "configure-helper-video-executable"
+      fi
+      ;;
+    manual) ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-listener-mode-invalid"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-helper-video-listener-mode"
+      ;;
+  esac
+
+  case "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-missing}" in
+    generated|configured) ;;
+    missing)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-pairing-missing"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-helper-video-pairing"
+      ;;
+    incomplete)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-pairing-incomplete"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-e2e-helper-video-pairing"
+      ;;
+    invalid) ;;
+  esac
 }
 
 physical_iphone_gate_compose_payload_class() {
@@ -2852,15 +2928,8 @@ physical_iphone_gate_duration_label() {
 }
 
 physical_iphone_gate_helper_video_profile_mode() {
-  if [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" &&
-        -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]]; then
-    printf 'configured'
-  elif [[ -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}" ||
-          -n "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}" ]]; then
-    printf 'incomplete'
-  else
-    printf 'missing'
-  fi
+  physical_iphone_gate_prepare_helper_video_pairing
+  printf '%s' "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-missing}"
 }
 
 physical_iphone_gate_wall_timeout_seconds() {
@@ -3038,6 +3107,8 @@ physical_iphone_gate_print_candidate_labels() {
   json_string "${NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE:-missing}"
   printf ',"helperVideoProfileMode":'
   json_string "$(physical_iphone_gate_helper_video_profile_mode)"
+  printf ',"helperVideoListenerMode":'
+  json_string "$(physical_iphone_gate_listener_mode)"
   printf ',"composePayloadClass":'
   json_string "$(physical_iphone_gate_compose_payload_class)"
   printf '}'
@@ -3075,6 +3146,53 @@ physical_iphone_gate_print_report() {
   printf '\n}\n'
 }
 
+PHYSICAL_GATE_HELPER_LISTENER_PID=""
+
+physical_iphone_gate_start_helper_video_listener() {
+  local output_file="$1"
+  local mode
+  mode="$(physical_iphone_gate_listener_mode)"
+  if [[ "$mode" != "auto" ]]; then
+    return 0
+  fi
+
+  local helper_executable="${NARU_HELPER_EXECUTABLE:-}"
+  if [[ -z "$helper_executable" || ! -x "$helper_executable" ]]; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-listener-unavailable"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "configure-helper-video-executable"
+    return 1
+  fi
+
+  "$helper_executable" \
+    --video-listen \
+    --token-env NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET \
+    --profile-fingerprint-env NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT \
+    --port 5975 \
+    --video-source screen-capturekit \
+    >"$output_file" 2>&1 &
+  PHYSICAL_GATE_HELPER_LISTENER_PID="$!"
+
+  sleep 0.35
+  if ! kill -0 "$PHYSICAL_GATE_HELPER_LISTENER_PID" >/dev/null 2>&1; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-e2e-helper-video-listener-failed"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-helper-video-listener-bootstrap"
+    PHYSICAL_GATE_HELPER_LISTENER_PID=""
+    return 1
+  fi
+  return 0
+}
+
+physical_iphone_gate_stop_helper_video_listener() {
+  if [[ -z "${PHYSICAL_GATE_HELPER_LISTENER_PID:-}" ]]; then
+    return
+  fi
+  if kill -0 "$PHYSICAL_GATE_HELPER_LISTENER_PID" >/dev/null 2>&1; then
+    kill -TERM "$PHYSICAL_GATE_HELPER_LISTENER_PID" >/dev/null 2>&1 || true
+    wait "$PHYSICAL_GATE_HELPER_LISTENER_PID" >/dev/null 2>&1 || true
+  fi
+  PHYSICAL_GATE_HELPER_LISTENER_PID=""
+}
+
 physical_iphone_helper_video_gate() {
   reject_extra_args
   import_physical_device_env
@@ -3085,9 +3203,11 @@ physical_iphone_helper_video_gate() {
   local preflight_file
   local output_file
   local diagnostic_file
+  local helper_listener_file
   preflight_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-preflight.XXXXXX")"
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-xcodebuild.XXXXXX")"
   diagnostic_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-diagnostic.XXXXXX")"
+  helper_listener_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-helper-listener.XXXXXX")"
 
   physical_preflight >"$preflight_file"
   physical_iphone_gate_collect_configuration_issues
@@ -3109,12 +3229,22 @@ physical_iphone_helper_video_gate() {
 
   if [[ "$build_check_status" != "passed" || ${#PHYSICAL_GATE_ISSUE_CODES[@]} -gt 0 ]]; then
     physical_iphone_gate_print_report "blocked" "$preflight_file" "notRun" "$diagnostic_file"
-    rm -f "$preflight_file" "$output_file" "$diagnostic_file"
+    rm -f "$preflight_file" "$output_file" "$diagnostic_file" "$helper_listener_file"
     return
   fi
 
   local xcodebuild_status
+  if ! physical_iphone_gate_start_helper_video_listener "$helper_listener_file"; then
+    physical_iphone_gate_print_report "blocked" "$preflight_file" "notRun" "$diagnostic_file"
+    rm -f "$preflight_file" "$output_file" "$diagnostic_file" "$helper_listener_file"
+    return
+  fi
+  trap 'physical_iphone_gate_stop_helper_video_listener; exit 130' INT
+  trap 'physical_iphone_gate_stop_helper_video_listener; exit 143' TERM
+  trap 'physical_iphone_gate_stop_helper_video_listener' EXIT
   xcodebuild_status="$(physical_iphone_gate_xcodebuild "$device_id" "$output_file")"
+  physical_iphone_gate_stop_helper_video_listener
+  trap - INT TERM EXIT
   physical_iphone_gate_extract_last_diagnostic_export "$output_file" >"$diagnostic_file"
   if [[ "$xcodebuild_status" == "passed" ]]; then
     physical_iphone_gate_print_report "passed" "$preflight_file" "$xcodebuild_status" "$diagnostic_file"
@@ -3123,7 +3253,7 @@ physical_iphone_helper_video_gate() {
     physical_iphone_gate_print_report "failed" "$preflight_file" "$xcodebuild_status" "$diagnostic_file"
   fi
 
-  rm -f "$preflight_file" "$output_file" "$diagnostic_file"
+  rm -f "$preflight_file" "$output_file" "$diagnostic_file" "$helper_listener_file"
 }
 
 physical_iphone_helper_video_gate_self_test() {
@@ -3145,6 +3275,9 @@ physical_iphone_helper_video_gate_self_test() {
   local saved_compose="${NARU_PHYSICAL_E2E_COMPOSE_TEXT:-}"
   local saved_helper_secret="${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET:-}"
   local saved_helper_fingerprint="${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT:-}"
+  local saved_helper_source="${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-}"
+  local saved_listener_mode="${NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE:-}"
+  local saved_helper_executable="${NARU_HELPER_EXECUTABLE:-}"
   local saved_live_host="${NARU_LIVE_MAC_HOST:-}"
   local saved_live_port="${NARU_LIVE_MAC_PORT:-}"
   local saved_live_password="${NARU_LIVE_MAC_PASSWORD:-}"
@@ -3163,12 +3296,16 @@ physical_iphone_helper_video_gate_self_test() {
   unset NARU_PHYSICAL_E2E_COMPOSE_TEXT
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE
+  unset NARU_HELPER_EXECUTABLE
 
   physical_iphone_gate_collect_configuration_issues
   local missing_status="failed"
   if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-host-missing "* &&
         " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-password-missing "* &&
-        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-helper-video-pairing-missing "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-helper-video-listener-unavailable "* &&
+        "$(physical_iphone_gate_helper_video_profile_mode)" == "generated" &&
         " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-e2e-stream-encoding-mode "* ]]; then
     missing_status="passed"
   fi
@@ -3178,13 +3315,16 @@ physical_iphone_helper_video_gate_self_test() {
   export NARU_LIVE_MAC_PASSWORD="REDACTED-LIVE"
   export NARU_HELPER_VIDEO_TOKEN="REDACTED-HELPER"
   export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="sha256:live-helper"
+  export NARU_HELPER_EXECUTABLE="/bin/echo"
   unset NARU_PHYSICAL_E2E_HOST
   unset NARU_PHYSICAL_E2E_PORT
   unset NARU_PHYSICAL_E2E_PASSWORD
   unset NARU_PHYSICAL_E2E_HOST_KIND
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE
   apply_physical_e2e_live_fallbacks
+  physical_iphone_gate_prepare_helper_video_pairing
   local fallback_status="failed"
   if [[ "${NARU_PHYSICAL_E2E_HOST:-}" == "live-fallback-host" &&
         "${NARU_PHYSICAL_E2E_PORT:-}" == "5900" &&
@@ -3205,6 +3345,7 @@ physical_iphone_helper_video_gate_self_test() {
   export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE="glance-025"
   export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET="REDACTED-HELPER"
   export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT="sha256:physical-helper"
+  export NARU_HELPER_EXECUTABLE="/bin/echo"
   physical_iphone_gate_collect_configuration_issues
   local port_status="failed"
   if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-port-invalid "* &&
@@ -3221,16 +3362,53 @@ physical_iphone_helper_video_gate_self_test() {
   export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE="one-hidden-frame"
   export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE="glance-025"
   export NARU_PHYSICAL_E2E_COMPOSE_TEXT="한글"
-  export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET="REDACTED-HELPER"
-  export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT="sha256:physical-helper"
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE
+  export NARU_HELPER_EXECUTABLE="/bin/echo"
   physical_iphone_gate_collect_configuration_issues
   local valid_status="failed"
   if ((${#PHYSICAL_GATE_ISSUE_CODES[@]} == 0)) &&
     [[ "$(physical_iphone_gate_compose_payload_class)" == "unicode" ]] &&
     [[ "$(physical_iphone_gate_duration_label)" == "ten-minutes" ]] &&
-    [[ "$(physical_iphone_gate_helper_video_profile_mode)" == "configured" ]]; then
+    [[ "$(physical_iphone_gate_helper_video_profile_mode)" == "generated" ]]; then
     valid_status="passed"
   fi
+
+  local fake_helper
+  local listener_file
+  fake_helper="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-fake-helper.XXXXXX")"
+  listener_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-listener.XXXXXX")"
+cat >"$fake_helper" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == *"--video-listen"* ]]; then
+  trap 'exit 0' TERM INT
+  while true; do
+    sleep 1
+  done
+fi
+exit 2
+SH
+  chmod +x "$fake_helper"
+  export NARU_HELPER_EXECUTABLE="$fake_helper"
+  export NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE="auto"
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
+  unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE
+  physical_iphone_gate_prepare_helper_video_pairing
+  PHYSICAL_GATE_ISSUE_CODES=()
+  PHYSICAL_GATE_SETUP_ACTIONS=()
+  local listener_status="failed"
+  if physical_iphone_gate_start_helper_video_listener "$listener_file" &&
+     [[ -n "${PHYSICAL_GATE_HELPER_LISTENER_PID:-}" ]] &&
+     kill -0 "$PHYSICAL_GATE_HELPER_LISTENER_PID" >/dev/null 2>&1; then
+    physical_iphone_gate_stop_helper_video_listener
+    if [[ -z "${PHYSICAL_GATE_HELPER_LISTENER_PID:-}" ]]; then
+      listener_status="passed"
+    fi
+  fi
+  physical_iphone_gate_stop_helper_video_listener
+  rm -f "$fake_helper" "$listener_file"
 
   local log_file
   local diagnostic_file
@@ -3274,14 +3452,17 @@ LOG
   if [[ -n "$saved_compose" ]]; then export NARU_PHYSICAL_E2E_COMPOSE_TEXT="$saved_compose"; else unset NARU_PHYSICAL_E2E_COMPOSE_TEXT; fi
   if [[ -n "$saved_helper_secret" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET="$saved_helper_secret"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET; fi
   if [[ -n "$saved_helper_fingerprint" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT="$saved_helper_fingerprint"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT; fi
+  if [[ -n "$saved_helper_source" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="$saved_helper_source"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE; fi
+  if [[ -n "$saved_listener_mode" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE="$saved_listener_mode"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE; fi
+  if [[ -n "$saved_helper_executable" ]]; then export NARU_HELPER_EXECUTABLE="$saved_helper_executable"; else unset NARU_HELPER_EXECUTABLE; fi
   if [[ -n "$saved_live_host" ]]; then export NARU_LIVE_MAC_HOST="$saved_live_host"; else unset NARU_LIVE_MAC_HOST; fi
   if [[ -n "$saved_live_port" ]]; then export NARU_LIVE_MAC_PORT="$saved_live_port"; else unset NARU_LIVE_MAC_PORT; fi
   if [[ -n "$saved_live_password" ]]; then export NARU_LIVE_MAC_PASSWORD="$saved_live_password"; else unset NARU_LIVE_MAC_PASSWORD; fi
   if [[ -n "$saved_helper_video_token" ]]; then export NARU_HELPER_VIDEO_TOKEN="$saved_helper_video_token"; else unset NARU_HELPER_VIDEO_TOKEN; fi
   if [[ -n "$saved_helper_video_fingerprint" ]]; then export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="$saved_helper_video_fingerprint"; else unset NARU_HELPER_VIDEO_PROFILE_FINGERPRINT; fi
 
-  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
-    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","diagnosticSummaryCase":"passed"}\n'
+  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$listener_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","listenerLifecycleCase":"passed","diagnosticSummaryCase":"passed"}\n'
   else
     printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"failed","configurationMissingCase":'
     json_string "$missing_status"
@@ -3291,6 +3472,8 @@ LOG
     json_string "$port_status"
     printf ',"configurationValidCase":'
     json_string "$valid_status"
+    printf ',"listenerLifecycleCase":'
+    json_string "$listener_status"
     printf ',"diagnosticSummaryCase":'
     json_string "$diagnostic_status"
     printf '}\n'

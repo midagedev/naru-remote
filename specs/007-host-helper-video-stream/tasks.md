@@ -542,6 +542,14 @@ without unsafe report fields.
   keychain before starting from the connection grid. Current live runner output
   is blocked by `physical-e2e-helper-video-pairing-missing`,
   `xcode-account-missing`, and `ios-provisioning-profile-missing`. **Done.**
+- [x] T031AG [US1] Make the physical helper-video gate own helper listener
+  bootstrap. The runner defaults to auto listener mode, generates ephemeral
+  helper-video pairing, starts the selected `NARU_HELPER_EXECUTABLE` as
+  `NaruHelper --video-listen --video-source screen-capturekit` on port `5975`,
+  suppresses helper output, tears the process down after xcodebuild, and leaves
+  manual mode for externally managed listeners. Current live runner output is
+  blocked only by `xcode-account-missing` and
+  `ios-provisioning-profile-missing`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
