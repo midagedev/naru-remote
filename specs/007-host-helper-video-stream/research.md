@@ -2595,3 +2595,44 @@ token to the test keychain alongside the VNC credential.
   `candidateLabels.helperVideoProfileMode=missing`, and the setup issues
   `physical-e2e-helper-video-pairing-missing`, `xcode-account-missing`, and
   `ios-provisioning-profile-missing`.
+
+## D64 - Let the physical helper-video gate own listener bootstrap
+
+**Decision**: Default `physical-iphone-helper-video-gate` to
+`NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=auto`. In auto mode the runner
+generates ephemeral helper-video pairing, starts the selected
+`NARU_HELPER_EXECUTABLE` as `NaruHelper --video-listen --video-source
+screen-capturekit` on port `5975`, passes the generated token/fingerprint by
+environment-variable indirection, and terminates the helper process after
+xcodebuild. `manual` mode remains available for externally managed helper
+listeners.
+
+**Rationale**:
+- PR #422 made the physical app require a helper-video configured profile, but
+  leaving pairing/listener setup manual still blocked the next physical run
+  before it could prove the helper-video path.
+- The product evidence we need now is app + real helper listener behavior on a
+  physical iPhone, not another VNC-only or manually paired surrogate.
+- The bootstrap keeps the privacy contract narrow: generated pairing values,
+  helper executable paths, helper stdout/stderr, raw xcodebuild logs, pixels,
+  exact timings, and input payloads are not printed.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh`
+- `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate-self-test`
+  now covers generated pairing, live fallback pairing, invalid port handling,
+  helper listener lifecycle start/stop with a fake executable, and diagnostic
+  summary extraction.
+- With the 10 minute physical candidate labels set locally,
+  `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate` now
+  reports `candidateLabels.helperVideoProfileMode=generated`,
+  `candidateLabels.helperVideoListenerMode=auto`, and is blocked only by
+  `xcode-account-missing` plus `ios-provisioning-profile-missing`.
+
+**Privacy rule**: The safe report may expose only fixed listener/profile modes
+(`auto`, `manual`, `generated`, `configured`, `incomplete`, `missing`), fixed
+issue/setup labels, xcodebuild status, preflight status, and summarized
+diagnostic buckets. It must not expose helper tokens, pairing fingerprints,
+helper paths, raw helper logs, host values, passwords, device identifiers,
+screenshots, framebuffer pixels, byte counts, exact timings, Compose text,
+marked text, keysyms, or pointer coordinates.

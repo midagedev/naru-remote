@@ -245,9 +245,12 @@ Mac-side readiness into physical iPhone evidence. It imports
 `NARU_LIVE_MAC_*` host/password when explicit physical E2E values are absent,
 and falling back from `NARU_HELPER_VIDEO_TOKEN` /
 `NARU_HELPER_VIDEO_PROFILE_FINGERPRINT` to the physical helper-video pairing
-variables when needed. It requires the sustained candidate labels and helper
-video pairing to be set explicitly, runs `physical-device-preflight`, and only
-if signing/provisioning is ready launches
+variables when needed. In the default
+`NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=auto` mode, it generates an
+ephemeral helper-video pairing, starts `NaruHelper --video-listen
+--video-source screen-capturekit` with the selected `NARU_HELPER_EXECUTABLE`,
+runs `physical-device-preflight`, and only if signing/provisioning is ready
+launches
 `PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate` on
 the selected iPhone. Output is a fixed JSON report containing candidate labels,
 preflight status, xcodebuild test status, and a summarized final

@@ -545,8 +545,9 @@ still fail overall; `tight-first` is the better working candidate, but it is not
 ready for production-default promotion because it has zero pass runs and a
 client-decode primary constraint.
 
-Current physical iPhone gate runner artifact:
-`artifacts/benchmarks/2026-06-09-physical-iphone-gate-runner-summary.md`.
+Current physical iPhone gate runner artifacts:
+`artifacts/benchmarks/2026-06-09-physical-iphone-gate-runner-summary.md` and
+`artifacts/benchmarks/2026-06-09-physical-helper-listener-bootstrap-summary.md`.
 Prefer `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate`
 over hand-running xcodebuild. The script imports launchctl/current-shell
 credentials, requires the candidate labels below to be explicit, runs
@@ -556,14 +557,16 @@ labels, candidate labels, xcodebuild test status, and a summarized final
 
 For the larger sustained candidate gate, keep the same target variables and run
 the opt-in sustained UI test. The recommended production-promotion duration is
-600 seconds. The stream, startup, and helper-video pairing labels below are
-required; the test fails configuration early rather than silently running with
-the phone's existing settings, defaults, or a VNC-only profile. The startup
-glance scale label lets low-traffic RGB565 candidates compare 0.45/0.35/0.25
-first-useful-paint quality without rebuilding. The test injects only fixed
-candidate labels into the app, performs viewport pinch/pan, trackpad movement,
-and a Compose send attempt, then keeps the session alive while the app emits a
-delayed diagnostic JSON block through the safe `makeDiagnosticExport()` path.
+600 seconds. The stream and startup labels below are required; the helper-video
+profile defaults to an auto-generated pairing and an auto-started helper
+listener using `NARU_HELPER_EXECUTABLE`. The test fails configuration early
+rather than silently running with the phone's existing settings, defaults, or a
+VNC-only profile. The startup glance scale label lets low-traffic RGB565
+candidates compare 0.45/0.35/0.25 first-useful-paint quality without rebuilding.
+The test injects only fixed candidate labels into the app, performs viewport
+pinch/pan, trackpad movement, and a Compose send attempt, then keeps the session
+alive while the app emits a delayed diagnostic JSON block through the safe
+`makeDiagnosticExport()` path.
 
 ```bash
 read -rs NARU_PHYSICAL_E2E_PASSWORD
@@ -576,21 +579,26 @@ export NARU_PHYSICAL_E2E_STREAM_POWER_MODE=balanced
 export NARU_PHYSICAL_E2E_STREAM_ENCODING_MODE=local-low-latency-rgb565
 export NARU_PHYSICAL_E2E_STARTUP_PREFLIGHT_MODE=one-hidden-frame
 export NARU_PHYSICAL_E2E_STARTUP_GLANCE_SCALE_MODE=glance-025
-read -rs NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
-export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
-export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT=sha256:<saved-profile-fingerprint>
+export NARU_HELPER_EXECUTABLE="$(launchctl getenv NARU_HELPER_EXECUTABLE)"
 
 scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate
 
 unset NARU_PHYSICAL_E2E_PASSWORD
-unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
 ```
 
-If the Mac-side helper listener already uses `NARU_HELPER_VIDEO_TOKEN` and
-`NARU_HELPER_VIDEO_PROFILE_FINGERPRINT`, the runner imports those values from
-the current shell or `launchctl` and maps them into the physical E2E pairing
-variables. The safe report exposes only `candidateLabels.helperVideoProfileMode`
-(`configured`, `incomplete`, or `missing`), never the token or fingerprint.
+By default `NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=auto`: the runner
+generates an ephemeral helper-video token/fingerprint, starts
+`NaruHelper --video-listen --video-source screen-capturekit` on port `5975`
+before the physical UI test, and terminates it after the run. Set
+`NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=manual` only when a matching
+helper listener is already running; in manual mode, provide
+`NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET` and
+`NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT` (or the Mac-side
+`NARU_HELPER_VIDEO_TOKEN` / `NARU_HELPER_VIDEO_PROFILE_FINGERPRINT` fallbacks).
+The safe report exposes only `candidateLabels.helperVideoProfileMode`
+(`generated`, `configured`, `incomplete`, or `missing`) and
+`candidateLabels.helperVideoListenerMode` (`auto` or `manual`), never the token
+or fingerprint.
 
 Use the last `NARU_DIAGNOSTIC_EXPORT_BEGIN` / `NARU_DIAGNOSTIC_EXPORT_END`
 block from the xcodebuild log as the diagnostic evidence. The production
