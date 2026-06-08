@@ -11,6 +11,9 @@ public enum BenchmarkFailurePhase: String, Codable, Equatable, Sendable {
     case continuousProbeFirstFrame = "continuous-probe-first-frame"
     case continuousProbeEnable = "continuous-probe-enable"
     case continuousProbeReceive = "continuous-probe-receive"
+    case textProbeConnect = "text-probe-connect"
+    case textProbeFirstFrame = "text-probe-first-frame"
+    case textProbeSend = "text-probe-send"
 }
 
 public enum BenchmarkFailureLabel {

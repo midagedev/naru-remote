@@ -7,7 +7,7 @@ private let toolName = "VNCLiveBenchmark"
 
 @main
 enum VNCLiveBenchmark {
-    static func main() {
+    static func main() async {
         do {
             let options = try BenchmarkOptions.parse(CommandLine.arguments.dropFirst())
             if options.showHelp {
@@ -36,6 +36,37 @@ enum VNCLiveBenchmark {
                     selection: options.visualTransports,
                     probeMode: options.helperVideoProbeMode
                 )
+                if options.json {
+                    try renderJSON(report)
+                } else {
+                    renderText(report)
+                }
+                return
+            }
+            if options.textKeystrokeProbeOnly {
+                let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
+                guard let configuration = LiveTargetConfiguration.fromEnvironment(
+                    passwordOverride: passwordOverride
+                ) else {
+                    printUsage()
+                    print(
+                        "\nerror: set NARU_LIVE_MAC_HOST and either NARU_LIVE_MAC_PASSWORD or --ask-password before running."
+                    )
+                    exit(2)
+                }
+                progressReporter.record(.configurationLoaded)
+
+                let proxy = try configuration.networkConditioningProxy(
+                    profile: options.networkConditionProfile
+                )
+                defer { proxy?.stop() }
+                let report = await runTextKeystrokeProbe(
+                    configuration: configuration.conditioned(by: proxy),
+                    networkConditionProfile: options.networkConditionProfile,
+                    payload: options.textKeystrokeProbePayload,
+                    timeout: options.timeout
+                )
+                progressReporter.record(.reportRendering)
                 if options.json {
                     try renderJSON(report)
                 } else {
@@ -205,6 +236,126 @@ enum VNCLiveBenchmark {
             streamShapeProfileProbes: streamShapeProfileProbes,
             continuousUpdatesProbe: continuousUpdatesProbe
         )
+    }
+
+    private static func runTextKeystrokeProbe(
+        configuration: LiveTargetConfiguration,
+        networkConditionProfile: BenchmarkNetworkConditionProfile,
+        payload: BenchmarkTextKeystrokeProbePayload,
+        timeout: TimeInterval
+    ) async -> BenchmarkTextKeystrokeProbeReport {
+        let transcoding = TextKeystrokeTranscoder.transcode(payload.probeText)
+        let eventCountBucket = BenchmarkTextKeystrokeProbeEventCountBucket.bucket(
+            for: transcoding.events.count * 2
+        )
+        guard transcoding.canEmit else {
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .blocked,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .notRun,
+                firstFrameStatus: .notRun,
+                transcodeStatus: .blocked,
+                sendStatus: .notRun,
+                failureLabel: textKeystrokeTranscodeFailureLabel(transcoding.failureCode)
+            )
+        }
+
+        let client = RFBNetworkClient(encodingPreference: .localLowLatency)
+        do {
+            _ = try client.connectSession(
+                host: configuration.host,
+                port: configuration.port,
+                credential: .vncPassword(configuration.password),
+                timeout: timeout
+            )
+        } catch {
+            client.disconnect()
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .failed,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .failed,
+                firstFrameStatus: .notRun,
+                transcodeStatus: .passed,
+                sendStatus: .notRun,
+                failureLabel: safeFailureLabel(for: error, phase: .textProbeConnect)
+            )
+        }
+
+        do {
+            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+        } catch {
+            client.disconnect()
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .failed,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .failed,
+                transcodeStatus: .passed,
+                sendStatus: .notRun,
+                failureLabel: safeFailureLabel(for: error, phase: .textProbeFirstFrame)
+            )
+        }
+
+        do {
+            for event in transcoding.events {
+                try await client.sendKeyEvent(keysym: event.keysym, isDown: true)
+                try await client.sendKeyEvent(keysym: event.keysym, isDown: false)
+            }
+            client.disconnect()
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .sent,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                transcodeStatus: .passed,
+                sendStatus: .passed,
+                failureLabel: nil
+            )
+        } catch {
+            client.disconnect()
+            return BenchmarkTextKeystrokeProbeReport(
+                status: .failed,
+                payload: payload,
+                networkConditionProfile: networkConditionProfile,
+                payloadEncoding: transcoding.payloadEncoding,
+                usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                eventCountBucket: eventCountBucket,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                transcodeStatus: .passed,
+                sendStatus: .failed,
+                failureLabel: safeFailureLabel(for: error, phase: .textProbeSend)
+            )
+        }
+    }
+
+    private static func textKeystrokeTranscodeFailureLabel(
+        _ failureCode: TextKeystrokeTranscodingFailureCode?
+    ) -> String {
+        switch failureCode {
+        case .emptyText:
+            return "text-probe-transcode-empty-text"
+        case .unsupportedControlScalar:
+            return "text-probe-transcode-unsupported-control-scalar"
+        case nil:
+            return "text-probe-transcode-unexpected"
+        }
     }
 
     private static func compatibilityStreamShapeProbe(
@@ -1429,6 +1580,8 @@ private struct BenchmarkOptions: Equatable {
     var askPassword = false
     var environmentPreflight = false
     var helperVideoProbeOnly = false
+    var textKeystrokeProbeOnly = false
+    var textKeystrokeProbePayload: BenchmarkTextKeystrokeProbePayload = .unicodeHangul
     var json = false
     var showHelp = false
     var safeProgressLabelFile: String?
@@ -1458,6 +1611,20 @@ private struct BenchmarkOptions: Equatable {
             case "--helper-video-probe-only":
                 options.helperVideoProbeOnly = true
                 index = arguments.index(after: index)
+            case "--text-keystroke-probe-only":
+                options.textKeystrokeProbeOnly = true
+                index = arguments.index(after: index)
+            case "--text-keystroke-probe-payload":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                guard let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) else {
+                    throw UsageError(
+                        "text-keystroke-probe-payload must be "
+                            + BenchmarkTextKeystrokeProbePayload.usageDescription
+                            + "."
+                    )
+                }
+                options.textKeystrokeProbePayload = payload
+                index = arguments.index(index, offsetBy: 2)
             case "--network-condition":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 guard let profile = BenchmarkNetworkConditionProfile(rawValue: value) else {
@@ -1707,6 +1874,14 @@ private struct BenchmarkOptions: Equatable {
     }
 
     private func validate() throws {
+        let oneShotModeCount = [
+            environmentPreflight,
+            helperVideoProbeOnly,
+            textKeystrokeProbeOnly
+        ].filter { $0 }.count
+        if oneShotModeCount > 1 {
+            throw UsageError("choose only one one-shot mode.")
+        }
         if helperVideoProbeOnly {
             guard visualTransports.transports.contains(.helperVideo) else {
                 throw UsageError("helper-video-probe-only requires --visual-transport helper-video or all.")
@@ -3676,6 +3851,31 @@ private func renderJSON(_ report: BenchmarkHelperVideoProbeOnlyReport) throws {
     print(String(decoding: data, as: UTF8.self))
 }
 
+private func renderText(_ report: BenchmarkTextKeystrokeProbeReport) {
+    print("\(toolName) text-keystroke probe")
+    print("status: \(report.status.rawValue)")
+    print("payload: \(report.payload.rawValue)")
+    print("network condition: \(report.networkConditionProfile.rawValue)")
+    print("payload encoding: \(report.payloadEncoding.rawValue)")
+    print("unicode keysyms: \(report.usesUnicodeKeysyms ? "yes" : "no")")
+    print("event count: \(report.eventCountBucket.rawValue)")
+    print("connect: \(report.connectStatus.rawValue)")
+    print("first frame: \(report.firstFrameStatus.rawValue)")
+    print("transcode: \(report.transcodeStatus.rawValue)")
+    print("send: \(report.sendStatus.rawValue)")
+    print("failure: \(report.failureLabel ?? "none")")
+    print(
+        "safety: raw text, keysyms, target identity, credentials, byte counts, dimensions, pixels, raw errors, and exact timings are redacted"
+    )
+}
+
+private func renderJSON(_ report: BenchmarkTextKeystrokeProbeReport) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(report)
+    print(String(decoding: data, as: UTF8.self))
+}
+
 private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
     print("\(toolName) environment preflight")
     print("host: \(report.hostStatus.rawValue)")
@@ -3731,13 +3931,17 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--text-keystroke-probe-only] [--text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
 
     Options:
       --environment-preflight
                             Print a redacted live benchmark environment readiness report and exit without connecting or prompting for a password.
       --helper-video-probe-only
                             Run only the selected helper-video probe and emit a privacy-safe helper-video report without requiring live VNC target credentials.
+      --text-keystroke-probe-only
+                            Connect to the live VNC target, request a first frame, and enqueue a fixed committed-text KeyEvent probe without enabling it as the app's default Compose send route.
+      --text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)
+                            Fixed privacy-safe payload class for --text-keystroke-probe-only. Defaults to unicode-hangul.
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)

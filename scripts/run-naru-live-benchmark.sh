@@ -22,6 +22,7 @@ Modes:
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
+  text-keystroke-probe    Live VNC KeyEvent probe; override payload after --.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -84,6 +85,9 @@ Launchctl variables used when present:
   NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip
   NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS
   NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS
+
+Text probe payload labels: ascii, latin1, unicode-hangul. Override with:
+  scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --text-keystroke-probe-payload LABEL
 
 The script never prints environment values. It passes through the benchmark's
 privacy-safe JSON/report output.
@@ -5385,6 +5389,18 @@ case "$mode" in
   helper-text-permission-watch-self-test)
     reject_extra_args
     helper_text_permission_watch_self_test
+    ;;
+  text-keystroke-probe)
+    reject_extra_flag --environment-preflight
+    reject_extra_flag --helper-video-probe-only
+    reject_extra_flag --visual-transport
+    reject_extra_flag --helper-video-probe
+    import_live_env
+    cd "$repo_root"
+    run_benchmark_with_extra \
+      --text-keystroke-probe-only \
+      --text-keystroke-probe-payload unicode-hangul \
+      --json
     ;;
   short-live-comparison)
     import_helper_env
