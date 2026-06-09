@@ -20,6 +20,7 @@ Modes:
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
+  helper-text-dev-app-setup Install dev helper app, set launchctl, request text insertion permission.
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
   helper-text-observed-probe Controlled local text target + helper nativeInsert observation.
@@ -3652,6 +3653,154 @@ print_helper_dev_app_setup_report() {
   printf '}\n'
 }
 
+print_helper_text_dev_app_setup_report() {
+  local install_output_file
+  install_output_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-text-dev-app-install.XXXXXX")"
+  local helper_executable
+  helper_executable="$(helper_dev_app_executable_path)"
+  local install_status="failed"
+  local issue_codes=()
+  local setup_actions=()
+
+  if scripts/install-naru-helper-dev-app.sh --set-launchctl-env \
+    >"$install_output_file" 2>&1; then
+    install_status="passed"
+    export NARU_HELPER_EXECUTABLE="$helper_executable"
+  else
+    append_unique issue_codes "helper-dev-app-install-failed"
+    append_unique setup_actions "inspect-helper-dev-app-install"
+  fi
+  rm -f "$install_output_file"
+
+  local codesign_status="unknown"
+  local launchctl_env_status="notSet"
+  local helper_process_kind="unknown"
+  local permission_grant_hint="unknown"
+  local text_capability_after_install='{"status":"failed","step":"helperTextCapabilityAfterInstall","safeFailureCode":"benchmarkStep.helperTextCapabilityAfterInstall.failed"}'
+  local text_permission_request='{"status":"failed","step":"helperTextPermissionRequest","safeFailureCode":"benchmarkStep.helperTextPermissionRequest.failed"}'
+  local text_capability_after_request='{"status":"failed","step":"helperTextCapabilityAfterRequest","safeFailureCode":"benchmarkStep.helperTextCapabilityAfterRequest.failed"}'
+  local settings_open_status="skipped"
+
+  if [[ "$install_status" == "passed" ]]; then
+    codesign_status="$(helper_dev_app_codesign_status "$helper_executable")"
+    if [[ "$(launchctl getenv NARU_HELPER_EXECUTABLE 2>/dev/null || true)" == "$helper_executable" ]]; then
+      launchctl_env_status="set"
+    fi
+    text_capability_after_install="$(
+      json_step_or_fixed_failure \
+        helperTextCapabilityAfterInstall \
+        benchmarkStep.helperTextCapabilityAfterInstall.failed \
+        "$helper_executable" --capability
+    )"
+    text_permission_request="$(
+      json_step_or_fixed_failure \
+        helperTextPermissionRequest \
+        benchmarkStep.helperTextPermissionRequest.failed \
+        "$helper_executable" --request-text-permission
+    )"
+    helper_process_kind="$(
+      json_value_or_unknown \
+        "$text_permission_request" \
+        '.permissionIdentity.processKind'
+    )"
+    permission_grant_hint="$(
+      json_value_or_unknown \
+        "$text_permission_request" \
+        '.permissionIdentity.grantHint'
+    )"
+    settings_open_status="$(open_text_permission_settings_status)"
+    text_capability_after_request="$(
+      json_step_or_fixed_failure \
+        helperTextCapabilityAfterRequest \
+        benchmarkStep.helperTextCapabilityAfterRequest.failed \
+        "$helper_executable" --capability
+    )"
+
+    local final_step_status
+    final_step_status="$(json_value_or_unknown "$text_capability_after_request" '.status')"
+    if helper_text_capability_has_native_insert "$text_capability_after_request"; then
+      append_unique setup_actions "rerun-helper-text-observed-probe"
+    elif [[ "$final_step_status" == "failed" ]]; then
+      append_unique issue_codes "helper-text-capability-failed"
+      append_unique setup_actions "inspect-helper-text-capability"
+    else
+      append_unique issue_codes "helper-text-permission-missing"
+      append_unique setup_actions "grant-helper-text-accessibility-or-input-monitoring-permission"
+      append_unique setup_actions "quit-and-relaunch-helper-after-permission-change"
+      append_unique setup_actions "rerun-helper-text-dev-app-setup"
+      append_unique setup_actions "rerun-helper-text-observed-probe"
+    fi
+  fi
+
+  local final_availability
+  local final_accessibility_value_insert
+  local final_unicode_keyboard_event
+  local final_pasteboard_fallback
+  local permission_request_result
+  final_availability="$(json_value_or_unknown "$text_capability_after_request" '.availability')"
+  final_accessibility_value_insert="$(
+    json_value_or_unknown "$text_capability_after_request" '.permissionState.accessibilityValueInsert'
+  )"
+  final_unicode_keyboard_event="$(
+    json_value_or_unknown "$text_capability_after_request" '.permissionState.unicodeKeyboardEvent'
+  )"
+  final_pasteboard_fallback="$(
+    json_value_or_unknown "$text_capability_after_request" '.permissionState.pasteboardFallback'
+  )"
+  permission_request_result="$(json_value_or_unknown "$text_permission_request" '.requestResult')"
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-text-dev-app-setup",\n'
+  printf '  "installStatus": '
+  json_string "$install_status"
+  printf ',\n'
+  printf '  "codeSigningStatus": '
+  json_string "$codesign_status"
+  printf ',\n'
+  printf '  "launchctlEnvStatus": '
+  json_string "$launchctl_env_status"
+  printf ',\n'
+  printf '  "helperProcessKind": '
+  json_string "$helper_process_kind"
+  printf ',\n'
+  printf '  "permissionGrantHint": '
+  json_string "$permission_grant_hint"
+  printf ',\n'
+  printf '  "settingsOpenStatus": '
+  json_string "$settings_open_status"
+  printf ',\n'
+  printf '  "permissionRequestResult": '
+  json_string "$permission_request_result"
+  printf ',\n'
+  printf '  "finalAvailability": '
+  json_string "$final_availability"
+  printf ',\n'
+  printf '  "finalAccessibilityValueInsert": '
+  json_string "$final_accessibility_value_insert"
+  printf ',\n'
+  printf '  "finalUnicodeKeyboardEvent": '
+  json_string "$final_unicode_keyboard_event"
+  printf ',\n'
+  printf '  "finalPasteboardFallback": '
+  json_string "$final_pasteboard_fallback"
+  printf ',\n'
+  printf '  "textCapabilityAfterInstall": %s,\n' "$text_capability_after_install"
+  printf '  "textPermissionRequest": %s,\n' "$text_permission_request"
+  printf '  "textCapabilityAfterRequest": %s,\n' "$text_capability_after_request"
+  printf '  "issueCodes": '
+  json_string_array "${issue_codes[@]}"
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  json_string_array "${setup_actions[@]}"
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "helper-text-dev-app-setup emits fixed install/signing/env, permission identity, capability, issue, and action labels only",\n'
+  printf '    "helper executable paths, app paths, team identifiers, signing identities, raw install logs, endpoints, credentials, text payloads, clipboard bytes, raw OS errors, and exact timings are not emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+}
+
 screen_recording_watch_max_polls() {
   local raw="${NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS:-45}"
   if [[ "$raw" =~ ^[0-9]+$ ]] && ((raw >= 1 && raw <= 300)); then
@@ -5909,6 +6058,11 @@ case "$mode" in
     reject_extra_args
     cd "$repo_root"
     print_helper_dev_app_setup_report
+    ;;
+  helper-text-dev-app-setup)
+    reject_extra_args
+    cd "$repo_root"
+    print_helper_text_dev_app_setup_report
     ;;
   helper-screen-app-bootstrap-benchmark)
     reject_extra_args

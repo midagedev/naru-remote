@@ -182,6 +182,13 @@ app honors them, and only then helper-local pasteboard paste with restore.
   evidence for `.build/debug/NaruHelper` reaches target readiness but reports
   `helper.permissionMissing` and `no-input` until macOS Accessibility or
   event-posting permission is granted for the active helper binary.
+- `scripts/run-naru-live-benchmark.sh helper-text-dev-app-setup` installs the
+  stable `NaruHelperDev.app` wrapper and requests text insertion permission
+  against that app-bundle identity. Current local evidence reports
+  `helperProcessKind=appBundle`, `grantHint=grantAppBundle`, and
+  `requestResult=notGranted`, which narrows the next manual setup step to
+  granting Accessibility or event-posting permission to the helper app bundle
+  before rerunning the observed nativeInsert probe.
 
 **Alternatives considered**:
 - Keep best-effort legacy VNC clipboard for Korean/CJK/emoji: rejected because
