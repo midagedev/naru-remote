@@ -80,6 +80,22 @@ Expected:
 
 ## Probe-Only Helper Native Insert Observation
 
+First install the stable development helper app wrapper and request text
+insertion permission against that app-bundle identity:
+
+```bash
+NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip \
+  scripts/run-naru-live-benchmark.sh helper-text-dev-app-setup
+```
+
+Expected:
+- `helperProcessKind: appBundle` and `permissionGrantHint: grantAppBundle`
+  identify `NaruHelperDev` as the macOS permission target.
+- `permissionRequestResult: notGranted` with
+  `finalAvailability: permissionMissing` means the user still needs to grant
+  Accessibility or event-posting permission to the helper app bundle, relaunch
+  it, and rerun this setup gate.
+
 Run when `NARU_HELPER_EXECUTABLE` points to the selected helper binary. The
 default payload is `unicode-hangul`; use `NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD`
 for `ascii` or `latin1`.

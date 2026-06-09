@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install-naru-helper-dev-app.sh [--set-launchctl-env] [--request-permission] [--signing-identity auto|ad-hoc|IDENTITY]
+Usage: scripts/install-naru-helper-dev-app.sh [--set-launchctl-env] [--request-permission] [--request-text-permission] [--signing-identity auto|ad-hoc|IDENTITY]
 
 Builds NaruHelper and installs a local development app wrapper at:
   ${NARU_HELPER_DEV_APP_ROOT:-$HOME/Applications/NaruRemoteDev}/NaruHelperDev.app
@@ -11,6 +11,7 @@ Builds NaruHelper and installs a local development app wrapper at:
 Options:
   --set-launchctl-env   Set NARU_HELPER_EXECUTABLE for future GUI-launched shells.
   --request-permission  Run the helper's explicit Screen Recording request command.
+  --request-text-permission Run the helper's explicit text insertion permission request command.
   --signing-identity    Codesign identity to use. Defaults to
                         ${NARU_HELPER_DEV_CODESIGN_IDENTITY:-auto}.
                         auto uses exactly one local Apple Development identity
@@ -21,6 +22,7 @@ USAGE
 
 set_launchctl_env=0
 request_permission=0
+request_text_permission=0
 requested_signing_identity="${NARU_HELPER_DEV_CODESIGN_IDENTITY:-auto}"
 
 while (($#)); do
@@ -30,6 +32,9 @@ while (($#)); do
       ;;
     --request-permission)
       request_permission=1
+      ;;
+    --request-text-permission)
+      request_text_permission=1
       ;;
     --signing-identity)
       shift
@@ -158,4 +163,8 @@ fi
 
 if ((request_permission)); then
   "$helper_executable" --video-request-screen-recording-permission
+fi
+
+if ((request_text_permission)); then
+  "$helper_executable" --request-text-permission
 fi

@@ -147,6 +147,15 @@ description: "Tasks: Host Helper Text Bridge"
   until macOS text insertion permissions are granted. Verify with
   `helper-text-observed-probe-self-test`, `bash -n`, product builds, and the
   live helper observed probe. **Done.**
+- [x] T034I [US2] Add a helper text dev-app setup gate that installs the stable
+  `NaruHelperDev.app` wrapper, sets `NARU_HELPER_EXECUTABLE`, requests text
+  insertion permission, and reports the app-bundle permission identity before
+  rerunning observed nativeInsert probes. Current local evidence reports
+  `installStatus=passed`, `helperProcessKind=appBundle`, `grantHint=grantAppBundle`,
+  `requestResult=notGranted`, and `finalAvailability=permissionMissing`, so the
+  next manual action is granting Accessibility or event-posting permission to
+  the helper app bundle. Verify with installer/script syntax checks and live
+  `helper-text-dev-app-setup` plus `helper-text-observed-probe`. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
