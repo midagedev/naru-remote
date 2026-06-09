@@ -156,6 +156,13 @@ description: "Tasks: Host Helper Text Bridge"
   next manual action is granting Accessibility or event-posting permission to
   the helper app bundle. Verify with installer/script syntax checks and live
   `helper-text-dev-app-setup` plus `helper-text-observed-probe`. **Done.**
+- [x] T034J [US2] Add a combined helper text live gate that runs dev-app setup,
+  permission watch, and controlled observed nativeInsert in one privacy-safe
+  report. The summary reports `blockedByHelperTextPermission` until native
+  insert permission is granted, then `readyForPhysicalComposeGate` only after
+  the observed target reports `matched`. Verify with
+  `helper-text-live-gate-summary-self-test`, `bash -n`, and live
+  `helper-text-live-gate` with bounded polling. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct

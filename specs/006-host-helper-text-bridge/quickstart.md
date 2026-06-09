@@ -86,6 +86,10 @@ insertion permission against that app-bundle identity:
 ```bash
 NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip \
   scripts/run-naru-live-benchmark.sh helper-text-dev-app-setup
+NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip \
+  NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS=1 \
+  NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS=0 \
+  scripts/run-naru-live-benchmark.sh helper-text-live-gate
 ```
 
 Expected:
@@ -95,6 +99,10 @@ Expected:
   `finalAvailability: permissionMissing` means the user still needs to grant
   Accessibility or event-posting permission to the helper app bundle, relaunch
   it, and rerun this setup gate.
+- `helper-text-live-gate` combines setup, permission watch, and observed insert
+  into one report. Before permission is granted, its `liveGateSummary` should
+  report `overallGateState: blockedByHelperTextPermission`; after a matched
+  observed native insert, it should report `readyForPhysicalComposeGate`.
 
 Run when `NARU_HELPER_EXECUTABLE` points to the selected helper binary. The
 default payload is `unicode-hangul`; use `NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD`
