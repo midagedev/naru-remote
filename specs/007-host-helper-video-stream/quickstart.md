@@ -311,7 +311,12 @@ helper-video is ready but the physical iPhone build is blocked, its
 the `physical-device-preflight.signingSetupSummary.recommendedPrimaryAction`,
 for example `open-xcode-account-settings` when a development team is supplied
 but xcodebuild cannot see an Xcode account, before suggesting more VNC or
-true-capture work. It rejects extra arguments so the dashboard remains
+true-capture work. When the helper ScreenCaptureKit probe fails, the summary
+routes `permissionBlocked` or missing Screen Recording status to
+`run-screen-recording-watch`; with Screen Recording already granted, it follows
+the screen probe's fixed `recommendedAction`, for example
+`inspect-helper-video-sustained-cadence` for `sustainedDegraded` /
+`stalled` reports. It rejects extra arguments so the dashboard remains
 repeatable and still emits only fixed labels plus the privacy-safe benchmark
 reports produced by the underlying tools.
 

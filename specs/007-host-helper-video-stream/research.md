@@ -2723,3 +2723,45 @@ bundle identifiers, provisioning profile names, physical device identifiers,
 raw xcodebuild logs, helper paths, host values, credentials, screenshots,
 pixels, byte counts, exact timings, Compose text, marked text, keysyms, pointer
 coordinates, or clipboard contents.
+
+## D67 - Route helper screen capture degradation to stream diagnosis
+
+**Decision**: In `remote-desktop-10fps-readiness`, treat helper ScreenCaptureKit
+failures differently based on the screen probe's readiness state and the
+reported Screen Recording permission. `permissionBlocked` or missing Screen
+Recording still recommends `run-screen-recording-watch`; failures with Screen
+Recording already granted now use the screen probe's fixed
+`recommendedAction`, such as `inspect-helper-video-sustained-cadence` for
+`sustainedDegraded` / `stalled` reports.
+
+**Rationale**:
+- A live readiness run can report `screenRecordingPermission=granted` while the
+  ScreenCaptureKit helper probe is `sustainedDegraded` or `stalled`. Sending
+  the operator back to Screen Recording settings in that state hides the real
+  stream-health problem.
+- The screen probe already emits the safe, fixed next action. The top-level
+  dashboard should preserve that diagnostic intent instead of flattening every
+  screen-probe failure into a permission route.
+- Keeping the permission-blocked branch unchanged preserves the original setup
+  flow for first-time helper permission grants.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh`
+- `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test`
+  now covers both `permissionBlocked` plus missing Screen Recording and
+  `sustainedDegraded` plus granted Screen Recording.
+- A live `remote-desktop-10fps-readiness` run immediately before this change
+  preserved `screenRecordingPermission=granted` but reported helper
+  ScreenCaptureKit `sustainedDegraded` / `stalled`; the corrected self-test
+  expects `recommendedPrimaryAction=inspect-helper-video-sustained-cadence`
+  for that shape.
+- A later live run on the same machine reported helper ScreenCaptureKit `pass`,
+  physical `primaryBlockedGateLabel=xcode-account`, and VNC still below target
+  at about `1.97` content FPS.
+
+**Privacy rule**: The readiness summary may expose only fixed helper
+readiness/action labels, fixed permission labels, physical setup labels, and
+aggregate benchmark FPS/timing metrics. It must not emit helper paths, host
+values, credentials, device identifiers, account names, team names, raw helper
+or xcodebuild logs, screenshots, pixels, byte counts, exact timings, Compose
+text, marked text, keysyms, pointer coordinates, or clipboard contents.
