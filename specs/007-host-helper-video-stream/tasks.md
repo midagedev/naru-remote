@@ -553,11 +553,21 @@ without unsafe report fields.
 - [x] T031AH [US1] Make `remote-desktop-10fps-readiness` prioritize physical
   iPhone signing/provisioning once helper-video is ready. The summary now treats
   a connected device with failed build/account/provisioning checks as
-  `blockedByPhysicalIPhoneGate`, recommends `add-xcode-account` before more VNC
-  fallback work, and keeps the VNC 10fps failure as a secondary blocked label.
-  Current live readiness shows helper-video pass, VNC about 1.98 content FPS,
-  and physical blockers `xcode-account-missing` plus
+  `blockedByPhysicalIPhoneGate`, keeps the VNC 10fps failure as a secondary
+  blocked label, and now delegates the exact next step to the physical signing
+  setup summary. Current live readiness shows helper-video pass, VNC about
+  1.98 content FPS, and physical blockers `xcode-account-missing` plus
   `ios-provisioning-profile-missing`. **Done.**
+- [x] T031AI [US1] Add an operator-facing physical signing setup summary. The
+  preflight now emits `signingSetupSummary` with
+  `primaryBlockedGateLabel`, `recommendedPrimaryAction`,
+  `operatorActionSequence`, and privacy-safe `diagnosticLabels`, and the
+  helper-video live/readiness summaries prefer that recommendation when
+  physical signing is the active blocker. Current live preflight reports
+  `development-team-supplied-by-environment`,
+  `development-team-supplied-but-xcode-account-missing`,
+  `primaryBlockedGateLabel=xcode-account`, and
+  `recommendedPrimaryAction=open-xcode-account-settings`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

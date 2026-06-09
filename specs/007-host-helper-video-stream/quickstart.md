@@ -159,6 +159,7 @@ scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh screen-recording-watch
 scripts/run-naru-live-benchmark.sh screen-recording-watch-self-test
 scripts/run-naru-live-benchmark.sh physical-device-preflight
+scripts/run-naru-live-benchmark.sh physical-signing-setup-summary-self-test
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
 scripts/run-naru-live-benchmark.sh glance-scale-sweep
@@ -237,8 +238,15 @@ and set `NARU_XCODE_DEVELOPMENT_TEAM` locally or through `launchctl` when
 testing a specific signing team. If no team is supplied and exactly one local
 Apple Development signing team is available, the runner may use it for the
 build check while reporting only `developmentTeamStatus=inferred`.
+The nested `signingSetupSummary` is the operator-facing diagnosis: it preserves
+the raw fixed issue codes while reporting a single `primaryBlockedGateLabel`,
+`recommendedPrimaryAction`, `operatorActionSequence`, and fixed
+`diagnosticLabels` such as `development-team-supplied-but-xcode-account-missing`.
 `physical-team-inference-self-test` verifies the missing, ambiguous, inferred,
 and explicit-environment branches without invoking `security` or `xcodebuild`.
+`physical-signing-setup-summary-self-test` verifies the account-blocked,
+profile-blocked, and ready action labels without invoking `security` or
+`xcodebuild`.
 `physical-iphone-helper-video-gate` is the standard handoff from helper-video
 Mac-side readiness into physical iPhone evidence. It imports
 `NARU_PHYSICAL_E2E_*` values, falling back to the launchctl-backed
@@ -300,7 +308,9 @@ and external ScreenCaptureKit helper-video checks. Use it when deciding whether
 to keep tuning VNC or move the primary visual path to helper-video. When
 helper-video is ready but the physical iPhone build is blocked, its
 `readinessGateSummary` reports `blockedByPhysicalIPhoneGate` and routes to
-fixed setup actions such as `add-xcode-account` before suggesting more VNC or
+the `physical-device-preflight.signingSetupSummary.recommendedPrimaryAction`,
+for example `open-xcode-account-settings` when a development team is supplied
+but xcodebuild cannot see an Xcode account, before suggesting more VNC or
 true-capture work. It rejects extra arguments so the dashboard remains
 repeatable and still emits only fixed labels plus the privacy-safe benchmark
 reports produced by the underlying tools.

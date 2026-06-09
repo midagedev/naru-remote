@@ -2663,7 +2663,8 @@ follow-up work.
 - `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test`
   covers the helper-ready plus physical-signing-blocked case and expects
   `overallGateState=blockedByPhysicalIPhoneGate` with
-  `recommendedPrimaryAction=add-xcode-account`.
+  `recommendedPrimaryAction=open-xcode-account-settings` when the physical
+  preflight includes a signing setup summary.
 - A live `remote-desktop-10fps-readiness` run on 2026-06-09 reported helper
   synthetic, sustained synthetic, and ScreenCaptureKit verdicts as `pass`, VNC
   at about `1.98` content FPS with `firstByteWaitP95Milliseconds=624`, and
@@ -2678,3 +2679,47 @@ and aggregate VNC timing/FPS metrics. It must not emit device identifiers,
 team names, provisioning profile names, bundle identifiers, raw xcodebuild
 logs, helper paths, host values, credentials, screenshots, pixels, byte counts,
 exact timings, Compose text, marked text, keysyms, or pointer coordinates.
+
+## D66 - Add an operator-facing signing setup summary
+
+**Decision**: Extend `physical-device-preflight` with a nested
+`signingSetupSummary` that keeps the existing fixed `issueCodes` intact while
+deriving one `primaryBlockedGateLabel`, one `recommendedPrimaryAction`, an
+ordered `operatorActionSequence`, and fixed `diagnosticLabels`. The top-level
+helper-video live gate and `remote-desktop-10fps-readiness` summary now prefer
+`signingSetupSummary.recommendedPrimaryAction` over the first legacy setup
+label when physical signing is the active blocker.
+
+**Rationale**:
+- The current live machine already supplies `NARU_XCODE_DEVELOPMENT_TEAM`, so
+  repeating only `xcode-account-missing` and `ios-provisioning-profile-missing`
+  leaves too much ambiguity about whether the team value, Xcode account, or
+  provisioning profile is the first step.
+- Xcode often reports account and profile errors together. When account status
+  is missing, the profile result is not actionable yet; the operator should
+  first make the Xcode account visible to xcodebuild, then rerun preflight.
+- Keeping the old arrays preserves dashboard compatibility while the nested
+  summary gives humans and future automation a clearer next action.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh`
+- `scripts/run-naru-live-benchmark.sh physical-signing-setup-summary-self-test`
+  covers account-blocked, profile-blocked, and ready summaries.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test` and
+  `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test`
+  now expect `recommendedPrimaryAction=open-xcode-account-settings` for the
+  helper-ready plus physical-signing-blocked fixture.
+- A live `physical-device-preflight` run on 2026-06-10 reported
+  `deviceDiscoveryStatus=connected`, `developmentTeamStatus=environment`,
+  `xcodeAccountStatus=missing`, `provisioningProfileStatus=missing`,
+  `signingSetupSummary.primaryBlockedGateLabel=xcode-account`, and diagnostic
+  labels `development-team-supplied-by-environment`,
+  `development-team-supplied-but-xcode-account-missing`, and
+  `provisioning-cannot-be-validated-until-xcode-account-is-available`.
+
+**Privacy rule**: The signing setup summary may expose only fixed status,
+action, and diagnostic labels. It must not emit account names, team names,
+bundle identifiers, provisioning profile names, physical device identifiers,
+raw xcodebuild logs, helper paths, host values, credentials, screenshots,
+pixels, byte counts, exact timings, Compose text, marked text, keysyms, pointer
+coordinates, or clipboard contents.
