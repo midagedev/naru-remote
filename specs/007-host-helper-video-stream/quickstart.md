@@ -297,10 +297,13 @@ reach the 10fps product bar on the current Mac Screen Sharing target.
 `remote-desktop-10fps-readiness` emits one JSON object that combines the fixed
 10fps VNC probe, helper capability/preflight, external synthetic helper-video,
 and external ScreenCaptureKit helper-video checks. Use it when deciding whether
-to keep tuning VNC or move the primary visual path to helper-video. It rejects
-extra arguments so the dashboard remains repeatable and still emits only fixed
-labels plus the privacy-safe benchmark reports produced by the underlying
-tools.
+to keep tuning VNC or move the primary visual path to helper-video. When
+helper-video is ready but the physical iPhone build is blocked, its
+`readinessGateSummary` reports `blockedByPhysicalIPhoneGate` and routes to
+fixed setup actions such as `add-xcode-account` before suggesting more VNC or
+true-capture work. It rejects extra arguments so the dashboard remains
+repeatable and still emits only fixed labels plus the privacy-safe benchmark
+reports produced by the underlying tools.
 
 ## Implemented Helper Video Encoder Prototype
 

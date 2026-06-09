@@ -2636,3 +2636,45 @@ diagnostic buckets. It must not expose helper tokens, pairing fingerprints,
 helper paths, raw helper logs, host values, passwords, device identifiers,
 screenshots, framebuffer pixels, byte counts, exact timings, Compose text,
 marked text, keysyms, or pointer coordinates.
+
+## D65 - Prioritize physical iPhone signing after helper-video is ready
+
+**Decision**: Treat `remote-desktop-10fps-readiness` as blocked by the physical
+iPhone gate when helper-video synthetic, sustained synthetic, and
+ScreenCaptureKit probes all pass but `physical-device-preflight` still reports
+signing/provisioning issue codes. The readiness summary now considers
+`buildCheckStatus=passed`, `xcodeAccountStatus=available`,
+`provisioningProfileStatus=available`, and an empty `issueCodes` list, not only
+`deviceDiscoveryStatus=connected`, before recommending VNC or true-capture
+follow-up work.
+
+**Rationale**:
+- The current live readiness result is no longer ambiguous: helper-video is
+  ready for the next product gate, while VNC remains below the 10fps target.
+  Recommending more VNC work before physical signing setup would send the
+  operator away from the highest-leverage step.
+- Physical iPhone evidence is required before helper-video can become the
+  default smoothness path. A connected device is not enough if xcodebuild cannot
+  install the app.
+- Keeping the top-level readiness summary aligned with `helper-video-live-gate`
+  avoids two dashboards disagreeing about the same local state.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh remote-desktop-readiness-summary-self-test`
+  covers the helper-ready plus physical-signing-blocked case and expects
+  `overallGateState=blockedByPhysicalIPhoneGate` with
+  `recommendedPrimaryAction=add-xcode-account`.
+- A live `remote-desktop-10fps-readiness` run on 2026-06-09 reported helper
+  synthetic, sustained synthetic, and ScreenCaptureKit verdicts as `pass`, VNC
+  at about `1.98` content FPS with `firstByteWaitP95Milliseconds=624`, and
+  physical issue codes `xcode-account-missing` plus
+  `ios-provisioning-profile-missing`.
+- A live `helper-video-live-gate` run on the same machine reported app
+  bootstrap `passed` and the same physical setup blockers.
+
+**Privacy rule**: The readiness summary may expose only fixed physical setup
+labels, build/account/provisioning status labels, helper-video verdict labels,
+and aggregate VNC timing/FPS metrics. It must not emit device identifiers,
+team names, provisioning profile names, bundle identifiers, raw xcodebuild
+logs, helper paths, host values, credentials, screenshots, pixels, byte counts,
+exact timings, Compose text, marked text, keysyms, or pointer coordinates.
