@@ -194,6 +194,11 @@ app honors them, and only then helper-local pasteboard paste with restore.
   local evidence reports `blockedByHelperTextPermission`, while the gate only
   promotes to `readyForPhysicalComposeGate` after permission is granted and the
   controlled text target reports `matched`.
+- Its summary now repeats fixed `permissionRouteStates` for
+  `accessibilityValueInsert`, `unicodeKeyboardEvent`, and `pasteboardFallback`,
+  plus `missingPermissionRouteLabels`, so a compact diagnostic report can show
+  exactly which native/paste routes remain unavailable without exposing raw OS
+  permission details.
 
 **Alternatives considered**:
 - Keep best-effort legacy VNC clipboard for Korean/CJK/emoji: rejected because

@@ -103,6 +103,12 @@ Expected:
   into one report. Before permission is granted, its `liveGateSummary` should
   report `overallGateState: blockedByHelperTextPermission`; after a matched
   observed native insert, it should report `readyForPhysicalComposeGate`.
+- The `liveGateSummary.permissionRouteStates` object repeats the fixed
+  top-level route states for `accessibilityValueInsert`,
+  `unicodeKeyboardEvent`, and `pasteboardFallback`, and
+  `missingPermissionRouteLabels` lists which routes are still unavailable. This
+  lets a diagnostic summary identify whether native Compose is blocked by AX
+  value insertion, Unicode event posting, paste command fallback, or all three.
 
 Run when `NARU_HELPER_EXECUTABLE` points to the selected helper binary. The
 default payload is `unicode-hangul`; use `NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD`
