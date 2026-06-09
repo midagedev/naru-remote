@@ -189,6 +189,11 @@ app honors them, and only then helper-local pasteboard paste with restore.
   `requestResult=notGranted`, which narrows the next manual setup step to
   granting Accessibility or event-posting permission to the helper app bundle
   before rerunning the observed nativeInsert probe.
+- `scripts/run-naru-live-benchmark.sh helper-text-live-gate` chains dev-app
+  setup, permission watch, and observed nativeInsert into one report. Current
+  local evidence reports `blockedByHelperTextPermission`, while the gate only
+  promotes to `readyForPhysicalComposeGate` after permission is granted and the
+  controlled text target reports `matched`.
 
 **Alternatives considered**:
 - Keep best-effort legacy VNC clipboard for Korean/CJK/emoji: rejected because

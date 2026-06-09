@@ -21,6 +21,8 @@ Modes:
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-dev-app-setup Install dev helper app, set launchctl, request text insertion permission.
+  helper-text-live-gate Dev app setup + permission watch + observed native insert gate.
+  helper-text-live-gate-summary-self-test Fast regression for helper text live gate summary labels.
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
   helper-text-observed-probe Controlled local text target + helper nativeInsert observation.
@@ -4826,6 +4828,293 @@ FAKE_TARGET
   printf '%s\n' "$report"
 }
 
+print_helper_text_live_gate_summary_failure() {
+  local failure_code="$1"
+  printf '{"schemaVersion":1,"mode":"helper-text-live-gate-summary","overallGateState":"unknown","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"primaryBlockedGateLabels":["helper-text-live-gate-summary-unavailable"],"recommendedPrimaryAction":"inspect-helper-text-live-gate"}'
+}
+
+print_helper_text_live_gate_summary() {
+  local setup_file="$1"
+  local watch_file="$2"
+  local observed_file="$3"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    print_helper_text_live_gate_summary_failure \
+      benchmarkStep.helperTextLiveGateSummary.jqUnavailable
+    return
+  fi
+
+  if ! jq -n \
+    --slurpfile setup "$setup_file" \
+    --slurpfile watch "$watch_file" \
+    --slurpfile observed "$observed_file" '
+      def first($items): $items[0] // {};
+      def has_issue($items; $label): (($items // []) | index($label)) != null;
+      def has_native($setup; $watch):
+        ($setup.finalAvailability == "reachable")
+        or ($watch.watchStatus == "granted")
+        or ($watch.finalAvailability == "reachable");
+
+      ($setup | first(.)) as $setup_report |
+      ($watch | first(.)) as $watch_report |
+      ($observed | first(.)) as $observed_report |
+
+      ($setup_report.installStatus // "unknown") as $install_status |
+      ($setup_report.helperProcessKind // "unknown") as $process_kind |
+      ($setup_report.permissionGrantHint // "unknown") as $grant_hint |
+      ($setup_report.permissionRequestResult // "unknown") as $permission_request_result |
+      ($watch_report.watchStatus // "unknown") as $watch_status |
+      ($watch_report.finalAvailability // "unknown") as $watch_availability |
+      ($observed_report.status // "unknown") as $observed_status |
+      ($observed_report.observationStatus // "unknown") as $observation_status |
+      ($observed_report.safeFailureCode // "unknown") as $observed_failure |
+
+      if $install_status != "passed" then
+        {
+          overallGateState: "blockedByHelperTextDevAppSetup",
+          primaryBlockedGateLabels: ["helper-text-dev-app-setup"],
+          recommendedPrimaryAction: "rerun-helper-text-dev-app-setup"
+        }
+      elif (has_native($setup_report; $watch_report) | not) then
+        {
+          overallGateState: "blockedByHelperTextPermission",
+          primaryBlockedGateLabels: ["helper-text-permission"],
+          recommendedPrimaryAction: "grant-helper-text-accessibility-or-input-monitoring-permission"
+        }
+      elif $observed_status == "observed-inserted" and $observation_status == "matched" then
+        {
+          overallGateState: "readyForPhysicalComposeGate",
+          primaryBlockedGateLabels: [],
+          recommendedPrimaryAction: "run-physical-iphone-compose-native-insert-gate"
+        }
+      elif $observed_status == "helper-sent-unobserved" then
+        {
+          overallGateState: "blockedByNativeInsertObservation",
+          primaryBlockedGateLabels: ["helper-text-observed-probe"],
+          recommendedPrimaryAction: "inspect-helper-native-insert-target"
+        }
+      elif $observed_failure == "helper.permissionMissing" or has_issue($observed_report.issueCodes; "helper-text-permission-missing") then
+        {
+          overallGateState: "blockedByHelperTextPermission",
+          primaryBlockedGateLabels: ["helper-text-permission"],
+          recommendedPrimaryAction: "grant-helper-text-accessibility-or-input-monitoring-permission"
+        }
+      else
+        {
+          overallGateState: "blockedByHelperTextObservedProbe",
+          primaryBlockedGateLabels: ["helper-text-observed-probe"],
+          recommendedPrimaryAction: "inspect-helper-text-observed-probe"
+        }
+      end
+      | .schemaVersion = 1
+      | .mode = "helper-text-live-gate-summary"
+      | .setupInstallStatus = $install_status
+      | .helperProcessKind = $process_kind
+      | .permissionGrantHint = $grant_hint
+      | .permissionRequestResult = $permission_request_result
+      | .permissionWatchStatus = $watch_status
+      | .permissionWatchAvailability = $watch_availability
+      | .observedProbeStatus = $observed_status
+      | .observationStatus = $observation_status
+      | .observedSafeFailureCode = $observed_failure
+    ' >/dev/null 2>&1; then
+    print_helper_text_live_gate_summary_failure \
+      benchmarkStep.helperTextLiveGateSummary.failed
+    return
+  fi
+
+  jq -n \
+    --slurpfile setup "$setup_file" \
+    --slurpfile watch "$watch_file" \
+    --slurpfile observed "$observed_file" '
+      def first($items): $items[0] // {};
+      def has_issue($items; $label): (($items // []) | index($label)) != null;
+      def has_native($setup; $watch):
+        ($setup.finalAvailability == "reachable")
+        or ($watch.watchStatus == "granted")
+        or ($watch.finalAvailability == "reachable");
+
+      ($setup | first(.)) as $setup_report |
+      ($watch | first(.)) as $watch_report |
+      ($observed | first(.)) as $observed_report |
+
+      ($setup_report.installStatus // "unknown") as $install_status |
+      ($setup_report.helperProcessKind // "unknown") as $process_kind |
+      ($setup_report.permissionGrantHint // "unknown") as $grant_hint |
+      ($setup_report.permissionRequestResult // "unknown") as $permission_request_result |
+      ($watch_report.watchStatus // "unknown") as $watch_status |
+      ($watch_report.finalAvailability // "unknown") as $watch_availability |
+      ($observed_report.status // "unknown") as $observed_status |
+      ($observed_report.observationStatus // "unknown") as $observation_status |
+      ($observed_report.safeFailureCode // "unknown") as $observed_failure |
+
+      if $install_status != "passed" then
+        {
+          overallGateState: "blockedByHelperTextDevAppSetup",
+          primaryBlockedGateLabels: ["helper-text-dev-app-setup"],
+          recommendedPrimaryAction: "rerun-helper-text-dev-app-setup"
+        }
+      elif (has_native($setup_report; $watch_report) | not) then
+        {
+          overallGateState: "blockedByHelperTextPermission",
+          primaryBlockedGateLabels: ["helper-text-permission"],
+          recommendedPrimaryAction: "grant-helper-text-accessibility-or-input-monitoring-permission"
+        }
+      elif $observed_status == "observed-inserted" and $observation_status == "matched" then
+        {
+          overallGateState: "readyForPhysicalComposeGate",
+          primaryBlockedGateLabels: [],
+          recommendedPrimaryAction: "run-physical-iphone-compose-native-insert-gate"
+        }
+      elif $observed_status == "helper-sent-unobserved" then
+        {
+          overallGateState: "blockedByNativeInsertObservation",
+          primaryBlockedGateLabels: ["helper-text-observed-probe"],
+          recommendedPrimaryAction: "inspect-helper-native-insert-target"
+        }
+      elif $observed_failure == "helper.permissionMissing" or has_issue($observed_report.issueCodes; "helper-text-permission-missing") then
+        {
+          overallGateState: "blockedByHelperTextPermission",
+          primaryBlockedGateLabels: ["helper-text-permission"],
+          recommendedPrimaryAction: "grant-helper-text-accessibility-or-input-monitoring-permission"
+        }
+      else
+        {
+          overallGateState: "blockedByHelperTextObservedProbe",
+          primaryBlockedGateLabels: ["helper-text-observed-probe"],
+          recommendedPrimaryAction: "inspect-helper-text-observed-probe"
+        }
+      end
+      | .schemaVersion = 1
+      | .mode = "helper-text-live-gate-summary"
+      | .setupInstallStatus = $install_status
+      | .helperProcessKind = $process_kind
+      | .permissionGrantHint = $grant_hint
+      | .permissionRequestResult = $permission_request_result
+      | .permissionWatchStatus = $watch_status
+      | .permissionWatchAvailability = $watch_availability
+      | .observedProbeStatus = $observed_status
+      | .observationStatus = $observation_status
+      | .observedSafeFailureCode = $observed_failure
+    '
+}
+
+print_helper_text_live_gate_report() {
+  local setup_file
+  local watch_file
+  local observed_file
+  setup_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-text-live-setup.XXXXXX")"
+  watch_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-text-live-watch.XXXXXX")"
+  observed_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-text-live-observed.XXXXXX")"
+
+  json_step_or_fixed_failure \
+    helperTextDevAppSetup \
+    benchmarkStep.helperTextDevAppSetup.failed \
+    print_helper_text_dev_app_setup_report >"$setup_file"
+
+  local setup_status
+  setup_status="$(json_value_or_unknown "$(cat "$setup_file")" '.installStatus')"
+  if [[ "$setup_status" == "passed" ]]; then
+    export NARU_HELPER_EXECUTABLE
+    NARU_HELPER_EXECUTABLE="$(helper_dev_app_executable_path)"
+  fi
+
+  json_step_or_fixed_failure \
+    helperTextPermissionWatch \
+    benchmarkStep.helperTextPermissionWatch.failed \
+    print_helper_text_permission_watch_report >"$watch_file"
+  json_step_or_fixed_failure \
+    helperTextObservedProbe \
+    benchmarkStep.helperTextObservedProbe.failed \
+    print_helper_text_observed_probe_report >"$observed_file"
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-text-live-gate",\n'
+  printf '  "setupGate": '
+  cat "$setup_file"
+  printf ',\n'
+  printf '  "permissionWatch": '
+  cat "$watch_file"
+  printf ',\n'
+  printf '  "observedProbe": '
+  cat "$observed_file"
+  printf ',\n'
+  printf '  "liveGateSummary": '
+  print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$observed_file"
+  printf ',\n'
+  printf '  "nextActionLabels": [\n'
+  printf '    "grant-helper-text-accessibility-or-input-monitoring-permission",\n'
+  printf '    "quit-and-relaunch-helper-after-permission-change",\n'
+  printf '    "rerun-helper-text-live-gate",\n'
+  printf '    "run-physical-iphone-compose-native-insert-gate"\n'
+  printf '  ],\n'
+  printf '  "safety": [\n'
+  printf '    "helper-text-live-gate emits fixed setup, permission, observation, summary, issue, and action labels only",\n'
+  printf '    "helper paths, app paths, endpoints, credentials, text payloads, clipboard bytes, focused app titles, raw OS errors, pixels, byte counts, and exact timings are not emitted"\n'
+  printf '  ]\n'
+  printf '}\n'
+
+  rm -f "$setup_file" "$watch_file" "$observed_file"
+}
+
+helper_text_live_gate_summary_self_test() {
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"helper-text-live-gate-summary-self-test","status":"skipped","safeFailureCode":"benchmarkStep.helperTextLiveGateSummary.jqUnavailable"}\n'
+    return
+  fi
+
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-helper-text-live-summary-test.XXXXXX")"
+  local setup_file="$tmpdir/setup.json"
+  local watch_file="$tmpdir/watch.json"
+  local observed_file="$tmpdir/observed.json"
+  local ready_file="$tmpdir/ready.json"
+  local unobserved_file="$tmpdir/unobserved.json"
+
+  printf '{"schemaVersion":1,"mode":"helper-text-dev-app-setup","installStatus":"passed","helperProcessKind":"appBundle","permissionGrantHint":"grantAppBundle","permissionRequestResult":"notGranted","finalAvailability":"permissionMissing"}\n' >"$setup_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"timedOut","finalAvailability":"permissionMissing"}\n' >"$watch_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"failed","observationStatus":"no-input","safeFailureCode":"helper.permissionMissing","issueCodes":["helper-text-permission-missing"]}\n' >"$observed_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"observed-inserted","observationStatus":"matched","safeFailureCode":"none","issueCodes":[]}\n' >"$ready_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"helper-sent-unobserved","observationStatus":"no-input","safeFailureCode":"none","issueCodes":["helper-text-observation-not-matched"]}\n' >"$unobserved_file"
+
+  local blocked_summary
+  local ready_summary
+  local unobserved_summary
+  blocked_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$observed_file")"
+  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"granted","finalAvailability":"reachable"}\n' >"$watch_file"
+  unobserved_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$unobserved_file")"
+  ready_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$ready_file")"
+  rm -rf "$tmpdir"
+
+  jq -e '
+    .overallGateState == "blockedByHelperTextPermission" and
+    .recommendedPrimaryAction == "grant-helper-text-accessibility-or-input-monitoring-permission" and
+    .helperProcessKind == "appBundle" and
+    .permissionGrantHint == "grantAppBundle"
+  ' <<<"$blocked_summary" >/dev/null
+  jq -e '
+    .overallGateState == "blockedByNativeInsertObservation" and
+    .recommendedPrimaryAction == "inspect-helper-native-insert-target"
+  ' <<<"$unobserved_summary" >/dev/null
+  jq -e '
+    .overallGateState == "readyForPhysicalComposeGate" and
+    .recommendedPrimaryAction == "run-physical-iphone-compose-native-insert-gate" and
+    (.primaryBlockedGateLabels | length == 0)
+  ' <<<"$ready_summary" >/dev/null
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-text-live-gate-summary-self-test",\n'
+  printf '  "status": "passed",\n'
+  printf '  "blockedSummary": %s,\n' "$blocked_summary"
+  printf '  "unobservedSummary": %s,\n' "$unobserved_summary"
+  printf '  "readySummary": %s\n' "$ready_summary"
+  printf '}\n'
+}
+
 print_helper_video_live_gate_summary_failure() {
   local failure_code="$1"
   printf '{"schemaVersion":1,"mode":"helper-video-live-gate-summary","overallGateState":"unknown","safeFailureCode":'
@@ -6063,6 +6352,18 @@ case "$mode" in
     reject_extra_args
     cd "$repo_root"
     print_helper_text_dev_app_setup_report
+    ;;
+  helper-text-live-gate)
+    reject_extra_args
+    cd "$repo_root"
+    if [[ -z "${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-}" ]]; then
+      swift build --quiet --product VNCLiveStimulusWindow
+    fi
+    print_helper_text_live_gate_report
+    ;;
+  helper-text-live-gate-summary-self-test)
+    reject_extra_args
+    helper_text_live_gate_summary_self_test
     ;;
   helper-screen-app-bootstrap-benchmark)
     reject_extra_args
