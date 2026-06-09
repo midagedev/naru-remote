@@ -568,6 +568,13 @@ without unsafe report fields.
   `development-team-supplied-but-xcode-account-missing`,
   `primaryBlockedGateLabel=xcode-account`, and
   `recommendedPrimaryAction=open-xcode-account-settings`. **Done.**
+- [x] T031AJ [US1] Route helper ScreenCaptureKit degraded failures to stream
+  diagnosis instead of permission setup. `remote-desktop-10fps-readiness` still
+  recommends `run-screen-recording-watch` for `permissionBlocked` / missing
+  Screen Recording, but now follows the screen probe's fixed
+  `recommendedAction` such as `inspect-helper-video-sustained-cadence` when
+  Screen Recording is already `granted` and the screen probe is
+  `sustainedDegraded` or `stalled`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
