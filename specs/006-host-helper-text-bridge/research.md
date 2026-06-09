@@ -176,6 +176,12 @@ app honors them, and only then helper-local pasteboard paste with restore.
   requirement.
 - `NaruRemoteAppModelTests/testModelRoutesUTF8ComposeThroughReachableHelperWhenVNCUTF8IsUnconfirmed`
   continues to prove reachable helper routing avoids VNC clipboard writes.
+- `scripts/run-naru-live-benchmark.sh helper-text-observed-probe` uses the
+  controlled local AppKit text target from the key-event probe to verify helper
+  nativeInsert separately from the helper's own `sent` response. Current local
+  evidence for `.build/debug/NaruHelper` reaches target readiness but reports
+  `helper.permissionMissing` and `no-input` until macOS Accessibility or
+  event-posting permission is granted for the active helper binary.
 
 **Alternatives considered**:
 - Keep best-effort legacy VNC clipboard for Korean/CJK/emoji: rejected because

@@ -137,6 +137,16 @@ description: "Tasks: Host Helper Text Bridge"
   `swift build --product VNCLiveBenchmark`, `swift build --product
   VNCLiveStimulusWindow`, and live `text-keystroke-observed-probe` runs.
   **Done.**
+- [x] T034H [US1] Add a controlled observed helper nativeInsert probe using
+  `VNCLiveStimulusWindow --text-probe` plus
+  `scripts/run-naru-live-benchmark.sh helper-text-observed-probe`. The helper
+  probe keeps `nativeInsert` as the only strategy preference, reports helper
+  capability/insert status separately from the controlled target observation,
+  and emits fixed labels only. Current local evidence reaches target readiness
+  but reports `helper.permissionMissing` and `no-input` for `.build/debug/NaruHelper`
+  until macOS text insertion permissions are granted. Verify with
+  `helper-text-observed-probe-self-test`, `bash -n`, product builds, and the
+  live helper observed probe. **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
