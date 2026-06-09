@@ -5626,6 +5626,17 @@ print_remote_desktop_10fps_readiness_gate_summary() {
       def transport_diagnosis($mode):
         transport_report($mode).streamShapeTransportCadenceDiagnosis // {};
       def physical_status: first($physical).deviceDiscoveryStatus // "unknown";
+      def physical_build_status: first($physical).buildCheckStatus // "unknown";
+      def physical_xcode_account_status: first($physical).xcodeAccountStatus // "unknown";
+      def physical_provisioning_profile_status: first($physical).provisioningProfileStatus // "unknown";
+      def physical_issue_codes: first($physical).issueCodes // [];
+      def physical_setup_actions: first($physical).setupActionLabels // [];
+      def physical_ready:
+        physical_status == "connected" and
+        physical_build_status == "passed" and
+        physical_xcode_account_status == "available" and
+        physical_provisioning_profile_status == "available" and
+        (physical_issue_codes | length) == 0;
       def helper_synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
       def helper_sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
       def helper_screen_verdict: hreport("screenProbe").verdict // "unknown";
@@ -5634,7 +5645,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
       def server_cadence: vnc_report.streamShapeServerCadenceDiagnosis.status // "unknown";
       def blocked_labels:
         [
-          if physical_status != "connected" then "physical-iphone-gate-blocked" else empty end,
+          if physical_ready then empty else "physical-iphone-gate-blocked" end,
           if helper_synthetic_verdict != "pass" then "helper-video-synthetic-gate-blocked" else empty end,
           if helper_sustained_verdict != "pass" then "helper-video-sustained-synthetic-gate-blocked" else empty end,
           if helper_screen_verdict != "pass" then "helper-video-screen-capture-gate-blocked" else empty end,
@@ -5644,16 +5655,16 @@ print_remote_desktop_10fps_readiness_gate_summary() {
         if helper_screen_verdict != "pass" then "blockedByHelperScreenCapture"
         elif helper_synthetic_verdict != "pass" then "blockedByHelperSyntheticTransport"
         elif helper_sustained_verdict != "pass" then "blockedByHelperSustainedSyntheticTransport"
+        elif (physical_ready | not) then "blockedByPhysicalIPhoneGate"
         elif vnc_product_verdict != "pass" then "vncFailedHelperVideoReadyForLiveGate"
-        elif physical_status != "connected" then "blockedByPhysicalIPhone"
         else "vnc10fpsReady"
         end;
       def recommended_action:
         if helper_screen_verdict != "pass" then "run-screen-recording-watch"
         elif helper_synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif helper_sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
+        elif (physical_ready | not) then (physical_setup_actions[0] // "resolve-physical-iphone-preflight")
         elif vnc_product_verdict != "pass" then "run-true-helper-video-live-capture-benchmark"
-        elif physical_status != "connected" then "resolve-physical-iphone-preflight"
         else "run-physical-iphone-helper-video-gate"
         end;
       {
@@ -5665,8 +5676,12 @@ print_remote_desktop_10fps_readiness_gate_summary() {
         recommendedPrimaryAction: recommended_action,
         physicalIPhoneGate: {
           status: physical_status,
-          issueCodes: (first($physical).issueCodes // []),
-          setupActionLabels: (first($physical).setupActionLabels // [])
+          deviceSelectionSource: (first($physical).deviceSelectionSource // "unknown"),
+          buildCheckStatus: physical_build_status,
+          xcodeAccountStatus: physical_xcode_account_status,
+          provisioningProfileStatus: physical_provisioning_profile_status,
+          issueCodes: physical_issue_codes,
+          setupActionLabels: physical_setup_actions
         },
         helperVideoGate: {
           syntheticVerdict: helper_synthetic_verdict,
@@ -5735,6 +5750,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           "helper-screen-capture-permission-precedes-physical-iphone-gate",
           "sustained-synthetic-helper-video-precedes-physical-iphone-gate",
           "screen-capture-permission-blocks-true-helper-video-live-gate",
+          "physical-signing-blocker-precedes-vnc-fallback-action",
           "transport-cadence-drilldown-is-reported-beside-vnc-product-verdict"
         ]
       }
@@ -6114,16 +6130,26 @@ remote_desktop_readiness_summary_self_test() {
   local vnc_file
   local transport_file
   local summary_file
+  local helper_ready_file
   local sustained_blocked_helper_file
   local sustained_blocked_summary_file
+  local physical_signing_blocked_file
+  local physical_ready_file
+  local physical_blocked_summary_file
+  local live_gate_ready_summary_file
   local readiness_file
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
   transport_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-transport.XXXXXX")"
   summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary.XXXXXX")"
+  helper_ready_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper-ready.XXXXXX")"
   sustained_blocked_helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper-sustained.XXXXXX")"
   sustained_blocked_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-sustained.XXXXXX")"
+  physical_signing_blocked_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical-signing.XXXXXX")"
+  physical_ready_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical-ready.XXXXXX")"
+  physical_blocked_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-physical.XXXXXX")"
+  live_gate_ready_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-live-ready.XXXXXX")"
   readiness_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-contract.XXXXXX")"
 
   cat >"$physical_file" <<'JSON'
@@ -6132,8 +6158,17 @@ JSON
   cat >"$helper_file" <<'JSON'
 {"schemaVersion":1,"mode":"helper-readiness-sweep","capability":{"availability":"permissionMissing","screenRecordingPermission":"missing"},"syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"fail","issueCodes":["helper-video-permission-missing"],"readinessState":"permissionBlocked","recommendedAction":"grant-helper-video-app-screen-recording-permission"}]}}}
 JSON
+  cat >"$helper_ready_file" <<'JSON'
+{"schemaVersion":1,"mode":"helper-readiness-sweep","capability":{"availability":"available","screenRecordingPermission":"granted"},"syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
+JSON
   cat >"$sustained_blocked_helper_file" <<'JSON'
 {"schemaVersion":1,"mode":"helper-readiness-sweep","capability":{"availability":"available","screenRecordingPermission":"granted"},"syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"fail","issueCodes":["helper-video-sustained-choppy"],"readinessState":"sustainedDegraded","recommendedAction":"inspect-helper-video-sustained-cadence"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
+JSON
+  cat >"$physical_signing_blocked_file" <<'JSON'
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","create-ios-development-provisioning-profile"]}
+JSON
+  cat >"$physical_ready_file" <<'JSON'
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"available","provisioningProfileStatus":"available","buildCheckStatus":"passed","issueCodes":[],"setupActionLabels":[]}
 JSON
   cat >"$vnc_file" <<'JSON'
 {"schemaVersion":1,"mode":"glance-025-10fps-duration-probe","status":"passed","report":{"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeProbe":{"summary":{"contentFramesPerSecond":1.9,"updateLatency":{"averageMilliseconds":503,"p95Milliseconds":632},"firstByteWaitLatency":{"p95Milliseconds":630},"payloadReadLatency":{"p95Milliseconds":0},"clientProcessingLatency":{"p95Milliseconds":2},"practicalAssessment":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed","primaryConstraint":"receivePath"}}}}}
@@ -6152,6 +6187,16 @@ JSON
     "$sustained_blocked_helper_file" \
     "$vnc_file" \
     "$transport_file" >"$sustained_blocked_summary_file"
+  print_remote_desktop_10fps_readiness_gate_summary \
+    "$physical_signing_blocked_file" \
+    "$helper_ready_file" \
+    "$vnc_file" \
+    "$transport_file" >"$physical_blocked_summary_file"
+  print_remote_desktop_10fps_readiness_gate_summary \
+    "$physical_ready_file" \
+    "$helper_ready_file" \
+    "$vnc_file" \
+    "$transport_file" >"$live_gate_ready_summary_file"
 
   {
     printf '{"schemaVersion":2,"mode":"remote-desktop-10fps-readiness","physicalDevicePreflight":'
@@ -6202,26 +6247,57 @@ JSON
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .helperVideoGate.screenRecordingPermission == "granted" and
     .transportCadenceGate.continuousUpdatesRecommendedNextAction == "inspectContinuousUpdatesConnection"
-  ' "$sustained_blocked_summary_file" >/dev/null; then
+  ' "$sustained_blocked_summary_file" >/dev/null && jq -e '
+    .overallGateState == "blockedByPhysicalIPhoneGate" and
+    .recommendedPrimaryAction == "add-xcode-account" and
+    (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
+    (.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
+    .physicalIPhoneGate.status == "connected" and
+    .physicalIPhoneGate.buildCheckStatus == "failed" and
+    .physicalIPhoneGate.xcodeAccountStatus == "missing" and
+    .physicalIPhoneGate.provisioningProfileStatus == "missing" and
+    (.physicalIPhoneGate.issueCodes | index("ios-provisioning-profile-missing")) and
+    .helperVideoGate.screenCaptureVerdict == "pass" and
+    .vnc10fpsGate.productVerdict == "fail"
+  ' "$physical_blocked_summary_file" >/dev/null && jq -e '
+    .overallGateState == "vncFailedHelperVideoReadyForLiveGate" and
+    .recommendedPrimaryAction == "run-true-helper-video-live-capture-benchmark" and
+    (.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
+    (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked") | not) and
+    .physicalIPhoneGate.buildCheckStatus == "passed" and
+    .helperVideoGate.sustainedSyntheticVerdict == "pass"
+  ' "$live_gate_ready_summary_file" >/dev/null; then
     printf '{"schemaVersion":1,"mode":"remote-desktop-readiness-summary-self-test","status":"passed","summary":'
     cat "$summary_file"
     printf ',"sustainedBlockedSummary":'
     cat "$sustained_blocked_summary_file"
+    printf ',"physicalBlockedSummary":'
+    cat "$physical_blocked_summary_file"
+    printf ',"liveGateReadySummary":'
+    cat "$live_gate_ready_summary_file"
     printf '}\n'
   else
     printf '{"schemaVersion":1,"mode":"remote-desktop-readiness-summary-self-test","status":"failed","summary":'
     cat "$summary_file"
     printf ',"sustainedBlockedSummary":'
     cat "$sustained_blocked_summary_file"
+    printf ',"physicalBlockedSummary":'
+    cat "$physical_blocked_summary_file"
+    printf ',"liveGateReadySummary":'
+    cat "$live_gate_ready_summary_file"
     printf '}\n'
     rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file" "$summary_file" \
-      "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
+      "$helper_ready_file" "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
+      "$physical_signing_blocked_file" "$physical_ready_file" \
+      "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
       "$readiness_file"
     exit 1
   fi
 
   rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file" "$summary_file" \
-    "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
+    "$helper_ready_file" "$sustained_blocked_helper_file" "$sustained_blocked_summary_file" \
+    "$physical_signing_blocked_file" "$physical_ready_file" \
+    "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
     "$readiness_file"
 }
 
@@ -6292,6 +6368,8 @@ remote_desktop_10fps_readiness() {
   printf '    "rerun-helper-screen-probe",\n'
   printf '    "run-true-helper-video-live-capture-benchmark",\n'
   printf '    "resolve-physical-iphone-preflight",\n'
+  printf '    "add-xcode-account",\n'
+  printf '    "create-ios-development-provisioning-profile",\n'
   printf '    "run-physical-iphone-helper-video-gate"\n'
   printf '  ]\n'
   printf '}\n'

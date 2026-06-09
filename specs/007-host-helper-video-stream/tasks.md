@@ -550,6 +550,14 @@ without unsafe report fields.
   manual mode for externally managed listeners. Current live runner output is
   blocked only by `xcode-account-missing` and
   `ios-provisioning-profile-missing`. **Done.**
+- [x] T031AH [US1] Make `remote-desktop-10fps-readiness` prioritize physical
+  iPhone signing/provisioning once helper-video is ready. The summary now treats
+  a connected device with failed build/account/provisioning checks as
+  `blockedByPhysicalIPhoneGate`, recommends `add-xcode-account` before more VNC
+  fallback work, and keeps the VNC 10fps failure as a secondary blocked label.
+  Current live readiness shows helper-video pass, VNC about 1.98 content FPS,
+  and physical blockers `xcode-account-missing` plus
+  `ios-provisioning-profile-missing`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
