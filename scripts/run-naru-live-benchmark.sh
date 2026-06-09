@@ -4867,9 +4867,22 @@ print_helper_text_live_gate_summary() {
       ($setup_report.permissionRequestResult // "unknown") as $permission_request_result |
       ($watch_report.watchStatus // "unknown") as $watch_status |
       ($watch_report.finalAvailability // "unknown") as $watch_availability |
+      ($watch_report.finalAccessibilityValueInsert //
+        $setup_report.finalAccessibilityValueInsert //
+        $observed_report.accessibilityValueInsert //
+        "unknown") as $accessibility_value_insert |
+      ($watch_report.finalUnicodeKeyboardEvent //
+        $setup_report.finalUnicodeKeyboardEvent //
+        $observed_report.unicodeKeyboardEvent //
+        "unknown") as $unicode_keyboard_event |
+      ($watch_report.finalPasteboardFallback //
+        $setup_report.finalPasteboardFallback //
+        $observed_report.pasteboardFallback //
+        "unknown") as $pasteboard_fallback |
       ($observed_report.status // "unknown") as $observed_status |
       ($observed_report.observationStatus // "unknown") as $observation_status |
       ($observed_report.safeFailureCode // "unknown") as $observed_failure |
+      (has_native($setup_report; $watch_report)) as $native_ready |
 
       if $install_status != "passed" then
         {
@@ -4877,7 +4890,7 @@ print_helper_text_live_gate_summary() {
           primaryBlockedGateLabels: ["helper-text-dev-app-setup"],
           recommendedPrimaryAction: "rerun-helper-text-dev-app-setup"
         }
-      elif (has_native($setup_report; $watch_report) | not) then
+      elif ($native_ready | not) then
         {
           overallGateState: "blockedByHelperTextPermission",
           primaryBlockedGateLabels: ["helper-text-permission"],
@@ -4916,6 +4929,17 @@ print_helper_text_live_gate_summary() {
       | .permissionRequestResult = $permission_request_result
       | .permissionWatchStatus = $watch_status
       | .permissionWatchAvailability = $watch_availability
+      | .nativeInsertReady = $native_ready
+      | .permissionRouteStates = {
+          accessibilityValueInsert: $accessibility_value_insert,
+          unicodeKeyboardEvent: $unicode_keyboard_event,
+          pasteboardFallback: $pasteboard_fallback
+        }
+      | .missingPermissionRouteLabels = [
+          if $accessibility_value_insert == "missing" then "accessibility-value-insert-missing" else empty end,
+          if $unicode_keyboard_event == "missing" then "unicode-keyboard-event-missing" else empty end,
+          if $pasteboard_fallback == "missing" then "pasteboard-fallback-missing" else empty end
+        ]
       | .observedProbeStatus = $observed_status
       | .observationStatus = $observation_status
       | .observedSafeFailureCode = $observed_failure
@@ -4946,9 +4970,22 @@ print_helper_text_live_gate_summary() {
       ($setup_report.permissionRequestResult // "unknown") as $permission_request_result |
       ($watch_report.watchStatus // "unknown") as $watch_status |
       ($watch_report.finalAvailability // "unknown") as $watch_availability |
+      ($watch_report.finalAccessibilityValueInsert //
+        $setup_report.finalAccessibilityValueInsert //
+        $observed_report.accessibilityValueInsert //
+        "unknown") as $accessibility_value_insert |
+      ($watch_report.finalUnicodeKeyboardEvent //
+        $setup_report.finalUnicodeKeyboardEvent //
+        $observed_report.unicodeKeyboardEvent //
+        "unknown") as $unicode_keyboard_event |
+      ($watch_report.finalPasteboardFallback //
+        $setup_report.finalPasteboardFallback //
+        $observed_report.pasteboardFallback //
+        "unknown") as $pasteboard_fallback |
       ($observed_report.status // "unknown") as $observed_status |
       ($observed_report.observationStatus // "unknown") as $observation_status |
       ($observed_report.safeFailureCode // "unknown") as $observed_failure |
+      (has_native($setup_report; $watch_report)) as $native_ready |
 
       if $install_status != "passed" then
         {
@@ -4956,7 +4993,7 @@ print_helper_text_live_gate_summary() {
           primaryBlockedGateLabels: ["helper-text-dev-app-setup"],
           recommendedPrimaryAction: "rerun-helper-text-dev-app-setup"
         }
-      elif (has_native($setup_report; $watch_report) | not) then
+      elif ($native_ready | not) then
         {
           overallGateState: "blockedByHelperTextPermission",
           primaryBlockedGateLabels: ["helper-text-permission"],
@@ -4995,6 +5032,17 @@ print_helper_text_live_gate_summary() {
       | .permissionRequestResult = $permission_request_result
       | .permissionWatchStatus = $watch_status
       | .permissionWatchAvailability = $watch_availability
+      | .nativeInsertReady = $native_ready
+      | .permissionRouteStates = {
+          accessibilityValueInsert: $accessibility_value_insert,
+          unicodeKeyboardEvent: $unicode_keyboard_event,
+          pasteboardFallback: $pasteboard_fallback
+        }
+      | .missingPermissionRouteLabels = [
+          if $accessibility_value_insert == "missing" then "accessibility-value-insert-missing" else empty end,
+          if $unicode_keyboard_event == "missing" then "unicode-keyboard-event-missing" else empty end,
+          if $pasteboard_fallback == "missing" then "pasteboard-fallback-missing" else empty end
+        ]
       | .observedProbeStatus = $observed_status
       | .observationStatus = $observation_status
       | .observedSafeFailureCode = $observed_failure
@@ -5074,8 +5122,8 @@ helper_text_live_gate_summary_self_test() {
   local ready_file="$tmpdir/ready.json"
   local unobserved_file="$tmpdir/unobserved.json"
 
-  printf '{"schemaVersion":1,"mode":"helper-text-dev-app-setup","installStatus":"passed","helperProcessKind":"appBundle","permissionGrantHint":"grantAppBundle","permissionRequestResult":"notGranted","finalAvailability":"permissionMissing"}\n' >"$setup_file"
-  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"timedOut","finalAvailability":"permissionMissing"}\n' >"$watch_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-dev-app-setup","installStatus":"passed","helperProcessKind":"appBundle","permissionGrantHint":"grantAppBundle","permissionRequestResult":"notGranted","finalAvailability":"permissionMissing","finalAccessibilityValueInsert":"missing","finalUnicodeKeyboardEvent":"missing","finalPasteboardFallback":"missing"}\n' >"$setup_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"timedOut","finalAvailability":"permissionMissing","finalAccessibilityValueInsert":"missing","finalUnicodeKeyboardEvent":"missing","finalPasteboardFallback":"missing"}\n' >"$watch_file"
   printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"failed","observationStatus":"no-input","safeFailureCode":"helper.permissionMissing","issueCodes":["helper-text-permission-missing"]}\n' >"$observed_file"
   printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"observed-inserted","observationStatus":"matched","safeFailureCode":"none","issueCodes":[]}\n' >"$ready_file"
   printf '{"schemaVersion":1,"mode":"helper-text-observed-probe","status":"helper-sent-unobserved","observationStatus":"no-input","safeFailureCode":"none","issueCodes":["helper-text-observation-not-matched"]}\n' >"$unobserved_file"
@@ -5084,7 +5132,7 @@ helper_text_live_gate_summary_self_test() {
   local ready_summary
   local unobserved_summary
   blocked_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$observed_file")"
-  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"granted","finalAvailability":"reachable"}\n' >"$watch_file"
+  printf '{"schemaVersion":1,"mode":"helper-text-permission-watch","watchStatus":"granted","finalAvailability":"reachable","finalAccessibilityValueInsert":"granted","finalUnicodeKeyboardEvent":"granted","finalPasteboardFallback":"available"}\n' >"$watch_file"
   unobserved_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$unobserved_file")"
   ready_summary="$(print_helper_text_live_gate_summary "$setup_file" "$watch_file" "$ready_file")"
   rm -rf "$tmpdir"
@@ -5093,7 +5141,14 @@ helper_text_live_gate_summary_self_test() {
     .overallGateState == "blockedByHelperTextPermission" and
     .recommendedPrimaryAction == "grant-helper-text-accessibility-or-input-monitoring-permission" and
     .helperProcessKind == "appBundle" and
-    .permissionGrantHint == "grantAppBundle"
+    .permissionGrantHint == "grantAppBundle" and
+    .nativeInsertReady == false and
+    .permissionRouteStates.accessibilityValueInsert == "missing" and
+    .permissionRouteStates.unicodeKeyboardEvent == "missing" and
+    .permissionRouteStates.pasteboardFallback == "missing" and
+    (.missingPermissionRouteLabels | index("accessibility-value-insert-missing")) and
+    (.missingPermissionRouteLabels | index("unicode-keyboard-event-missing")) and
+    (.missingPermissionRouteLabels | index("pasteboard-fallback-missing"))
   ' <<<"$blocked_summary" >/dev/null
   jq -e '
     .overallGateState == "blockedByNativeInsertObservation" and
@@ -5102,7 +5157,9 @@ helper_text_live_gate_summary_self_test() {
   jq -e '
     .overallGateState == "readyForPhysicalComposeGate" and
     .recommendedPrimaryAction == "run-physical-iphone-compose-native-insert-gate" and
-    (.primaryBlockedGateLabels | length == 0)
+    .nativeInsertReady == true and
+    (.primaryBlockedGateLabels | length == 0) and
+    (.missingPermissionRouteLabels | length == 0)
   ' <<<"$ready_summary" >/dev/null
 
   printf '{\n'

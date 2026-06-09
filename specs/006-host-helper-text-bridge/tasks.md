@@ -163,6 +163,14 @@ description: "Tasks: Host Helper Text Bridge"
   the observed target reports `matched`. Verify with
   `helper-text-live-gate-summary-self-test`, `bash -n`, and live
   `helper-text-live-gate` with bounded polling. **Done.**
+- [x] T034K [US2] Surface granular helper text route permission states in
+  `helper-text-live-gate` summary. The summary now carries
+  `permissionRouteStates`, `missingPermissionRouteLabels`, and
+  `nativeInsertReady`, so compact diagnostics show whether AX value insertion,
+  Unicode event posting, paste command fallback, or all three are missing.
+  Current live evidence reports all three route states missing for
+  `NaruHelperDev.app`, with the helper app bundle as the permission target.
+  **Done.**
 - [ ] T028 [US2] Implement helper revoke/disable from Mac helper side.
 - [ ] T034 [US1] Implement and physically verify the Mac helper `nativeInsert`
   strategy without relying on VNC `ClientCutText`, using Accessibility direct
