@@ -29,6 +29,9 @@ swift test --filter NaruRemoteAppModelTests
 swift test --filter DiagnosticExportTests
 swift build --product VNCLiveBenchmark
 swift build --product VNCLiveStimulusWindow
+swift build --product NaruHelper
+bash -n scripts/run-naru-live-benchmark.sh
+scripts/run-naru-live-benchmark.sh helper-text-observed-probe-self-test
 ```
 
 Expected:
@@ -44,6 +47,11 @@ Expected:
 - The observed text-keystroke probe separates "RFB KeyEvent enqueued" from
   "focused editor inserted text" by using a controlled local AppKit text target
   that emits only fixed observation labels.
+- The observed helper text probe separates "helper nativeInsert returned sent"
+  from "focused editor inserted text" by using the same controlled local AppKit
+  text target. Its reports emit only fixed payload/capability/insert/observation
+  labels and never emit raw Compose text, helper paths, target paths, focused app
+  titles, clipboard bytes, raw OS errors, or exact timings.
 - Diagnostics export helper state and fixed failure codes without raw text.
 
 ## Probe-Only Unicode KeyEvent Compatibility
@@ -69,6 +77,33 @@ Expected:
   KeyEvents as a Compose text route on that target.
 - The command does not confirm the remote editor inserted text and does not
   enable key-event text as the app's default Compose route.
+
+## Probe-Only Helper Native Insert Observation
+
+Run when `NARU_HELPER_EXECUTABLE` points to the selected helper binary. The
+default payload is `unicode-hangul`; use `NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD`
+for `ascii` or `latin1`.
+If `NARU_HELPER_EXECUTABLE` is unset, the script fails before the probe; a
+reported `helper.permissionMissing` means the configured helper binary ran but
+lacks macOS text insertion permission.
+
+```bash
+swift build --product NaruHelper
+swift build --product VNCLiveStimulusWindow
+NARU_HELPER_EXECUTABLE="$PWD/.build/debug/NaruHelper" \
+  scripts/run-naru-live-benchmark.sh helper-text-observed-probe
+```
+
+Expected:
+- `status: observed-inserted` requires the controlled local AppKit text target
+  to report `"observationStatus": "matched"` after the helper returns
+  `"insertStatus": "sent"`.
+- `helper.permissionMissing` with `"observationStatus": "no-input"` means the
+  helper process lacks macOS text insertion permission for the current binary;
+  grant Accessibility or event-posting permission, relaunch the helper, then
+  rerun the probe.
+- The probe keeps `nativeInsert` as the only strategy preference. It does not
+  validate the pasteboard fallback path.
 
 ## Future macOS Helper Slice
 

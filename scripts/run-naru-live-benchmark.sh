@@ -22,6 +22,8 @@ Modes:
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-permission-watch Request helper text permissions and poll native insert readiness.
   helper-text-permission-watch-self-test Fast regression for helper text permission watch labels.
+  helper-text-observed-probe Controlled local text target + helper nativeInsert observation.
+  helper-text-observed-probe-self-test Fast regression for helper text observed probe labels.
   text-keystroke-probe    Live VNC KeyEvent probe; override payload after --.
   text-keystroke-observed-probe Live VNC KeyEvent probe with controlled local text target.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
@@ -86,6 +88,9 @@ Launchctl variables used when present:
   NARU_HELPER_TEXT_PERMISSION_SETTINGS_OPEN=skip
   NARU_HELPER_TEXT_PERMISSION_WATCH_MAX_POLLS
   NARU_HELPER_TEXT_PERMISSION_WATCH_INTERVAL_SECONDS
+  NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE
+  NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD=ascii|latin1|unicode-hangul
+  NARU_HELPER_TEXT_OBSERVED_PROBE_DURATION_SECONDS
 
 Text probe payload labels: ascii, latin1, unicode-hangul. Override with:
   scripts/run-naru-live-benchmark.sh text-keystroke-probe -- --text-keystroke-probe-payload LABEL
@@ -4126,6 +4131,552 @@ FAKE_HELPER
   printf '%s\n' "$report"
 }
 
+helper_text_observed_probe_payload_label() {
+  local value="${NARU_HELPER_TEXT_OBSERVED_PROBE_PAYLOAD:-unicode-hangul}"
+  case "$value" in
+    ascii|latin1|unicode-hangul)
+      printf '%s' "$value"
+      ;;
+    *)
+      printf 'unicode-hangul'
+      ;;
+  esac
+}
+
+helper_text_observed_probe_payload_text() {
+  case "$1" in
+    ascii)
+      printf 'Naru'
+      ;;
+    latin1)
+      printf 'cafe\303\251'
+      ;;
+    unicode-hangul)
+      printf '\355\225\234\352\270\200'
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+helper_text_observed_probe_payload_encoding() {
+  case "$1" in
+    ascii)
+      printf 'ascii'
+      ;;
+    latin1)
+      printf 'latin1'
+      ;;
+    unicode-hangul)
+      printf 'utf8ExtensionRequired'
+      ;;
+    *)
+      printf 'utf8ExtensionRequired'
+      ;;
+  esac
+}
+
+helper_text_payload_size_bucket() {
+  local byte_count="$1"
+  case "$byte_count" in
+    ''|*[!0-9]*)
+      printf 'small'
+      ;;
+    0)
+      printf 'empty'
+      ;;
+    *)
+      if ((byte_count <= 256)); then
+        printf 'small'
+      elif ((byte_count <= 4096)); then
+        printf 'medium'
+      else
+        printf 'large'
+      fi
+      ;;
+  esac
+}
+
+helper_text_observed_probe_duration_seconds() {
+  local raw="${NARU_HELPER_TEXT_OBSERVED_PROBE_DURATION_SECONDS:-3}"
+  if [[ "$raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf '%s' "$raw"
+  else
+    printf '3'
+  fi
+}
+
+helper_text_observed_probe_poll_count() {
+  local seconds="$1"
+  awk -v seconds="$seconds" 'BEGIN {
+    count = int(seconds * 20)
+    if (count < 1) count = 1
+    if (count > 400) count = 400
+    print count
+  }'
+}
+
+helper_text_observation_status_from_file() {
+  local file="$1"
+  if [[ ! -s "$file" ]]; then
+    printf 'unknown'
+    return
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.observationStatus // "unknown"' "$file" 2>/dev/null || printf 'unknown'
+    return
+  fi
+  printf 'unknown'
+}
+
+helper_text_observation_json_from_file() {
+  local file="$1"
+  local payload_label="$2"
+  if json_file_is_valid_or_unchecked "$file"; then
+    local content
+    content="$(cat "$file")"
+    printf '%s' "$content"
+    return
+  fi
+  printf '{"schemaVersion":1,"mode":"text-keystroke-observation-target","payload":'
+  json_string "$payload_label"
+  printf ',"observationStatus":"target-unavailable","observedScalarCountBucket":"zero"}'
+}
+
+helper_text_wait_for_observation_target_ready() {
+  local result_file="$1"
+  local target_pid="$2"
+  local max_polls="$3"
+  local poll
+  local status
+  for ((poll = 1; poll <= max_polls; poll++)); do
+    status="$(helper_text_observation_status_from_file "$result_file")"
+    case "$status" in
+      target-ready)
+        printf '%s' "$status"
+        return 0
+        ;;
+      matched|no-input|mismatched|failed|target-unavailable)
+        printf '%s' "$status"
+        return 1
+        ;;
+    esac
+    if ! kill -0 "$target_pid" >/dev/null 2>&1; then
+      printf 'target-unavailable'
+      return 1
+    fi
+    sleep 0.05
+  done
+  printf 'timed-out'
+  return 1
+}
+
+helper_text_wait_for_observation_completion() {
+  local result_file="$1"
+  local target_pid="$2"
+  local max_polls="$3"
+  local poll
+  local status="unknown"
+  for ((poll = 1; poll <= max_polls; poll++)); do
+    status="$(helper_text_observation_status_from_file "$result_file")"
+    case "$status" in
+      matched|no-input|mismatched|failed|target-unavailable)
+        printf '%s' "$status"
+        return 0
+        ;;
+    esac
+    if ! kill -0 "$target_pid" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.05
+  done
+
+  status="$(helper_text_observation_status_from_file "$result_file")"
+  case "$status" in
+    matched|no-input|mismatched|failed|target-unavailable)
+      printf '%s' "$status"
+      ;;
+    target-ready|unknown)
+      printf 'timed-out'
+      ;;
+    *)
+      printf '%s' "$status"
+      ;;
+  esac
+}
+
+helper_text_observed_probe_request_id() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr '[:lower:]' '[:upper:]'
+    return
+  fi
+  printf 'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA'
+}
+
+helper_text_observed_probe_insert_request_json() {
+  local request_id="$1"
+  local payload_label="$2"
+  local payload_text
+  local payload_encoding
+  local byte_count
+  local size_bucket
+  payload_text="$(helper_text_observed_probe_payload_text "$payload_label")"
+  payload_encoding="$(helper_text_observed_probe_payload_encoding "$payload_label")"
+  byte_count="$(LC_ALL=C printf '%s' "$payload_text" | wc -c | tr -d '[:space:]')"
+  size_bucket="$(helper_text_payload_size_bucket "$byte_count")"
+
+  printf '{"schemaVersion":1,"requestID":'
+  json_string "$request_id"
+  printf ',"payloadEncoding":'
+  json_string "$payload_encoding"
+  printf ',"payloadSizeBucket":'
+  json_string "$size_bucket"
+  printf ',"strategyPreference":["nativeInsert"],"text":'
+  json_string "$payload_text"
+  printf '}'
+}
+
+helper_text_insert_or_fixed_failure() {
+  local helper_executable="$1"
+  local request_json="$2"
+  local output
+  if output="$(printf '%s' "$request_json" | "$helper_executable" 2>/dev/null)" &&
+    [[ -n "$output" ]]; then
+    printf '%s' "$output"
+  else
+    printf '{"schemaVersion":1,"requestID":"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA","status":"failed","strategyUsed":"unsupported","safeFailureCode":"helper.insertRejected"}'
+  fi
+}
+
+helper_text_observed_probe_failure_label() {
+  local readiness_status="$1"
+  local insert_status="$2"
+  local insert_failure_code="$3"
+  local observation_status="$4"
+
+  if [[ "$readiness_status" != "target-ready" ]]; then
+    printf 'helper-text-observation-target-not-ready'
+    return
+  fi
+
+  if [[ "$insert_status" != "sent" ]]; then
+    if [[ -n "$insert_failure_code" && "$insert_failure_code" != "none" && "$insert_failure_code" != "unknown" ]]; then
+      printf '%s' "$insert_failure_code"
+    else
+      printf 'helper-text-native-insert-failed'
+    fi
+    return
+  fi
+
+  case "$observation_status" in
+    matched)
+      printf 'none'
+      ;;
+    no-input)
+      printf 'helper-text-observation-no-input'
+      ;;
+    mismatched)
+      printf 'helper-text-observation-mismatched'
+      ;;
+    timed-out)
+      printf 'helper-text-observation-timed-out'
+      ;;
+    target-unavailable)
+      printf 'helper-text-observation-target-unavailable'
+      ;;
+    *)
+      printf 'helper-text-observation-failed'
+      ;;
+  esac
+}
+
+print_helper_text_observed_probe_report() {
+  local helper_executable="${NARU_HELPER_EXECUTABLE:-}"
+  local target_executable="${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-$repo_root/.build/debug/VNCLiveStimulusWindow}"
+  local payload_label
+  local duration_seconds
+  local poll_count
+  local result_file
+  local target_pid=""
+  local readiness_status="target-unavailable"
+  local observation_status="target-unavailable"
+  local capability_before
+  local insert_response
+  local request_json
+  local request_id
+
+  payload_label="$(helper_text_observed_probe_payload_label)"
+  duration_seconds="$(helper_text_observed_probe_duration_seconds)"
+  poll_count="$(helper_text_observed_probe_poll_count "$duration_seconds")"
+  result_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-text-observation.XXXXXX")"
+
+  capability_before="$(
+    json_step_or_fixed_failure \
+      helperTextCapabilityBefore \
+      benchmarkStep.helperTextCapabilityBefore.failed \
+      "$helper_executable" --capability
+  )"
+
+  if [[ -x "$target_executable" ]]; then
+    "$target_executable" \
+      --text-probe \
+      --text-probe-payload "$payload_label" \
+      --result-file "$result_file" \
+      --duration "$duration_seconds" >/dev/null 2>&1 &
+    target_pid="$!"
+    readiness_status="$(
+      helper_text_wait_for_observation_target_ready \
+        "$result_file" \
+        "$target_pid" \
+        "$poll_count"
+    )"
+  fi
+
+  if [[ "$readiness_status" == "target-ready" ]]; then
+    request_id="$(helper_text_observed_probe_request_id)"
+    request_json="$(helper_text_observed_probe_insert_request_json "$request_id" "$payload_label")"
+    insert_response="$(helper_text_insert_or_fixed_failure "$helper_executable" "$request_json")"
+    observation_status="$(
+      helper_text_wait_for_observation_completion \
+        "$result_file" \
+        "$target_pid" \
+        "$poll_count"
+    )"
+  else
+    insert_response='{"schemaVersion":1,"requestID":"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA","status":"failed","strategyUsed":"unsupported","safeFailureCode":"helper.focusUnavailable"}'
+  fi
+
+  if [[ -n "$target_pid" ]] && kill -0 "$target_pid" >/dev/null 2>&1; then
+    kill "$target_pid" >/dev/null 2>&1 || true
+    wait "$target_pid" >/dev/null 2>&1 || true
+  fi
+
+  local payload_encoding
+  local capability_availability
+  local capability_step_status
+  local accessibility_value_insert
+  local unicode_keyboard_event
+  local pasteboard_fallback
+  local insert_status
+  local strategy_used
+  local safe_failure_code
+  local overall_status
+  local failure_label
+  local issue_codes=()
+  local setup_actions=()
+
+  payload_encoding="$(helper_text_observed_probe_payload_encoding "$payload_label")"
+  capability_availability="$(json_value_or_unknown "$capability_before" '.availability')"
+  capability_step_status="$(json_value_or_unknown "$capability_before" '.status')"
+  accessibility_value_insert="$(
+    json_value_or_unknown "$capability_before" '.permissionState.accessibilityValueInsert'
+  )"
+  unicode_keyboard_event="$(
+    json_value_or_unknown "$capability_before" '.permissionState.unicodeKeyboardEvent'
+  )"
+  pasteboard_fallback="$(json_value_or_unknown "$capability_before" '.permissionState.pasteboardFallback')"
+  insert_status="$(json_value_or_unknown "$insert_response" '.status')"
+  strategy_used="$(json_value_or_unknown "$insert_response" '.strategyUsed')"
+  safe_failure_code="$(json_value_or_unknown "$insert_response" '.safeFailureCode')"
+  failure_label="$(
+    helper_text_observed_probe_failure_label \
+      "$readiness_status" \
+      "$insert_status" \
+      "$safe_failure_code" \
+      "$observation_status"
+  )"
+
+  if [[ "$insert_status" == "sent" && "$observation_status" == "matched" ]]; then
+    overall_status="observed-inserted"
+    append_unique setup_actions "retry-compose-native-insert-on-physical-device"
+  elif [[ "$insert_status" == "sent" ]]; then
+    overall_status="helper-sent-unobserved"
+    append_unique issue_codes "helper-text-observation-not-matched"
+    append_unique setup_actions "inspect-helper-native-insert-target"
+  else
+    overall_status="failed"
+    if [[ "$capability_step_status" == "failed" ]]; then
+      append_unique issue_codes "helper-text-capability-failed"
+      append_unique setup_actions "inspect-helper-text-capability"
+    elif [[ "$readiness_status" != "target-ready" ]]; then
+      append_unique issue_codes "helper-text-observation-target-unavailable"
+      append_unique setup_actions "rerun-helper-text-observed-probe"
+    elif [[ "$safe_failure_code" == "helper.permissionMissing" ]]; then
+      append_unique issue_codes "helper-text-permission-missing"
+      append_unique setup_actions "grant-helper-text-accessibility-or-input-monitoring-permission"
+      append_unique setup_actions "quit-and-relaunch-helper-after-permission-change"
+    else
+      append_unique issue_codes "helper-text-native-insert-failed"
+      append_unique setup_actions "inspect-helper-native-insert"
+    fi
+  fi
+
+  if [[ "$failure_label" != "none" && "$overall_status" != "observed-inserted" ]]; then
+    append_unique issue_codes "$failure_label"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "helper-text-observed-probe",\n'
+  printf '  "status": '
+  json_string "$overall_status"
+  printf ',\n'
+  printf '  "payload": '
+  json_string "$payload_label"
+  printf ',\n'
+  printf '  "payloadEncoding": '
+  json_string "$payload_encoding"
+  printf ',\n'
+  printf '  "strategyPreference": ["nativeInsert"],\n'
+  printf '  "capabilityAvailability": '
+  json_string "$capability_availability"
+  printf ',\n'
+  printf '  "accessibilityValueInsert": '
+  json_string "$accessibility_value_insert"
+  printf ',\n'
+  printf '  "unicodeKeyboardEvent": '
+  json_string "$unicode_keyboard_event"
+  printf ',\n'
+  printf '  "pasteboardFallback": '
+  json_string "$pasteboard_fallback"
+  printf ',\n'
+  printf '  "targetReadinessStatus": '
+  json_string "$readiness_status"
+  printf ',\n'
+  printf '  "insertStatus": '
+  json_string "$insert_status"
+  printf ',\n'
+  printf '  "strategyUsed": '
+  json_string "$strategy_used"
+  printf ',\n'
+  printf '  "safeFailureCode": '
+  json_string "$safe_failure_code"
+  printf ',\n'
+  printf '  "observationStatus": '
+  json_string "$observation_status"
+  printf ',\n'
+  printf '  "failureLabel": '
+  json_string "$failure_label"
+  printf ',\n'
+  printf '  "capabilityBefore": %s,\n' "$capability_before"
+  printf '  "insertResponse": %s,\n' "$insert_response"
+  printf '  "observationTargetResult": '
+  helper_text_observation_json_from_file "$result_file" "$payload_label"
+  printf ',\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "safety": [\n'
+  printf '    "helper-text-observed-probe reports fixed payload, capability, insert, observation, issue, and action labels only",\n'
+  printf '    "helper executable paths, target paths, endpoints, credentials, raw text, key events, focused app titles, clipboard bytes, pixels, raw OS errors, and exact timings are not emitted",\n'
+  printf '    "observed-inserted requires the controlled local AppKit text target to report a fixed-label match after helper nativeInsert"\n'
+  printf '  ]\n'
+  printf '}\n'
+
+  rm -f "$result_file"
+}
+
+helper_text_observed_probe_self_test() {
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-helper-text-observed-test.XXXXXX")"
+  local fake_helper="$tmpdir/fake-helper"
+  local fake_target="$tmpdir/fake-target"
+
+  cat >"$fake_helper" <<'FAKE_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  --capability)
+    printf '{"schemaVersion":1,"availability":"reachable","permissionState":{"accessibility":"granted","accessibilityValueInsert":"granted","unicodeKeyboardEvent":"missing","inputMonitoring":"notRequired","pasteboardFallback":"available","activeUserSession":"available"},"supportedStrategies":["nativeInsert"]}\n'
+    ;;
+  *)
+    cat >/dev/null
+    printf '{"schemaVersion":1,"requestID":"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA","status":"sent","strategyUsed":"nativeInsert","safeFailureCode":"none"}\n'
+    ;;
+esac
+FAKE_HELPER
+  chmod +x "$fake_helper"
+
+  cat >"$fake_target" <<'FAKE_TARGET'
+#!/usr/bin/env bash
+set -euo pipefail
+payload="unicode-hangul"
+result_file=""
+while (($#)); do
+  case "$1" in
+    --text-probe-payload)
+      payload="$2"
+      shift 2
+      ;;
+    --result-file)
+      result_file="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [[ -z "$result_file" ]]; then
+  exit 2
+fi
+printf '{"schemaVersion":1,"mode":"text-keystroke-observation-target","payload":"%s","observationStatus":"target-ready","observedScalarCountBucket":"zero"}\n' "$payload" >"$result_file"
+sleep 0.15
+printf '{"schemaVersion":1,"mode":"text-keystroke-observation-target","payload":"%s","observationStatus":"matched","observedScalarCountBucket":"one-to-five"}\n' "$payload" >"$result_file"
+sleep 0.05
+FAKE_TARGET
+  chmod +x "$fake_target"
+
+  local report
+  report="$(
+    NARU_HELPER_EXECUTABLE="$fake_helper" \
+    NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE="$fake_target" \
+    NARU_HELPER_TEXT_OBSERVED_PROBE_DURATION_SECONDS=1 \
+    print_helper_text_observed_probe_report
+  )"
+  rm -rf "$tmpdir"
+
+  if grep -q "$(printf '\355\225\234\352\270\200')" <<<"$report"; then
+    return 1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$report"
+    return
+  fi
+
+  jq -e '
+    .schemaVersion == 1 and
+    .mode == "helper-text-observed-probe" and
+    .status == "observed-inserted" and
+    .payload == "unicode-hangul" and
+    .payloadEncoding == "utf8ExtensionRequired" and
+    .strategyPreference == ["nativeInsert"] and
+    .capabilityAvailability == "reachable" and
+    .accessibilityValueInsert == "granted" and
+    .insertStatus == "sent" and
+    .strategyUsed == "nativeInsert" and
+    .safeFailureCode == "none" and
+    .observationStatus == "matched" and
+    .failureLabel == "none" and
+    (.setupActionLabels | index("retry-compose-native-insert-on-physical-device")) and
+    (.issueCodes | length == 0)
+  ' <<<"$report" >/dev/null
+  printf '%s\n' "$report"
+}
+
 print_helper_video_live_gate_summary_failure() {
   local failure_code="$1"
   printf '{"schemaVersion":1,"mode":"helper-video-live-gate-summary","overallGateState":"unknown","safeFailureCode":'
@@ -5391,6 +5942,19 @@ case "$mode" in
   helper-text-permission-watch-self-test)
     reject_extra_args
     helper_text_permission_watch_self_test
+    ;;
+  helper-text-observed-probe)
+    reject_extra_args
+    import_helper_env
+    cd "$repo_root"
+    if [[ -z "${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-}" ]]; then
+      swift build --quiet --product VNCLiveStimulusWindow
+    fi
+    print_helper_text_observed_probe_report
+    ;;
+  helper-text-observed-probe-self-test)
+    reject_extra_args
+    helper_text_observed_probe_self_test
     ;;
   text-keystroke-probe)
     reject_extra_flag --environment-preflight
