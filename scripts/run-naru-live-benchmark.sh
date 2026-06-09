@@ -52,6 +52,7 @@ Modes:
   bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
   bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
+  physical-signing-setup-summary-self-test Fast regression for physical signing action labels.
   physical-team-inference-self-test Safe local regression for team inference labels.
   physical-device-id-resolution-self-test Safe local regression for physical device id mapping labels.
   screen-recording-setup   Request helper Screen Recording and open Settings.
@@ -2280,6 +2281,199 @@ append_unique() {
   eval "$array_name+=(\"\$value\")"
 }
 
+print_physical_signing_setup_summary() {
+  local device_status="$1"
+  local signing_identity_status="$2"
+  local development_team_status="$3"
+  local xcode_account_status="$4"
+  local provisioning_profile_status="$5"
+  local build_check_status="$6"
+  shift 6
+
+  local diagnostic_labels=("$@")
+  local primary_blocked_gate_label="none"
+  local recommended_primary_action="run-physical-iphone-helper-video-gate"
+  local readiness_state="ready"
+  local action_sequence=()
+
+  case "$device_status" in
+    missing)
+      primary_blocked_gate_label="physical-iphone-device"
+      recommended_primary_action="connect-and-trust-physical-iphone"
+      ;;
+    unavailable)
+      primary_blocked_gate_label="physical-iphone-device"
+      recommended_primary_action="unlock-connect-and-enable-developer-mode"
+      ;;
+    multiple)
+      primary_blocked_gate_label="physical-iphone-device"
+      recommended_primary_action="set-physical-ios-device-id"
+      ;;
+    wrongDeviceType)
+      primary_blocked_gate_label="physical-iphone-device"
+      recommended_primary_action="set-physical-ios-device-id-to-iphone"
+      ;;
+  esac
+
+  if [[ "$primary_blocked_gate_label" == "none" && "$signing_identity_status" == "missing" ]]; then
+    primary_blocked_gate_label="ios-development-certificate"
+    recommended_primary_action="install-ios-development-certificate"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$development_team_status" == "ambiguous" ]]; then
+    primary_blocked_gate_label="ios-development-team"
+    recommended_primary_action="set-xcode-development-team"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$development_team_status" == "missing" && "$build_check_status" != "passed" ]]; then
+    primary_blocked_gate_label="ios-development-team"
+    recommended_primary_action="set-xcode-development-team"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$xcode_account_status" == "missing" ]]; then
+    primary_blocked_gate_label="xcode-account"
+    recommended_primary_action="open-xcode-account-settings"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$provisioning_profile_status" == "missing" ]]; then
+    primary_blocked_gate_label="ios-provisioning-profile"
+    recommended_primary_action="enable-automatic-signing-or-create-development-profile"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$build_check_status" == "failed" ]]; then
+    primary_blocked_gate_label="physical-ios-build"
+    recommended_primary_action="inspect-xcode-physical-build"
+  fi
+  if [[ "$primary_blocked_gate_label" == "none" && "$build_check_status" == "skipped" ]]; then
+    primary_blocked_gate_label="physical-ios-build-skipped"
+    recommended_primary_action="resolve-physical-iphone-preflight"
+  fi
+
+  if [[ "$primary_blocked_gate_label" != "none" ]]; then
+    readiness_state="blocked"
+  fi
+
+  case "$primary_blocked_gate_label" in
+    physical-iphone-device)
+      append_unique action_sequence "$recommended_primary_action"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      ;;
+    ios-development-certificate)
+      append_unique action_sequence "install-ios-development-certificate"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      ;;
+    ios-development-team)
+      append_unique action_sequence "set-xcode-development-team"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      ;;
+    xcode-account)
+      append_unique action_sequence "open-xcode-account-settings"
+      append_unique action_sequence "sign-in-to-xcode-account-for-development-team"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      append_unique action_sequence "rerun-physical-iphone-helper-video-gate"
+      ;;
+    ios-provisioning-profile)
+      append_unique action_sequence "enable-automatic-signing-or-create-development-profile"
+      append_unique action_sequence "create-ios-development-provisioning-profile"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      append_unique action_sequence "rerun-physical-iphone-helper-video-gate"
+      ;;
+    physical-ios-build|physical-ios-build-skipped)
+      append_unique action_sequence "$recommended_primary_action"
+      append_unique action_sequence "rerun-physical-device-preflight"
+      ;;
+    none)
+      append_unique action_sequence "run-physical-iphone-helper-video-gate"
+      ;;
+  esac
+
+  printf '{'
+  printf '"schemaVersion":1,'
+  printf '"readinessState":'
+  json_string "$readiness_state"
+  printf ',"primaryBlockedGateLabel":'
+  json_string "$primary_blocked_gate_label"
+  printf ',"recommendedPrimaryAction":'
+  json_string "$recommended_primary_action"
+  printf ',"operatorActionSequence":'
+  json_string_array "${action_sequence[@]}"
+  printf ',"diagnosticLabels":'
+  json_string_array "${diagnostic_labels[@]}"
+  printf '}'
+}
+
+physical_signing_setup_summary_self_test() {
+  local tmpdir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-physical-signing-summary-self-test.XXXXXX")"
+  local account_blocked="$tmpdir/account-blocked.json"
+  local profile_blocked="$tmpdir/profile-blocked.json"
+  local ready="$tmpdir/ready.json"
+
+  print_physical_signing_setup_summary \
+    connected \
+    available \
+    environment \
+    missing \
+    missing \
+    failed \
+    xcode-account-unavailable-to-xcodebuild \
+    development-team-supplied-but-xcode-account-missing \
+    provisioning-cannot-be-validated-until-xcode-account-is-available >"$account_blocked"
+  print_physical_signing_setup_summary \
+    connected \
+    available \
+    environment \
+    available \
+    missing \
+    failed \
+    account-available-but-profile-missing >"$profile_blocked"
+  print_physical_signing_setup_summary \
+    connected \
+    available \
+    environment \
+    available \
+    available \
+    passed \
+    physical-signing-ready >"$ready"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-signing-setup-summary-self-test","status":"skipped","issueCodes":["jq-unavailable"]}\n'
+    rm -rf "$tmpdir"
+    return
+  fi
+
+  if jq -e '
+    .readinessState == "blocked" and
+    .primaryBlockedGateLabel == "xcode-account" and
+    .recommendedPrimaryAction == "open-xcode-account-settings" and
+    (.operatorActionSequence | index("sign-in-to-xcode-account-for-development-team")) and
+    (.operatorActionSequence | index("rerun-physical-iphone-helper-video-gate")) and
+    (.diagnosticLabels | index("development-team-supplied-but-xcode-account-missing")) and
+    (.diagnosticLabels | index("provisioning-cannot-be-validated-until-xcode-account-is-available"))
+  ' "$account_blocked" >/dev/null && jq -e '
+    .readinessState == "blocked" and
+    .primaryBlockedGateLabel == "ios-provisioning-profile" and
+    .recommendedPrimaryAction == "enable-automatic-signing-or-create-development-profile" and
+    (.operatorActionSequence | index("create-ios-development-provisioning-profile")) and
+    (.diagnosticLabels | index("account-available-but-profile-missing"))
+  ' "$profile_blocked" >/dev/null && jq -e '
+    .readinessState == "ready" and
+    .primaryBlockedGateLabel == "none" and
+    .recommendedPrimaryAction == "run-physical-iphone-helper-video-gate" and
+    (.operatorActionSequence | index("run-physical-iphone-helper-video-gate")) and
+    (.diagnosticLabels | index("physical-signing-ready"))
+  ' "$ready" >/dev/null; then
+    printf '{"schemaVersion":1,"mode":"physical-signing-setup-summary-self-test","status":"passed","accountBlockedSummary":'
+    cat "$account_blocked"
+    printf ',"profileBlockedSummary":'
+    cat "$profile_blocked"
+    printf ',"readySummary":'
+    cat "$ready"
+    printf '}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"physical-signing-setup-summary-self-test","status":"failed"}\n'
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+
+  rm -rf "$tmpdir"
+}
+
 physical_iphone_ids_from_devicectl() {
   if ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
     return 1
@@ -2688,6 +2882,7 @@ physical_preflight() {
   local build_check_status
   local provisioning_profile_status="unknown"
   local xcode_account_status="unknown"
+  local signing_diagnostic_labels=()
 
   device_count="$(physical_iphone_device_count)"
   unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
@@ -2732,10 +2927,12 @@ physical_preflight() {
     signing_identity_status="missing"
     append_unique issue_codes "ios-development-certificate-missing"
     append_unique setup_actions "install-ios-development-certificate"
+    append_unique signing_diagnostic_labels "apple-development-certificate-missing"
   fi
 
   if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
     development_team_status="environment"
+    append_unique signing_diagnostic_labels "development-team-supplied-by-environment"
   else
     PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
     resolve_physical_development_team
@@ -2743,6 +2940,11 @@ physical_preflight() {
     if [[ "$development_team_status" == "ambiguous" ]]; then
       append_unique issue_codes "ios-development-team-ambiguous"
       append_unique setup_actions "set-xcode-development-team"
+      append_unique signing_diagnostic_labels "development-team-ambiguous"
+    elif [[ "$development_team_status" == "inferred" ]]; then
+      append_unique signing_diagnostic_labels "development-team-inferred-from-local-certificate"
+    else
+      append_unique signing_diagnostic_labels "development-team-not-supplied"
     fi
   fi
 
@@ -2756,28 +2958,46 @@ physical_preflight() {
       if grep -q "requires a development team" "$output_file"; then
         append_unique issue_codes "ios-development-team-missing"
         append_unique setup_actions "set-xcode-development-team"
+        append_unique signing_diagnostic_labels "xcodebuild-requires-development-team"
       fi
       if grep -q "No Accounts" "$output_file"; then
         xcode_account_status="missing"
         append_unique issue_codes "xcode-account-missing"
         append_unique setup_actions "add-xcode-account"
+        append_unique setup_actions "open-xcode-account-settings"
+        append_unique setup_actions "sign-in-to-xcode-account-for-development-team"
+        append_unique setup_actions "rerun-physical-device-preflight"
+        append_unique signing_diagnostic_labels "xcode-account-unavailable-to-xcodebuild"
+        if [[ "$development_team_status" == "environment" || "$development_team_status" == "inferred" ]]; then
+          append_unique signing_diagnostic_labels "development-team-supplied-but-xcode-account-missing"
+        fi
       fi
       if grep -q "No profiles for" "$output_file"; then
         provisioning_profile_status="missing"
         append_unique issue_codes "ios-provisioning-profile-missing"
         append_unique setup_actions "create-ios-development-provisioning-profile"
+        append_unique setup_actions "enable-automatic-signing-or-create-development-profile"
+        append_unique setup_actions "rerun-physical-device-preflight"
+        if [[ "$xcode_account_status" == "missing" ]]; then
+          append_unique signing_diagnostic_labels "provisioning-cannot-be-validated-until-xcode-account-is-available"
+        else
+          append_unique signing_diagnostic_labels "account-available-but-profile-missing"
+        fi
       fi
       if grep -qi "locked" "$output_file"; then
         append_unique issue_codes "physical-ios-device-locked"
         append_unique setup_actions "unlock-physical-iphone"
+        append_unique signing_diagnostic_labels "physical-ios-device-locked"
       fi
       if ((${#issue_codes[@]} == 0)); then
         append_unique issue_codes "physical-ios-build-failed"
         append_unique setup_actions "inspect-xcode-physical-build"
+        append_unique signing_diagnostic_labels "xcodebuild-failed-without-known-signing-label"
       fi
     else
       provisioning_profile_status="available"
       xcode_account_status="available"
+      append_unique signing_diagnostic_labels "physical-signing-ready"
     fi
     rm -f "$output_file"
   fi
@@ -2793,6 +3013,16 @@ physical_preflight() {
   printf '  "xcodeAccountStatus": "%s",\n' "$xcode_account_status"
   printf '  "provisioningProfileStatus": "%s",\n' "$provisioning_profile_status"
   printf '  "buildCheckStatus": "%s",\n' "$build_check_status"
+  printf '  "signingSetupSummary": '
+  print_physical_signing_setup_summary \
+    "$device_status" \
+    "$signing_identity_status" \
+    "$development_team_status" \
+    "$xcode_account_status" \
+    "$provisioning_profile_status" \
+    "$build_check_status" \
+    "${signing_diagnostic_labels[@]}"
+  printf ',\n'
   printf '  "issueCodes": '
   if ((${#issue_codes[@]})); then
     json_string_array "${issue_codes[@]}"
@@ -2998,10 +3228,15 @@ physical_iphone_gate_classify_xcodebuild_failure() {
   if grep -q "No Accounts" "$output_file"; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "xcode-account-missing"
     append_unique PHYSICAL_GATE_SETUP_ACTIONS "add-xcode-account"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "open-xcode-account-settings"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "sign-in-to-xcode-account-for-development-team"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "rerun-physical-device-preflight"
   fi
   if grep -q "No profiles for" "$output_file"; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "ios-provisioning-profile-missing"
     append_unique PHYSICAL_GATE_SETUP_ACTIONS "create-ios-development-provisioning-profile"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "enable-automatic-signing-or-create-development-profile"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "rerun-physical-device-preflight"
   fi
   if grep -q "requires a development team" "$output_file"; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "ios-development-team-missing"
@@ -5208,6 +5443,11 @@ print_helper_video_live_gate_summary() {
       def bootstrap_status: first($bootstrap).status // "unknown";
       def physical_issue_codes: first($physical).issueCodes // [];
       def physical_setup_actions: first($physical).setupActionLabels // [];
+      def physical_signing_summary: first($physical).signingSetupSummary // {};
+      def physical_recommended_action:
+        physical_signing_summary.recommendedPrimaryAction //
+        physical_setup_actions[0] //
+        "inspect-physical-iphone-preflight";
       def physical_ready:
         (first($physical).deviceDiscoveryStatus // "unknown") == "connected" and
         (first($physical).buildCheckStatus // "unknown") == "passed" and
@@ -5239,7 +5479,7 @@ print_helper_video_live_gate_summary() {
         elif sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif screen_verdict != "pass" then "rerun-helper-screen-probe"
         elif bootstrap_status == "passed" and physical_ready then "run-physical-iphone-helper-video-gate"
-        elif bootstrap_status == "passed" then (physical_setup_actions[0] // "inspect-physical-iphone-preflight")
+        elif bootstrap_status == "passed" then physical_recommended_action
         elif bootstrap_status == "skipped" then ((first($bootstrap).setupActionLabels // [])[0] // "inspect-screen-capturekit-app-bootstrap-benchmark")
         elif bootstrap_status == "failed" then "inspect-screen-capturekit-app-bootstrap-benchmark"
         else "inspect-helper-video-live-gate"
@@ -5289,6 +5529,7 @@ print_helper_video_live_gate_summary() {
           xcodeAccountStatus: (first($physical).xcodeAccountStatus // "unknown"),
           provisioningProfileStatus: (first($physical).provisioningProfileStatus // "unknown"),
           buildCheckStatus: (first($physical).buildCheckStatus // "unknown"),
+          signingSetupSummary: physical_signing_summary,
           issueCodes: physical_issue_codes,
           setupActionLabels: physical_setup_actions
         },
@@ -5430,10 +5671,10 @@ JSON
 {"schemaVersion":1,"mode":"helper-screen-app-bootstrap-benchmark","status":"passed","sourceMode":"screen-capturekit","transportPath":"helper-tcp-to-app-model","decodePath":"h264-sample-buffer-factory","issueCodes":[],"setupActionLabels":[]}
 JSON
   cat >"$physical_blocked" <<'JSON'
-{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","create-ios-development-provisioning-profile"]}
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","signingSetupSummary":{"schemaVersion":1,"readinessState":"blocked","primaryBlockedGateLabel":"xcode-account","recommendedPrimaryAction":"open-xcode-account-settings","operatorActionSequence":["open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","rerun-physical-iphone-helper-video-gate"],"diagnosticLabels":["xcode-account-unavailable-to-xcodebuild","development-team-supplied-but-xcode-account-missing","provisioning-cannot-be-validated-until-xcode-account-is-available"]},"issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","create-ios-development-provisioning-profile","enable-automatic-signing-or-create-development-profile"]}
 JSON
   cat >"$physical_ready" <<'JSON'
-{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"available","provisioningProfileStatus":"available","buildCheckStatus":"passed","issueCodes":[],"setupActionLabels":[]}
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"available","provisioningProfileStatus":"available","buildCheckStatus":"passed","signingSetupSummary":{"schemaVersion":1,"readinessState":"ready","primaryBlockedGateLabel":"none","recommendedPrimaryAction":"run-physical-iphone-helper-video-gate","operatorActionSequence":["run-physical-iphone-helper-video-gate"],"diagnosticLabels":["physical-signing-ready"]},"issueCodes":[],"setupActionLabels":[]}
 JSON
 
   print_helper_video_live_gate_summary \
@@ -5481,11 +5722,12 @@ JSON
     .physicalIPhoneGate.buildCheckStatus == "passed"
   ' "$summary_bootstrap_skipped" >/dev/null && jq -e '
     .overallGateState == "blockedByPhysicalIPhoneGate" and
-    .recommendedPrimaryAction == "add-xcode-account" and
+    .recommendedPrimaryAction == "open-xcode-account-settings" and
     (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     .screenRecordingGate.finalPermissionStatus == "granted" and
     .appBootstrapGate.status == "passed" and
-    .physicalIPhoneGate.provisioningProfileStatus == "missing"
+    .physicalIPhoneGate.provisioningProfileStatus == "missing" and
+    .physicalIPhoneGate.signingSetupSummary.primaryBlockedGateLabel == "xcode-account"
   ' "$summary_physical_blocked" >/dev/null && jq -e '
     .overallGateState == "readyForPhysicalIPhoneGate" and
     .recommendedPrimaryAction == "run-physical-iphone-helper-video-gate" and
@@ -5688,6 +5930,11 @@ print_remote_desktop_10fps_readiness_gate_summary() {
       def physical_provisioning_profile_status: first($physical).provisioningProfileStatus // "unknown";
       def physical_issue_codes: first($physical).issueCodes // [];
       def physical_setup_actions: first($physical).setupActionLabels // [];
+      def physical_signing_summary: first($physical).signingSetupSummary // {};
+      def physical_recommended_action:
+        physical_signing_summary.recommendedPrimaryAction //
+        physical_setup_actions[0] //
+        "resolve-physical-iphone-preflight";
       def physical_ready:
         physical_status == "connected" and
         physical_build_status == "passed" and
@@ -5720,7 +5967,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
         if helper_screen_verdict != "pass" then "run-screen-recording-watch"
         elif helper_synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif helper_sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
-        elif (physical_ready | not) then (physical_setup_actions[0] // "resolve-physical-iphone-preflight")
+        elif (physical_ready | not) then physical_recommended_action
         elif vnc_product_verdict != "pass" then "run-true-helper-video-live-capture-benchmark"
         else "run-physical-iphone-helper-video-gate"
         end;
@@ -5737,6 +5984,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           buildCheckStatus: physical_build_status,
           xcodeAccountStatus: physical_xcode_account_status,
           provisioningProfileStatus: physical_provisioning_profile_status,
+          signingSetupSummary: physical_signing_summary,
           issueCodes: physical_issue_codes,
           setupActionLabels: physical_setup_actions
         },
@@ -6222,10 +6470,10 @@ JSON
 {"schemaVersion":1,"mode":"helper-readiness-sweep","capability":{"availability":"available","screenRecordingPermission":"granted"},"syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"fail","issueCodes":["helper-video-sustained-choppy"],"readinessState":"sustainedDegraded","recommendedAction":"inspect-helper-video-sustained-cadence"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
 JSON
   cat >"$physical_signing_blocked_file" <<'JSON'
-{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","create-ios-development-provisioning-profile"]}
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","signingSetupSummary":{"schemaVersion":1,"readinessState":"blocked","primaryBlockedGateLabel":"xcode-account","recommendedPrimaryAction":"open-xcode-account-settings","operatorActionSequence":["open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","rerun-physical-iphone-helper-video-gate"],"diagnosticLabels":["xcode-account-unavailable-to-xcodebuild","development-team-supplied-but-xcode-account-missing","provisioning-cannot-be-validated-until-xcode-account-is-available"]},"issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","create-ios-development-provisioning-profile","enable-automatic-signing-or-create-development-profile"]}
 JSON
   cat >"$physical_ready_file" <<'JSON'
-{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"available","provisioningProfileStatus":"available","buildCheckStatus":"passed","issueCodes":[],"setupActionLabels":[]}
+{"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"available","provisioningProfileStatus":"available","buildCheckStatus":"passed","signingSetupSummary":{"schemaVersion":1,"readinessState":"ready","primaryBlockedGateLabel":"none","recommendedPrimaryAction":"run-physical-iphone-helper-video-gate","operatorActionSequence":["run-physical-iphone-helper-video-gate"],"diagnosticLabels":["physical-signing-ready"]},"issueCodes":[],"setupActionLabels":[]}
 JSON
   cat >"$vnc_file" <<'JSON'
 {"schemaVersion":1,"mode":"glance-025-10fps-duration-probe","status":"passed","report":{"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeProbe":{"summary":{"contentFramesPerSecond":1.9,"updateLatency":{"averageMilliseconds":503,"p95Milliseconds":632},"firstByteWaitLatency":{"p95Milliseconds":630},"payloadReadLatency":{"p95Milliseconds":0},"clientProcessingLatency":{"p95Milliseconds":2},"practicalAssessment":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed","primaryConstraint":"receivePath"}}}}}
@@ -6306,13 +6554,14 @@ JSON
     .transportCadenceGate.continuousUpdatesRecommendedNextAction == "inspectContinuousUpdatesConnection"
   ' "$sustained_blocked_summary_file" >/dev/null && jq -e '
     .overallGateState == "blockedByPhysicalIPhoneGate" and
-    .recommendedPrimaryAction == "add-xcode-account" and
+    .recommendedPrimaryAction == "open-xcode-account-settings" and
     (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     (.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
     .physicalIPhoneGate.status == "connected" and
     .physicalIPhoneGate.buildCheckStatus == "failed" and
     .physicalIPhoneGate.xcodeAccountStatus == "missing" and
     .physicalIPhoneGate.provisioningProfileStatus == "missing" and
+    .physicalIPhoneGate.signingSetupSummary.primaryBlockedGateLabel == "xcode-account" and
     (.physicalIPhoneGate.issueCodes | index("ios-provisioning-profile-missing")) and
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .vnc10fpsGate.productVerdict == "fail"
@@ -6523,6 +6772,10 @@ case "$mode" in
     ;;
   physical-iphone-helper-video-gate-self-test)
     physical_iphone_helper_video_gate_self_test
+    ;;
+  physical-signing-setup-summary-self-test)
+    reject_extra_args
+    physical_signing_setup_summary_self_test
     ;;
   helper-text-permission-watch)
     reject_extra_args
