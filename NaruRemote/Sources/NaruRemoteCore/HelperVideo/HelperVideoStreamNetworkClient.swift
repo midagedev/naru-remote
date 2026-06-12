@@ -28,7 +28,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
 
     public func startStream(
         _ requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody(),
-        maxServerFrames: Int = 16
+        maxServerFrames: Int = 16,
+        allowsPartialResultOnTimeout: Bool = false
     ) async throws -> HelperVideoStreamNetworkStartResult {
         guard let port = NWEndpoint.Port(rawValue: port) else {
             throw HelperVideoStreamNetworkClientError.invalidPort
@@ -62,12 +63,13 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 continuation: continuation,
                 connection: connection,
                 timer: timer,
-                timeout: timeout
+                timeout: timeout,
+                allowsPartialResultOnTimeout: allowsPartialResultOnTimeout
             )
 
             timer.schedule(deadline: .now() + timeout)
             timer.setEventHandler {
-                completion.complete(.failure(HelperVideoStreamNetworkClientError.timedOut))
+                completion.completeOnTimeout()
             }
             timer.resume()
 
@@ -596,6 +598,7 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
     private let connection: NWConnection
     private let timer: DispatchSourceTimer
     private let timeout: TimeInterval
+    private let allowsPartialResultOnTimeout: Bool
 
     init(
         requestID: UUID,
@@ -603,7 +606,8 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         continuation: CheckedContinuation<HelperVideoStreamNetworkStartResult, Error>,
         connection: NWConnection,
         timer: DispatchSourceTimer,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        allowsPartialResultOnTimeout: Bool
     ) {
         self.requestID = requestID
         self.maxServerFrames = maxServerFrames
@@ -611,6 +615,7 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         self.connection = connection
         self.timer = timer
         self.timeout = timeout
+        self.allowsPartialResultOnTimeout = allowsPartialResultOnTimeout
     }
 
     var shouldReceiveMoreFrames: Bool {
@@ -672,6 +677,21 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         let result: Result<HelperVideoStreamNetworkStartResult, Error> = lock.withLock {
             guard let startResponse else {
                 return .failure(HelperVideoStreamNetworkClientError.missingStartResponse)
+            }
+            return .success(HelperVideoStreamNetworkStartResult(
+                requestID: requestID,
+                startResponse: startResponse,
+                accessUnits: accessUnits,
+                stall: stall
+            ))
+        }
+        complete(result)
+    }
+
+    func completeOnTimeout() {
+        let result: Result<HelperVideoStreamNetworkStartResult, Error> = lock.withLock {
+            guard allowsPartialResultOnTimeout, let startResponse else {
+                return .failure(HelperVideoStreamNetworkClientError.timedOut)
             }
             return .success(HelperVideoStreamNetworkStartResult(
                 requestID: requestID,

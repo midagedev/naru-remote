@@ -2765,3 +2765,64 @@ aggregate benchmark FPS/timing metrics. It must not emit helper paths, host
 values, credentials, device identifiers, account names, team names, raw helper
 or xcodebuild logs, screenshots, pixels, byte counts, exact timings, Compose
 text, marked text, keysyms, pointer coordinates, or clipboard contents.
+
+## D68 - Promote sustained ScreenCaptureKit capture to a helper-video gate
+
+**Decision**: Add `external-helper-sustained-screen-capturekit-tcp` and a
+`helper-sustained-screen-probe` script mode, then include that probe in both
+`helper-readiness-sweep` and `remote-desktop-10fps-readiness`. The probe runs a
+small local stimulus window before starting the external helper ScreenCaptureKit
+stream, allows safe partial benchmark results after the start response when the
+stream idles, and reports fixed sustained screen-capture verdict, readiness,
+action, and issue labels beside the existing smoke ScreenCaptureKit probe.
+
+**Implementation policy**:
+- Prefer the main display from `SCShareableContent` so the benchmark captures
+  the display the operator is usually testing.
+- Scale `readability` ScreenCaptureKit output to a 960-pixel long edge,
+  `balanced` output to a 1920-pixel long edge, and keep `fidelity` native.
+- Use finite ScreenCaptureKit `queueDepth=5` for bounded benchmark captures and
+  continuous `queueDepth=3` with newest-one async buffering for unbounded
+  streams.
+- Keep the continuous helper-video stream lossy in the capture-to-encode queue;
+  a sustained iPhone viewer should prefer the freshest visible desktop state
+  over building backpressure and heat.
+
+**Rationale**:
+- The previous true ScreenCaptureKit smoke probe could pass with only a tiny
+  frame sample while the sustained ScreenCaptureKit path still timed out or
+  degraded. That hid the user's actual problem: low-FPS, hot-device,
+  non-smooth long sessions.
+- A controlled stimulus window makes the live-capture benchmark less dependent
+  on incidental desktop motion while still exercising the real
+  ScreenCaptureKit-to-helper-TCP-to-benchmark path.
+- Safe partial completion after a start response distinguishes a working stream
+  that produced useful frames and then idled from a transport that never became
+  usable.
+- Downscaling the first readability tier reduces encoder, decoder, traffic,
+  and thermal pressure while keeping the helper-video path aimed at phone-first
+  terminal readability rather than native-desktop fidelity.
+
+**Evidence**:
+- Before this change, `helper-sustained-screen-probe` with the external
+  ScreenCaptureKit helper timed out or reported sustained degradation even when
+  synthetic sustained helper-video was smooth.
+- After the stimulus, partial-on-idle handling, readability capture policy, and
+  finite queue-depth tuning, `scripts/run-naru-live-benchmark.sh
+  helper-sustained-screen-probe` reports `verdict=pass`,
+  `readinessState=readyForPhysicalGate`, `sustainedUpdateBand=smooth`, and
+  low decode pressure.
+- `scripts/run-naru-live-benchmark.sh helper-readiness-sweep` now passes
+  synthetic, sustained synthetic, screen, and sustained screen probes.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` now
+  includes the sustained screen-capture gate while VNC remains below the 10fps
+  product floor and the physical iPhone gate is still blocked by signing setup.
+
+**Privacy rule**: The sustained ScreenCaptureKit benchmark may expose only fixed
+mode, verdict, readiness, action, issue, startup-band, sustained-band, and
+decode-pressure labels plus aggregate benchmark buckets already permitted by
+the helper-video report schema. It must not emit helper paths, host values,
+credentials, device identifiers, account names, team names, raw helper or
+xcodebuild logs, screenshots, pixels, display dimensions, byte counts, exact
+timings, Compose text, marked text, keysyms, pointer coordinates, or clipboard
+contents.

@@ -644,7 +644,9 @@ public enum BenchmarkLiveEnvironmentPreflightSetupAction: String, Codable, Equat
 private extension BenchmarkHelperVideoProbeMode {
     var requiresScreenCapturePermission: Bool {
         switch self {
-        case .screenCaptureKitTCP, .externalHelperScreenCaptureKitTCP:
+        case .screenCaptureKitTCP,
+             .externalHelperScreenCaptureKitTCP,
+             .externalHelperSustainedScreenCaptureKitTCP:
             return true
         case .disabled,
              .syntheticTCP,
@@ -657,9 +659,11 @@ private extension BenchmarkHelperVideoProbeMode {
 
     var delegatesScreenCapturePermissionToExternalHelper: Bool {
         self == .externalHelperScreenCaptureKitTCP
+            || self == .externalHelperSustainedScreenCaptureKitTCP
     }
 
     var usesExternalHelperScreenCapture: Bool {
         self == .externalHelperScreenCaptureKitTCP
+            || self == .externalHelperSustainedScreenCaptureKitTCP
     }
 }

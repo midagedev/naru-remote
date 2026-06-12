@@ -13,6 +13,7 @@ Modes:
   helper-synthetic-probe   Helper-video probe-only run with external synthetic H.264.
   helper-sustained-synthetic-probe Helper-video sustained external synthetic H.264 run.
   helper-screen-probe      Helper-video probe-only run with external ScreenCaptureKit.
+  helper-sustained-screen-probe Helper-video sustained external ScreenCaptureKit run.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   helper-dev-app-setup     Install dev helper app, set launchctl, request Screen Recording.
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
@@ -3878,10 +3879,18 @@ print_helper_dev_app_setup_report() {
   printf ',\n'
   printf '  "capabilityAfterRequest": %s,\n' "$capability_after_request"
   printf '  "issueCodes": '
-  json_string_array "${issue_codes[@]}"
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "setupActionLabels": '
-  json_string_array "${setup_actions[@]}"
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "safety": [\n'
   printf '    "helper executable paths, team identifiers, signing identities, raw install logs, endpoints, credentials, pixels, byte counts, and exact timings are not emitted",\n'
@@ -4026,10 +4035,18 @@ print_helper_text_dev_app_setup_report() {
   printf '  "textPermissionRequest": %s,\n' "$text_permission_request"
   printf '  "textCapabilityAfterRequest": %s,\n' "$text_capability_after_request"
   printf '  "issueCodes": '
-  json_string_array "${issue_codes[@]}"
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "setupActionLabels": '
-  json_string_array "${setup_actions[@]}"
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
   printf ',\n'
   printf '  "safety": [\n'
   printf '    "helper-text-dev-app-setup emits fixed install/signing/env, permission identity, capability, issue, and action labels only",\n'
@@ -5440,6 +5457,7 @@ print_helper_video_live_gate_summary() {
       def screen_verdict: hreport("screenProbe").verdict // "unknown";
       def synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
       def sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
+      def sustained_screen_verdict: hreport("sustainedScreenProbe").verdict // screen_verdict;
       def bootstrap_status: first($bootstrap).status // "unknown";
       def physical_issue_codes: first($physical).issueCodes // [];
       def physical_setup_actions: first($physical).setupActionLabels // [];
@@ -5458,6 +5476,7 @@ print_helper_video_live_gate_summary() {
           if watch_status == "granted" and synthetic_verdict != "pass" then "helper-video-synthetic-gate-blocked" else empty end,
           if watch_status == "granted" and sustained_verdict != "pass" then "helper-video-sustained-synthetic-gate-blocked" else empty end,
           if watch_status == "granted" and screen_verdict != "pass" then "helper-video-screen-capture-gate-blocked" else empty end,
+          if watch_status == "granted" and sustained_screen_verdict != "pass" then "helper-video-sustained-screen-capture-gate-blocked" else empty end,
           if watch_status == "granted" and screen_verdict == "pass" and bootstrap_status == "skipped" then "helper-video-app-bootstrap-skipped" else empty end,
           if watch_status == "granted" and screen_verdict == "pass" and bootstrap_status == "failed" then "helper-video-app-bootstrap-failed" else empty end,
           if physical_ready then empty else "physical-iphone-gate-blocked" end
@@ -5467,6 +5486,7 @@ print_helper_video_live_gate_summary() {
         elif synthetic_verdict != "pass" then "blockedByHelperSyntheticTransport"
         elif sustained_verdict != "pass" then "blockedByHelperSustainedSyntheticTransport"
         elif screen_verdict != "pass" then "blockedByHelperScreenCapture"
+        elif sustained_screen_verdict != "pass" then "blockedByHelperSustainedScreenCapture"
         elif bootstrap_status == "passed" and physical_ready then "readyForPhysicalIPhoneGate"
         elif bootstrap_status == "passed" then "blockedByPhysicalIPhoneGate"
         elif bootstrap_status == "skipped" then "blockedByAppBootstrapPermission"
@@ -5478,6 +5498,7 @@ print_helper_video_live_gate_summary() {
         elif synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif screen_verdict != "pass" then "rerun-helper-screen-probe"
+        elif sustained_screen_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif bootstrap_status == "passed" and physical_ready then "run-physical-iphone-helper-video-gate"
         elif bootstrap_status == "passed" then physical_recommended_action
         elif bootstrap_status == "skipped" then ((first($bootstrap).setupActionLabels // [])[0] // "inspect-screen-capturekit-app-bootstrap-benchmark")
@@ -5508,9 +5529,13 @@ print_helper_video_live_gate_summary() {
           syntheticVerdict: synthetic_verdict,
           sustainedSyntheticVerdict: sustained_verdict,
           screenCaptureVerdict: screen_verdict,
+          sustainedScreenCaptureVerdict: sustained_screen_verdict,
           screenCaptureReadinessState: (hreport("screenProbe").readinessState // "unknown"),
           screenCaptureRecommendedAction: (hreport("screenProbe").recommendedAction // "unknown"),
-          screenCaptureIssueCodes: (hreport("screenProbe").issueCodes // [])
+          sustainedScreenCaptureReadinessState: (hreport("sustainedScreenProbe").readinessState // (hreport("screenProbe").readinessState // "unknown")),
+          sustainedScreenCaptureRecommendedAction: (hreport("sustainedScreenProbe").recommendedAction // (hreport("screenProbe").recommendedAction // "unknown")),
+          screenCaptureIssueCodes: (hreport("screenProbe").issueCodes // []),
+          sustainedScreenCaptureIssueCodes: (hreport("sustainedScreenProbe").issueCodes // (hreport("screenProbe").issueCodes // []))
         },
         appBootstrapGate: {
           status: bootstrap_status,
@@ -5812,7 +5837,42 @@ print_helper_readiness_sweep_report() {
     --visual-transport helper-video \
     --helper-video-probe external-helper-screen-capturekit-tcp \
     --json
+  printf ',\n'
+  printf '  "sustainedScreenProbe": '
+  json_step_or_fixed_failure \
+    externalSustainedScreenCaptureKitProbe \
+    benchmarkStep.externalSustainedScreenCaptureKitProbe.failed \
+    run_helper_sustained_screen_probe_command
   printf '\n}\n'
+}
+
+run_helper_sustained_screen_probe_command() {
+  swift build --quiet --product VNCLiveStimulusWindow
+  local stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  local stimulus_duration="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_DURATION_SECONDS:-8}"
+  local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
+  local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
+  "$stimulus_executable" \
+    --duration "$stimulus_duration" \
+    --frame-interval "$stimulus_frame_interval" \
+    --width 960 \
+    --height 720 \
+    --x 24 \
+    --y 24 \
+    >/dev/null 2>&1 &
+  local stimulus_pid=$!
+  sleep "$stimulus_warmup"
+
+  local status=0
+  run_benchmark_with_extra \
+    --helper-video-probe-only \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-sustained-screen-capturekit-tcp \
+    --json || status=$?
+
+  kill "$stimulus_pid" >/dev/null 2>&1 || true
+  wait "$stimulus_pid" >/dev/null 2>&1 || true
+  return "$status"
 }
 
 print_helper_screen_app_bootstrap_benchmark_report() {
@@ -5944,6 +6004,8 @@ print_remote_desktop_10fps_readiness_gate_summary() {
       def helper_synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
       def helper_sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
       def helper_screen_verdict: hreport("screenProbe").verdict // "unknown";
+      def helper_sustained_screen_verdict:
+        hreport("sustainedScreenProbe").verdict // helper_screen_verdict;
       def helper_screen_readiness_state: hreport("screenProbe").readinessState // "unknown";
       def helper_screen_recommended_action: hreport("screenProbe").recommendedAction // "rerun-helper-screen-probe";
       def helper_screen_recording_permission:
@@ -5967,10 +6029,12 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           if helper_synthetic_verdict != "pass" then "helper-video-synthetic-gate-blocked" else empty end,
           if helper_sustained_verdict != "pass" then "helper-video-sustained-synthetic-gate-blocked" else empty end,
           if helper_screen_verdict != "pass" then "helper-video-screen-capture-gate-blocked" else empty end,
+          if helper_sustained_screen_verdict != "pass" then "helper-video-sustained-screen-capture-gate-blocked" else empty end,
           if vnc_product_verdict != "pass" then "vnc-10fps-product-gate-failed" else empty end
         ];
       def overall_gate_state:
         if helper_screen_verdict != "pass" then "blockedByHelperScreenCapture"
+        elif helper_sustained_screen_verdict != "pass" then "blockedByHelperSustainedScreenCapture"
         elif helper_synthetic_verdict != "pass" then "blockedByHelperSyntheticTransport"
         elif helper_sustained_verdict != "pass" then "blockedByHelperSustainedSyntheticTransport"
         elif (physical_ready | not) then "blockedByPhysicalIPhoneGate"
@@ -5979,6 +6043,7 @@ print_remote_desktop_10fps_readiness_gate_summary() {
         end;
       def recommended_action:
         if helper_screen_verdict != "pass" then helper_screen_capture_action
+        elif helper_sustained_screen_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif helper_synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif helper_sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
         elif (physical_ready | not) then physical_recommended_action
@@ -6006,11 +6071,15 @@ print_remote_desktop_10fps_readiness_gate_summary() {
           syntheticVerdict: helper_synthetic_verdict,
           sustainedSyntheticVerdict: helper_sustained_verdict,
           screenCaptureVerdict: helper_screen_verdict,
+          sustainedScreenCaptureVerdict: helper_sustained_screen_verdict,
           sustainedSyntheticReadinessState: (hreport("sustainedSyntheticProbe").readinessState // "unknown"),
           sustainedSyntheticRecommendedAction: (hreport("sustainedSyntheticProbe").recommendedAction // "unknown"),
           screenCaptureReadinessState: helper_screen_readiness_state,
           screenCaptureRecommendedAction: helper_screen_recommended_action,
+          sustainedScreenCaptureReadinessState: (hreport("sustainedScreenProbe").readinessState // helper_screen_readiness_state),
+          sustainedScreenCaptureRecommendedAction: (hreport("sustainedScreenProbe").recommendedAction // helper_screen_recommended_action),
           screenCaptureIssueCodes: (hreport("screenProbe").issueCodes // []),
+          sustainedScreenCaptureIssueCodes: (hreport("sustainedScreenProbe").issueCodes // (hreport("screenProbe").issueCodes // [])),
           capabilityAvailability: (first($helper).capability.availability // "unknown"),
           screenRecordingPermission: helper_screen_recording_permission
         },
@@ -6760,6 +6829,11 @@ case "$mode" in
       --visual-transport helper-video \
       --helper-video-probe external-helper-screen-capturekit-tcp \
       --json
+    ;;
+  helper-sustained-screen-probe)
+    import_helper_env
+    cd "$repo_root"
+    run_helper_sustained_screen_probe_command
     ;;
   helper-readiness-sweep)
     reject_extra_args
