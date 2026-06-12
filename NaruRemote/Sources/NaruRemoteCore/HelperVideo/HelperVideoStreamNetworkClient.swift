@@ -57,7 +57,7 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
             let connection = NWConnection(
                 host: NWEndpoint.Host(host),
                 port: port,
-                using: .tcp
+                using: NaruLowLatencyTCPParameters.make()
             )
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let completion = HelperVideoStreamNetworkCompletion(
@@ -130,7 +130,7 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         let connection = NWConnection(
             host: NWEndpoint.Host(host),
             port: port,
-            using: .tcp
+            using: NaruLowLatencyTCPParameters.make()
         )
         let timer = DispatchSource.makeTimerSource(queue: queue)
         let mailbox = HelperVideoStreamNetworkEventMailbox(

@@ -619,6 +619,28 @@ without unsafe report fields.
   overlays remain only as the no-Metal fallback. Covered by viewport geometry
   policy tests, existing trackpad hot-path regressions, sample-buffer layer
   transform coverage, and the iOS simulator app build. **Done.**
+- [x] T031AP [US2] Add a UIKit-free helper-video viewport/input hot-path
+  benchmark seam so pan, pinch, and zoomed trackpad auto-pan can be measured
+  without constructing `UIView`/`MTKView` inside XCTest. This keeps the
+  simulator benchmark stable after direct rendererless-host instantiation
+  proved prone to hanging the test runner, and it makes future alternatives
+  comparable before physical-device promotion. Covered by Core driver tests,
+  SwiftPM benchmark smoke, and iOS simulator opt-in benchmark evidence.
+  **Done.**
+- [x] T031AQ [US1] Bound helper-video display-layer backpressure queries during
+  delta bursts. After the renderer reports a backpressured delta, the app drops
+  a short run of following deltas without re-entering the renderer/MainActor
+  for each one, while parameter sets, keyframes, and end-of-stream units reset
+  the window and still render for decoder sync/recovery. Covered by pure gate
+  tests, helper-video stream runner regressions, and iOS simulator compile
+  smoke. **Done.**
+- [x] T031AR [US1] Use low-latency TCP parameters for interactive VNC and
+  helper transports. RFB sessions, helper-video streams, and helper text insert
+  requests now create `NWConnection` instances with TCP `noDelay` enabled so
+  small framebuffer requests, input events, helper control frames, and text
+  insert requests are not held behind Nagle-style packet coalescing. Covered by
+  a pure Network-parameter test plus fake-server RFB handshake/key-event
+  regressions and the helper-video runner/input smoke tests. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

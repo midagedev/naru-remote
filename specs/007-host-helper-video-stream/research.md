@@ -3010,3 +3010,147 @@ capability/policy labels and aggregate gesture diagnostics. It must not export
 helper endpoints, host names, display dimensions, raw frame payloads, byte
 counts, exact frame timings, pointer coordinates, Compose text, keysyms,
 clipboard contents, or raw UIKit/Xcode logs.
+
+## D73 - Benchmark viewport/input math without constructing UIKit hosts
+
+**Decision**: Add a `NaruRemoteCore` viewport hot-path driver and make the
+helper-video viewport/input benchmark exercise direct pan, pinch, and zoomed
+trackpad auto-pan through pure `ViewportTransform` and `PointerGestureResolver`
+state. The benchmark target no longer constructs `MetalFramebufferHostingView`
+directly. UIKit host tests remain useful as narrow smoke tests, but sustained
+throughput comparisons must use the pure driver first and only promote to
+UIView/XCUITest or physical-device checks after the math path is stable.
+
+**Rationale**:
+- Directly instantiating the rendererless UIKit host inside an iOS unit test
+  compiled but then left the XCTest runner hanging after the test started.
+  That made the harness less trustworthy than the code it was supposed to
+  measure.
+- The product problem has multiple candidate remedies: local viewport
+  compositor isolation, trackpad auto-pan tuning, helper-video decode/display
+  pressure, and VNC request/traffic shaping. A pure benchmark gives those
+  candidates a cheap shared baseline before paying the cost of simulator UI or
+  physical iPhone runs.
+- The Core driver is intentionally small and privacy-safe. It exports only
+  aggregate event counts and XCTest metrics, never frame content, pointer
+  coordinates from live sessions, host identifiers, byte counts, or raw timings
+  in product diagnostics.
+
+**Evidence**:
+- `swift test --filter
+  'ViewportInputHotPathDriverTests|HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms'`
+  passes with three selected tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=1
+  NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=240 swift test --filter
+  HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark`
+  passes on macOS and records a 240-sample pure hot-path run.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2'
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 10 test`
+  passes without the previous UIKit-host hang.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2'
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 10 test
+  NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=1
+  NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=240`
+  passes and records `Clock Monotonic Time` about `0.000592s` for one
+  240-sample iteration on the simulator path.
+
+**Privacy rule**: The benchmark may report XCTest aggregate metrics, sample
+counts, fixed path labels, and pass/fail status only. It must not record live
+host endpoints, display dimensions from a user's session, frame payloads,
+screenshots, byte counters, exact live-frame timing series, pointer coordinates
+from a real session, Compose text, keysyms, clipboard contents, or raw
+Xcode/UIKit logs in product diagnostics.
+
+## D74 - Bound repeated helper-video backpressure checks during delta bursts
+
+**Decision**: Add a pure `HelperVideoRenderBackpressureGate` in
+`NaruRemoteCore` and use it in the helper-video stream session runner. Once the
+renderer reports that a delta access unit should be dropped for display-layer
+backpressure, the runner drops the next bounded run of delta access units
+without re-querying the renderer for each one. Parameter sets, keyframes, and
+end-of-stream units always reset the skip window and render without a
+backpressure query so decoder synchronization and visible recovery remain
+preserved.
+
+**Rationale**:
+- D59 correctly avoided preparing/enqueuing stale delta frames when
+`AVSampleBufferDisplayLayer` was full, but the runner still hopped to the
+renderer/MainActor for every access unit to ask the same question. During a
+real display backlog, that repeated query path can compete with touch,
+keyboard, and viewport UI work even though the answer is likely still
+"drop this delta".
+- The helper-video network mailbox already coalesces stale deltas before
+rendering, but a fast helper or bursty network path can still deliver a run of
+deltas to the app consumer. A bounded delta skip window reduces UI executor
+pressure without inventing an unbounded hidden queue.
+- Keyframes and parameter sets are never skipped by this gate. The app still
+gets recovery frames as soon as the stream provides them, and the gate checks
+again after the bounded delta window expires.
+
+**Evidence**:
+- `swift test --filter
+  'HelperVideoRenderBackpressureGateTests|HelperVideoStreamSessionRunnerTests/testEventStreamDropsBackpressuredDeltaAccessUnitsButPreservesKeyframes|HelperVideoStreamSessionRunnerTests/testFiniteStartDropsBackpressuredDeltaAccessUnitsBeforePreparingSampleBuffers|HelperVideoStreamSessionRunnerTests/testEventStreamBoundsRepeatedDeltaBackpressureQueriesUntilKeyframeRecovery'`
+  passes. The burst regression receives 11 access units, drops 8 deltas, keeps
+  the parameter set and keyframes, and reduces renderer backpressure queries to
+  `[2, 9]` instead of querying every delta.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2'
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 10 test`
+  passes after XcodeGen refresh, proving the new Core gate compiles through the
+  iOS app/benchmark target graph.
+
+**Privacy rule**: The gate may expose only fixed backpressure/drop-window labels
+and aggregate counts in tests or future diagnostics. It must not log frame
+payloads, pixels, display dimensions, byte counters, exact live timing series,
+host values, credentials, physical device identifiers, pointer coordinates,
+Compose text, keysyms, or clipboard contents.
+
+## D75 - Prefer TCP noDelay for interactive viewer and helper transports
+
+**Decision**: Add a shared low-latency `NWParameters` factory that enables TCP
+`noDelay`, and use it for RFB session sockets, helper-video stream sockets, and
+helper text insert sockets. The change is intentionally scoped to transport
+construction; request cadence, timeout policy, frame decoding, and helper
+protocol schemas stay unchanged.
+
+**Rationale**:
+- The remaining user-visible lag has multiple possible causes. One separate
+  transport-level candidate is Nagle-style coalescing of small writes: RFB
+  framebuffer update requests, pointer/key events, helper-video JSON headers,
+  and helper text commands are all latency-sensitive and often small.
+- `noDelay` will not turn a slow VNC server into a high-frame-rate video
+  stream, and large H.264 payload delivery is less likely to benefit. It is
+  still a practical low-risk experiment for the "half beat late" feel in
+  input, frame request cadence, and helper control frames.
+- Keeping the option behind one shared Core factory makes future A/B benchmark
+  switches easier if live data shows increased packet overhead on poor
+  networks.
+
+**Evidence**:
+- `swift test --filter
+  'NaruLowLatencyTCPParametersTests|HelperVideoRenderBackpressureGateTests|HelperVideoStreamSessionRunnerTests|ViewportInputHotPathDriverTests|HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms|FakeRFBServerIntegrationTests/testProductionRFBNetworkClientCompletesInteractiveNoAuthFirstFrameHandshake|FakeRFBServerIntegrationTests/testProductionRFBNetworkClientSendsKeyEventsAfterInteractiveHandshake'`
+  passes. The new parameter test verifies `NWProtocolTCP.Options.noDelay`, and
+  the fake-server regressions prove the RFB handshake/key-event paths still
+  work over the updated connection construction.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` still
+  reports VNC below the product target after the transport change:
+  `contentFramesPerSecond` about `1.98`, request-response candidate about
+  `6.15` fps, and first-byte wait remains the primary receive-path constraint.
+  This confirms that `noDelay` is useful as an input/control latency experiment
+  but not sufficient as the main visual smoothness strategy.
+- The same live run reports external helper-video synthetic and sustained
+  synthetic probes as `pass` / `readyForPhysicalGate`, while ScreenCaptureKit
+  screen probes are currently `sustainedDegraded` with capability availability
+  `failed` and permission `granted`. Treat this as a current environment/capture
+  gate to investigate separately before claiming physical-device smoothness.
+
+**Privacy rule**: Transport tests may assert fixed configuration labels and
+protocol success only. They must not log endpoints, credentials, raw helper or
+VNC payloads, frame bytes, byte counts, exact live timing series, physical
+device identifiers, pointer coordinates, Compose text, keysyms, or clipboard
+contents.
