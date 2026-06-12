@@ -1772,6 +1772,9 @@ viewport_interaction_trace_self_test() {
     && benchmark_arg_equals --stream-shape-viewport-interaction app "${app_args[@]}" \
     && benchmark_arg_equals --stream-shape-practical-target iphone-remote-desktop-10fps-v1 "${app_args[@]}" \
     && benchmark_arg_equals --stream-shape-transport request-response "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-empty-backoff app "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-client-pressure app "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-power-mode normal "${app_args[@]}" \
     && benchmark_arg_equals --stream-shape-request-region viewport-phone-portrait "${app_args[@]}" \
     && benchmark_arg_equals --stream-shape-first-frame-request visible-glance "${app_args[@]}" \
     && benchmark_arg_equals --stream-shape-profiles local-low-latency-rgb565 "${app_args[@]}" \
