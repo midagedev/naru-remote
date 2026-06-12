@@ -18,6 +18,9 @@ public enum BenchmarkHelperVideoIssueCode: String, Codable, Equatable, CaseItera
     case externalHelperUnavailable = "helper-video-external-helper-unavailable"
     case externalHelperTimedOut = "helper-video-external-helper-timed-out"
     case transportFailed = "helper-video-transport-failed"
+    case captureSourceUnavailable = "helper-video-capture-source-unavailable"
+    case captureTimedOut = "helper-video-capture-timed-out"
+    case captureFailed = "helper-video-capture-failed"
 }
 
 public enum BenchmarkHelperVideoReadinessState: String, Codable, Equatable, CaseIterable, Sendable {
@@ -36,6 +39,7 @@ public enum BenchmarkHelperVideoRecommendedAction: String, Codable, Equatable, C
     case grantScreenRecordingPermission = "grant-helper-video-app-screen-recording-permission"
     case inspectHelperVideoTransport = "inspect-helper-video-transport"
     case inspectHelperVideoStartup = "inspect-helper-video-startup"
+    case inspectHelperVideoCaptureSource = "inspect-helper-video-capture-source"
     case inspectHelperVideoSustainedCadence = "inspect-helper-video-sustained-cadence"
     case inspectHelperVideoDecodePressure = "inspect-helper-video-decode-pressure"
     case runTrueHelperVideoLiveCaptureBenchmark = "run-true-helper-video-live-capture-benchmark"
@@ -152,7 +156,10 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         )
         self.readinessState = readinessState ?? derivedReadiness
         self.recommendedAction = recommendedAction
-            ?? Self.recommendedAction(for: self.readinessState)
+            ?? Self.recommendedAction(
+                for: self.readinessState,
+                issueCodes: self.issueCodes
+            )
     }
 
     public init(
@@ -370,8 +377,19 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
     }
 
     private static func recommendedAction(
-        for readinessState: BenchmarkHelperVideoReadinessState
+        for readinessState: BenchmarkHelperVideoReadinessState,
+        issueCodes: [BenchmarkHelperVideoIssueCode]
     ) -> BenchmarkHelperVideoRecommendedAction {
+        if readinessState == .permissionBlocked {
+            return .grantScreenRecordingPermission
+        }
+        if issueCodes.contains(.captureSourceUnavailable)
+            || issueCodes.contains(.captureTimedOut)
+            || issueCodes.contains(.captureFailed)
+        {
+            return .inspectHelperVideoCaptureSource
+        }
+
         switch readinessState {
         case .disabled:
             return .enableHelperVideo

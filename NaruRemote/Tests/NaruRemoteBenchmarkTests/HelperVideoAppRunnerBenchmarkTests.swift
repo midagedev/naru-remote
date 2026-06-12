@@ -438,12 +438,16 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             throw XCTSkip("External helper capability is unavailable.")
         }
 
-        guard response.availability == .available,
-              response.screenRecordingPermission == .granted
-        else {
+        guard response.screenRecordingPermission == .granted else {
             throw XCTSkip(
                 "Grant Screen Recording to the external helper app before running this smoke."
             )
+        }
+        guard response.captureSourceState == .available else {
+            throw XCTSkip("External helper capture source is unavailable.")
+        }
+        guard response.availability == .available else {
+            throw XCTSkip("External helper capability is unavailable.")
         }
     }
 

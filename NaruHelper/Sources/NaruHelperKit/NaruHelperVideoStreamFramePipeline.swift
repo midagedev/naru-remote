@@ -108,18 +108,58 @@ public struct NaruHelperVideoOpenedFrameStream: Sendable {
         )
     }
 
-    public func stalledFrameForEmptyStream() throws -> Data {
+    public func stalledFrameForEmptyStream(
+        reason: HelperVideoStreamStallReason = .noAccessUnit
+    ) throws -> Data {
         let envelope = HelperVideoWireEnvelope(
             requestID: request.requestID,
             messageType: .streamStalled,
             profileFingerprint: request.profileFingerprint,
             authProof: nil,
             body: HelperVideoStreamStallBody(
-                reason: .noAccessUnit,
+                reason: reason,
                 health: emptyStreamHealth
             )
         )
         return try HelperVideoWireCodec.frame(envelope)
+    }
+
+    func stalledFrameForSourceFailure(
+        _ error: any Error,
+        emittedAccessUnit: Bool
+    ) throws -> Data? {
+        guard let reason = Self.stallReasonForSourceFailure(
+            error,
+            emittedAccessUnit: emittedAccessUnit
+        ) else {
+            return nil
+        }
+        return try stalledFrameForEmptyStream(reason: reason)
+    }
+
+    private static func stallReasonForSourceFailure(
+        _ error: any Error,
+        emittedAccessUnit: Bool
+    ) -> HelperVideoStreamStallReason? {
+        guard !emittedAccessUnit else {
+            return nil
+        }
+        guard let screenCaptureError =
+            error as? NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+        else {
+            return nil
+        }
+
+        switch screenCaptureError {
+        case .captureSourceUnavailable, .unsupportedPlatform:
+            return .screenCaptureSourceUnavailable
+        case .captureTimedOut, .noCapturedFrames:
+            return .screenCaptureTimedOut
+        case .captureFailed, .capturedFrameMissingImageBuffer:
+            return .screenCaptureFailed
+        case .screenRecordingPermissionMissing:
+            return .screenCaptureSourceUnavailable
+        }
     }
 }
 
@@ -206,6 +246,14 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
                     }
                     continuation.finish()
                 } catch {
+                    if let stallFrame = try openedStream.stalledFrameForSourceFailure(
+                        error,
+                        emittedAccessUnit: emittedAccessUnit
+                    ) {
+                        continuation.yield(stallFrame)
+                        continuation.finish()
+                        return
+                    }
                     continuation.finish(throwing: error)
                 }
             }

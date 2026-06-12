@@ -34,6 +34,9 @@ public enum HelperVideoKeyframeRequestReason: String, Codable, Equatable, CaseIt
 public enum HelperVideoStreamStallReason: String, Codable, Equatable, CaseIterable, Sendable {
     case noAccessUnit
     case encoderUnavailable
+    case screenCaptureSourceUnavailable
+    case screenCaptureTimedOut
+    case screenCaptureFailed
     case transportBackpressure
     case unknown
 }

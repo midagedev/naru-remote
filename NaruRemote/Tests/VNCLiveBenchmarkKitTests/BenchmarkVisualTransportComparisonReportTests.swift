@@ -179,6 +179,33 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         XCTAssertEqual(helperReport.issueCodes, [])
     }
 
+    func testScreenCaptureKitTCPProbeMapsInjectedCaptureTimeoutToSafeIssueCode() throws {
+        let report = BenchmarkHelperVideoProbe.makeComparison(
+            selection: try .parse("helper-video"),
+            probeMode: .screenCaptureKitTCP,
+            screenCaptureKitAccessUnitSource: FailingHelperVideoAccessUnitSource(
+                error: NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+            )
+        )
+        let helperReport = try XCTUnwrap(report.helperVideoReports.first)
+        let json = String(decoding: try JSONEncoder().encode(helperReport), as: UTF8.self)
+
+        XCTAssertEqual(helperReport.verdict, .fail)
+        XCTAssertTrue(
+            helperReport.issueCodes.contains(.captureTimedOut),
+            "\(helperReport.issueCodes) \(json)"
+        )
+        XCTAssertEqual(helperReport.recommendedAction, .inspectHelperVideoCaptureSource)
+        XCTAssertTrue(
+            helperReport.issueCodes.contains(.streamUnhealthy),
+            "\(helperReport.issueCodes) \(json)"
+        )
+        XCTAssertTrue(json.contains("helper-video-capture-timed-out"), json)
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("screencapturekit"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("raw"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
+    }
+
     func testExternalHelperSyntheticEncodedTCPProbeFailsSafelyWhenExecutableIsMissing() throws {
         let missingPath = "/tmp/naru-helper-missing-\(UUID().uuidString)"
         let helperReport = BenchmarkHelperVideoProbe.externalHelperSyntheticEncodedTCPHelperVideoReport(
@@ -280,5 +307,22 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         for sentinel in forbiddenSentinels {
             XCTAssertFalse(json.contains(sentinel), "visual transport comparison leaked \(sentinel)")
         }
+    }
+}
+
+private final class FailingHelperVideoAccessUnitSource:
+    NaruHelperVideoAccessUnitSource,
+    @unchecked Sendable
+{
+    private let error: any Error
+
+    init(error: any Error) {
+        self.error = error
+    }
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        throw error
     }
 }

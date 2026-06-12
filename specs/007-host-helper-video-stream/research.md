@@ -3154,3 +3154,54 @@ protocol success only. They must not log endpoints, credentials, raw helper or
 VNC payloads, frame bytes, byte counts, exact live timing series, physical
 device identifiers, pointer coordinates, Compose text, keysyms, or clipboard
 contents.
+
+## D76 - Preserve helper ScreenCaptureKit source failures as typed stream stalls
+
+**Decision**: When the helper accepts a video stream request but the
+ScreenCaptureKit access-unit source fails before the first encoded access unit,
+the helper TCP path should send a safe `streamStalled` frame with a
+capture-specific stall reason instead of cancelling the connection or reporting
+only a generic sustained stall. Benchmark reports map those stall reasons to
+fixed issue codes (`helper-video-capture-source-unavailable`,
+`helper-video-capture-timed-out`, `helper-video-capture-failed`) and route
+readiness summaries to `inspect-helper-video-capture-source`.
+
+**Rationale**:
+- Live helper evidence showed Screen Recording permission can be `granted`
+  while ScreenCaptureKit shareable capture sources are still `unavailable`.
+  Reporting this as permission missing asks the operator to repeat the wrong
+  action, and reporting it as only sustained cadence hides the capture boundary
+  that needs investigation.
+- The helper frame pipeline already has a safe stall frame. The real TCP server
+  must preserve the same diagnostic contract, because live benchmarks exercise
+  `openFrameStream` directly to send the accepted start response before capture
+  work begins.
+- The app and benchmark still do not export raw OS errors, display metadata,
+  pixels, payload bytes, endpoints, credentials, exact timings, or helper
+  executable paths. The extra information is limited to fixed issue/action
+  labels.
+
+**Evidence**:
+- `swift test --filter
+  'NaruHelperVideoStreamFramePipelineTests|NaruHelperVideoStreamNetworkServiceTests|BenchmarkVisualTransportComparisonReportTests|BenchmarkHelperVideoReportTests|HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke|HelperVideoTests|NaruHelperVideoCaptureCapabilityProbeTests'`
+  passes with 67 selected tests and one expected opt-in benchmark skip.
+- `scripts/run-naru-live-benchmark.sh helper-screen-probe` reports
+  `helper-video-capture-source-unavailable` and
+  `recommendedAction=inspect-helper-video-capture-source` when the helper
+  capability is permission `granted` but capture source `unavailable`.
+- `scripts/run-naru-live-benchmark.sh helper-sustained-screen-probe` reports
+  the same fixed capture-source issue/action for the sustained gate.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  now skips with `helper-video-capture-source-unavailable` instead of
+  `helper-video-permission-missing`.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` now aligns the
+  top-level `gateSummary`, screen probes, sustained screen probes, and app
+  bootstrap gate on `inspect-helper-video-capture-source`; synthetic and
+  sustained synthetic H.264 helper probes still pass.
+
+**Privacy rule**: Capture-source diagnostics must remain catalog-only. They may
+emit fixed permission/source issue codes, readiness states, recommended action
+labels, and safe capability status only; they must not include raw
+ScreenCaptureKit errors, app/window/display names, dimensions, pixels, frame
+payloads, byte counters, endpoints, credentials, physical device identifiers,
+or exact timing series.
