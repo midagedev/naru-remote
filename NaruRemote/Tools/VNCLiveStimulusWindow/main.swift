@@ -26,21 +26,29 @@ enum VNCLiveStimulusWindow {
     }
 
     private static func runAnimation(options: StimulusOptions, app: NSApplication) {
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(options.titledAnimationWindow ? .regular : .accessory)
         let view = StimulusView(frame: NSRect(origin: .zero, size: options.size))
         let window = NSWindow(
             contentRect: NSRect(origin: options.origin, size: options.size),
-            styleMask: [.borderless],
+            styleMask: options.titledAnimationWindow ? [.titled] : [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.level = .floating
+        window.title = options.titledAnimationWindow ? "Naru Video Probe" : ""
+        window.level = options.titledAnimationWindow ? .normal : .floating
         window.backgroundColor = .black
         window.isOpaque = true
-        window.ignoresMouseEvents = true
+        window.ignoresMouseEvents = !options.titledAnimationWindow
         window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         window.contentView = view
+        if options.titledAnimationWindow {
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            app.activate(ignoringOtherApps: true)
+        }
         window.makeKeyAndOrderFront(nil)
+        if options.titledAnimationWindow {
+            window.orderFrontRegardless()
+        }
 
         let animationController = StimulusController(
             app: app,
@@ -269,6 +277,7 @@ private struct StimulusOptions {
     var origin: NSPoint
     var textProbePayload: BenchmarkTextKeystrokeProbePayload
     var resultFilePath: String?
+    var titledAnimationWindow: Bool
 
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
@@ -278,7 +287,8 @@ private struct StimulusOptions {
             size: NSSize(width: 420, height: 240),
             origin: NSPoint(x: 72, y: 72),
             textProbePayload: .unicodeHangul,
-            resultFilePath: nil
+            resultFilePath: nil,
+            titledAnimationWindow: false
         )
         var index = arguments.startIndex
 
@@ -287,6 +297,9 @@ private struct StimulusOptions {
             switch argument {
             case "--text-probe":
                 options.mode = .textProbe
+                index = arguments.index(after: index)
+            case "--titled-animation-window":
+                options.titledAnimationWindow = true
                 index = arguments.index(after: index)
             case "--text-probe-payload":
                 if let value = value(after: index, in: arguments),

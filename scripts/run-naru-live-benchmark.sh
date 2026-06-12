@@ -5907,6 +5907,7 @@ run_helper_sustained_screen_probe_command() {
   local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
   local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
   "$stimulus_executable" \
+    --titled-animation-window \
     --duration "$stimulus_duration" \
     --frame-interval "$stimulus_frame_interval" \
     --width 960 \
@@ -6584,6 +6585,7 @@ remote_desktop_readiness_summary_self_test() {
   local physical_blocked_summary_file
   local live_gate_ready_summary_file
   local readiness_file
+  local next_actions_file
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
@@ -6599,6 +6601,7 @@ remote_desktop_readiness_summary_self_test() {
   physical_blocked_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-physical.XXXXXX")"
   live_gate_ready_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-live-ready.XXXXXX")"
   readiness_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-contract.XXXXXX")"
+  next_actions_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-next-actions.XXXXXX")"
 
   cat >"$physical_file" <<'JSON'
 {"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"unavailable","issueCodes":["physical-iphone-device-unavailable"],"setupActionLabels":["unlock-connect-and-enable-developer-mode"]}
@@ -6653,6 +6656,8 @@ JSON
     "$helper_ready_file" \
     "$vnc_file" \
     "$transport_file" >"$live_gate_ready_summary_file"
+  print_remote_desktop_10fps_next_action_labels \
+    "$physical_blocked_summary_file" >"$next_actions_file"
 
   {
     printf '{"schemaVersion":2,"mode":"remote-desktop-10fps-readiness","physicalDevicePreflight":'
@@ -6728,6 +6733,12 @@ JSON
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .vnc10fpsGate.productVerdict == "fail"
   ' "$physical_blocked_summary_file" >/dev/null && jq -e '
+    (index("grant-helper-video-app-screen-recording-permission") | not) and
+    (index("inspect-helper-video-capture-source") | not) and
+    (index("open-xcode-account-settings")) and
+    (index("run-physical-iphone-helper-video-gate")) and
+    (index("keep-vnc-as-control-fallback-until-helper-video-physical-gate"))
+  ' "$next_actions_file" >/dev/null && jq -e '
     .overallGateState == "vncFailedHelperVideoReadyForLiveGate" and
     .recommendedPrimaryAction == "run-true-helper-video-live-capture-benchmark" and
     (.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
@@ -6763,7 +6774,7 @@ JSON
       "$screen_degraded_helper_file" "$screen_degraded_summary_file" \
       "$physical_signing_blocked_file" "$physical_ready_file" \
       "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
-      "$readiness_file"
+      "$readiness_file" "$next_actions_file"
     exit 1
   fi
 
@@ -6772,7 +6783,60 @@ JSON
     "$screen_degraded_helper_file" "$screen_degraded_summary_file" \
     "$physical_signing_blocked_file" "$physical_ready_file" \
     "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
-    "$readiness_file"
+    "$readiness_file" "$next_actions_file"
+}
+
+print_remote_desktop_10fps_next_action_labels() {
+  local summary_file="$1"
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '["inspect-readiness-summary"]'
+    return
+  fi
+
+  jq -c '
+    [
+      .recommendedPrimaryAction,
+      (.physicalIPhoneGate.setupActionLabels[]?),
+      (
+        if (.helperVideoGate.screenCaptureVerdict // "unknown") != "pass"
+        then .helperVideoGate.screenCaptureRecommendedAction
+        else empty
+        end
+      ),
+      (
+        if (.helperVideoGate.sustainedScreenCaptureVerdict // "unknown") != "pass"
+        then .helperVideoGate.sustainedScreenCaptureRecommendedAction
+        else empty
+        end
+      ),
+      (
+        if (.helperVideoGate.sustainedSyntheticVerdict // "unknown") != "pass"
+        then .helperVideoGate.sustainedSyntheticRecommendedAction
+        else empty
+        end
+      ),
+      (
+        if (.vnc10fpsGate.productVerdict // "unknown") != "pass"
+        then "keep-vnc-as-control-fallback-until-helper-video-physical-gate"
+        else empty
+        end
+      ),
+      (
+        if (.transportCadenceGate.continuousUpdatesStatus // "unknown") == "failed-before-samples"
+        then .transportCadenceGate.continuousUpdatesRecommendedNextAction
+        else empty
+        end
+      ),
+      (
+        if (.overallGateState // "unknown") == "blockedByPhysicalIPhoneGate"
+        then "run-physical-iphone-helper-video-gate"
+        else empty
+        end
+      )
+    ]
+    | map(select(type == "string" and length > 0 and . != "unknown"))
+    | unique
+  ' "$summary_file"
 }
 
 remote_desktop_10fps_readiness() {
@@ -6786,10 +6850,12 @@ remote_desktop_10fps_readiness() {
   local helper_file
   local vnc_file
   local transport_file
+  local summary_file
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
   transport_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-transport.XXXXXX")"
+  summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary.XXXXXX")"
 
   json_step_or_fixed_failure \
     physicalDevicePreflight \
@@ -6807,6 +6873,11 @@ remote_desktop_10fps_readiness() {
     remoteDesktop10fpsTransportCadence \
     benchmarkStep.remoteDesktop10fpsTransportCadenceDrilldown.failed \
     run_remote_desktop_10fps_transport_cadence_drilldown >"$transport_file"
+  print_remote_desktop_10fps_readiness_gate_summary \
+    "$physical_file" \
+    "$helper_file" \
+    "$vnc_file" \
+    "$transport_file" >"$summary_file"
 
   printf '{\n'
   printf '  "schemaVersion": 2,\n'
@@ -6831,26 +6902,14 @@ remote_desktop_10fps_readiness() {
   cat "$transport_file"
   printf ',\n'
   printf '  "readinessGateSummary": '
-  print_remote_desktop_10fps_readiness_gate_summary \
-    "$physical_file" \
-    "$helper_file" \
-    "$vnc_file" \
-    "$transport_file"
+  cat "$summary_file"
   printf ',\n'
-  printf '  "nextActionLabels": [\n'
-  printf '    "grant-helper-video-app-screen-recording-permission",\n'
-  printf '    "rerun-helper-screen-probe",\n'
-  printf '    "inspect-helper-video-capture-source",\n'
-  printf '    "inspect-helper-video-sustained-cadence",\n'
-  printf '    "run-true-helper-video-live-capture-benchmark",\n'
-  printf '    "resolve-physical-iphone-preflight",\n'
-  printf '    "add-xcode-account",\n'
-  printf '    "create-ios-development-provisioning-profile",\n'
-  printf '    "run-physical-iphone-helper-video-gate"\n'
-  printf '  ]\n'
+  printf '  "nextActionLabels": '
+  print_remote_desktop_10fps_next_action_labels "$summary_file"
+  printf '\n'
   printf '}\n'
 
-  rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file"
+  rm -f "$physical_file" "$helper_file" "$vnc_file" "$transport_file" "$summary_file"
 }
 
 case "$mode" in

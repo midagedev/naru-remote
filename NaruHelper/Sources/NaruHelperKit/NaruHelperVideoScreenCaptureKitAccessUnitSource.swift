@@ -12,6 +12,7 @@ public enum NaruHelperVideoScreenCaptureKitAccessUnitSourceError: Error, Equatab
 }
 
 #if os(macOS) && canImport(CoreGraphics) && canImport(CoreMedia) && canImport(CoreVideo) && canImport(ScreenCaptureKit) && canImport(VideoToolbox)
+@preconcurrency import AppKit
 @preconcurrency import CoreGraphics
 @preconcurrency import CoreMedia
 @preconcurrency import CoreVideo
@@ -106,6 +107,132 @@ public struct NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy:
     private static func evenDimension(_ value: Int) -> Int {
         let clamped = max(value, 2)
         return clamped.isMultiple(of: 2) ? clamped : clamped - 1
+    }
+}
+
+public struct NaruHelperVideoScreenCaptureKitWindowFallbackPolicy:
+    Equatable,
+    Sendable
+{
+    public var minimumWidth: Int
+    public var minimumHeight: Int
+    public var maximumLongEdge: Int
+    public var maximumArea: Int
+    public var excludedApplicationNames: Set<String>
+
+    public init(
+        minimumWidth: Int = 160,
+        minimumHeight: Int = 120,
+        maximumLongEdge: Int = 8_192,
+        maximumArea: Int = 33_554_432,
+        excludedApplicationNames: Set<String> = Self.defaultExcludedApplicationNames
+    ) {
+        self.minimumWidth = max(minimumWidth, 1)
+        self.minimumHeight = max(minimumHeight, 1)
+        self.maximumLongEdge = max(maximumLongEdge, 1)
+        self.maximumArea = max(maximumArea, 1)
+        self.excludedApplicationNames = excludedApplicationNames
+    }
+
+    public static let live = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy()
+
+    public static let defaultExcludedApplicationNames: Set<String> = [
+        "Control Center",
+        "Dock",
+        "loginwindow",
+        "Notification Center",
+        "Spotlight",
+        "SystemUIServer",
+        "Window Server",
+        "WindowManager",
+        "제어 센터"
+    ]
+
+    public func isUsable(
+        width: Int,
+        height: Int,
+        applicationName: String?
+    ) -> Bool {
+        guard width >= minimumWidth,
+              height >= minimumHeight,
+              width <= maximumLongEdge,
+              height <= maximumLongEdge,
+              width * height <= maximumArea
+        else {
+            return false
+        }
+
+        guard let applicationName else {
+            return true
+        }
+        return !excludedApplicationNames.contains(applicationName)
+    }
+
+    public func isUsable(
+        _ descriptor: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor
+    ) -> Bool {
+        isUsable(
+            width: descriptor.width,
+            height: descriptor.height,
+            applicationName: descriptor.applicationName
+        )
+    }
+
+    public func preferredDescriptor(
+        screenCaptureKitOrder: [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor],
+        coreGraphicsFrontToBackOrder: [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor],
+        frontmostApplicationName: String?
+    ) -> NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor? {
+        let usableScreenCaptureKitOrder = screenCaptureKitOrder.filter(isUsable)
+        for descriptor in coreGraphicsFrontToBackOrder where isUsable(descriptor) {
+            if let matchingDescriptor = usableScreenCaptureKitOrder.first(where: {
+                matches($0, descriptor)
+            }) {
+                return matchingDescriptor
+            }
+        }
+
+        if let frontmostApplicationName,
+           let frontmostDescriptor = usableScreenCaptureKitOrder.first(where: {
+               $0.applicationName == frontmostApplicationName
+           })
+        {
+            return frontmostDescriptor
+        }
+
+        return usableScreenCaptureKitOrder.first
+    }
+
+    public func matches(
+        _ lhs: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor,
+        _ rhs: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor
+    ) -> Bool {
+        lhs.applicationName == rhs.applicationName
+            && (lhs.title ?? "") == (rhs.title ?? "")
+            && abs(lhs.width - rhs.width) <= 4
+            && abs(lhs.height - rhs.height) <= 40
+    }
+}
+
+public struct NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor:
+    Equatable,
+    Sendable
+{
+    public var applicationName: String?
+    public var title: String?
+    public var width: Int
+    public var height: Int
+
+    public init(
+        applicationName: String?,
+        title: String?,
+        width: Int,
+        height: Int
+    ) {
+        self.applicationName = applicationName
+        self.title = title
+        self.width = width
+        self.height = height
     }
 }
 
@@ -367,16 +494,17 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
             false,
             onScreenWindowsOnly: true
         )
-        guard let display = Self.captureDisplay(from: content) else {
+        guard let target = Self.captureTarget(from: content) else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        await target.prepareForCapture()
+        let filter = target.filter
         let configuration = SCStreamConfiguration()
         let policy = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy.make(
-            displayWidth: display.width,
-            displayHeight: display.height,
+            displayWidth: target.width,
+            displayHeight: target.height,
             frameLimit: frameLimit,
             qualityBucket: qualityBucket
         )
@@ -442,6 +570,112 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
         return content.displays.first { $0.displayID == mainDisplayID }
             ?? content.displays.first
     }
+
+    fileprivate static func captureTarget(from content: SCShareableContent) -> ScreenCaptureTarget? {
+        if let display = captureDisplay(from: content) {
+            return .display(display)
+        }
+
+        return captureWindow(from: content).map(ScreenCaptureTarget.window)
+    }
+
+    fileprivate static func captureWindow(from content: SCShareableContent) -> SCWindow? {
+        let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
+        let screenCaptureKitDescriptors = content.windows.map(descriptor)
+        let frontmostApplicationName = NSWorkspace.shared
+            .frontmostApplication?
+            .localizedName
+
+        guard let preferredDescriptor = policy.preferredDescriptor(
+            screenCaptureKitOrder: screenCaptureKitDescriptors,
+            coreGraphicsFrontToBackOrder: coreGraphicsWindowDescriptors(),
+            frontmostApplicationName: frontmostApplicationName
+        ) else {
+            return nil
+        }
+
+        return content.windows.first { window in
+            policy.matches(descriptor(window), preferredDescriptor)
+        }
+    }
+
+    private static func coreGraphicsWindowDescriptors()
+        -> [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor]
+    {
+        guard let windowInfoList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return []
+        }
+
+        return windowInfoList.map { windowInfo in
+            let bounds = windowInfo[kCGWindowBounds as String] as? [String: Any]
+            return NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+                applicationName: windowInfo[kCGWindowOwnerName as String] as? String,
+                title: windowInfo[kCGWindowName as String] as? String,
+                width: Int((bounds?["Width"] as? Double) ?? 0),
+                height: Int((bounds?["Height"] as? Double) ?? 0)
+            )
+        }
+    }
+
+    private static func descriptor(
+        _ window: SCWindow
+    ) -> NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor {
+        NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: window.owningApplication?.applicationName,
+            title: window.title,
+            width: Int(window.frame.width.rounded(.down)),
+            height: Int(window.frame.height.rounded(.down))
+        )
+    }
+}
+
+private enum ScreenCaptureTarget {
+    case display(SCDisplay)
+    case window(SCWindow)
+
+    var width: Int {
+        switch self {
+        case .display(let display):
+            return display.width
+        case .window(let window):
+            return max(Int(window.frame.width.rounded(.down)), 2)
+        }
+    }
+
+    var height: Int {
+        switch self {
+        case .display(let display):
+            return display.height
+        case .window(let window):
+            return max(Int(window.frame.height.rounded(.down)), 2)
+        }
+    }
+
+    var filter: SCContentFilter {
+        switch self {
+        case .display(let display):
+            return SCContentFilter(display: display, excludingWindows: [])
+        case .window(let window):
+            return SCContentFilter(desktopIndependentWindow: window)
+        }
+    }
+
+    func prepareForCapture() async {
+        switch self {
+        case .display:
+            return
+        case .window:
+            await Self.prepareAppKitForWindowCapture()
+        }
+    }
+
+    @MainActor
+    private static func prepareAppKitForWindowCapture() {
+        _ = NSApplication.shared
+    }
 }
 
 private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
@@ -455,18 +689,19 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
             false,
             onScreenWindowsOnly: true
         )
-        guard let display = LiveNaruHelperVideoScreenCaptureKitFiniteCapture
-            .captureDisplay(from: content)
+        guard let target = LiveNaruHelperVideoScreenCaptureKitFiniteCapture
+            .captureTarget(from: content)
         else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        await target.prepareForCapture()
+        let filter = target.filter
         let configuration = SCStreamConfiguration()
         let policy = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy.make(
-            displayWidth: display.width,
-            displayHeight: display.height,
+            displayWidth: target.width,
+            displayHeight: target.height,
             frameLimit: frameLimit,
             qualityBucket: qualityBucket
         )

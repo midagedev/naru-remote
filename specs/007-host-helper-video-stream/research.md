@@ -3205,3 +3205,53 @@ labels, and safe capability status only; they must not include raw
 ScreenCaptureKit errors, app/window/display names, dimensions, pixels, frame
 payloads, byte counters, endpoints, credentials, physical device identifiers,
 or exact timing series.
+
+## D77 - Use a display-preferred window fallback for ScreenCaptureKit capture sources
+
+**Decision**: The macOS helper should still prefer `SCDisplay` capture, but
+when ScreenCaptureKit returns no displays while Screen Recording permission is
+granted, it may fall back to a single usable on-screen window. The fallback
+filters out system-shell windows, uses CoreGraphics front-to-back window order
+to choose the visible user-content window that best matches a ScreenCaptureKit
+window, and initializes AppKit before constructing
+`SCContentFilter(desktopIndependentWindow:)`.
+
+**Rationale**:
+- Live evidence in the current Screen Sharing environment showed
+  `SCShareableContent` returning `displays=0` while apps/windows were visible.
+  Treating this as terminally unavailable blocked helper video even though a
+  window capture source existed.
+- A direct ScreenCaptureKit window-capture diagnostic showed that
+  `desktopIndependentWindow` capture can hit a `CGS_REQUIRE_INIT` assertion if
+  AppKit/CGS has not been initialized first. Initializing `NSApplication.shared`
+  on the main actor before window capture fixes this boundary without changing
+  display capture.
+- ScreenCaptureKit window ordering did not match the actual on-screen
+  front-to-back order in this session. Matching ScreenCaptureKit windows
+  against CoreGraphics window metadata lets the helper choose the visible app
+  window rather than stale/system windows.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh helper-dev-app-setup` now reports
+  capability `available`, Screen Recording `granted`, and capture source
+  `available`.
+- `scripts/run-naru-live-benchmark.sh helper-screen-probe` reports helper video
+  `pass`, `streamState=healthy`, `startupBand=fast`, and
+  `sustainedUpdateBand=smooth`.
+- `scripts/run-naru-live-benchmark.sh helper-sustained-screen-probe` reports
+  the same `pass` / `readyForPhysicalGate` result for the default 30-frame
+  sustained ScreenCaptureKit probe.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  passes through external helper TCP, app-model bootstrap, and H.264
+  sample-buffer factory for 30 requested ScreenCaptureKit frames.
+- `scripts/run-naru-live-benchmark.sh remote-desktop-10fps-readiness` now
+  reports helper synthetic, sustained synthetic, screen capture, and sustained
+  screen capture gates as `pass`; the remaining blockers are physical iPhone
+  signing/provisioning and the VNC fallback 10fps product gate.
+
+**Privacy rule**: The fallback must not expose selected app/window names,
+titles, dimensions, coordinates, raw ScreenCaptureKit errors, pixels, frame
+payloads, byte counters, endpoints, credentials, physical device identifiers,
+or exact timing series in diagnostics or benchmark reports. Selection metadata
+is process-local only; public artifacts remain fixed-label and aggregate-band
+only.

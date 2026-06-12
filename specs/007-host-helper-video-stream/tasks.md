@@ -650,6 +650,16 @@ without unsafe report fields.
   report, app-bootstrap wrapper, live-gate self-test, and current launchctl
   live evidence showing permission `granted` with capture source `unavailable`.
   **Done.**
+- [x] T031AT [US2] Recover true helper ScreenCaptureKit capture when the live
+  session exposes windows but no displays. The helper now prefers displays,
+  falls back to a usable foreground window selected through CoreGraphics
+  front-to-back ordering, initializes AppKit before
+  `desktopIndependentWindow` capture, and the sustained helper-screen
+  benchmark launches a titled normal animation window so the fallback measures
+  a real app-window stream. Current launchctl evidence moves capability,
+  short screen probe, sustained 30-frame screen probe, and app-bootstrap
+  benchmark from capture-source/stall failures to `pass` /
+  `readyForPhysicalGate`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
