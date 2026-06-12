@@ -641,6 +641,15 @@ without unsafe report fields.
   insert requests are not held behind Nagle-style packet coalescing. Covered by
   a pure Network-parameter test plus fake-server RFB handshake/key-event
   regressions and the helper-video runner/input smoke tests. **Done.**
+- [x] T031AS [US2] Preserve ScreenCaptureKit source failures as typed
+  helper-video stream stalls across the real TCP helper path and benchmark
+  reports. Capture source unavailable, timeout, and capture failure now become
+  fixed helper-video issue codes and route live/readiness summaries to
+  `inspect-helper-video-capture-source` instead of generic sustained-cadence or
+  permission setup. Covered by frame-pipeline, network-service, benchmark
+  report, app-bootstrap wrapper, live-gate self-test, and current launchctl
+  live evidence showing permission `granted` with capture source `unavailable`.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

@@ -334,6 +334,32 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         XCTAssertNil(result.stall?.authProof)
     }
 
+    func testNetworkClientReceivesSafeStallWhenScreenCaptureTimesOutBeforeFrames() async throws {
+        let server = try makeServer(source: FailingAccessUnitSource(
+            error: NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+        ))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        let result = try await client.startStream(maxServerFrames: 2)
+
+        XCTAssertEqual(result.startResponse.body.result, .accepted)
+        XCTAssertTrue(result.accessUnits.isEmpty)
+        XCTAssertEqual(result.stall?.body.reason, .screenCaptureTimedOut)
+        XCTAssertEqual(result.stall?.body.health.state, .stalled)
+        XCTAssertEqual(result.stall?.body.health.shouldUseVNCVisualFallback, true)
+        XCTAssertNil(result.stall?.authProof)
+    }
+
     func testWrongPairingSecretReceivesRejectedStartWithoutAccessUnits() async throws {
         let server = try makeServer(accessUnits: [
             NaruHelperVideoAccessUnit(
@@ -432,6 +458,22 @@ private struct AsyncOnlyAccessUnitSource: NaruHelperVideoAccessUnitSource {
 
 private enum AsyncOnlyAccessUnitSourceError: Error {
     case finiteBatchPathUsed
+}
+
+private struct FailingAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var error: NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        throw error
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        throw error
+    }
 }
 
 private struct HangingAccessUnitSource: NaruHelperVideoAccessUnitSource {

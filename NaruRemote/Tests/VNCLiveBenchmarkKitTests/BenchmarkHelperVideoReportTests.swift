@@ -248,6 +248,22 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(report.recommendedAction, .inspectHelperVideoSustainedCadence)
     }
 
+    func testCaptureSourceUnavailableRoutesToCaptureSourceInspection() {
+        let report = BenchmarkHelperVideoReport(
+            streamState: .stalled,
+            startupBand: .fast,
+            sustainedUpdateBand: .stalled,
+            decodePressure: .low,
+            fallbackCountBucket: .one,
+            issueCodes: [.captureSourceUnavailable]
+        )
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertEqual(report.readinessState, .sustainedDegraded)
+        XCTAssertEqual(report.recommendedAction, .inspectHelperVideoCaptureSource)
+        XCTAssertTrue(report.issueCodes.contains(.captureSourceUnavailable))
+    }
+
     func testHelperVideoReportFixtureOmitsUnsafeFieldsAndPayloadSentinels() throws {
         let descriptor = HelperVideoStreamDescriptor(
             protocolVersion: 1,

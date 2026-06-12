@@ -5460,6 +5460,10 @@ print_helper_video_live_gate_summary() {
       def synthetic_verdict: hreport("syntheticProbe").verdict // "unknown";
       def sustained_verdict: hreport("sustainedSyntheticProbe").verdict // "unknown";
       def sustained_screen_verdict: hreport("sustainedScreenProbe").verdict // screen_verdict;
+      def screen_recommended_action:
+        hreport("screenProbe").recommendedAction // "rerun-helper-screen-probe";
+      def sustained_screen_recommended_action:
+        hreport("sustainedScreenProbe").recommendedAction // screen_recommended_action;
       def bootstrap_status: first($bootstrap).status // "unknown";
       def physical_issue_codes: first($physical).issueCodes // [];
       def physical_setup_actions: first($physical).setupActionLabels // [];
@@ -5499,8 +5503,8 @@ print_helper_video_live_gate_summary() {
         if watch_status != "granted" then "run-screen-recording-watch"
         elif synthetic_verdict != "pass" then "inspect-helper-video-synthetic-transport"
         elif sustained_verdict != "pass" then "inspect-helper-video-sustained-cadence"
-        elif screen_verdict != "pass" then "rerun-helper-screen-probe"
-        elif sustained_screen_verdict != "pass" then "inspect-helper-video-sustained-cadence"
+        elif screen_verdict != "pass" then screen_recommended_action
+        elif sustained_screen_verdict != "pass" then sustained_screen_recommended_action
         elif bootstrap_status == "passed" and physical_ready then "run-physical-iphone-helper-video-gate"
         elif bootstrap_status == "passed" then physical_recommended_action
         elif bootstrap_status == "skipped" then ((first($bootstrap).setupActionLabels // [])[0] // "inspect-screen-capturekit-app-bootstrap-benchmark")
@@ -5695,12 +5699,14 @@ helper_video_live_gate_self_test() {
   local watch_blocked="$tmpdir/watch-blocked.json"
   local watch_ready="$tmpdir/watch-ready.json"
   local readiness_blocked="$tmpdir/readiness-blocked.json"
+  local readiness_capture_blocked="$tmpdir/readiness-capture-blocked.json"
   local readiness_ready="$tmpdir/readiness-ready.json"
   local bootstrap_blocked="$tmpdir/bootstrap-blocked.json"
   local bootstrap_ready="$tmpdir/bootstrap-ready.json"
   local physical_blocked="$tmpdir/physical-blocked.json"
   local physical_ready="$tmpdir/physical-ready.json"
   local summary_blocked="$tmpdir/summary-blocked.json"
+  local summary_capture_blocked="$tmpdir/summary-capture-blocked.json"
   local summary_bootstrap_skipped="$tmpdir/summary-bootstrap-skipped.json"
   local summary_physical_blocked="$tmpdir/summary-physical-blocked.json"
   local summary_ready="$tmpdir/summary-ready.json"
@@ -5715,6 +5721,9 @@ JSON
   print_helper_video_live_gate_skipped_bootstrap >"$bootstrap_blocked"
   cat >"$readiness_ready" <<'JSON'
 {"schemaVersion":1,"mode":"helper-readiness-sweep","syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
+JSON
+  cat >"$readiness_capture_blocked" <<'JSON'
+{"schemaVersion":1,"mode":"helper-readiness-sweep","syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"fail","issueCodes":["helper-video-capture-source-unavailable","helper-video-stream-unhealthy","helper-video-sustained-stalled"],"readinessState":"sustainedDegraded","recommendedAction":"inspect-helper-video-capture-source"}]}},"sustainedScreenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"fail","issueCodes":["helper-video-capture-source-unavailable","helper-video-stream-unhealthy","helper-video-sustained-stalled"],"readinessState":"sustainedDegraded","recommendedAction":"inspect-helper-video-capture-source"}]}}}
 JSON
   cat >"$bootstrap_ready" <<'JSON'
 {"schemaVersion":1,"mode":"helper-screen-app-bootstrap-benchmark","status":"passed","sourceMode":"screen-capturekit","transportPath":"helper-tcp-to-app-model","decodePath":"h264-sample-buffer-factory","requestedFrameCount":30,"issueCodes":[],"setupActionLabels":[]}
@@ -5731,6 +5740,11 @@ JSON
     "$readiness_blocked" \
     "$bootstrap_blocked" \
     "$physical_blocked" >"$summary_blocked"
+  print_helper_video_live_gate_summary \
+    "$watch_ready" \
+    "$readiness_capture_blocked" \
+    "$bootstrap_ready" \
+    "$physical_ready" >"$summary_capture_blocked"
   print_helper_video_live_gate_summary \
     "$watch_ready" \
     "$readiness_ready" \
@@ -5763,6 +5777,17 @@ JSON
     .appBootstrapGate.status == "skipped" and
     .physicalIPhoneGate.xcodeAccountStatus == "missing"
   ' "$summary_blocked" >/dev/null && jq -e '
+    .overallGateState == "blockedByHelperScreenCapture" and
+    .recommendedPrimaryAction == "inspect-helper-video-capture-source" and
+    (.primaryBlockedGateLabels | index("helper-video-screen-capture-gate-blocked")) and
+    (.primaryBlockedGateLabels | index("helper-video-sustained-screen-capture-gate-blocked")) and
+    (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked") | not) and
+    .helperVideoGate.screenCaptureRecommendedAction == "inspect-helper-video-capture-source" and
+    .helperVideoGate.sustainedScreenCaptureRecommendedAction == "inspect-helper-video-capture-source" and
+    (.helperVideoGate.screenCaptureIssueCodes | index("helper-video-capture-source-unavailable")) and
+    .appBootstrapGate.status == "passed" and
+    .physicalIPhoneGate.buildCheckStatus == "passed"
+  ' "$summary_capture_blocked" >/dev/null && jq -e '
     .overallGateState == "blockedByAppBootstrapPermission" and
     .recommendedPrimaryAction == "grant-helper-video-app-screen-recording-permission" and
     (.primaryBlockedGateLabels | index("helper-video-app-bootstrap-skipped")) and
@@ -5791,6 +5816,8 @@ JSON
   ' "$summary_ready" >/dev/null; then
     printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"passed","blockedSummary":'
     cat "$summary_blocked"
+    printf ',"captureBlockedSummary":'
+    cat "$summary_capture_blocked"
     printf ',"bootstrapSkippedSummary":'
     cat "$summary_bootstrap_skipped"
     printf ',"physicalBlockedSummary":'
@@ -5922,6 +5949,9 @@ print_helper_screen_app_bootstrap_benchmark_report() {
       if grep -q "Set NARU_HELPER_EXECUTABLE\\|Configured external helper executable is unavailable" "$output_file"; then
         issue_codes=("helper-video-external-helper-unavailable")
         setup_actions=("configure-helper-video-executable" "rerun-helper-screen-app-bootstrap-benchmark")
+      elif grep -q "External helper capture source is unavailable" "$output_file"; then
+        issue_codes=("helper-video-capture-source-unavailable")
+        setup_actions=("inspect-helper-video-capture-source" "rerun-helper-screen-app-bootstrap-benchmark")
       elif grep -q "External helper capability\\|External helper video server" "$output_file"; then
         issue_codes=("helper-video-external-helper-failed")
         setup_actions=("inspect-helper-video-capability" "rerun-helper-screen-app-bootstrap-benchmark")
@@ -6810,6 +6840,7 @@ remote_desktop_10fps_readiness() {
   printf '  "nextActionLabels": [\n'
   printf '    "grant-helper-video-app-screen-recording-permission",\n'
   printf '    "rerun-helper-screen-probe",\n'
+  printf '    "inspect-helper-video-capture-source",\n'
   printf '    "inspect-helper-video-sustained-cadence",\n'
   printf '    "run-true-helper-video-live-capture-benchmark",\n'
   printf '    "resolve-physical-iphone-preflight",\n'

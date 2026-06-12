@@ -95,6 +95,7 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
         _ openedStream: NaruHelperVideoOpenedFrameStream,
         on connection: NWConnection
     ) async {
+        var emittedAccessUnit = false
         do {
             try await sendFrame(openedStream.responseFrame, on: connection)
             guard openedStream.isAccepted else {
@@ -103,7 +104,6 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
             }
 
             let accessUnitStream = try openedStream.makeAccessUnitStream()
-            var emittedAccessUnit = false
             for try await accessUnit in accessUnitStream {
                 try Task.checkCancellation()
                 emittedAccessUnit = true
@@ -114,6 +114,18 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
             }
             await complete(connection)
         } catch {
+            if let stalledFrame = try? openedStream.stalledFrameForSourceFailure(
+                error,
+                emittedAccessUnit: emittedAccessUnit
+            ) {
+                do {
+                    try await sendFrame(stalledFrame, on: connection)
+                    await complete(connection)
+                } catch {
+                    connection.cancel()
+                }
+                return
+            }
             connection.cancel()
         }
     }

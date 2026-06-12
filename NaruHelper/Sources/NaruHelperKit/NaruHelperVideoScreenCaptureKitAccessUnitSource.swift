@@ -492,7 +492,11 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
 
         do {
             try await withTaskCancellationHandler {
-                try await collector.waitUntilFinished()
+                try await collector.waitUntilFinished(
+                    timeout: frameLimit.map {
+                        frameRateBucket.screenCaptureFrameCollectionTimeout(frameLimit: $0)
+                    }
+                )
             } onCancel: {
                 collector.cancelWait()
             }
@@ -602,7 +606,35 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         self.continuation = continuation
     }
 
-    func waitUntilFinished() async throws {
+    func waitUntilFinished(timeout: TimeInterval? = nil) async throws {
+        guard let timeout else {
+            try await waitUntilFinishedWithoutTimeout()
+            return
+        }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await self.waitUntilFinishedWithoutTimeout()
+            }
+            group.addTask {
+                try await Self.sleep(seconds: timeout)
+                self.cancelWait(
+                    NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+                )
+                throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+            }
+
+            defer {
+                group.cancelAll()
+            }
+            guard let result = try await group.next() else {
+                return
+            }
+            return result
+        }
+    }
+
+    private func waitUntilFinishedWithoutTimeout() async throws {
         try await withCheckedThrowingContinuation { continuation in
             let resultToResume: Result<Void, any Error>? = lock.withLock {
                 if let completion {
@@ -617,8 +649,14 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         }
     }
 
-    func cancelWait() {
-        complete(.failure(CancellationError()))
+    private static func sleep(seconds: TimeInterval) async throws {
+        let clampedSeconds = max(seconds, 0)
+        let nanoseconds = UInt64(clampedSeconds * 1_000_000_000)
+        try await Task.sleep(nanoseconds: nanoseconds)
+    }
+
+    func cancelWait(_ error: any Error = CancellationError()) {
+        complete(.failure(error))
     }
 
     func stream(

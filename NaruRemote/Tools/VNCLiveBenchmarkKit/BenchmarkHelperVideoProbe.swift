@@ -120,7 +120,11 @@ public enum BenchmarkHelperVideoProbe {
                     fallbackCountBucket: .none
                 )
             }
-            return BenchmarkHelperVideoReport(descriptor: descriptor, health: health)
+            return BenchmarkHelperVideoReport(
+                descriptor: descriptor,
+                health: health,
+                issueCodes: issueCodes(for: result.stall?.body.reason)
+            )
         } catch {
             return failedReport(issueCodes: issueCodes(for: error))
         }
@@ -155,13 +159,12 @@ public enum BenchmarkHelperVideoProbe {
             switch screenCaptureError {
             case .screenRecordingPermissionMissing:
                 return [.permissionMissing]
-            case .unsupportedPlatform,
-                 .captureSourceUnavailable,
-                 .captureTimedOut,
-                 .captureFailed,
-                 .capturedFrameMissingImageBuffer,
-                 .noCapturedFrames:
-                return []
+            case .unsupportedPlatform, .captureSourceUnavailable:
+                return [.captureSourceUnavailable]
+            case .captureTimedOut, .noCapturedFrames:
+                return [.captureTimedOut]
+            case .captureFailed, .capturedFrameMissingImageBuffer:
+                return [.captureFailed]
             }
         }
 
@@ -314,7 +317,8 @@ public enum BenchmarkHelperVideoProbe {
         )
         return BenchmarkHelperVideoReport(
             descriptor: startBody.streamDescriptor,
-            health: health
+            health: health,
+            issueCodes: issueCodes(for: result.stall?.body.reason)
         )
     }
 
@@ -337,6 +341,25 @@ public enum BenchmarkHelperVideoProbe {
             return .usable
         }
         return .choppy
+    }
+
+    private static func issueCodes(
+        for stallReason: HelperVideoStreamStallReason?
+    ) -> [BenchmarkHelperVideoIssueCode] {
+        switch stallReason {
+        case .screenCaptureSourceUnavailable:
+            return [.captureSourceUnavailable]
+        case .screenCaptureTimedOut:
+            return [.captureTimedOut]
+        case .screenCaptureFailed:
+            return [.captureFailed]
+        case .noAccessUnit,
+             .encoderUnavailable,
+             .transportBackpressure,
+             .unknown,
+             .none:
+            return []
+        }
     }
 
     private static func issueCodes(
