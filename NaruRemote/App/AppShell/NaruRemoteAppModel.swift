@@ -461,7 +461,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         String,
         String,
         HelperVideoStartStreamRequestBody
-    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
+    ) -> HelperVideoStreamNetworkEvents
     public typealias HelperVideoRendererFactory = @MainActor @Sendable () -> any HelperVideoAccessUnitRendering
 
     /// macOS Screen Sharing and other VNC servers apply ClientCutText

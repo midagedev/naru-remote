@@ -7569,7 +7569,7 @@ private final class HelperVideoOpenStreamRecorder: @unchecked Sendable {
         pairingSecret: String,
         pairingFingerprint: String,
         requestBody: HelperVideoStartStreamRequestBody
-    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
+    ) -> HelperVideoStreamNetworkEvents {
         lock.lock()
         recordedCalls.append(
             Call(
@@ -7582,7 +7582,7 @@ private final class HelperVideoOpenStreamRecorder: @unchecked Sendable {
         lock.unlock()
         let descriptor = descriptor
         let accessUnits = accessUnits
-        return AsyncThrowingStream { continuation in
+        return HelperVideoStreamNetworkEvents { continuation in
             continuation.yield(.startResponse(
                 HelperVideoWireEnvelope(
                     messageType: .startStream,

@@ -8,6 +8,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     public let port: UInt16
     public let profileFingerprint: String
 
+    private static let streamEventBufferLimit = 8
+    private static let streamEventBackpressureDelay: DispatchTimeInterval = .milliseconds(24)
+
     private let pairingSecret: String
     private let timeout: TimeInterval
     private let queue = DispatchQueue(label: "com.naruremote.helper-video-stream-client")
@@ -99,78 +102,79 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
 
     public func streamEvents(
         _ requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody()
-    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
-        AsyncThrowingStream { continuation in
-            guard let port = NWEndpoint.Port(rawValue: port) else {
-                continuation.finish(throwing: HelperVideoStreamNetworkClientError.invalidPort)
-                return
-            }
+    ) -> HelperVideoStreamNetworkEvents {
+        guard let port = NWEndpoint.Port(rawValue: port) else {
+            return HelperVideoStreamNetworkEvents(failure: HelperVideoStreamNetworkClientError.invalidPort)
+        }
 
-            let requestID = UUID()
-            let request = HelperVideoWireEnvelope(
+        let requestID = UUID()
+        let request = HelperVideoWireEnvelope(
+            requestID: requestID,
+            messageType: .startStream,
+            profileFingerprint: profileFingerprint,
+            authProof: HelperVideoAuthProof.make(
                 requestID: requestID,
                 messageType: .startStream,
                 profileFingerprint: profileFingerprint,
-                authProof: HelperVideoAuthProof.make(
-                    requestID: requestID,
-                    messageType: .startStream,
-                    profileFingerprint: profileFingerprint,
-                    pairingSecret: pairingSecret
-                ),
-                body: requestBody
-            )
-            let frame: Data
-            do {
-                frame = try HelperVideoWireCodec.frame(request)
-            } catch {
-                continuation.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
-                return
-            }
+                pairingSecret: pairingSecret
+            ),
+            body: requestBody
+        )
+        let frame: Data
+        do {
+            frame = try HelperVideoWireCodec.frame(request)
+        } catch {
+            return HelperVideoStreamNetworkEvents(failure: HelperVideoStreamNetworkClientError.malformedFrame)
+        }
 
-            let connection = NWConnection(
-                host: NWEndpoint.Host(host),
-                port: port,
-                using: .tcp
-            )
-            let timer = DispatchSource.makeTimerSource(queue: queue)
-            let eventStream = HelperVideoStreamNetworkEventStream(
-                continuation: continuation,
-                connection: connection,
-                timer: timer,
-                timeout: timeout
-            )
+        let connection = NWConnection(
+            host: NWEndpoint.Host(host),
+            port: port,
+            using: .tcp
+        )
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let mailbox = HelperVideoStreamNetworkEventMailbox(
+            maxBufferedEvents: Self.streamEventBufferLimit
+        )
+        let eventStream = HelperVideoStreamNetworkEventStream(
+            mailbox: mailbox,
+            connection: connection,
+            timer: timer,
+            timeout: timeout,
+            backpressureDelay: Self.streamEventBackpressureDelay,
+            queue: queue
+        )
 
-            timer.schedule(deadline: .now() + timeout)
-            timer.setEventHandler {
-                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.timedOut)
-            }
-            timer.resume()
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler {
+            eventStream.finish(throwing: HelperVideoStreamNetworkClientError.timedOut)
+        }
+        timer.resume()
 
-            continuation.onTermination = { _ in
-                eventStream.cancel()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                connection.send(content: frame, completion: .contentProcessed { error in
+                    guard error == nil else {
+                        eventStream.finish(
+                            throwing: HelperVideoStreamNetworkClientError.unreachable
+                        )
+                        return
+                    }
+                    Self.receiveEventFrame(on: connection, eventStream: eventStream)
+                })
+            case .failed:
+                eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
+            case .cancelled:
+                break
+            default:
+                break
             }
+        }
+        connection.start(queue: queue)
 
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    connection.send(content: frame, completion: .contentProcessed { error in
-                        guard error == nil else {
-                            eventStream.finish(
-                                throwing: HelperVideoStreamNetworkClientError.unreachable
-                            )
-                            return
-                        }
-                        Self.receiveEventFrame(on: connection, eventStream: eventStream)
-                    })
-                case .failed:
-                    eventStream.finish(throwing: HelperVideoStreamNetworkClientError.unreachable)
-                case .cancelled:
-                    break
-                default:
-                    break
-                }
-            }
-            connection.start(queue: queue)
+        return HelperVideoStreamNetworkEvents(mailbox: mailbox) {
+            eventStream.cancel()
         }
     }
 
@@ -390,8 +394,12 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                         HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
                         from: frame
                     ).envelope
-                    eventStream.yield(.startResponse(response))
-                    receiveEventFrame(on: connection, eventStream: eventStream)
+                    let result = eventStream.yield(.startResponse(response))
+                    receiveNextEventFrame(
+                        on: connection,
+                        eventStream: eventStream,
+                        after: result
+                    )
                 } catch {
                     eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
                 }
@@ -401,8 +409,12 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                         HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
                         from: frame
                     ).envelope
-                    eventStream.yield(.stall(stall))
-                    receiveEventFrame(on: connection, eventStream: eventStream)
+                    let result = eventStream.yield(.stall(stall))
+                    receiveNextEventFrame(
+                        on: connection,
+                        eventStream: eventStream,
+                        after: result
+                    )
                 } catch {
                     eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
                 }
@@ -465,12 +477,29 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                         from: jsonFrame + binaryHeader + binaryPayload,
                         expectsBinaryPayload: true
                     )
-                    eventStream.yield(.accessUnit(accessUnit))
-                    receiveEventFrame(on: connection, eventStream: eventStream)
+                    let result = eventStream.yield(.accessUnit(accessUnit))
+                    receiveNextEventFrame(
+                        on: connection,
+                        eventStream: eventStream,
+                        after: result
+                    )
                 } catch {
                     eventStream.finish(throwing: HelperVideoStreamNetworkClientError.malformedFrame)
                 }
             }
+        }
+    }
+
+    private static func receiveNextEventFrame(
+        on connection: NWConnection,
+        eventStream: HelperVideoStreamNetworkEventStream,
+        after yieldResult: HelperVideoStreamNetworkEventYieldResult
+    ) {
+        guard yieldResult.shouldReceiveNextFrame else {
+            return
+        }
+        eventStream.scheduleNextReceive(applyingBackpressure: yieldResult.didApplyBackpressure) {
+            receiveEventFrame(on: connection, eventStream: eventStream)
         }
     }
 }
@@ -479,6 +508,88 @@ public enum HelperVideoStreamNetworkEvent: Equatable, Sendable {
     case startResponse(HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>)
     case accessUnit(HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>)
     case stall(HelperVideoWireEnvelope<HelperVideoStreamStallBody>)
+}
+
+public struct HelperVideoStreamNetworkEvents: AsyncSequence, Sendable {
+    public typealias Element = HelperVideoStreamNetworkEvent
+
+    private let makeIteratorClosure: @Sendable () -> AsyncIterator
+
+    public init(
+        _ build: @escaping @Sendable (
+            AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>.Continuation
+        ) -> Void
+    ) {
+        let stream = AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>(
+            bufferingPolicy: .unbounded,
+            build
+        )
+        self.makeIteratorClosure = {
+            AsyncIterator(streamIterator: stream.makeAsyncIterator())
+        }
+    }
+
+    fileprivate init(failure error: any Error) {
+        self.init { continuation in
+            continuation.finish(throwing: error)
+        }
+    }
+
+    fileprivate init(
+        mailbox: HelperVideoStreamNetworkEventMailbox,
+        onCancel: @escaping @Sendable () -> Void
+    ) {
+        self.makeIteratorClosure = {
+            AsyncIterator(mailbox: mailbox, onCancel: onCancel)
+        }
+    }
+
+    public func makeAsyncIterator() -> AsyncIterator {
+        makeIteratorClosure()
+    }
+
+    public struct AsyncIterator: AsyncIteratorProtocol {
+        private var streamIterator: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
+            .Iterator?
+        private var mailbox: HelperVideoStreamNetworkEventMailbox?
+        private var cancellation: HelperVideoStreamNetworkEventCancellation?
+
+        fileprivate init(
+            streamIterator: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>.Iterator
+        ) {
+            self.streamIterator = streamIterator
+            self.mailbox = nil
+            self.cancellation = nil
+        }
+
+        fileprivate init(
+            mailbox: HelperVideoStreamNetworkEventMailbox,
+            onCancel: @escaping @Sendable () -> Void
+        ) {
+            self.streamIterator = nil
+            self.mailbox = mailbox
+            self.cancellation = HelperVideoStreamNetworkEventCancellation(onCancel)
+        }
+
+        public mutating func next() async throws -> HelperVideoStreamNetworkEvent? {
+            if var streamIterator {
+                let event = try await streamIterator.next()
+                self.streamIterator = streamIterator
+                return event
+            }
+
+            guard let mailbox else {
+                return nil
+            }
+
+            let cancellation = cancellation
+            return try await withTaskCancellationHandler {
+                try await mailbox.next()
+            } onCancel: {
+                cancellation?.cancel()
+            }
+        }
+    }
 }
 
 public struct HelperVideoStreamNetworkStartResult: Equatable, Sendable {
@@ -513,34 +624,266 @@ private struct HelperVideoWireMessageHeader: Decodable {
     var messageType: HelperVideoMessageType
 }
 
+private final class HelperVideoStreamNetworkEventCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let onCancel: @Sendable () -> Void
+    private var didCancel = false
+
+    init(_ onCancel: @escaping @Sendable () -> Void) {
+        self.onCancel = onCancel
+    }
+
+    deinit {
+        cancel()
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !didCancel else {
+            lock.unlock()
+            return
+        }
+        didCancel = true
+        lock.unlock()
+
+        onCancel()
+    }
+}
+
+private struct HelperVideoStreamNetworkEventYieldResult: Sendable {
+    var shouldReceiveNextFrame: Bool
+    var didApplyBackpressure: Bool
+
+    static let enqueued = HelperVideoStreamNetworkEventYieldResult(
+        shouldReceiveNextFrame: true,
+        didApplyBackpressure: false
+    )
+    static let backpressured = HelperVideoStreamNetworkEventYieldResult(
+        shouldReceiveNextFrame: true,
+        didApplyBackpressure: true
+    )
+    static let stopped = HelperVideoStreamNetworkEventYieldResult(
+        shouldReceiveNextFrame: false,
+        didApplyBackpressure: false
+    )
+}
+
+private struct HelperVideoStreamNetworkEventMailboxOfferResult: Sendable {
+    var didApplyBackpressure: Bool
+
+    static let enqueued = HelperVideoStreamNetworkEventMailboxOfferResult(
+        didApplyBackpressure: false
+    )
+    static let backpressured = HelperVideoStreamNetworkEventMailboxOfferResult(
+        didApplyBackpressure: true
+    )
+}
+
+private final class HelperVideoStreamNetworkEventMailbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private let maxBufferedEvents: Int
+    private var bufferedEvents: [HelperVideoStreamNetworkEvent] = []
+    private var pendingNext: CheckedContinuation<HelperVideoStreamNetworkEvent?, any Error>?
+    private var completion: Result<Void, any Error>?
+
+    init(maxBufferedEvents: Int) {
+        self.maxBufferedEvents = max(maxBufferedEvents, 1)
+    }
+
+    func offer(_ event: HelperVideoStreamNetworkEvent) -> HelperVideoStreamNetworkEventMailboxOfferResult {
+        var continuation: CheckedContinuation<HelperVideoStreamNetworkEvent?, any Error>?
+        var offerResult = HelperVideoStreamNetworkEventMailboxOfferResult.enqueued
+
+        lock.lock()
+        guard completion == nil else {
+            lock.unlock()
+            return .backpressured
+        }
+        if let pendingNext {
+            self.pendingNext = nil
+            continuation = pendingNext
+        } else {
+            offerResult = appendBufferedEventLocked(event)
+        }
+        lock.unlock()
+
+        continuation?.resume(returning: event)
+        return offerResult
+    }
+
+    func next() async throws -> HelperVideoStreamNetworkEvent? {
+        try await withCheckedThrowingContinuation { continuation in
+            var event: HelperVideoStreamNetworkEvent?
+            var finished: Result<Void, any Error>?
+
+            lock.lock()
+            if !bufferedEvents.isEmpty {
+                event = bufferedEvents.removeFirst()
+            } else if let completion {
+                finished = completion
+            } else {
+                pendingNext = continuation
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+
+            if let event {
+                continuation.resume(returning: event)
+                return
+            }
+
+            switch finished {
+            case .success:
+                continuation.resume(returning: nil)
+            case .failure(let error):
+                continuation.resume(throwing: error)
+            case nil:
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
+    func finish(throwing error: (any Error)? = nil) {
+        let result: Result<Void, any Error> = if let error {
+            .failure(error)
+        } else {
+            .success(())
+        }
+        var continuation: CheckedContinuation<HelperVideoStreamNetworkEvent?, any Error>?
+
+        lock.lock()
+        guard completion == nil else {
+            lock.unlock()
+            return
+        }
+        completion = result
+        if bufferedEvents.isEmpty {
+            continuation = pendingNext
+            pendingNext = nil
+        }
+        lock.unlock()
+
+        guard let continuation else {
+            return
+        }
+        switch result {
+        case .success:
+            continuation.resume(returning: nil)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+
+    private func appendBufferedEventLocked(
+        _ event: HelperVideoStreamNetworkEvent
+    ) -> HelperVideoStreamNetworkEventMailboxOfferResult {
+        var didApplyBackpressure = false
+
+        switch event.bufferRole {
+        case .startResponse, .stall, .endOfStream:
+            didApplyBackpressure = removeBufferedEventsLocked(matching: event.bufferRole)
+                || didApplyBackpressure
+        case .parameterSet:
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .parameterSet)
+                || didApplyBackpressure
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .keyframe)
+                || didApplyBackpressure
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
+                || didApplyBackpressure
+        case .keyframe:
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .keyframe)
+                || didApplyBackpressure
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
+                || didApplyBackpressure
+        case .delta:
+            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
+                || didApplyBackpressure
+        }
+
+        bufferedEvents.append(event)
+
+        while bufferedEvents.count > maxBufferedEvents {
+            if let deltaIndex = bufferedEvents.firstIndex(where: { $0.bufferRole == .delta }) {
+                bufferedEvents.remove(at: deltaIndex)
+                didApplyBackpressure = true
+                continue
+            }
+            guard bufferedEvents.count > 1 else {
+                break
+            }
+            bufferedEvents.remove(at: 1)
+            didApplyBackpressure = true
+        }
+
+        return didApplyBackpressure ? .backpressured : .enqueued
+    }
+
+    private func removeBufferedEventsLocked(
+        matching role: HelperVideoStreamNetworkEventBufferRole
+    ) -> Bool {
+        let originalCount = bufferedEvents.count
+        bufferedEvents.removeAll { $0.bufferRole == role }
+        return bufferedEvents.count != originalCount
+    }
+}
+
+private enum HelperVideoStreamNetworkEventBufferRole: Sendable {
+    case startResponse
+    case parameterSet
+    case keyframe
+    case delta
+    case endOfStream
+    case stall
+}
+
 private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
     private let lock = NSLock()
-    private let continuation: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
-        .Continuation
+    private let mailbox: HelperVideoStreamNetworkEventMailbox
     private let connection: NWConnection
     private let timer: DispatchSourceTimer
     private let timeout: TimeInterval
+    private let backpressureDelay: DispatchTimeInterval
+    private let queue: DispatchQueue
     private var isFinished = false
 
     init(
-        continuation: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
-            .Continuation,
+        mailbox: HelperVideoStreamNetworkEventMailbox,
         connection: NWConnection,
         timer: DispatchSourceTimer,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        backpressureDelay: DispatchTimeInterval,
+        queue: DispatchQueue
     ) {
-        self.continuation = continuation
+        self.mailbox = mailbox
         self.connection = connection
         self.timer = timer
         self.timeout = timeout
+        self.backpressureDelay = backpressureDelay
+        self.queue = queue
     }
 
-    func yield(_ event: HelperVideoStreamNetworkEvent) {
+    func yield(_ event: HelperVideoStreamNetworkEvent) -> HelperVideoStreamNetworkEventYieldResult {
+        guard !hasFinished else {
+            return .stopped
+        }
+        refreshTimeout()
+        let result = mailbox.offer(event)
+        return result.didApplyBackpressure ? .backpressured : .enqueued
+    }
+
+    func scheduleNextReceive(
+        applyingBackpressure: Bool,
+        _ receive: @escaping @Sendable () -> Void
+    ) {
         guard !hasFinished else {
             return
         }
-        refreshTimeout()
-        continuation.yield(event)
+        if applyingBackpressure {
+            queue.asyncAfter(deadline: .now() + backpressureDelay, execute: receive)
+        } else {
+            queue.async(execute: receive)
+        }
     }
 
     func finish() {
@@ -572,15 +915,33 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
 
         timer.cancel()
         connection.cancel()
-        if let result {
-            continuation.finish(throwing: result)
-        } else {
-            continuation.finish()
-        }
+        mailbox.finish(throwing: result)
     }
 
     private func refreshTimeout() {
         timer.schedule(deadline: .now() + timeout)
+    }
+}
+
+private extension HelperVideoStreamNetworkEvent {
+    var bufferRole: HelperVideoStreamNetworkEventBufferRole {
+        switch self {
+        case .startResponse:
+            return .startResponse
+        case .stall:
+            return .stall
+        case .accessUnit(let accessUnit):
+            switch accessUnit.envelope.body.kind {
+            case .parameterSet:
+                return .parameterSet
+            case .keyframe:
+                return .keyframe
+            case .delta:
+                return .delta
+            case .endOfStream:
+                return .endOfStream
+            }
+        }
     }
 }
 

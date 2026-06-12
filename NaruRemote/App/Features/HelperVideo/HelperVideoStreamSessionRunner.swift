@@ -97,7 +97,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
     ) async throws -> HelperVideoStreamNetworkStartResult
     public typealias EventStream = @Sendable (
         HelperVideoStartStreamRequestBody
-    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>
+    ) -> HelperVideoStreamNetworkEvents
 
     private let startStream: StartStream?
     private let eventStream: EventStream?
@@ -195,7 +195,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
     }
 
     private func startEventStream(
-        _ events: AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>,
+        _ events: HelperVideoStreamNetworkEvents,
         sessionID: RemoteSession.ID,
         profileID: ConnectionProfile.ID,
         model: NaruRemoteAppModel

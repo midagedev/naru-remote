@@ -146,6 +146,120 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         }, Array(0..<accessUnits.count))
     }
 
+    func testNetworkClientPreservesSyncFramesAndCoalescesDeltasWhenConsumerFallsBehind() async throws {
+        let accessUnits = [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .parameterSet,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x67])
+            ),
+            NaruHelperVideoAccessUnit(
+                sequence: 1,
+                kind: .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+            )
+        ] + (2..<20).map { sequence in
+            NaruHelperVideoAccessUnit(
+                sequence: sequence,
+                kind: .delta,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, UInt8(sequence)])
+            )
+        }
+        let server = try makeServer(source: AsyncOnlyAccessUnitSource(
+            accessUnits: accessUnits,
+            perAccessUnitDelay: .nanoseconds(0)
+        ))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        var iterator = client.streamEvents().makeAsyncIterator()
+
+        guard case .startResponse = try await iterator.next() else {
+            XCTFail("Expected the start response before access units.")
+            return
+        }
+
+        try await Task.sleep(for: .milliseconds(700))
+
+        var accessUnitsReceived: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>] = []
+        while let event = try await iterator.next() {
+            if case .accessUnit(let accessUnit) = event {
+                accessUnitsReceived.append(accessUnit)
+            }
+        }
+
+        XCTAssertEqual(
+            accessUnitsReceived.prefix(2).map { $0.envelope.body.kind },
+            [.parameterSet, .keyframe]
+        )
+        XCTAssertEqual(accessUnitsReceived.prefix(2).map { $0.envelope.body.sequence }, [0, 1])
+        XCTAssertEqual(accessUnitsReceived.last?.envelope.body.kind, .delta)
+        XCTAssertEqual(accessUnitsReceived.last?.envelope.body.sequence, 19)
+        XCTAssertLessThan(
+            accessUnitsReceived.count,
+            accessUnits.count,
+            "Slow consumers should receive the latest visual delta instead of a stale full backlog."
+        )
+    }
+
+    func testNetworkClientCoalescesRepeatedSyncFramesWhenConsumerFallsBehind() async throws {
+        let accessUnits = (0..<24).map { sequence in
+            NaruHelperVideoAccessUnit(
+                sequence: sequence,
+                kind: sequence.isMultiple(of: 2) ? .parameterSet : .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, UInt8(0x40 + sequence)])
+            )
+        }
+        let server = try makeServer(source: AsyncOnlyAccessUnitSource(
+            accessUnits: accessUnits,
+            perAccessUnitDelay: .nanoseconds(0)
+        ))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 3
+        )
+        var iterator = client.streamEvents().makeAsyncIterator()
+
+        guard case .startResponse = try await iterator.next() else {
+            XCTFail("Expected the start response before access units.")
+            return
+        }
+
+        try await Task.sleep(for: .milliseconds(900))
+
+        var accessUnitsReceived: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>] = []
+        while let event = try await iterator.next() {
+            if case .accessUnit(let accessUnit) = event {
+                accessUnitsReceived.append(accessUnit)
+            }
+        }
+
+        XCTAssertLessThanOrEqual(
+            accessUnitsReceived.count,
+            2,
+            "Slow consumers should not retain an unbounded sync-frame backlog."
+        )
+        XCTAssertEqual(accessUnitsReceived.map { $0.envelope.body.sequence }, [22, 23])
+        XCTAssertEqual(accessUnitsReceived.map { $0.envelope.body.kind }, [.parameterSet, .keyframe])
+    }
+
     func testNetworkClientCanReturnPartialStartResultOnIdleTimeoutForBenchmarks() async throws {
         let accessUnits = [
             NaruHelperVideoAccessUnit(

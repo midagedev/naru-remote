@@ -585,6 +585,15 @@ without unsafe report fields.
   queue depth `5`, continuous queue depth `3`, and newest-one buffering for
   unbounded streams. Current live evidence moved sustained screen capture from
   timeout/degraded to `pass` with `sustainedUpdateBand=smooth`. **Done.**
+- [x] T031AL [US2] Make continuous helper-video delivery demand-aware so slow
+  iPhone/UI consumers do not build a stale pre-render backlog. The helper-video
+  network client now returns a small event sequence backed by a bounded mailbox,
+  preserves required start/sync/stall ordering, coalesces repeated sync/control
+  roles and pending delta access units to the newest useful state, and applies
+  a short receive backoff when coalescing indicates consumer pressure. Covered
+  by slow-consumer delta and repeated-sync stream regressions, helper-video
+  session/app-model tests, synthetic 90-frame app-runner benchmark, and real
+  ScreenCaptureKit-backed 90-frame app-model smoke. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

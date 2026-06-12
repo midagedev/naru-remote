@@ -489,8 +489,8 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
     private nonisolated static func eventStream(
         descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
         accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>]
-    ) -> AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error> {
-        AsyncThrowingStream { continuation in
+    ) -> HelperVideoStreamNetworkEvents {
+        HelperVideoStreamNetworkEvents { continuation in
             continuation.yield(.startResponse(
                 HelperVideoWireEnvelope(
                     messageType: .startStream,
