@@ -602,6 +602,15 @@ without unsafe report fields.
   clamped value into the XCTest benchmark, and reports the same
   `requestedFrameCount` in both the bootstrap report and helper-video live gate
   summary. **Done.**
+- [x] T031AN [US2] Make the app bootstrap gate assert the requested
+  displayable frame count through the app-model runner outcome instead of only
+  checking the first healthy helper-video transition. The app model now exposes
+  a test/benchmark-only outcome observer and injectable finite-stream frame
+  limit while preserving the production default of `16`; the benchmark raises
+  that limit to `requestedFrameCount + 2` and verifies the outcome before VNC
+  control-path checks. Covered by app-model outcome/limit regression, current
+  30-frame ScreenCaptureKit app bootstrap, current 90-frame ScreenCaptureKit
+  app bootstrap, and helper-video live gate. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

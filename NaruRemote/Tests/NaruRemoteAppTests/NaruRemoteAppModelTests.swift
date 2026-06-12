@@ -3396,6 +3396,75 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
     }
 
+    func testHelperVideoBootstrapReportsOutcomeAndUsesInjectedFrameLimit() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 1,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 0, kind: .parameterSet),
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe),
+                    Self.helperVideoAccessUnit(sequence: 2, kind: .delta),
+                    Self.helperVideoAccessUnit(sequence: 3, kind: .delta)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1, 2, 3])
+        let outcomeRecorder = AppModelHelperVideoOutcomeRecorder()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer },
+            helperVideoMaxServerFrames: 5,
+            helperVideoStreamOutcomeHandler: { _, profileID, outcome in
+                guard profileID == profile.id else { return }
+                await outcomeRecorder.record(outcome)
+            }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+        let outcome = try await waitForHelperVideoOutcome(outcomeRecorder)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        XCTAssertEqual(calls.first?.maxServerFrames, 5)
+        XCTAssertEqual(outcome.displayableFrameCount, 3)
+        XCTAssertEqual(outcome.receivedAccessUnitCount, 4)
+        XCTAssertNil(outcome.fallbackFailureCode)
+    }
+
     func testHelperVideoBootstrapRequestsFifteenFPSInSystemLowPowerMode() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
@@ -7050,6 +7119,22 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    private func waitForHelperVideoOutcome(
+        _ recorder: AppModelHelperVideoOutcomeRecorder,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> HelperVideoStreamSessionOutcome {
+        for _ in 0..<120 {
+            if let outcome = await recorder.outcomeSnapshot() {
+                return outcome
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for helper-video outcome.", file: file, line: line)
+        throw AppModelHelperVideoOutcomeRecorderError.outcomeTimedOut
+    }
+
     private func waitForHelperVideoStartCalls(
         _ recorder: HelperVideoStartRecorder,
         count expectedCount: Int,
@@ -7484,6 +7569,22 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
 
 private enum FakeHelperVideoStartError: Error, Sendable {
     case transportUnavailable
+}
+
+private enum AppModelHelperVideoOutcomeRecorderError: Error {
+    case outcomeTimedOut
+}
+
+private actor AppModelHelperVideoOutcomeRecorder {
+    private var outcome: HelperVideoStreamSessionOutcome?
+
+    func record(_ outcome: HelperVideoStreamSessionOutcome) {
+        self.outcome = outcome
+    }
+
+    func outcomeSnapshot() -> HelperVideoStreamSessionOutcome? {
+        outcome
+    }
 }
 
 private actor HelperVideoStartRecorder {

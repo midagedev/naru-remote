@@ -194,8 +194,13 @@ sample-buffer factory. It imports the same `NARU_HELPER_EXECUTABLE` helper app
 bundle as the live gate, emits fixed JSON only, and hides raw XCTest output.
 By default the runner requests 30 displayable helper-video frames; set
 `NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES` to a value from `1` to `120` to shorten
-or strengthen the app-decode gate. A `skipped` result now maps to fixed setup
-actions such as
+or strengthen the app-decode gate. The app-model benchmark observes the
+`HelperVideoStreamSessionOutcome` and asserts the requested displayable frame
+count before it checks that VNC pointer/control remains active. Production keeps
+the finite helper-video start limit at `16`; the opt-in benchmark raises that
+limit to `requestedFrameCount + 2` so the TCP client can receive the start
+response, parameter set, and requested displayable frames. A `skipped` result
+now maps to fixed setup actions such as
 `configure-helper-video-executable` or
 `grant-helper-video-app-screen-recording-permission` before T031 can claim true
 live helper-video app decode evidence.

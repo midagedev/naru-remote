@@ -2911,3 +2911,50 @@ issue/action labels. It must not emit helper executable paths, endpoints,
 tokens, raw XCTest output, raw helper stdout/stderr, raw OS errors, display
 dimensions, pixels, byte counts, exact timings, physical device identifiers,
 Compose text, marked text, keysyms, pointer coordinates, or clipboard contents.
+
+## D71 - Assert app-model helper-video displayable frame counts
+
+**Decision**: Add an app-model helper-video outcome observer plus an injectable
+finite-stream frame limit so opt-in benchmarks can prove the requested
+displayable frame count actually crossed the app-model runner and renderer. The
+production default remains `16` finite server frames. The benchmark path raises
+that limit to `requestedFrameCount + 2`, matching the start response plus the
+helper parameter set and requested displayable access units, then asserts the
+runner outcome before it checks VNC control-path input.
+
+**Rationale**:
+- The prior strengthened gate recorded `requestedFrameCount`, but the
+app-model bootstrap only waited for helper-video mode, healthy state, and the
+first framebuffer/control path. Because `HelperVideoStreamSessionRunner`
+defaulted finite `startStream` to `maxServerFrames=16`, high-count benchmark
+runs could still pass after proving only the initial healthy transition.
+- The app model already owns the runner, so tests need a privacy-safe observer
+instead of reaching into private state or exporting raw stream data. The
+observer reports only the existing coarse outcome counts to XCTest; benchmark
+JSON still exposes only fixed labels and the configured count.
+- This makes future performance experiments safer: a 30- or 90-frame pass now
+means those displayable frames reached the app decode/render queue, not just
+that helper-video was selected once.
+
+**Evidence**:
+- `swift test --filter
+  NaruRemoteAppModelTests/testHelperVideoBootstrapReportsOutcomeAndUsesInjectedFrameLimit`
+  passes and proves the injected frame limit reaches `startStream` while the
+  outcome observer receives three displayable frames from four access units.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  passes on the current granted helper setup with `requestedFrameCount=30`.
+- `NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=90
+  scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  passes on the same setup with `requestedFrameCount=90`.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` reports helper
+  synthetic, sustained synthetic, ScreenCaptureKit, sustained ScreenCaptureKit,
+  and app bootstrap gates passing; the overall summary remains blocked only by
+  physical iPhone Xcode account/provisioning setup.
+
+**Privacy rule**: The outcome observer is a test/benchmark seam. It may expose
+only fixed outcome booleans, coarse counts, and fixed helper health/failure
+labels inside XCTest. Benchmark JSON must not include helper paths, endpoints,
+tokens, raw XCTest output, raw helper stdout/stderr, raw OS errors, display
+dimensions, pixels, byte counts, exact timings, physical device identifiers,
+Compose text, marked text, keysyms, pointer coordinates, clipboard contents, or
+frame payloads.
