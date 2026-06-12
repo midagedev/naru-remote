@@ -105,6 +105,13 @@ the 10fps VNC gate. Request/response reaches about 6 content FPS but still
 fails from first-byte wait, while ContinuousUpdates fails before usable samples
 on the current Mac Screen Sharing target. A paired `screen-recording-setup`
 probe records that the helper app bundle still needs Screen Recording approval.
+Current viewport interaction trace artifact:
+`artifacts/benchmarks/2026-06-13-viewport-interaction-trace-summary.md`.
+That run adds a fixed off-versus-app viewport interaction live trace for the
+10fps VNC gate. The first live comparison still fails from
+`first-byte-wait-failed` on both candidates, which keeps the next visual
+smoothness work pointed at receive-path/server cadence and helper-video primary
+validation rather than renderer upload.
 Current best-effort pointer input artifact:
 `artifacts/benchmarks/2026-06-07-best-effort-pointer-move-summary.md`.
 That pass removes a remaining input-path blocking point by routing only single

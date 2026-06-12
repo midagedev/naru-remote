@@ -40,6 +40,8 @@ Modes:
   remote-desktop-10fps-transport-cadence-drilldown Compare request-response vs ContinuousUpdates under the 10fps VNC gate.
   remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   remote-desktop-readiness-summary-self-test Fast regression for readiness gate summary labels.
+  viewport-interaction-trace Compare VNC off/app viewport-interaction live traces.
+  viewport-interaction-trace-self-test Fast regression for viewport interaction trace args.
   screen-recording-watch Request helper Screen Recording, open Settings, and poll safe capability.
   screen-recording-watch-self-test Fast regression for screen-recording-watch labels.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
@@ -1549,6 +1551,241 @@ run_remote_desktop_10fps_transport_cadence_drilldown() {
   done
   printf '\n],"nextActionLabels":["if-continuous-updates-fails-keep-vnc-request-response-as-fallback","if-request-response-first-byte-wait-persists-prioritize-helper-video","rerun-after-server-cadence-or-helper-permission-changes"]}\n'
   rm -f "$phase_file" "$progress_file"
+}
+
+json_viewport_interaction_trace_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="${3:-}"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"viewport-interaction-trace","targetLabel":"iphone-remote-desktop-10fps-v1","profileLabel":"local-low-latency-rgb565","scalePermille":250,"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}\n'
+}
+
+json_viewport_interaction_trace_candidate_failure() {
+  local failure_code="$1"
+  local phase_file="$2"
+  local progress_file="$3"
+  local candidate_label="$4"
+  local candidate_ordinal="$5"
+  local viewport_interaction_mode="$6"
+  local phase_label
+  phase_label="$(bounded_sweep_phase_label "$phase_file")"
+  printf '{"schemaVersion":1,"mode":"viewport-interaction-trace-candidate","candidateLabel":'
+  json_string "$candidate_label"
+  printf ',"candidateOrdinal":%d,"targetLabel":"iphone-remote-desktop-10fps-v1","profileLabel":"local-low-latency-rgb565","viewportInteractionMode":' "$candidate_ordinal"
+  json_string "$viewport_interaction_mode"
+  printf ',"networkCondition":"none","transportMode":"request-response","requestRegion":"viewport-phone-portrait","firstFrameRequestMode":"visible-glance","scalePermille":250,"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"lastPhaseLabel":'
+  json_string "$phase_label"
+  print_benchmark_progress_fields "$progress_file"
+  printf '}'
+}
+
+json_viewport_interaction_trace_candidate_result() {
+  local phase_file="$1"
+  local progress_file="$2"
+  local candidate_label="$3"
+  local candidate_ordinal="$4"
+  local viewport_interaction_mode="$5"
+  shift 5
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-viewport-interaction-trace-output.XXXXXX")"
+  : >"$progress_file"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout 90 "$@" >"$output_file" 2>/dev/null \
+    && json_file_is_valid_or_unchecked "$output_file"; then
+    printf '{"schemaVersion":1,"mode":"viewport-interaction-trace-candidate","candidateLabel":'
+    json_string "$candidate_label"
+    printf ',"candidateOrdinal":%d,"targetLabel":"iphone-remote-desktop-10fps-v1","profileLabel":"local-low-latency-rgb565","viewportInteractionMode":' "$candidate_ordinal"
+    json_string "$viewport_interaction_mode"
+    printf ',"networkCondition":"none","transportMode":"request-response","requestRegion":"viewport-phone-portrait","firstFrameRequestMode":"visible-glance","scalePermille":250,"status":"passed","report":'
+    cat "$output_file"
+    printf '}'
+    rm -f "$output_file"
+    return
+  fi
+
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_viewport_interaction_trace_candidate_failure \
+      benchmarkStep.viewportInteractionTrace.timedOut \
+      "$phase_file" \
+      "$progress_file" \
+      "$candidate_label" \
+      "$candidate_ordinal" \
+      "$viewport_interaction_mode"
+  else
+    json_viewport_interaction_trace_candidate_failure \
+      benchmarkStep.viewportInteractionTrace.failed \
+      "$phase_file" \
+      "$progress_file" \
+      "$candidate_label" \
+      "$candidate_ordinal" \
+      "$viewport_interaction_mode"
+  fi
+  rm -f "$output_file"
+}
+
+viewport_interaction_trace_args() {
+  local viewport_interaction_mode="$1"
+  local progress_file="$2"
+  VIEWPORT_INTERACTION_TRACE_ARGS=(
+    --attempts 1
+    --network-condition none
+    --visual-transport vnc
+    --stream-shape-frame-interval 0
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure app
+    --stream-shape-viewport-interaction "$viewport_interaction_mode"
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-remote-desktop-10fps-v1
+    --stream-shape-transport request-response
+    --stream-shape-request-pipeline-depth 1
+    --stream-shape-request-region viewport-phone-portrait
+    --stream-shape-first-frame-request visible-glance
+    --stream-shape-first-frame-visible-glance-scale 0.25
+    --stream-shape-profiles local-low-latency-rgb565
+    --stream-shape-profile-order fixed
+    --stream-shape-profile-iterations 1
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 0
+    --stream-shape-duration-seconds 12
+    --timeout 30
+    --idle-timeout 5
+    --safe-progress-label-file "$progress_file"
+    --json
+  )
+}
+
+run_viewport_interaction_trace() {
+  local phase_file
+  phase_file="$(mktemp "${TMPDIR:-/tmp}/naru-viewport-interaction-trace-phase.XXXXXX")"
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-viewport-interaction-trace-progress.XXXXXX")"
+  write_bounded_sweep_phase "$phase_file" runner-starting
+
+  if ! prepare_bounded_benchmark_executable "$phase_file"; then
+    if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+      json_viewport_interaction_trace_failure \
+        benchmarkStep.viewportInteractionTrace.timedOut \
+        "$phase_file" \
+        "$progress_file"
+    else
+      json_viewport_interaction_trace_failure \
+        benchmarkStep.viewportInteractionTrace.failed \
+        "$phase_file" \
+        "$progress_file"
+    fi
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  if [[ -z "$BOUNDED_BENCHMARK_EXECUTABLE" ]]; then
+    json_viewport_interaction_trace_failure \
+      benchmarkStep.viewportInteractionTrace.failed \
+      "$phase_file" \
+      "$progress_file"
+    rm -f "$phase_file" "$progress_file"
+    return
+  fi
+
+  local candidates=(
+    "viewport-interaction-off-baseline|off"
+    "viewport-interaction-app-pacing|app"
+  )
+  local first_candidate=1
+  local candidate
+  local candidate_ordinal=0
+  printf '{"schemaVersion":1,"mode":"viewport-interaction-trace","status":"completed","targetLabel":"iphone-remote-desktop-10fps-v1","minimumContentFPS":10,"profileLabel":"local-low-latency-rgb565","networkCondition":"none","transportMode":"request-response","requestRegion":"viewport-phone-portrait","firstFrameRequestMode":"visible-glance","scalePermille":250,"diagnosticPolicyLabels":["viewport-interaction-off-vs-app","local-gesture-smoothness-gate","privacy-safe-progress-labels-only","do-not-promote-without-physical-iphone-trace"],"candidates":[\n'
+  for candidate in "${candidates[@]}"; do
+    candidate_ordinal=$((candidate_ordinal + 1))
+    IFS='|' read -r candidate_label viewport_interaction_mode <<<"$candidate"
+    if ((first_candidate)); then
+      first_candidate=0
+    else
+      printf ',\n'
+    fi
+    write_bounded_sweep_phase "$phase_file" benchmark-running
+    viewport_interaction_trace_args "$viewport_interaction_mode" "$progress_file"
+    json_viewport_interaction_trace_candidate_result \
+      "$phase_file" \
+      "$progress_file" \
+      "$candidate_label" \
+      "$candidate_ordinal" \
+      "$viewport_interaction_mode" \
+      "$BOUNDED_BENCHMARK_EXECUTABLE" "${VIEWPORT_INTERACTION_TRACE_ARGS[@]}"
+  done
+  printf '\n],"nextActionLabels":["compare-off-vs-app-viewport-pacing-before-gesture-tuning","if-app-pacing-lowers-fps-or-raises-first-byte-wait-inspect-viewport-request-pauses","if-both-fail-receive-path-first-byte-wait-prioritize-helper-video","run-physical-iphone-zoomed-trackpad-manual-run"]}\n'
+  rm -f "$phase_file" "$progress_file"
+}
+
+benchmark_arg_value() {
+  local flag="$1"
+  shift
+  while (($#)); do
+    if [[ "$1" == "$flag" ]]; then
+      if (($# < 2)); then
+        return 1
+      fi
+      printf '%s' "$2"
+      return 0
+    fi
+    shift
+  done
+  return 1
+}
+
+benchmark_arg_equals() {
+  local flag="$1"
+  local expected="$2"
+  shift 2
+  local actual
+  actual="$(benchmark_arg_value "$flag" "$@")" || return 1
+  [[ "$actual" == "$expected" ]]
+}
+
+viewport_interaction_trace_self_test() {
+  reject_extra_args
+
+  local progress_file
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/naru-viewport-interaction-trace-self-test-progress.XXXXXX")"
+  viewport_interaction_trace_args off "$progress_file"
+  local off_args=("${VIEWPORT_INTERACTION_TRACE_ARGS[@]}")
+  viewport_interaction_trace_args app "$progress_file"
+  local app_args=("${VIEWPORT_INTERACTION_TRACE_ARGS[@]}")
+
+  if benchmark_arg_equals --stream-shape-viewport-interaction off "${off_args[@]}" \
+    && benchmark_arg_equals --stream-shape-viewport-interaction app "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-practical-target iphone-remote-desktop-10fps-v1 "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-transport request-response "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-request-region viewport-phone-portrait "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-first-frame-request visible-glance "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-profiles local-low-latency-rgb565 "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-samples 0 "${app_args[@]}" \
+    && benchmark_arg_equals --stream-shape-duration-seconds 12 "${app_args[@]}" \
+    && benchmark_arg_equals --safe-progress-label-file "$progress_file" "${app_args[@]}"; then
+    printf '{"schemaVersion":1,"mode":"viewport-interaction-trace-self-test","status":"passed","diagnosticPolicyLabels":["viewport-interaction-off-vs-app","privacy-safe-progress-labels-only"],"checkedModes":["off","app"]}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"viewport-interaction-trace-self-test","status":"failed"}\n'
+    rm -f "$progress_file"
+    exit 1
+  fi
+
+  rm -f "$progress_file"
 }
 
 json_glance_025_profile_sweep_failure() {
@@ -7125,6 +7362,15 @@ case "$mode" in
     ;;
   remote-desktop-readiness-summary-self-test)
     remote_desktop_readiness_summary_self_test
+    ;;
+  viewport-interaction-trace)
+    reject_extra_args
+    import_live_env
+    cd "$repo_root"
+    run_viewport_interaction_trace
+    ;;
+  viewport-interaction-trace-self-test)
+    viewport_interaction_trace_self_test
     ;;
   request-pipeline-sweep)
     import_live_env
