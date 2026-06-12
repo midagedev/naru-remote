@@ -207,6 +207,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         var droppedAccessUnitCount = 0
         var didPublishHealthy = false
         var didPublishBackpressureHealth = false
+        var renderBackpressureGate = HelperVideoRenderBackpressureGate()
 
         do {
             for try await event in events {
@@ -260,7 +261,10 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                         continue
                     }
                     do {
-                        switch try await renderAccessUnit(accessUnit) {
+                        switch try await renderAccessUnit(
+                            accessUnit,
+                            backpressureGate: &renderBackpressureGate
+                        ) {
                         case .droppedForBackpressure:
                             droppedAccessUnitCount += 1
                             if didPublishHealthy && !didPublishBackpressureHealth {
@@ -452,10 +456,14 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         await renderer.flush()
         var displayableFrameCount = 0
         var droppedAccessUnitCount = 0
+        var renderBackpressureGate = HelperVideoRenderBackpressureGate()
 
         for accessUnit in result.accessUnits {
             do {
-                switch try await renderAccessUnit(accessUnit) {
+                switch try await renderAccessUnit(
+                    accessUnit,
+                    backpressureGate: &renderBackpressureGate
+                ) {
                 case .droppedForBackpressure:
                     droppedAccessUnitCount += 1
                 case .displayable:
@@ -561,14 +569,29 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
     }
 
     private func renderAccessUnit(
-        _ accessUnit: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
+        _ accessUnit: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>,
+        backpressureGate: inout HelperVideoRenderBackpressureGate
     ) async throws -> HelperVideoAccessUnitRenderResult {
-        if await renderer.shouldDropAccessUnitForBackpressure(accessUnit) {
+        switch backpressureGate.decision(for: accessUnit.envelope.body.kind) {
+        case .dropDeltaWithoutQuery:
             return .droppedForBackpressure
+        case .renderWithoutQuery:
+            return try await renderer.enqueueDisplayableAccessUnit(accessUnit)
+                ? .displayable
+                : .notDisplayable
+        case .queryRendererBackpressure:
+            let shouldDrop = await renderer.shouldDropAccessUnitForBackpressure(accessUnit)
+            backpressureGate.recordRendererBackpressureResult(
+                for: accessUnit.envelope.body.kind,
+                shouldDrop: shouldDrop
+            )
+            guard !shouldDrop else {
+                return .droppedForBackpressure
+            }
+            return try await renderer.enqueueDisplayableAccessUnit(accessUnit)
+                ? .displayable
+                : .notDisplayable
         }
-        return try await renderer.enqueueDisplayableAccessUnit(accessUnit)
-            ? .displayable
-            : .notDisplayable
     }
 
     private func ignoreStaleResult(

@@ -106,3 +106,7 @@ schemes:
       targets:
         - NaruRemoteBenchmarkTests
         - NaruRemoteUITests
+      environmentVariables:
+        NARU_RUN_SIM_BENCHMARKS: "$(NARU_RUN_SIM_BENCHMARKS)"
+        NARU_SIM_BENCHMARK_ITERATIONS: "$(NARU_SIM_BENCHMARK_ITERATIONS)"
+        NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES: "$(NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES)"

@@ -1369,7 +1369,7 @@ private final class RFBNetworkConnection: Sendable {
         let connection = NWConnection(
             host: NWEndpoint.Host(host),
             port: endpointPort,
-            using: .tcp
+            using: NaruLowLatencyTCPParameters.make()
         )
         let readyState = RFBNetworkConnectionReadyState()
         let wrapper = RFBNetworkConnection(connection: connection)
@@ -1705,7 +1705,7 @@ private enum RFBNetworkTranscriptReader {
         let connection = NWConnection(
             host: NWEndpoint.Host(host),
             port: endpointPort,
-            using: .tcp
+            using: NaruLowLatencyTCPParameters.make()
         )
         let state = RFBNetworkReadState(expectedByteCount: expectedByteCount)
         let reader = RFBNetworkConnectionReader(

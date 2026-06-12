@@ -609,17 +609,54 @@ host names, or credentials in benchmark artifacts.
 ```bash
 swift test --filter 'SessionViewportViewGeometryTests|TrackpadModeModelTests|PiPLayerHostAttachmentTests'
 
+swift test --filter 'ViewportInputHotPathDriverTests|HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms'
+
+swift test --filter 'HelperVideoRenderBackpressureGateTests|HelperVideoStreamSessionRunnerTests/testEventStreamBoundsRepeatedDeltaBackpressureQueriesUntilKeyframeRecovery'
+
+swift test --filter 'NaruLowLatencyTCPParametersTests|FakeRFBServerIntegrationTests/testProductionRFBNetworkClientCompletesInteractiveNoAuthFirstFrameHandshake|FakeRFBServerIntegrationTests/testProductionRFBNetworkClientSendsKeyEventsAfterInteractiveHandshake'
+
 xcodebuild -project NaruRemote.xcodeproj \
   -scheme NaruRemote \
   -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' \
-  build
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms \
+  -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 10 \
+  test
+```
+
+The opt-in throughput benchmark uses the same pure driver, so it does not
+construct `UIView`, `MTKView`, display-link, or decoder objects. For SwiftPM,
+use shell environment variables:
+
+```bash
+NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=1 \
+NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=240 \
+swift test --filter HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark
+```
+
+For `xcodebuild`, pass the opt-in values as build settings so the generated
+scheme can forward them into the XCTest process:
+
+```bash
+xcodebuild -project NaruRemote.xcodeproj \
+  -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' \
+  -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark \
+  -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 10 \
+  test \
+  NARU_RUN_SIM_BENCHMARKS=1 \
+  NARU_SIM_BENCHMARK_ITERATIONS=1 \
+  NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=240
 ```
 
 These checks cover the helper-video primary policy that suppresses SwiftUI
 input overlays when the UIKit/Metal hot path is available, the existing
 trackpad cursor/auto-pan behavior, the sample-buffer display layer transform,
-and iOS target compilation. They do not prove physical-device smoothness; that
-still needs the physical helper-video gate and manual iPhone/Mac verification.
+the UIKit-free viewport/input benchmark seam, and iOS target compilation. They
+do not prove physical-device smoothness; that still needs the physical
+helper-video gate and manual iPhone/Mac verification.
 
 ## Planned Live Benchmark Shape
 

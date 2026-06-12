@@ -111,7 +111,7 @@ public final class NaruHelperNetworkTextInsertClient: HelperTextInsertClient, @u
             let connection = NWConnection(
                 host: NWEndpoint.Host(host),
                 port: port,
-                using: .tcp
+                using: NaruLowLatencyTCPParameters.make()
             )
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let completion = HelperNetworkRequestCompletion(
