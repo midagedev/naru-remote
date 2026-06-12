@@ -2826,3 +2826,48 @@ credentials, device identifiers, account names, team names, raw helper or
 xcodebuild logs, screenshots, pixels, display dimensions, byte counts, exact
 timings, Compose text, marked text, keysyms, pointer coordinates, or clipboard
 contents.
+
+## D69 - Make continuous helper-video delivery demand-aware
+
+**Decision**: Replace the continuous helper-video client's raw
+`AsyncThrowingStream` continuation with a small demand-aware event sequence.
+The network client now buffers events in a bounded mailbox, preserves required
+control/sync ordering for start responses, parameter sets, keyframes, and
+stalls, coalesces repeated sync/control roles plus pending delta access units
+to the newest useful state when the app consumer falls behind, and applies a
+short receive backoff after coalescing.
+
+**Rationale**:
+- A remote desktop viewer should not spend CPU and battery rendering stale
+  transient desktop states after the UI or decoder has already fallen behind.
+- The RFB model already treats framebuffer updates as demand-driven and allows
+  slow clients to skip transient states. Helper-video should follow the same
+  product principle: keep the newest visible state and preserve decoder sync,
+  rather than accumulating an unbounded visual backlog.
+- This is complementary to renderer-level `isReadyForMoreMediaData` dropping:
+  renderer backpressure prevents display-layer overload, while the network
+  event mailbox prevents a pre-render backlog from forming first.
+
+**Evidence**:
+- `swift test --filter NaruHelperVideoStreamNetworkServiceTests` now includes a
+  slow-consumer regression that receives the start response first, pauses while
+  the helper sends parameter set, keyframe, and many deltas, then verifies the
+  parameter set and keyframe are preserved while stale deltas are coalesced to
+  the latest sequence. A second slow-consumer regression sends repeated
+  parameter/keyframe sync events and verifies the mailbox keeps only the latest
+  bounded sync pair.
+- `swift test --filter 'HelperVideoStreamSessionRunnerTests|NaruRemoteAppModelTests/testHelperVideo'`
+  passes, covering the continuous helper-video app selection path after the
+  event sequence type change.
+- Synthetic 90-frame app-runner benchmark remains healthy after the change:
+  clock average about `0.017s`, CPU time about `0.018s`, and peak physical
+  memory about `13.97MB`.
+- The real ScreenCaptureKit-backed 90-frame app-model smoke path still passes
+  after the change. This patch is a backlog/latency/thermal guard, not a claim
+  that ScreenCaptureKit bootstrap got faster.
+
+**Privacy rule**: Helper-video event backpressure diagnostics may expose only
+fixed backpressure/coalescing labels and aggregate benchmark buckets. They must
+not emit host values, credentials, device identifiers, account names, raw
+frames, screenshots, pixels, byte counts, exact frame timings, Compose text,
+marked text, keysyms, pointer coordinates, or clipboard contents.

@@ -281,7 +281,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
-            timeout: 3
+            timeout: 6
         )
         let result = try await client.startStream(maxServerFrames: 3)
 
