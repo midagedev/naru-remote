@@ -2958,3 +2958,55 @@ tokens, raw XCTest output, raw helper stdout/stderr, raw OS errors, display
 dimensions, pixels, byte counts, exact timings, physical device identifiers,
 Compose text, marked text, keysyms, pointer coordinates, clipboard contents, or
 frame payloads.
+
+## D72 - Split helper-video primary display from the input hot path
+
+**Decision**: Make helper-video primary use the `AVSampleBufferDisplayLayer`
+for video display while a rendererless UIKit input host owns gestures, hot
+trackpad cursor, and local viewport navigation. The helper-video display layer
+now accepts the same local zoom/pan transform as the Metal framebuffer path,
+and the input-only host can push immediate Core Animation transforms directly
+to that display layer while SwiftUI state follows at display-link cadence.
+When Metal/UIKit input is available, helper-video primary suppresses the
+SwiftUI direct-touch and trackpad overlays and allows the hot cursor path.
+
+**Rationale**:
+- Current VNC profile/request/transport sweeps remain below the product
+10fps floor on the live desktop path. The best full-view VNC candidates are
+still first-byte/request-cadence limited, while a visible-local candidate can
+only reach the mid-single-digit FPS band. That means request tuning alone
+cannot deliver a Chrome Remote Desktop-like feel on phones.
+- The live-device symptom is mostly interactive: zoom/pan feels late, the
+trackpad cursor lags, and input can appear frozen after stream startup. Local
+viewport navigation must therefore stay responsive even when remote frames
+arrive slowly.
+- The existing Metal path already hosts UIKit recognizers, cursor rendering,
+deceleration, gesture diagnostics, and frame-publication throttling outside
+SwiftUI's per-frame diff path. Reusing that host without an `MTKView` gives
+helper-video the same input behavior without double-rendering decoded H.264
+frames.
+
+**Evidence**:
+- `swift test --filter
+  'SessionViewportViewGeometryTests|TrackpadModeModelTests|PiPLayerHostAttachmentTests'`
+  passes and covers the new helper-video input policy plus existing trackpad
+  hot-cursor behavior.
+- `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' build` passes,
+  proving the iOS UIKit/AVFoundation/Metal composition compiles in the app
+  target.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  passes with `sourceMode=screen-capturekit`, `transportPath=helper-tcp-to-app-model`,
+  `decodePath=h264-sample-buffer-factory`, and `requestedFrameCount=30`, so the
+  existing helper-video decode/bootstrap path still works after the local input
+  hot-path split.
+- The latest VNC benchmark sweep still shows full-view candidates below the
+  10fps goal and the local visible-region candidate below the target, so the
+  next performance wins must come from helper-video decode/display and local
+  interaction isolation, not only RFB encoding selection.
+
+**Privacy rule**: The helper-video hot input path may expose only fixed
+capability/policy labels and aggregate gesture diagnostics. It must not export
+helper endpoints, host names, display dimensions, raw frame payloads, byte
+counts, exact frame timings, pointer coordinates, Compose text, keysyms,
+clipboard contents, or raw UIKit/Xcode logs.

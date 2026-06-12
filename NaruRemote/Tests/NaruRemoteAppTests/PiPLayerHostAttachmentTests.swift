@@ -82,6 +82,28 @@ final class PiPLayerHostAttachmentTests: XCTestCase {
         XCTAssertEqual(pipController.enqueuedViewports, [viewport])
     }
 
+    #if os(iOS) && canImport(UIKit)
+    func testSampleBufferDisplayLayerHostAppliesLocalViewportTransform() {
+        let displayLayer = AVSampleBufferDisplayLayer()
+        let host = PiPSampleBufferDisplayLayerHostingView(layer: displayLayer)
+        host.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        host.layoutIfNeeded()
+
+        host.syncViewportTransform(
+            scale: 2,
+            offset: CGSize(width: -48, height: 16)
+        )
+
+        let transform = displayLayer.affineTransform()
+        XCTAssertTrue(host.clipsToBounds)
+        XCTAssertEqual(displayLayer.frame, host.bounds)
+        XCTAssertEqual(transform.a, 2, accuracy: 0.0001)
+        XCTAssertEqual(transform.d, 2, accuracy: 0.0001)
+        XCTAssertEqual(transform.tx, -48, accuracy: 0.0001)
+        XCTAssertEqual(transform.ty, 16, accuracy: 0.0001)
+    }
+    #endif
+
     func testStartPiPWatchFallsBackToBarePrepareWhenControllerCannotAttach() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(

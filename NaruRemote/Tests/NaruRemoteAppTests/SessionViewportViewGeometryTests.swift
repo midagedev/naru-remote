@@ -58,8 +58,8 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
-    func testHelperVideoPrimaryForcesSwiftUIInputOverlaysEvenWhenMetalIsAvailable() {
-        XCTAssertTrue(
+    func testHelperVideoPrimaryUsesHotInputOverlayWhenMetalIsAvailable() {
+        XCTAssertFalse(
             SessionViewportView.usesSwiftUITrackpadInputOverlay(
                 isPiPWatching: false,
                 usesHelperVideoPrimaryPreview: true,
@@ -67,7 +67,7 @@ final class SessionViewportViewGeometryTests: XCTestCase {
                 metalFramebufferInputSupported: true
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             SessionViewportView.usesSwiftUIDirectTouchInputOverlay(
                 isPiPWatching: false,
                 usesHelperVideoPrimaryPreview: true,
@@ -75,7 +75,29 @@ final class SessionViewportViewGeometryTests: XCTestCase {
                 metalFramebufferInputSupported: true
             )
         )
+        XCTAssertTrue(
+            SessionViewportView.usesMetalHotInputOverlay(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                metalFramebufferInputSupported: true
+            )
+        )
+        XCTAssertTrue(
+            SessionViewportView.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                pointerControlMode: .trackpad,
+                metalFramebufferInputSupported: false
+            )
+        )
         XCTAssertFalse(
+            SessionViewportView.usesMetalHotInputOverlay(
+                isPiPWatching: false,
+                usesHelperVideoPrimaryPreview: true,
+                metalFramebufferInputSupported: false
+            )
+        )
+        XCTAssertTrue(
             SessionViewportView.usesMetalHotTrackpadCursor(
                 isPiPWatching: false,
                 usesHelperVideoPrimaryPreview: true,

@@ -611,6 +611,14 @@ without unsafe report fields.
   control-path checks. Covered by app-model outcome/limit regression, current
   30-frame ScreenCaptureKit app bootstrap, current 90-frame ScreenCaptureKit
   app bootstrap, and helper-video live gate. **Done.**
+- [x] T031AO [US2] Move helper-video primary zoom/pan/input onto the same
+  local hot path as the Metal framebuffer. The sample-buffer display layer now
+  applies viewport transforms through Core Animation, helper-video primary uses
+  a rendererless UIKit input overlay for direct touch, pinch, trackpad cursor,
+  and auto-pan when Metal input is available, and SwiftUI direct/trackpad
+  overlays remain only as the no-Metal fallback. Covered by viewport geometry
+  policy tests, existing trackpad hot-path regressions, sample-buffer layer
+  transform coverage, and the iOS simulator app build. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

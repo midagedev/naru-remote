@@ -17,6 +17,8 @@ public struct PiPSampleBufferDisplayLayerView: UIViewRepresentable {
     private let sampleBufferLayer: AVSampleBufferDisplayLayer
     private let accessibilityIdentifier: String
     private let accessibilityLabel: String
+    private let viewportScale: CGFloat
+    private let viewportOffset: CGSize
 
     public init(
         layerHost: PiPLayerHost,
@@ -32,11 +34,15 @@ public struct PiPSampleBufferDisplayLayerView: UIViewRepresentable {
     public init(
         layer: AVSampleBufferDisplayLayer,
         accessibilityIdentifier: String = "naru.session.sampleBufferDisplayLayer",
-        accessibilityLabel: String = "Remote video display layer"
+        accessibilityLabel: String = "Remote video display layer",
+        viewportScale: CGFloat = 1,
+        viewportOffset: CGSize = .zero
     ) {
         self.sampleBufferLayer = layer
         self.accessibilityIdentifier = accessibilityIdentifier
         self.accessibilityLabel = accessibilityLabel
+        self.viewportScale = viewportScale
+        self.viewportOffset = viewportOffset
     }
 
     public func makeUIView(context: Context) -> PiPSampleBufferDisplayLayerHostingView {
@@ -46,11 +52,13 @@ public struct PiPSampleBufferDisplayLayerView: UIViewRepresentable {
         view.isAccessibilityElement = true
         view.accessibilityLabel = accessibilityLabel
         view.backgroundColor = .black
+        view.syncViewportTransform(scale: viewportScale, offset: viewportOffset)
         return view
     }
 
     public func updateUIView(_ uiView: PiPSampleBufferDisplayLayerHostingView, context: Context) {
         uiView.attach(layer: sampleBufferLayer)
+        uiView.syncViewportTransform(scale: viewportScale, offset: viewportOffset)
         uiView.setNeedsLayout()
     }
 }
@@ -60,9 +68,12 @@ public struct PiPSampleBufferDisplayLayerView: UIViewRepresentable {
 /// match the view's bounds across rotations and Stage Manager resizes.
 public final class PiPSampleBufferDisplayLayerHostingView: UIView {
     private weak var attachedLayer: AVSampleBufferDisplayLayer?
+    private var viewportScale: CGFloat = 1
+    private var viewportOffset: CGSize = .zero
 
     public init(layer: AVSampleBufferDisplayLayer) {
         super.init(frame: .zero)
+        clipsToBounds = true
         attach(layer: layer)
     }
 
@@ -74,6 +85,7 @@ public final class PiPSampleBufferDisplayLayerHostingView: UIView {
     public func attach(layer newLayer: AVSampleBufferDisplayLayer) {
         if attachedLayer === newLayer {
             newLayer.frame = bounds
+            applyViewportTransform()
             return
         }
 
@@ -81,11 +93,64 @@ public final class PiPSampleBufferDisplayLayerHostingView: UIView {
         newLayer.frame = bounds
         self.layer.addSublayer(newLayer)
         attachedLayer = newLayer
+        applyViewportTransform()
+    }
+
+    public func syncViewportTransform(scale: CGFloat, offset: CGSize) {
+        let sanitizedScale = scale.isFinite ? max(scale, 0.0001) : 1
+        let sanitizedOffset = CGSize(
+            width: offset.width.isFinite ? offset.width : 0,
+            height: offset.height.isFinite ? offset.height : 0
+        )
+        guard abs(viewportScale - sanitizedScale) > 0.0001
+            || viewportOffset != sanitizedOffset
+        else {
+            return
+        }
+
+        viewportScale = sanitizedScale
+        viewportOffset = sanitizedOffset
+        applyViewportTransform()
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
         attachedLayer?.frame = bounds
+        applyViewportTransform()
+    }
+
+    private func applyViewportTransform() {
+        guard let attachedLayer else {
+            return
+        }
+
+        Self.applyViewportTransform(
+            to: attachedLayer,
+            scale: viewportScale,
+            offset: viewportOffset
+        )
+    }
+
+    public static func applyViewportTransform(
+        to layer: AVSampleBufferDisplayLayer,
+        scale: CGFloat,
+        offset: CGSize
+    ) {
+        let sanitizedScale = scale.isFinite ? max(scale, 0.0001) : 1
+        let sanitizedOffset = CGSize(
+            width: offset.width.isFinite ? offset.width : 0,
+            height: offset.height.isFinite ? offset.height : 0
+        )
+        let transform = CGAffineTransform(
+            translationX: sanitizedOffset.width,
+            y: sanitizedOffset.height
+        )
+        .scaledBy(x: sanitizedScale, y: sanitizedScale)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.setAffineTransform(transform)
+        CATransaction.commit()
     }
 }
 #endif
