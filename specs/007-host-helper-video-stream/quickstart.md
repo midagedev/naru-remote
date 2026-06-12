@@ -187,12 +187,15 @@ the readiness gate remains repeatable. If a sub-step exits before returning
 JSON, the sweep emits only that step's fixed label and fixed safe failure code;
 it does not print raw helper stderr, credential values, helper paths,
 endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
-`helper-screen-app-bootstrap-benchmark` runs the opt-in app-runner smoke for
-ScreenCaptureKit access units from the selected external helper app through
-helper TCP framing, app-model helper-video bootstrap, and the H.264
+`helper-screen-app-bootstrap-benchmark` runs the opt-in app-runner sustained
+smoke for ScreenCaptureKit access units from the selected external helper app
+through helper TCP framing, app-model helper-video bootstrap, and the H.264
 sample-buffer factory. It imports the same `NARU_HELPER_EXECUTABLE` helper app
-bundle as the live gate, emits fixed JSON only, and hides raw XCTest output. A
-`skipped` result now maps to fixed setup actions such as
+bundle as the live gate, emits fixed JSON only, and hides raw XCTest output.
+By default the runner requests 30 displayable helper-video frames; set
+`NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES` to a value from `1` to `120` to shorten
+or strengthen the app-decode gate. A `skipped` result now maps to fixed setup
+actions such as
 `configure-helper-video-executable` or
 `grant-helper-video-app-screen-recording-permission` before T031 can claim true
 live helper-video app decode evidence.
@@ -580,8 +583,8 @@ swift test --filter HelperVideoAppRunnerBenchmarkTests
 
 NARU_RUN_SIM_BENCHMARKS=1 \
 NARU_SIM_BENCHMARK_ITERATIONS=1 \
-NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=2 \
-swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedHelperVideoBootstrapThroughAppModelSmoke
+NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=30 \
+swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke
 ```
 
 The default command proves the benchmark target still skips during normal test

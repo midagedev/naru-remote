@@ -16,7 +16,7 @@ Modes:
   helper-sustained-screen-probe Helper-video sustained external ScreenCaptureKit run.
   helper-readiness-sweep   Safe helper capability/preflight/synthetic/screen sweep.
   helper-dev-app-setup     Install dev helper app, set launchctl, request Screen Recording.
-  helper-screen-app-bootstrap-benchmark ScreenCaptureKit app bootstrap/decode smoke.
+  helper-screen-app-bootstrap-benchmark ScreenCaptureKit app sustained decode smoke.
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
@@ -86,6 +86,7 @@ Launchctl variables used when present:
   NARU_HELPER_VIDEO_TOKEN
   NARU_HELPER_VIDEO_PROFILE_FINGERPRINT
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
+  NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES
   NARU_HELPER_DEV_APP_ROOT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
   NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS
@@ -169,6 +170,7 @@ import_env() {
 import_helper_env() {
   import_env NARU_HELPER_EXECUTABLE required
   import_env NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT optional
+  import_env NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES optional
 }
 
 import_live_env() {
@@ -5542,6 +5544,7 @@ print_helper_video_live_gate_summary() {
           sourceMode: (first($bootstrap).sourceMode // "unknown"),
           transportPath: (first($bootstrap).transportPath // "unknown"),
           decodePath: (first($bootstrap).decodePath // "unknown"),
+          requestedFrameCount: (first($bootstrap).requestedFrameCount // null),
           issueCodes: (first($bootstrap).issueCodes // []),
           setupActionLabels: (first($bootstrap).setupActionLabels // [])
         },
@@ -5593,10 +5596,31 @@ print_helper_video_live_gate_skipped_bootstrap() {
   printf '"transportPath":"helper-tcp-to-app-model",'
   printf '"decodePath":"h264-sample-buffer-factory",'
   printf '"skipReason":"screenRecordingPermissionMissing",'
+  printf '"requestedFrameCount":0,'
   printf '"issueCodes":["helper-video-permission-missing"],'
   printf '"setupActionLabels":["grant-helper-video-app-screen-recording-permission","rerun-helper-video-live-gate"],'
   printf '"safety":["app bootstrap skipped before helper capture; no raw xctest output, frame payloads, pixels, dimensions, endpoints, helper paths, device ids, credentials, byte counts, or exact timings are emitted"]'
   printf '}'
+}
+
+helper_video_app_benchmark_frame_count() {
+  local raw_value="${NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES:-}"
+  local default_value=30
+  local minimum_value=1
+  local maximum_value=120
+
+  if [[ -z "$raw_value" || ! "$raw_value" =~ ^[0-9]+$ ]]; then
+    printf '%d' "$default_value"
+    return
+  fi
+
+  if ((raw_value < minimum_value)); then
+    printf '%d' "$minimum_value"
+  elif ((raw_value > maximum_value)); then
+    printf '%d' "$maximum_value"
+  else
+    printf '%d' "$raw_value"
+  fi
 }
 
 print_helper_video_live_gate_report() {
@@ -5693,7 +5717,7 @@ JSON
 {"schemaVersion":1,"mode":"helper-readiness-sweep","syntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"sustainedSyntheticProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}},"screenProbe":{"visualTransportComparison":{"helperVideoReports":[{"schemaVersion":2,"verdict":"pass","issueCodes":[],"readinessState":"readyForPhysicalGate","recommendedAction":"run-physical-iphone-helper-video-gate"}]}}}
 JSON
   cat >"$bootstrap_ready" <<'JSON'
-{"schemaVersion":1,"mode":"helper-screen-app-bootstrap-benchmark","status":"passed","sourceMode":"screen-capturekit","transportPath":"helper-tcp-to-app-model","decodePath":"h264-sample-buffer-factory","issueCodes":[],"setupActionLabels":[]}
+{"schemaVersion":1,"mode":"helper-screen-app-bootstrap-benchmark","status":"passed","sourceMode":"screen-capturekit","transportPath":"helper-tcp-to-app-model","decodePath":"h264-sample-buffer-factory","requestedFrameCount":30,"issueCodes":[],"setupActionLabels":[]}
 JSON
   cat >"$physical_blocked" <<'JSON'
 {"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"connected","deviceSelectionSource":"environment","deviceIDResolutionStatus":"environmentXcodebuildUDID","codeSigningIdentityStatus":"available","developmentTeamStatus":"environment","xcodeAccountStatus":"missing","provisioningProfileStatus":"missing","buildCheckStatus":"failed","signingSetupSummary":{"schemaVersion":1,"readinessState":"blocked","primaryBlockedGateLabel":"xcode-account","recommendedPrimaryAction":"open-xcode-account-settings","operatorActionSequence":["open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","rerun-physical-iphone-helper-video-gate"],"diagnosticLabels":["xcode-account-unavailable-to-xcodebuild","development-team-supplied-but-xcode-account-missing","provisioning-cannot-be-validated-until-xcode-account-is-available"]},"issueCodes":["xcode-account-missing","ios-provisioning-profile-missing"],"setupActionLabels":["add-xcode-account","open-xcode-account-settings","sign-in-to-xcode-account-for-development-team","rerun-physical-device-preflight","create-ios-development-provisioning-profile","enable-automatic-signing-or-create-development-profile"]}
@@ -5744,6 +5768,7 @@ JSON
     (.primaryBlockedGateLabels | index("helper-video-app-bootstrap-skipped")) and
     .screenRecordingGate.finalPermissionStatus == "granted" and
     .appBootstrapGate.status == "skipped" and
+    .appBootstrapGate.requestedFrameCount == 0 and
     .physicalIPhoneGate.buildCheckStatus == "passed"
   ' "$summary_bootstrap_skipped" >/dev/null && jq -e '
     .overallGateState == "blockedByPhysicalIPhoneGate" and
@@ -5751,6 +5776,7 @@ JSON
     (.primaryBlockedGateLabels | index("physical-iphone-gate-blocked")) and
     .screenRecordingGate.finalPermissionStatus == "granted" and
     .appBootstrapGate.status == "passed" and
+    .appBootstrapGate.requestedFrameCount == 30 and
     .physicalIPhoneGate.provisioningProfileStatus == "missing" and
     .physicalIPhoneGate.signingSetupSummary.primaryBlockedGateLabel == "xcode-account"
   ' "$summary_physical_blocked" >/dev/null && jq -e '
@@ -5760,6 +5786,7 @@ JSON
     .screenRecordingGate.finalPermissionStatus == "granted" and
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .appBootstrapGate.status == "passed" and
+    .appBootstrapGate.requestedFrameCount == 30 and
     .physicalIPhoneGate.buildCheckStatus == "passed"
   ' "$summary_ready" >/dev/null; then
     printf '{"schemaVersion":1,"mode":"helper-video-live-gate-self-test","status":"passed","blockedSummary":'
@@ -5878,13 +5905,15 @@ run_helper_sustained_screen_probe_command() {
 print_helper_screen_app_bootstrap_benchmark_report() {
   local output_file
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-helper-screen-app-bootstrap.XXXXXX")"
+  local requested_frame_count
+  requested_frame_count="$(helper_video_app_benchmark_frame_count)"
   local result_status="failed"
   local issue_codes=()
   local setup_actions=()
 
   if NARU_RUN_SIM_BENCHMARKS=1 \
     NARU_SIM_BENCHMARK_ITERATIONS=1 \
-    NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=2 \
+    NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES="$requested_frame_count" \
     swift test --filter \
       HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke \
       >"$output_file" 2>&1; then
@@ -5923,7 +5952,7 @@ print_helper_screen_app_bootstrap_benchmark_report() {
   printf '  "transportPath": "helper-tcp-to-app-model",\n'
   printf '  "decodePath": "h264-sample-buffer-factory",\n'
   printf '  "iterationCount": 1,\n'
-  printf '  "requestedFrameCount": 2,\n'
+  printf '  "requestedFrameCount": %d,\n' "$requested_frame_count"
   printf '  "issueCodes": '
   if ((${#issue_codes[@]})); then
     json_string_array "${issue_codes[@]}"

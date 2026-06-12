@@ -2871,3 +2871,43 @@ fixed backpressure/coalescing labels and aggregate benchmark buckets. They must
 not emit host values, credentials, device identifiers, account names, raw
 frames, screenshots, pixels, byte counts, exact frame timings, Compose text,
 marked text, keysyms, pointer coordinates, or clipboard contents.
+
+## D70 - Strengthen the helper-video app bootstrap gate
+
+**Decision**: Make `helper-screen-app-bootstrap-benchmark` request a sustained
+30 displayable ScreenCaptureKit helper-video frames by default instead of the
+old two-frame bootstrap smoke. The runner imports
+`NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES`, clamps it to the app-runner XCTest's
+supported `1...120` range, passes the clamped value to the test, and emits the
+same `requestedFrameCount` in the bootstrap report and helper-video live-gate
+summary.
+
+**Rationale**:
+- The current live machine already proves helper-video readiness and
+ScreenCaptureKit capture, while VNC remains first-byte-wait dominated and below
+the 10fps product floor. The next useful Mac-side gate should therefore stress
+the helper-to-app decode path long enough to catch stale-frame backlog,
+decoder/display backpressure, and bootstrap-only false positives.
+- A fixed 30-frame default is still fast enough for the live gate, but it is a
+better proxy for sustained phone UX than a two-frame smoke. Operators can raise
+or lower the count through the environment without adding command-line secrets
+or printing raw data.
+- Reporting the clamped count keeps historical benchmark comparisons honest:
+two-frame, 30-frame, and 90-frame runs should not be treated as equivalent.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test` covers
+the new summary field for skipped and passed bootstrap states.
+- `NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=4 scripts/run-naru-live-benchmark.sh
+  helper-screen-app-bootstrap-benchmark` returns `status=passed` and
+  `requestedFrameCount=4` on the current granted helper setup.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` now reports
+  app bootstrap `passed` with `requestedFrameCount=30`, while the overall gate
+  remains blocked only by physical iPhone Xcode account/provisioning setup.
+
+**Privacy rule**: The stronger bootstrap gate may expose only the configured
+displayable frame count, fixed mode/source/path/status labels, and fixed
+issue/action labels. It must not emit helper executable paths, endpoints,
+tokens, raw XCTest output, raw helper stdout/stderr, raw OS errors, display
+dimensions, pixels, byte counts, exact timings, physical device identifiers,
+Compose text, marked text, keysyms, pointer coordinates, or clipboard contents.
