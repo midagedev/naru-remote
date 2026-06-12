@@ -398,9 +398,25 @@ private enum LiveNaruHelperScreenCaptureKitProbe {
                 false,
                 onScreenWindowsOnly: true
             )
-            return content.displays.isEmpty ? .unavailable : .available
+            if !content.displays.isEmpty || hasUsableWindowFallback(in: content) {
+                return .available
+            }
+            return .unavailable
         } catch {
             return .unavailable
+        }
+    }
+
+    private static func hasUsableWindowFallback(in content: SCShareableContent) -> Bool {
+        let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
+        return content.windows.contains { window in
+            let width = Int(window.frame.width.rounded(.down))
+            let height = Int(window.frame.height.rounded(.down))
+            return policy.isUsable(
+                width: width,
+                height: height,
+                applicationName: window.owningApplication?.applicationName
+            )
         }
     }
 }

@@ -194,6 +194,51 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertEqual(nativeFidelity.queueDepth, 3)
     }
 
+    func testScreenCaptureKitWindowFallbackPolicyRejectsSystemAndOversizedWindows() {
+        let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
+
+        XCTAssertTrue(policy.isUsable(
+            width: 1_512,
+            height: 982,
+            applicationName: "Terminal"
+        ))
+        XCTAssertTrue(policy.isUsable(
+            width: 640,
+            height: 360,
+            applicationName: nil
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 30_000,
+            height: 30_000,
+            applicationName: "Window Server"
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 1_512,
+            height: 982,
+            applicationName: "Window Server"
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 1_512,
+            height: 982,
+            applicationName: "loginwindow"
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 1_512,
+            height: 982,
+            applicationName: "Dock"
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 352,
+            height: 152,
+            applicationName: "제어 센터"
+        ))
+        XCTAssertFalse(policy.isUsable(
+            width: 96,
+            height: 64,
+            applicationName: "Terminal"
+        ))
+    }
+
     func testToolboxSyntheticAccessUnitSourceEmitsRealAnnexBParameterSetsAndFrame() throws {
         let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
             frameCount: 2,
