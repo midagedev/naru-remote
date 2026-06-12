@@ -167,6 +167,73 @@ public struct NaruHelperVideoScreenCaptureKitWindowFallbackPolicy:
         }
         return !excludedApplicationNames.contains(applicationName)
     }
+
+    public func isUsable(
+        _ descriptor: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor
+    ) -> Bool {
+        isUsable(
+            width: descriptor.width,
+            height: descriptor.height,
+            applicationName: descriptor.applicationName
+        )
+    }
+
+    public func preferredDescriptor(
+        screenCaptureKitOrder: [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor],
+        coreGraphicsFrontToBackOrder: [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor],
+        frontmostApplicationName: String?
+    ) -> NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor? {
+        let usableScreenCaptureKitOrder = screenCaptureKitOrder.filter(isUsable)
+        for descriptor in coreGraphicsFrontToBackOrder where isUsable(descriptor) {
+            if let matchingDescriptor = usableScreenCaptureKitOrder.first(where: {
+                matches($0, descriptor)
+            }) {
+                return matchingDescriptor
+            }
+        }
+
+        if let frontmostApplicationName,
+           let frontmostDescriptor = usableScreenCaptureKitOrder.first(where: {
+               $0.applicationName == frontmostApplicationName
+           })
+        {
+            return frontmostDescriptor
+        }
+
+        return usableScreenCaptureKitOrder.first
+    }
+
+    public func matches(
+        _ lhs: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor,
+        _ rhs: NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor
+    ) -> Bool {
+        lhs.applicationName == rhs.applicationName
+            && (lhs.title ?? "") == (rhs.title ?? "")
+            && abs(lhs.width - rhs.width) <= 4
+            && abs(lhs.height - rhs.height) <= 40
+    }
+}
+
+public struct NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor:
+    Equatable,
+    Sendable
+{
+    public var applicationName: String?
+    public var title: String?
+    public var width: Int
+    public var height: Int
+
+    public init(
+        applicationName: String?,
+        title: String?,
+        width: Int,
+        height: Int
+    ) {
+        self.applicationName = applicationName
+        self.title = title
+        self.width = width
+        self.height = height
+    }
 }
 
 public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAccessUnitSource {
@@ -514,94 +581,54 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
 
     fileprivate static func captureWindow(from content: SCShareableContent) -> SCWindow? {
         let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
-        let usableWindows = content.windows
-            .filter { window in
-                let width = Int(window.frame.width.rounded(.down))
-                let height = Int(window.frame.height.rounded(.down))
-                return policy.isUsable(
-                    width: width,
-                    height: height,
-                    applicationName: window.owningApplication?.applicationName
-                )
-            }
-
-        if let coreGraphicsWindow = preferredWindowFromCoreGraphicsOrder(
-            usableWindows: usableWindows,
-            policy: policy
-        ) {
-            return coreGraphicsWindow
-        }
-
-        if let frontmostProcessIdentifier = NSWorkspace.shared
+        let screenCaptureKitDescriptors = content.windows.map(descriptor)
+        let frontmostApplicationName = NSWorkspace.shared
             .frontmostApplication?
-            .processIdentifier,
-           let frontmostWindow = usableWindows.first(where: { window in
-               window.owningApplication?.processID == frontmostProcessIdentifier
-           })
-        {
-            return frontmostWindow
+            .localizedName
+
+        guard let preferredDescriptor = policy.preferredDescriptor(
+            screenCaptureKitOrder: screenCaptureKitDescriptors,
+            coreGraphicsFrontToBackOrder: coreGraphicsWindowDescriptors(),
+            frontmostApplicationName: frontmostApplicationName
+        ) else {
+            return nil
         }
 
-        return usableWindows.first
+        return content.windows.first { window in
+            policy.matches(descriptor(window), preferredDescriptor)
+        }
     }
 
-    private static func preferredWindowFromCoreGraphicsOrder(
-        usableWindows: [SCWindow],
-        policy: NaruHelperVideoScreenCaptureKitWindowFallbackPolicy
-    ) -> SCWindow? {
+    private static func coreGraphicsWindowDescriptors()
+        -> [NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor]
+    {
         guard let windowInfoList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
         ) as? [[String: Any]] else {
-            return nil
+            return []
         }
 
-        for windowInfo in windowInfoList {
-            let applicationName = windowInfo[kCGWindowOwnerName as String] as? String
-            let title = windowInfo[kCGWindowName as String] as? String
+        return windowInfoList.map { windowInfo in
             let bounds = windowInfo[kCGWindowBounds as String] as? [String: Any]
-            let width = Int((bounds?["Width"] as? Double) ?? 0)
-            let height = Int((bounds?["Height"] as? Double) ?? 0)
-
-            guard policy.isUsable(
-                width: width,
-                height: height,
-                applicationName: applicationName
-            ) else {
-                continue
-            }
-
-            if let matchingWindow = usableWindows.first(where: { window in
-                Self.matches(
-                    screenCaptureKitWindow: window,
-                    applicationName: applicationName,
-                    title: title,
-                    width: width,
-                    height: height
-                )
-            }) {
-                return matchingWindow
-            }
+            return NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+                applicationName: windowInfo[kCGWindowOwnerName as String] as? String,
+                title: windowInfo[kCGWindowName as String] as? String,
+                width: Int((bounds?["Width"] as? Double) ?? 0),
+                height: Int((bounds?["Height"] as? Double) ?? 0)
+            )
         }
-        return nil
     }
 
-    private static func matches(
-        screenCaptureKitWindow window: SCWindow,
-        applicationName: String?,
-        title: String?,
-        width: Int,
-        height: Int
-    ) -> Bool {
-        guard window.owningApplication?.applicationName == applicationName else {
-            return false
-        }
-        if window.title != title {
-            return false
-        }
-        let windowWidth = Int(window.frame.width.rounded(.down))
-        let windowHeight = Int(window.frame.height.rounded(.down))
-        return abs(windowWidth - width) <= 4 && abs(windowHeight - height) <= 40
+    private static func descriptor(
+        _ window: SCWindow
+    ) -> NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor {
+        NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: window.owningApplication?.applicationName,
+            title: window.title,
+            width: Int(window.frame.width.rounded(.down)),
+            height: Int(window.frame.height.rounded(.down))
+        )
     }
 }
 

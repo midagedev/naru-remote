@@ -239,6 +239,60 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         ))
     }
 
+    func testScreenCaptureKitWindowFallbackPolicyPrefersCoreGraphicsFrontToBackMatch() {
+        let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
+        let xcode = NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: "Xcode",
+            title: "Devices",
+            width: 1_184,
+            height: 700
+        )
+        let stimulus = NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: "VNCLiveStimulusWindow",
+            title: "Naru Video Probe",
+            width: 942,
+            height: 738
+        )
+        let shield = NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: "Window Server",
+            title: "Display 1 Shield",
+            width: 1_512,
+            height: 982
+        )
+
+        let preferred = policy.preferredDescriptor(
+            screenCaptureKitOrder: [xcode, stimulus],
+            coreGraphicsFrontToBackOrder: [shield, stimulus, xcode],
+            frontmostApplicationName: "loginwindow"
+        )
+
+        XCTAssertEqual(preferred, stimulus)
+    }
+
+    func testScreenCaptureKitWindowFallbackPolicyFallsBackToFrontmostAppWhenCoreGraphicsIsUnavailable() {
+        let policy = NaruHelperVideoScreenCaptureKitWindowFallbackPolicy.live
+        let xcode = NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: "Xcode",
+            title: "Devices",
+            width: 1_184,
+            height: 700
+        )
+        let terminal = NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor(
+            applicationName: "Terminal",
+            title: "Logs",
+            width: 960,
+            height: 720
+        )
+
+        let preferred = policy.preferredDescriptor(
+            screenCaptureKitOrder: [xcode, terminal],
+            coreGraphicsFrontToBackOrder: [],
+            frontmostApplicationName: "Terminal"
+        )
+
+        XCTAssertEqual(preferred, terminal)
+    }
+
     func testToolboxSyntheticAccessUnitSourceEmitsRealAnnexBParameterSetsAndFrame() throws {
         let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
             frameCount: 2,

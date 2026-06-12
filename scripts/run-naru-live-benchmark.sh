@@ -6585,6 +6585,7 @@ remote_desktop_readiness_summary_self_test() {
   local physical_blocked_summary_file
   local live_gate_ready_summary_file
   local readiness_file
+  local next_actions_file
   physical_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-physical.XXXXXX")"
   helper_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-helper.XXXXXX")"
   vnc_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-vnc.XXXXXX")"
@@ -6600,6 +6601,7 @@ remote_desktop_readiness_summary_self_test() {
   physical_blocked_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-physical.XXXXXX")"
   live_gate_ready_summary_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-summary-live-ready.XXXXXX")"
   readiness_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-contract.XXXXXX")"
+  next_actions_file="$(mktemp "${TMPDIR:-/tmp}/naru-readiness-next-actions.XXXXXX")"
 
   cat >"$physical_file" <<'JSON'
 {"schemaVersion":1,"mode":"physical-device-preflight","deviceDiscoveryStatus":"unavailable","issueCodes":["physical-iphone-device-unavailable"],"setupActionLabels":["unlock-connect-and-enable-developer-mode"]}
@@ -6654,6 +6656,8 @@ JSON
     "$helper_ready_file" \
     "$vnc_file" \
     "$transport_file" >"$live_gate_ready_summary_file"
+  print_remote_desktop_10fps_next_action_labels \
+    "$physical_blocked_summary_file" >"$next_actions_file"
 
   {
     printf '{"schemaVersion":2,"mode":"remote-desktop-10fps-readiness","physicalDevicePreflight":'
@@ -6729,6 +6733,12 @@ JSON
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .vnc10fpsGate.productVerdict == "fail"
   ' "$physical_blocked_summary_file" >/dev/null && jq -e '
+    (index("grant-helper-video-app-screen-recording-permission") | not) and
+    (index("inspect-helper-video-capture-source") | not) and
+    (index("open-xcode-account-settings")) and
+    (index("run-physical-iphone-helper-video-gate")) and
+    (index("keep-vnc-as-control-fallback-until-helper-video-physical-gate"))
+  ' "$next_actions_file" >/dev/null && jq -e '
     .overallGateState == "vncFailedHelperVideoReadyForLiveGate" and
     .recommendedPrimaryAction == "run-true-helper-video-live-capture-benchmark" and
     (.primaryBlockedGateLabels | index("vnc-10fps-product-gate-failed")) and
@@ -6764,7 +6774,7 @@ JSON
       "$screen_degraded_helper_file" "$screen_degraded_summary_file" \
       "$physical_signing_blocked_file" "$physical_ready_file" \
       "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
-      "$readiness_file"
+      "$readiness_file" "$next_actions_file"
     exit 1
   fi
 
@@ -6773,7 +6783,7 @@ JSON
     "$screen_degraded_helper_file" "$screen_degraded_summary_file" \
     "$physical_signing_blocked_file" "$physical_ready_file" \
     "$physical_blocked_summary_file" "$live_gate_ready_summary_file" \
-    "$readiness_file"
+    "$readiness_file" "$next_actions_file"
 }
 
 print_remote_desktop_10fps_next_action_labels() {
