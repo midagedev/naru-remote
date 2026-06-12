@@ -406,6 +406,120 @@ public struct MetalFramebufferView: UIViewRepresentable {
     }
 }
 
+public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
+    private let coordinateSpace: RemoteFramebufferCoordinateSpace
+    private let accessibilityIdentifier: String
+    private let onTap: MetalFramebufferTapHandler?
+    private let onRightClick: MetalFramebufferRightClickHandler?
+    private let onScroll: MetalFramebufferScrollHandler?
+    private let onPinch: MetalFramebufferPinchHandler?
+    private let onPointerDown: MetalFramebufferPointerDownHandler?
+    private let onPointerMove: MetalFramebufferPointerMoveHandler?
+    private let onPointerUp: MetalFramebufferPointerUpHandler?
+    private let onPan: MetalFramebufferPanHandler?
+    private let onZoomToggle: MetalFramebufferZoomToggleHandler?
+    private let onViewportTransform: MetalFramebufferViewportTransformHandler?
+    private let pointerControlMode: PointerControlMode
+    private let trackpadCursor: TrackpadCursor
+    private let serverCursor: RFBServerCursor?
+    private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
+    private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
+    private let onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler?
+    private let onImmediateViewportTransform: MetalFramebufferViewportTransformHandler?
+    private let zoomScale: CGFloat
+    private let panOffset: CGSize
+    private let minimumZoomScale: CGFloat
+
+    public init(
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        accessibilityIdentifier: String = "naru.session.hotInputOverlay",
+        zoomScale: CGFloat = 1,
+        panOffset: CGSize = .zero,
+        minimumZoomScale: CGFloat = 1,
+        onTap: MetalFramebufferTapHandler? = nil,
+        onRightClick: MetalFramebufferRightClickHandler? = nil,
+        onScroll: MetalFramebufferScrollHandler? = nil,
+        onPinch: MetalFramebufferPinchHandler? = nil,
+        onPointerDown: MetalFramebufferPointerDownHandler? = nil,
+        onPointerMove: MetalFramebufferPointerMoveHandler? = nil,
+        onPointerUp: MetalFramebufferPointerUpHandler? = nil,
+        onPan: MetalFramebufferPanHandler? = nil,
+        onZoomToggle: MetalFramebufferZoomToggleHandler? = nil,
+        onViewportTransform: MetalFramebufferViewportTransformHandler? = nil,
+        pointerControlMode: PointerControlMode = .directTouch,
+        trackpadCursor: TrackpadCursor = TrackpadCursor(),
+        serverCursor: RFBServerCursor? = nil,
+        onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
+        onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil,
+        onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler? = nil,
+        onImmediateViewportTransform: MetalFramebufferViewportTransformHandler? = nil
+    ) {
+        self.coordinateSpace = coordinateSpace
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.zoomScale = zoomScale
+        self.panOffset = panOffset
+        self.minimumZoomScale = minimumZoomScale
+        self.onTap = onTap
+        self.onRightClick = onRightClick
+        self.onScroll = onScroll
+        self.onPinch = onPinch
+        self.onPointerDown = onPointerDown
+        self.onPointerMove = onPointerMove
+        self.onPointerUp = onPointerUp
+        self.onPan = onPan
+        self.onZoomToggle = onZoomToggle
+        self.onViewportTransform = onViewportTransform
+        self.pointerControlMode = pointerControlMode
+        self.trackpadCursor = trackpadCursor
+        self.serverCursor = serverCursor
+        self.onTrackpadGesture = onTrackpadGesture
+        self.onViewportInteractionChange = onViewportInteractionChange
+        self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
+        self.onImmediateViewportTransform = onImmediateViewportTransform
+    }
+
+    public func makeCoordinator() -> MetalFramebufferView.Coordinator {
+        MetalFramebufferView.Coordinator(device: nil)
+    }
+
+    public func makeUIView(context: Context) -> MetalFramebufferHostingView {
+        let host = MetalFramebufferHostingView(coordinator: context.coordinator)
+        host.accessibilityIdentifier = accessibilityIdentifier
+        host.isAccessibilityElement = false
+        host.backgroundColor = .clear
+        update(host)
+        return host
+    }
+
+    public func updateUIView(_ uiView: MetalFramebufferHostingView, context: Context) {
+        update(uiView)
+    }
+
+    private func update(_ host: MetalFramebufferHostingView) {
+        host.tapHandler = onTap
+        host.rightClickHandler = onRightClick
+        host.scrollHandler = onScroll
+        host.pinchHandler = onPinch
+        host.pointerDownHandler = onPointerDown
+        host.pointerMoveHandler = onPointerMove
+        host.pointerUpHandler = onPointerUp
+        host.panHandler = onPan
+        host.zoomToggleHandler = onZoomToggle
+        host.viewportTransformHandler = onViewportTransform
+        host.trackpadGestureHandler = onTrackpadGesture
+        host.viewportInteractionHandler = onViewportInteractionChange
+        host.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
+        host.immediateViewportTransformHandler = onImmediateViewportTransform
+        host.syncInputState(
+            pointerControlMode: pointerControlMode,
+            trackpadCursor: trackpadCursor,
+            serverCursor: serverCursor,
+            framebufferSize: coordinateSpace.size
+        )
+        host.syncZoomPan(scale: zoomScale, offset: panOffset, minimumScale: minimumZoomScale)
+    }
+}
+
 /// `UIView` host that owns the `MTKView`.  The Metal view is added as a
 /// subview so the host can clip the layer to its own bounds and, when
 /// Metal is unavailable, leave its background color visible.
@@ -478,6 +592,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// — never an RFB message (constitution §I).
     public var zoomToggleHandler: MetalFramebufferZoomToggleHandler?
     public var viewportTransformHandler: MetalFramebufferViewportTransformHandler?
+    public var immediateViewportTransformHandler: MetalFramebufferViewportTransformHandler?
 
     /// Closure invoked for trackpad-mode gestures.  The model resolves
     /// cursor movement + remote pointer commands and returns any local
@@ -616,37 +731,36 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         self.coordinator = coordinator
         super.init(frame: .zero)
 
-        guard let renderer = coordinator.renderer,
-              let delegate = coordinator.delegate
-        else {
-            return
-        }
-
-        let mtkView = MTKView(frame: .zero, device: renderer.device)
-        mtkView.translatesAutoresizingMaskIntoConstraints = false
-        mtkView.isOpaque = true
-        mtkView.colorPixelFormat = .bgra8Unorm
-        mtkView.framebufferOnly = true
-        mtkView.enableSetNeedsDisplay = true
-        mtkView.isPaused = true
-        mtkView.clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
-        mtkView.delegate = delegate
-        mtkView.backgroundColor = .black
-        // The MTKView itself is non-interactive so the tap gesture
-        // fires on the host view in its own coordinate space — that
-        // matches the `(point, hostingView.bounds.size)` contract the
-        // model expects for view→framebuffer mapping.
-        mtkView.isUserInteractionEnabled = false
-
-        addSubview(mtkView)
         clipsToBounds = true
-        NSLayoutConstraint.activate([
-            mtkView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            mtkView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mtkView.topAnchor.constraint(equalTo: topAnchor),
-            mtkView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        self.metalView = mtkView
+
+        if let renderer = coordinator.renderer,
+           let delegate = coordinator.delegate
+        {
+            let mtkView = MTKView(frame: .zero, device: renderer.device)
+            mtkView.translatesAutoresizingMaskIntoConstraints = false
+            mtkView.isOpaque = true
+            mtkView.colorPixelFormat = .bgra8Unorm
+            mtkView.framebufferOnly = true
+            mtkView.enableSetNeedsDisplay = true
+            mtkView.isPaused = true
+            mtkView.clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            mtkView.delegate = delegate
+            mtkView.backgroundColor = .black
+            // The MTKView itself is non-interactive so the tap gesture
+            // fires on the host view in its own coordinate space — that
+            // matches the `(point, hostingView.bounds.size)` contract the
+            // model expects for view→framebuffer mapping.
+            mtkView.isUserInteractionEnabled = false
+
+            addSubview(mtkView)
+            NSLayoutConstraint.activate([
+                mtkView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                mtkView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                mtkView.topAnchor.constraint(equalTo: topAnchor),
+                mtkView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            self.metalView = mtkView
+        }
 
         hotCursorView.isHidden = true
         hotCursorView.isUserInteractionEnabled = false
@@ -1310,12 +1424,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // path. The renderer already draws the latest texture at its
         // stable aspect-fit baseline, so the hot path should not mutate
         // renderer state for every display tick.
+        let currentTransform = viewportTransform(
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset
+        )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             metalView?.transform = viewportLayerTransform()
         }
         CATransaction.commit()
+        immediateViewportTransformHandler?(currentTransform)
         updateHotCursorOverlay()
     }
 

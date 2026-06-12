@@ -1313,7 +1313,8 @@ public struct SessionViewportView: View {
                 aspectRatio: aspectRatio,
                 layer: helperVideoLayerHost.layer,
                 accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
-                accessibilityLabel: "Remote helper video"
+                accessibilityLabel: "Remote helper video",
+                appliesLayerViewportTransform: true
             )
         } else if isPiPWatching, let pipLayerHost {
             // Active system PiP — render through the shared
@@ -1324,7 +1325,8 @@ public struct SessionViewportView: View {
                 aspectRatio: aspectRatio,
                 layer: pipLayerHost.layer,
                 accessibilityIdentifier: "naru.session.pipDisplayLayer",
-                accessibilityLabel: "Remote framebuffer in Picture-in-Picture display layer"
+                accessibilityLabel: "Remote framebuffer in Picture-in-Picture display layer",
+                appliesLayerViewportTransform: false
             )
         } else {
             metalOrSampledPreview(
@@ -1347,18 +1349,24 @@ public struct SessionViewportView: View {
         aspectRatio: CGFloat,
         layer: AVSampleBufferDisplayLayer,
         accessibilityIdentifier: String,
-        accessibilityLabel: String
+        accessibilityLabel: String,
+        appliesLayerViewportTransform: Bool
     ) -> some View {
         GeometryReader { proxy in
-            PiPSampleBufferDisplayLayerView(
+            let coordinateSpace = coordinateSpace(for: framebuffer)
+            let usesHotInputOverlay = appliesLayerViewportTransform
+                && Self.usesMetalHotInputOverlay(
+                    isPiPWatching: isPiPWatching,
+                    usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+                    metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+                )
+            let displayLayer = PiPSampleBufferDisplayLayerView(
                 layer: layer,
                 accessibilityIdentifier: accessibilityIdentifier,
-                accessibilityLabel: accessibilityLabel
+                accessibilityLabel: accessibilityLabel,
+                viewportScale: appliesLayerViewportTransform ? zoomScale : 1,
+                viewportOffset: appliesLayerViewportTransform ? panOffset : .zero
             )
-                .contentShape(Rectangle())
-                .simultaneousGesture(pipMagnificationGesture(framebuffer: framebuffer, viewSize: proxy.size))
-                .simultaneousGesture(pipPanGesture(framebuffer: framebuffer, viewSize: proxy.size))
-                .simultaneousGesture(pipDoubleTapGesture(framebuffer: framebuffer, viewSize: proxy.size))
                 .onAppear {
                     syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
                 }
@@ -1371,10 +1379,102 @@ public struct SessionViewportView: View {
                 .onChange(of: panOffset) { _, _ in
                     syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
                 }
+
+            if usesHotInputOverlay {
+                displayLayer
+                    .overlay {
+                        sampleBufferHotInputOverlay(
+                            coordinateSpace: coordinateSpace,
+                            framebuffer: framebuffer,
+                            displayLayer: layer,
+                            viewSize: proxy.size
+                        )
+                    }
+            } else {
+                displayLayer
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(pipMagnificationGesture(framebuffer: framebuffer, viewSize: proxy.size))
+                    .simultaneousGesture(pipPanGesture(framebuffer: framebuffer, viewSize: proxy.size))
+                    .simultaneousGesture(pipDoubleTapGesture(framebuffer: framebuffer, viewSize: proxy.size))
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
         .aspectRatio(aspectRatio, contentMode: .fit)
         .accessibilityIdentifier("naru.session.framebufferPreview")
+    }
+
+    @ViewBuilder
+    private func sampleBufferHotInputOverlay(
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?,
+        displayLayer: AVSampleBufferDisplayLayer,
+        viewSize: CGSize
+    ) -> some View {
+        #if canImport(Metal) && canImport(MetalKit)
+        MetalFramebufferInputOverlayView(
+            coordinateSpace: coordinateSpace,
+            accessibilityIdentifier: "naru.session.helperVideoHotInputOverlay",
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            minimumZoomScale: minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace),
+            onTap: onFramebufferTap,
+            onRightClick: onFramebufferRightClick,
+            onScroll: onFramebufferScroll,
+            onPinch: { newScale, anchor, viewSize in
+                applyZoomScale(
+                    newScale,
+                    anchor: anchor,
+                    coordinateSpace: coordinateSpace,
+                    framebuffer: framebuffer,
+                    viewSize: viewSize
+                )
+            },
+            onPointerDown: onFramebufferPointerDown,
+            onPointerMove: onFramebufferPointerMove,
+            onPointerUp: onFramebufferPointerUp,
+            onPan: { newOffset, viewSize in
+                applyPanOffset(
+                    newOffset,
+                    coordinateSpace: coordinateSpace,
+                    framebuffer: framebuffer,
+                    viewSize: viewSize
+                )
+            },
+            onZoomToggle: { point, viewSize in
+                toggleZoom(
+                    at: point,
+                    in: viewSize,
+                    coordinateSpace: coordinateSpace,
+                    framebuffer: framebuffer
+                )
+            },
+            onViewportTransform: { transform in
+                applyViewportTransform(
+                    transform,
+                    coordinateSpace: coordinateSpace,
+                    framebuffer: framebuffer,
+                    viewSize: transform.viewSize
+                )
+            },
+            pointerControlMode: pointerControlMode,
+            trackpadCursor: trackpadCursor,
+            serverCursor: serverCursor,
+            onTrackpadGesture: { gesture, transform, cursor in
+                onTrackpadGesture?(gesture, transform, cursor)
+            },
+            onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
+            onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
+            onImmediateViewportTransform: { transform in
+                PiPSampleBufferDisplayLayerHostingView.applyViewportTransform(
+                    to: displayLayer,
+                    scale: transform.zoomScale,
+                    offset: transform.panOffset
+                )
+            }
+        )
+        #else
+        EmptyView()
+        #endif
     }
 
     @ViewBuilder
@@ -1383,11 +1483,16 @@ public struct SessionViewportView: View {
             PiPSampleBufferDisplayLayerView(
                 layer: helperVideoLayerHost.layer,
                 accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
-                accessibilityLabel: "Remote helper video"
+                accessibilityLabel: "Remote helper video",
+                viewportScale: zoomScale,
+                viewportOffset: panOffset
             )
             .overlay {
                 if let inputCoordinateSpace {
-                    helperVideoInputOverlay(coordinateSpace: inputCoordinateSpace)
+                    helperVideoInputOverlay(
+                        coordinateSpace: inputCoordinateSpace,
+                        displayLayer: helperVideoLayerHost.layer
+                    )
                 }
             }
             .overlay(alignment: .bottom) {
@@ -1414,24 +1519,40 @@ public struct SessionViewportView: View {
     }
 
     @ViewBuilder
-    private func helperVideoInputOverlay(coordinateSpace: RemoteFramebufferCoordinateSpace) -> some View {
-        if Self.usesSwiftUITrackpadInputOverlay(
-            isPiPWatching: isPiPWatching,
-            usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
-            pointerControlMode: pointerControlMode,
-            metalFramebufferInputSupported: Self.metalFramebufferInputSupported
-        ) {
-            trackpadGestureSurface(coordinateSpace: coordinateSpace, framebuffer: nil)
-                .overlay {
-                    syntheticCursorOverlay(coordinateSpace: coordinateSpace)
-                }
-        } else if Self.usesSwiftUIDirectTouchInputOverlay(
-            isPiPWatching: isPiPWatching,
-            usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
-            pointerControlMode: pointerControlMode,
-            metalFramebufferInputSupported: Self.metalFramebufferInputSupported
-        ) {
-            directTouchGestureSurface()
+    private func helperVideoInputOverlay(
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        displayLayer: AVSampleBufferDisplayLayer
+    ) -> some View {
+        GeometryReader { proxy in
+            if Self.usesMetalHotInputOverlay(
+                isPiPWatching: isPiPWatching,
+                usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+                metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+            ) {
+                sampleBufferHotInputOverlay(
+                    coordinateSpace: coordinateSpace,
+                    framebuffer: nil,
+                    displayLayer: displayLayer,
+                    viewSize: proxy.size
+                )
+            } else if Self.usesSwiftUITrackpadInputOverlay(
+                isPiPWatching: isPiPWatching,
+                usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+                pointerControlMode: pointerControlMode,
+                metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+            ) {
+                trackpadGestureSurface(coordinateSpace: coordinateSpace, framebuffer: nil)
+                    .overlay {
+                        syntheticCursorOverlay(coordinateSpace: coordinateSpace)
+                    }
+            } else if Self.usesSwiftUIDirectTouchInputOverlay(
+                isPiPWatching: isPiPWatching,
+                usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
+                pointerControlMode: pointerControlMode,
+                metalFramebufferInputSupported: Self.metalFramebufferInputSupported
+            ) {
+                directTouchGestureSurface()
+            }
         }
     }
     #else
@@ -1599,12 +1720,21 @@ public struct SessionViewportView: View {
     }
 
     private func minimumZoomScale(for viewSize: CGSize, framebuffer: RFBRawFramebuffer) -> CGFloat {
+        minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace(for: framebuffer))
+    }
+
+    private func minimumZoomScale(
+        for viewSize: CGSize,
+        coordinateSpace: RemoteFramebufferCoordinateSpace
+    ) -> CGFloat {
         guard fillsAvailableHeight else {
             return Self.minZoomScale
         }
 
-        let aspectRatio = CGFloat(max(framebuffer.width, 1)) / CGFloat(max(framebuffer.height, 1))
-        let fillScale = Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: viewSize)
+        let fillScale = Self.aspectFillZoomScale(
+            aspectRatio: coordinateSpace.aspectRatio,
+            containerSize: viewSize
+        )
         return min(max(fillScale, Self.minZoomScale), Self.maxZoomScale)
     }
 
@@ -1643,15 +1773,34 @@ public struct SessionViewportView: View {
         in viewSize: CGSize,
         framebuffer: RFBRawFramebuffer
     ) {
+        toggleZoom(
+            at: point,
+            in: viewSize,
+            coordinateSpace: coordinateSpace(for: framebuffer),
+            framebuffer: framebuffer
+        )
+    }
+
+    private func toggleZoom(
+        at point: CGPoint,
+        in viewSize: CGSize,
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?
+    ) {
         let updated = Self.zoomToggleTransform(
-            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            framebufferSize: coordinateSpace.size,
             viewSize: viewSize,
             zoomScale: zoomScale,
             panOffset: panOffset,
             anchor: point,
-            baselineZoomScale: minimumZoomScale(for: viewSize, framebuffer: framebuffer)
+            baselineZoomScale: minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace)
         )
-        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
+        applyViewportTransform(
+            updated,
+            coordinateSpace: coordinateSpace,
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
     }
 
     #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
@@ -1756,9 +1905,25 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) {
-        let minimum = minimumZoomScale(for: viewSize, framebuffer: framebuffer)
+        applyZoomScale(
+            scale,
+            anchor: anchor,
+            coordinateSpace: coordinateSpace(for: framebuffer),
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
+    }
+
+    private func applyZoomScale(
+        _ scale: CGFloat,
+        anchor: CGPoint,
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?,
+        viewSize: CGSize
+    ) {
+        let minimum = minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace)
         let clamped = min(max(scale, minimum), Self.maxZoomScale)
-        let current = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        let current = currentViewportTransform(coordinateSpace: coordinateSpace, viewSize: viewSize)
         let updated: ViewportTransform
         if clamped <= minimum + 0.0001 {
             updated = ViewportTransform(
@@ -1771,7 +1936,12 @@ public struct SessionViewportView: View {
         } else {
             updated = current.zoomed(to: clamped, about: anchor)
         }
-        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
+        applyViewportTransform(
+            updated,
+            coordinateSpace: coordinateSpace,
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
     }
 
     private func applyPanOffset(
@@ -1779,14 +1949,33 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) {
+        applyPanOffset(
+            proposed,
+            coordinateSpace: coordinateSpace(for: framebuffer),
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
+    }
+
+    private func applyPanOffset(
+        _ proposed: CGSize,
+        coordinateSpace: RemoteFramebufferCoordinateSpace,
+        framebuffer: RFBRawFramebuffer?,
+        viewSize: CGSize
+    ) {
         let updated = ViewportTransform(
-            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            framebufferSize: coordinateSpace.size,
             viewSize: viewSize,
             zoomScale: zoomScale,
             panOffset: proposed,
             maxZoomScale: Self.maxZoomScale
         )
-        applyViewportTransform(updated, framebuffer: framebuffer, viewSize: viewSize)
+        applyViewportTransform(
+            updated,
+            coordinateSpace: coordinateSpace,
+            framebuffer: framebuffer,
+            viewSize: viewSize
+        )
     }
 
     private func handleViewportInteractionChange(
@@ -1947,7 +2136,7 @@ public struct SessionViewportView: View {
         allowsTrackpadInputOverlay(
             isPiPWatching: isPiPWatching,
             pointerControlMode: pointerControlMode
-        ) && (usesHelperVideoPrimaryPreview || !metalFramebufferInputSupported)
+        ) && !metalFramebufferInputSupported
     }
 
     static func usesSwiftUIDirectTouchInputOverlay(
@@ -1958,7 +2147,17 @@ public struct SessionViewportView: View {
     ) -> Bool {
         !isPiPWatching
             && pointerControlMode == .directTouch
-            && (usesHelperVideoPrimaryPreview || !metalFramebufferInputSupported)
+            && !metalFramebufferInputSupported
+    }
+
+    static func usesMetalHotInputOverlay(
+        isPiPWatching: Bool,
+        usesHelperVideoPrimaryPreview: Bool,
+        metalFramebufferInputSupported: Bool
+    ) -> Bool {
+        !isPiPWatching
+            && usesHelperVideoPrimaryPreview
+            && metalFramebufferInputSupported
     }
 
     static func usesMetalHotTrackpadCursor(
@@ -1970,7 +2169,7 @@ public struct SessionViewportView: View {
         allowsTrackpadInputOverlay(
             isPiPWatching: isPiPWatching,
             pointerControlMode: pointerControlMode
-        ) && metalFramebufferInputSupported && !usesHelperVideoPrimaryPreview
+        ) && metalFramebufferInputSupported
     }
 
     private static var metalFramebufferInputSupported: Bool {

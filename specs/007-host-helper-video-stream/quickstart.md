@@ -604,6 +604,23 @@ confirms VNC pointer/control remains active. Do not store payload bytes, display
 dimensions, helper endpoints, byte counts, exact timings, raw encoder errors,
 host names, or credentials in benchmark artifacts.
 
+## Helper-Video Viewport/Input Hot Path Check
+
+```bash
+swift test --filter 'SessionViewportViewGeometryTests|TrackpadModeModelTests|PiPLayerHostAttachmentTests'
+
+xcodebuild -project NaruRemote.xcodeproj \
+  -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' \
+  build
+```
+
+These checks cover the helper-video primary policy that suppresses SwiftUI
+input overlays when the UIKit/Metal hot path is available, the existing
+trackpad cursor/auto-pan behavior, the sample-buffer display layer transform,
+and iOS target compilation. They do not prove physical-device smoothness; that
+still needs the physical helper-video gate and manual iPhone/Mac verification.
+
 ## Planned Live Benchmark Shape
 
 The live password must be supplied only through the existing environment path.
