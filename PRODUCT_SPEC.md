@@ -18,6 +18,10 @@ Naru Remote는 iPhone을 일차 설계 대상으로 둔다(constitution §VI). i
 
 > iPhone에서 합성하고, Tailnet 안의 컴퓨터에 정확히 보낸다. 데스크톱 터미널과 AI 에이전트를 주머니에 — 한국어가 깨지지 않은 채로.
 
+스트리밍, 입력, 제스처, iPhone/iPad 사용감이 "원활하다"고 판정하는
+구체적인 제품 품질 기준은 `PRODUCT_QUALITY_TARGETS.md`를 따른다. 기능별 spec은
+이 기준을 각 acceptance test와 benchmark gate로 구체화한다.
+
 ## 2. 배경과 문제
 
 기존 모바일 VNC viewer의 입력 방식은 대부분 키 이벤트 중심이다. 이 구조는 영어 물리 키보드 입력에는 충분하지만, 한글, 일본어, 중국어, 악센트 문자, 이모지, 복합 기호, 받아쓰기처럼 iOS에서 먼저 조합되어야 하는 입력에는 취약하다.
