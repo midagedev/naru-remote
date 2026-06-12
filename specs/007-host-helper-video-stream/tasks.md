@@ -594,6 +594,14 @@ without unsafe report fields.
   by slow-consumer delta and repeated-sync stream regressions, helper-video
   session/app-model tests, synthetic 90-frame app-runner benchmark, and real
   ScreenCaptureKit-backed 90-frame app-model smoke. **Done.**
+- [x] T031AM [US2] Strengthen the helper-video app bootstrap gate from a
+  two-frame smoke to a sustained default of 30 displayable ScreenCaptureKit
+  frames through external helper TCP, app-model bootstrap, and H.264
+  sample-buffer creation. The launchctl runner imports
+  `NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES`, clamps it to `1...120`, passes the
+  clamped value into the XCTest benchmark, and reports the same
+  `requestedFrameCount` in both the bootstrap report and helper-video live gate
+  summary. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
