@@ -113,7 +113,8 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             try await Self.runNetworkBackedHelperVideoBootstrapOnce(
                 iteration: iteration,
                 port: port,
-                pairingSecret: pairingSecret
+                pairingSecret: pairingSecret,
+                expectedDisplayableFrameCount: configuration.displayableFrameCount
             )
         }
     }
@@ -137,7 +138,8 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             try await Self.runNetworkBackedHelperVideoBootstrapOnce(
                 iteration: iteration,
                 port: process.port,
-                pairingSecret: pairingSecret
+                pairingSecret: pairingSecret,
+                expectedDisplayableFrameCount: configuration.displayableFrameCount
             )
         }
     }
@@ -525,7 +527,8 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
     private static func runNetworkBackedHelperVideoBootstrapOnce(
         iteration: Int,
         port: UInt16,
-        pairingSecret: String
+        pairingSecret: String,
+        expectedDisplayableFrameCount: Int
     ) async throws {
         let helperVideoSecretRef = "helper-video-token:network-benchmark-\(iteration)"
         let profile = try ConnectionProfile(
@@ -549,6 +552,7 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             name: "Network Bootstrap Bench",
             framebuffer: framebuffer
         )
+        let outcomeRecorder = HelperVideoAppRunnerOutcomeRecorder()
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(
                 profiles: [profile],
@@ -579,6 +583,15 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             },
             helperVideoRendererFactory: {
                 SampleBufferFactoryAccessUnitRenderer()
+            },
+            helperVideoMaxServerFrames: maxServerFrames(
+                forExpectedDisplayableFrameCount: expectedDisplayableFrameCount
+            ),
+            helperVideoStreamOutcomeHandler: { _, profileID, outcome in
+                guard profileID == profile.id else {
+                    return
+                }
+                await outcomeRecorder.record(outcome)
             }
         )
 
@@ -588,8 +601,36 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             profileID: profile.id,
             latestFramebuffer: framebuffer
         )
+        let outcome = try await waitForHelperVideoOutcome(outcomeRecorder)
+        XCTAssertTrue(outcome.startAccepted)
+        XCTAssertTrue(outcome.selectedVisualTransport)
+        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertGreaterThanOrEqual(
+            outcome.displayableFrameCount,
+            expectedDisplayableFrameCount
+        )
         model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
         try await waitForPointerEvents(connector, count: 2)
+    }
+
+    private static func maxServerFrames(
+        forExpectedDisplayableFrameCount expectedDisplayableFrameCount: Int
+    ) -> Int {
+        max(expectedDisplayableFrameCount, 1) + 2
+    }
+
+    private static func waitForHelperVideoOutcome(
+        _ recorder: HelperVideoAppRunnerOutcomeRecorder
+    ) async throws -> HelperVideoStreamSessionOutcome {
+        for _ in 0..<500 {
+            if let outcome = await recorder.outcomeSnapshot() {
+                return outcome
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTFail("Timed out waiting for helper-video app-model runner outcome.")
+        throw HelperVideoAppRunnerBenchmarkError.outcomeTimedOut
     }
 
     private static func waitForHelperVideoBootstrap(
@@ -843,6 +884,22 @@ private enum BenchmarkStreamingConnectorError: Error {
     case noFramebufferUpdate
 }
 #endif
+
+private enum HelperVideoAppRunnerBenchmarkError: Error {
+    case outcomeTimedOut
+}
+
+private actor HelperVideoAppRunnerOutcomeRecorder {
+    private var outcome: HelperVideoStreamSessionOutcome?
+
+    func record(_ outcome: HelperVideoStreamSessionOutcome) {
+        self.outcome = outcome
+    }
+
+    func outcomeSnapshot() -> HelperVideoStreamSessionOutcome? {
+        outcome
+    }
+}
 
 @MainActor
 private final class SampleBufferFactoryAccessUnitRenderer: HelperVideoAccessUnitRendering {

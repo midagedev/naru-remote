@@ -463,6 +463,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         HelperVideoStartStreamRequestBody
     ) -> HelperVideoStreamNetworkEvents
     public typealias HelperVideoRendererFactory = @MainActor @Sendable () -> any HelperVideoAccessUnitRendering
+    public typealias HelperVideoStreamOutcomeHandler = @Sendable (
+        RemoteSession.ID,
+        ConnectionProfile.ID,
+        HelperVideoStreamSessionOutcome
+    ) async -> Void
 
     /// macOS Screen Sharing and other VNC servers apply ClientCutText
     /// asynchronously from key events. Keep the Send button responsive,
@@ -606,6 +611,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let helperVideoStartStream: HelperVideoStartStream?
     private let helperVideoOpenStream: HelperVideoOpenStream?
     private let helperVideoRendererFactory: HelperVideoRendererFactory?
+    private let helperVideoMaxServerFrames: Int
+    private let helperVideoStreamOutcomeHandler: HelperVideoStreamOutcomeHandler?
     private let streamStartupPreflightPolicyOverride: SessionStreamStartupPreflightPolicy?
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
@@ -792,6 +799,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperVideoStartStream: HelperVideoStartStream? = nil,
         helperVideoOpenStream: HelperVideoOpenStream? = nil,
         helperVideoRendererFactory: HelperVideoRendererFactory? = nil,
+        helperVideoMaxServerFrames: Int = 16,
+        helperVideoStreamOutcomeHandler: HelperVideoStreamOutcomeHandler? = nil,
         streamStartupPreflightPolicy: SessionStreamStartupPreflightPolicy? = nil,
         incomingClipboardReceiveTimeout: TimeInterval = 30,
         thermalStateProvider: @escaping @Sendable () -> SessionStreamThermalState = {
@@ -893,6 +902,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.helperVideoStartStream = helperVideoStartStream ?? Self.defaultHelperVideoStartStream()
         self.helperVideoOpenStream = helperVideoOpenStream
             ?? (helperVideoStartStream == nil ? Self.defaultHelperVideoOpenStream() : nil)
+        self.helperVideoMaxServerFrames = max(helperVideoMaxServerFrames, 1)
+        self.helperVideoStreamOutcomeHandler = helperVideoStreamOutcomeHandler
         if let helperVideoRendererFactory {
             self.helperVideoRendererFactory = helperVideoRendererFactory
         } else {
@@ -2004,7 +2015,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         requestBody
                     )
                 },
-                renderer: rendererFactory()
+                renderer: rendererFactory(),
+                maxServerFrames: helperVideoMaxServerFrames
             )
         } else if let startStream {
             runner = HelperVideoStreamSessionRunner(
@@ -2017,7 +2029,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         maxServerFrames
                     )
                 },
-                renderer: rendererFactory()
+                renderer: rendererFactory(),
+                maxServerFrames: helperVideoMaxServerFrames
             )
         } else {
             markHelperVideoBootstrapFailure(
@@ -2028,12 +2041,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             return
         }
-        _ = await runner.start(
+        let outcome = await runner.start(
             sessionID: sessionID,
             profileID: profile.id,
             model: self,
             requestBody: helperVideoStartRequestBody()
         )
+        await helperVideoStreamOutcomeHandler?(sessionID, profile.id, outcome)
     }
 
     private func helperVideoStartRequestBody() -> HelperVideoStartStreamRequestBody {
