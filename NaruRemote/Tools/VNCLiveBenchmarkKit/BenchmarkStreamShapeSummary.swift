@@ -3176,6 +3176,7 @@ public enum BenchmarkStreamShapeTransportCadenceStatus: String, Codable, Equatab
 public enum BenchmarkStreamShapeTransportCadenceNextAction: String, Codable, Equatable, Sendable {
     case none
     case inspectContinuousUpdatesConnection
+    case treatContinuousUpdatesAsUnsupportedForCurrentServer
     case tuneTransportCadence
     case compareRequestResponseEncodingProfiles
     case runPhysicalDeviceSustainedGate
@@ -3944,6 +3945,13 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
     ) -> BenchmarkStreamShapeTransportCadenceNextAction {
         if requestResponseStatus == .pass || continuousUpdatesStatus == .pass {
             return .runPhysicalDeviceSustainedGate
+        }
+        if continuousUpdatesStatus == .failedBeforeSamples,
+           count(
+               for: "stream-continuous-updates-continuous-updates-not-confirmed",
+               in: continuousUpdatesFailureLabelCounts
+           ) > 0 {
+            return .treatContinuousUpdatesAsUnsupportedForCurrentServer
         }
         if continuousUpdatesStatus == .failedBeforeSamples,
            !continuousUpdatesFailureLabelCounts.isEmpty {

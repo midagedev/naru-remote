@@ -6868,7 +6868,7 @@ JSON
 {"schemaVersion":1,"mode":"glance-025-10fps-duration-probe","status":"passed","report":{"streamShapeServerCadenceDiagnosis":{"status":"first-byte-wait-dominated"},"streamShapeProbe":{"summary":{"contentFramesPerSecond":1.9,"updateLatency":{"averageMilliseconds":503,"p95Milliseconds":632},"firstByteWaitLatency":{"p95Milliseconds":630},"payloadReadLatency":{"p95Milliseconds":0},"clientProcessingLatency":{"p95Milliseconds":2},"practicalAssessment":{"verdict":"fail","primaryIssueCode":"first-byte-wait-failed","primaryConstraint":"receivePath"}}}}}
 JSON
   cat >"$transport_file" <<'JSON'
-{"schemaVersion":1,"mode":"remote-desktop-10fps-transport-cadence-drilldown","status":"completed","candidates":[{"transportMode":"request-response","status":"passed","report":{"streamShapeProbe":{"summary":{"contentFramesPerSecond":6.1,"firstByteWaitLatency":{"p95Milliseconds":501},"practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target","recommendedNextAction":"tuneTransportCadence"}}},{"transportMode":"continuous-updates","status":"passed","report":{"streamShapeProbe":{"summary":{"failureLabel":"stream-continuous-updates-continuous-updates-not-confirmed","practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"continuousUpdatesStatus":"failed-before-samples","recommendedNextAction":"inspectContinuousUpdatesConnection"}}}]}
+{"schemaVersion":1,"mode":"remote-desktop-10fps-transport-cadence-drilldown","status":"completed","candidates":[{"transportMode":"request-response","status":"passed","report":{"streamShapeProbe":{"summary":{"contentFramesPerSecond":6.1,"firstByteWaitLatency":{"p95Milliseconds":501},"practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"requestResponseStatus":"below-target","recommendedNextAction":"tuneTransportCadence"}}},{"transportMode":"continuous-updates","status":"passed","report":{"streamShapeProbe":{"summary":{"failureLabel":"stream-continuous-updates-continuous-updates-not-confirmed","practicalAssessment":{"verdict":"fail"}}},"streamShapeTransportCadenceDiagnosis":{"continuousUpdatesStatus":"failed-before-samples","recommendedNextAction":"treatContinuousUpdatesAsUnsupportedForCurrentServer"}}}]}
 JSON
 
   print_remote_desktop_10fps_readiness_gate_summary \
@@ -6936,7 +6936,8 @@ JSON
     .readinessGateSummary.transportCadenceGate.requestResponseStatus == "below-target" and
     .readinessGateSummary.transportCadenceGate.requestResponseContentFramesPerSecond == 6.1 and
     .readinessGateSummary.transportCadenceGate.continuousUpdatesStatus == "failed-before-samples" and
-    .readinessGateSummary.transportCadenceGate.continuousUpdatesFailureLabel == "stream-continuous-updates-continuous-updates-not-confirmed"
+    .readinessGateSummary.transportCadenceGate.continuousUpdatesFailureLabel == "stream-continuous-updates-continuous-updates-not-confirmed" and
+    .readinessGateSummary.transportCadenceGate.continuousUpdatesRecommendedNextAction == "treatContinuousUpdatesAsUnsupportedForCurrentServer"
   ' "$readiness_file" >/dev/null && jq -e '
     .overallGateState == "blockedByHelperSustainedSyntheticTransport" and
     .recommendedPrimaryAction == "inspect-helper-video-sustained-cadence" and
@@ -6947,7 +6948,7 @@ JSON
     .helperVideoGate.sustainedSyntheticRecommendedAction == "inspect-helper-video-sustained-cadence" and
     .helperVideoGate.screenCaptureVerdict == "pass" and
     .helperVideoGate.screenRecordingPermission == "granted" and
-    .transportCadenceGate.continuousUpdatesRecommendedNextAction == "inspectContinuousUpdatesConnection"
+    .transportCadenceGate.continuousUpdatesRecommendedNextAction == "treatContinuousUpdatesAsUnsupportedForCurrentServer"
   ' "$sustained_blocked_summary_file" >/dev/null && jq -e '
     .overallGateState == "blockedByHelperScreenCapture" and
     .recommendedPrimaryAction == "inspect-helper-video-sustained-cadence" and
