@@ -14,9 +14,10 @@ public enum BenchmarkHelperVideoProbeMode: String, Codable, Equatable, Sendable 
     case externalHelperSyntheticEncodedTCP = "external-helper-synthetic-encoded-tcp"
     case externalHelperSustainedSyntheticEncodedTCP = "external-helper-sustained-synthetic-encoded-tcp"
     case externalHelperScreenCaptureKitTCP = "external-helper-screen-capturekit-tcp"
+    case externalHelperSustainedScreenCaptureKitTCP = "external-helper-sustained-screen-capturekit-tcp"
 
     public static var usageDescription: String {
-        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-sustained-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp"
+        "disabled|synthetic-tcp|synthetic-encoded-tcp|screen-capturekit-tcp|external-helper-synthetic-encoded-tcp|external-helper-sustained-synthetic-encoded-tcp|external-helper-screen-capturekit-tcp|external-helper-sustained-screen-capturekit-tcp"
     }
 
     public static func parse(_ rawValue: String) -> BenchmarkHelperVideoProbeMode? {
@@ -79,6 +80,11 @@ public enum BenchmarkHelperVideoProbe {
             return .helperComparison(
                 selection: selection,
                 helperVideoReport: externalHelperScreenCaptureKitTCPHelperVideoReport()
+            )
+        case .externalHelperSustainedScreenCaptureKitTCP:
+            return .helperComparison(
+                selection: selection,
+                helperVideoReport: externalHelperSustainedScreenCaptureKitTCPHelperVideoReport()
             )
         }
     }
@@ -253,16 +259,29 @@ public enum BenchmarkHelperVideoProbe {
         )
     }
 
+    public static func externalHelperSustainedScreenCaptureKitTCPHelperVideoReport(
+        helperExecutablePath: String? = nil
+    ) -> BenchmarkHelperVideoReport {
+        return externalHelperVideoReport(
+            helperExecutablePath: helperExecutablePath,
+            sourceMode: .screenCaptureKit,
+            frameCount: BenchmarkHelperVideoProbeTiming.externalHelperSustainedFrameCount(),
+            allowsPartialResultOnTimeout: true
+        )
+    }
+
     private static func externalHelperVideoReport(
         helperExecutablePath: String?,
         sourceMode: NaruHelperVideoListenSourceMode,
-        frameCount: Int
+        frameCount: Int,
+        allowsPartialResultOnTimeout: Bool = false
     ) -> BenchmarkHelperVideoReport {
         do {
             let result = try runExternalHelperTCPProbe(
                 helperExecutablePath: helperExecutablePath,
                 sourceMode: sourceMode,
-                frameCount: frameCount
+                frameCount: frameCount,
+                allowsPartialResultOnTimeout: allowsPartialResultOnTimeout
             )
             return helperVideoReport(
                 for: result,
@@ -344,7 +363,8 @@ public enum BenchmarkHelperVideoProbe {
     private static func runExternalHelperTCPProbe(
         helperExecutablePath: String?,
         sourceMode: NaruHelperVideoListenSourceMode,
-        frameCount: Int
+        frameCount: Int,
+        allowsPartialResultOnTimeout: Bool = false
     ) throws -> HelperVideoStreamNetworkStartResult {
         var lastError: Error?
         for _ in 0..<BenchmarkHelperVideoProbeTiming.externalHelperPortAttempts {
@@ -353,7 +373,8 @@ public enum BenchmarkHelperVideoProbe {
                     helperExecutablePath: helperExecutablePath,
                     sourceMode: sourceMode,
                     frameCount: frameCount,
-                    port: externalHelperPortCandidate()
+                    port: externalHelperPortCandidate(),
+                    allowsPartialResultOnTimeout: allowsPartialResultOnTimeout
                 )
             } catch {
                 lastError = error
@@ -366,7 +387,8 @@ public enum BenchmarkHelperVideoProbe {
         helperExecutablePath: String?,
         sourceMode: NaruHelperVideoListenSourceMode,
         frameCount: Int,
-        port: UInt16
+        port: UInt16,
+        allowsPartialResultOnTimeout: Bool = false
     ) throws -> HelperVideoStreamNetworkStartResult {
         let pairingSecret = "benchmark-helper-video-external-secret"
         let profileFingerprint = "sha256:benchmark-helper-video-external"
@@ -428,7 +450,8 @@ public enum BenchmarkHelperVideoProbe {
             try await client.startStream(
                 maxServerFrames: BenchmarkHelperVideoProbeTiming.maxServerFrames(
                     forExternalHelperFrameCount: clampedFrameCount
-                )
+                ),
+                allowsPartialResultOnTimeout: allowsPartialResultOnTimeout
             )
         }
     }

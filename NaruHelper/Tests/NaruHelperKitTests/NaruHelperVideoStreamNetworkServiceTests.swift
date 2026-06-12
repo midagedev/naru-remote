@@ -146,6 +146,56 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         }, Array(0..<accessUnits.count))
     }
 
+    func testNetworkClientCanReturnPartialStartResultOnIdleTimeoutForBenchmarks() async throws {
+        let accessUnits = [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .parameterSet,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x67])
+            ),
+            NaruHelperVideoAccessUnit(
+                sequence: 1,
+                kind: .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+            )
+        ]
+        let server = try makeServer(source: HangingAccessUnitSource(accessUnits: accessUnits))
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let strictClient = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 0.2
+        )
+        do {
+            _ = try await strictClient.startStream(maxServerFrames: 6)
+            XCTFail("Expected strict startStream to time out.")
+        } catch {
+            XCTAssertEqual(error as? HelperVideoStreamNetworkClientError, .timedOut)
+        }
+
+        let partialClient = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            timeout: 0.2
+        )
+        let partial = try await partialClient.startStream(
+            maxServerFrames: 6,
+            allowsPartialResultOnTimeout: true
+        )
+
+        XCTAssertEqual(partial.startResponse.body.result, .accepted)
+        XCTAssertEqual(partial.accessUnits.map { $0.envelope.body.sequence }, [0, 1])
+        XCTAssertNil(partial.stall)
+    }
+
     func testNetworkClientReceivesSafeStallWhenHelperHasNoAccessUnits() async throws {
         let server = try makeServer(accessUnits: [])
         server.start()
@@ -268,5 +318,28 @@ private struct AsyncOnlyAccessUnitSource: NaruHelperVideoAccessUnitSource {
 
 private enum AsyncOnlyAccessUnitSourceError: Error {
     case finiteBatchPathUsed
+}
+
+private struct HangingAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var accessUnits: [NaruHelperVideoAccessUnit]
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        throw AsyncOnlyAccessUnitSourceError.finiteBatchPathUsed
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        AsyncThrowingStream { continuation in
+            let accessUnits = accessUnits
+            Task {
+                for accessUnit in accessUnits {
+                    continuation.yield(accessUnit)
+                }
+            }
+        }
+    }
 }
 #endif

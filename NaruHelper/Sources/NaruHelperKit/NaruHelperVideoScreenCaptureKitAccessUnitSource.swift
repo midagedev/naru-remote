@@ -21,7 +21,8 @@ import VideoToolbox
 public protocol NaruHelperVideoScreenCaptureKitPixelBufferProvider: Sendable {
     func pixelBuffers(
         frameLimit: Int,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> [CVPixelBuffer]
 }
 
@@ -30,8 +31,82 @@ public protocol NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider:
 {
     func pixelBufferStream(
         frameLimit: Int?,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error>
+}
+
+public struct NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy:
+    Equatable,
+    Sendable
+{
+    public var outputWidth: Int
+    public var outputHeight: Int
+    public var queueDepth: Int
+
+    public init(
+        outputWidth: Int,
+        outputHeight: Int,
+        queueDepth: Int
+    ) {
+        self.outputWidth = max(outputWidth, 2)
+        self.outputHeight = max(outputHeight, 2)
+        self.queueDepth = min(max(queueDepth, 1), 8)
+    }
+
+    public static func make(
+        displayWidth: Int,
+        displayHeight: Int,
+        frameLimit: Int?,
+        qualityBucket: HelperVideoQualityBucket
+    ) -> Self {
+        let sourceWidth = max(displayWidth, 2)
+        let sourceHeight = max(displayHeight, 2)
+        let maxLongEdge = maxLongEdge(for: qualityBucket)
+        let scaledSize = scaledEvenSize(
+            width: sourceWidth,
+            height: sourceHeight,
+            maxLongEdge: maxLongEdge
+        )
+        return Self(
+            outputWidth: scaledSize.width,
+            outputHeight: scaledSize.height,
+            queueDepth: frameLimit == nil ? 3 : 5
+        )
+    }
+
+    private static func maxLongEdge(for qualityBucket: HelperVideoQualityBucket) -> Int {
+        switch qualityBucket {
+        case .readability:
+            return 960
+        case .balanced:
+            return 1_920
+        case .fidelity:
+            return Int.max
+        }
+    }
+
+    private static func scaledEvenSize(
+        width: Int,
+        height: Int,
+        maxLongEdge: Int
+    ) -> (width: Int, height: Int) {
+        let longEdge = max(width, height)
+        guard longEdge > maxLongEdge else {
+            return (evenDimension(width), evenDimension(height))
+        }
+
+        let scale = Double(maxLongEdge) / Double(longEdge)
+        return (
+            evenDimension(Int((Double(width) * scale).rounded())),
+            evenDimension(Int((Double(height) * scale).rounded()))
+        )
+    }
+
+    private static func evenDimension(_ value: Int) -> Int {
+        let clamped = max(value, 2)
+        return clamped.isMultiple(of: 2) ? clamped : clamped - 1
+    }
 }
 
 public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAccessUnitSource {
@@ -62,7 +137,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         let finiteFrameCount = max(frameCount, 1)
         let pixelBuffers = try pixelBufferProvider.pixelBuffers(
             frameLimit: finiteFrameCount,
-            frameRateBucket: request.maxFrameRateBucket
+            frameRateBucket: request.maxFrameRateBucket,
+            qualityBucket: request.qualityBucket
         )
         guard let first = pixelBuffers.first else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.noCapturedFrames
@@ -98,7 +174,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
 
         let pixelBufferStream = try streamProvider.pixelBufferStream(
             frameLimit: frameCount > 0 ? frameCount : nil,
-            frameRateBucket: request.maxFrameRateBucket
+            frameRateBucket: request.maxFrameRateBucket,
+            qualityBucket: request.qualityBucket
         )
         let pixelBufferStreamBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferStreamBox(
             stream: pixelBufferStream
@@ -210,7 +287,8 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
 {
     func pixelBuffers(
         frameLimit: Int,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> [CVPixelBuffer] {
         guard CGPreflightScreenCaptureAccess() else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
@@ -223,7 +301,8 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
             do {
                 let captured = try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture(
                     frameLimit: frameLimit,
-                    frameRateBucket: frameRateBucket
+                    frameRateBucket: frameRateBucket,
+                    qualityBucket: qualityBucket
                 ).capture()
                 resultBox.store(.success(captured))
             } catch {
@@ -243,19 +322,23 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
 
     func pixelBufferStream(
         frameLimit: Int?,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
         guard CGPreflightScreenCaptureAccess() else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .screenRecordingPermissionMissing
         }
 
-        return AsyncThrowingStream { continuation in
+        let bufferingPolicy: AsyncThrowingStream<CVPixelBuffer, any Error>
+            .Continuation.BufferingPolicy = frameLimit == nil ? .bufferingNewest(1) : .unbounded
+        return AsyncThrowingStream(bufferingPolicy: bufferingPolicy) { continuation in
             let producer = Task.detached(priority: .userInitiated) {
                 do {
                     let capture = LiveNaruHelperVideoScreenCaptureKitStreamingCapture(
                         frameLimit: frameLimit,
                         frameRateBucket: frameRateBucket,
+                        qualityBucket: qualityBucket,
                         continuation: continuation
                     )
                     try await capture.captureUntilFinished()
@@ -277,23 +360,30 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
 private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
     var frameLimit: Int
     var frameRateBucket: HelperVideoFrameRateBucket
+    var qualityBucket: HelperVideoQualityBucket
 
     func capture() async throws -> [CapturedPixelBuffer] {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
             onScreenWindowsOnly: true
         )
-        guard let display = content.displays.first else {
+        guard let display = Self.captureDisplay(from: content) else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
         }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let configuration = SCStreamConfiguration()
-        configuration.width = max(display.width, 1)
-        configuration.height = max(display.height, 1)
+        let policy = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy.make(
+            displayWidth: display.width,
+            displayHeight: display.height,
+            frameLimit: frameLimit,
+            qualityBucket: qualityBucket
+        )
+        configuration.width = policy.outputWidth
+        configuration.height = policy.outputHeight
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.queueDepth = 3
+        configuration.queueDepth = policy.queueDepth
         configuration.minimumFrameInterval = frameRateBucket.screenCaptureMinimumFrameInterval
         configuration.capturesAudio = false
         configuration.showsCursor = true
@@ -346,11 +436,18 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
             }
         }
     }
+
+    fileprivate static func captureDisplay(from content: SCShareableContent) -> SCDisplay? {
+        let mainDisplayID = CGMainDisplayID()
+        return content.displays.first { $0.displayID == mainDisplayID }
+            ?? content.displays.first
+    }
 }
 
 private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
     var frameLimit: Int?
     var frameRateBucket: HelperVideoFrameRateBucket
+    var qualityBucket: HelperVideoQualityBucket
     let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
 
     func captureUntilFinished() async throws {
@@ -358,17 +455,25 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
             false,
             onScreenWindowsOnly: true
         )
-        guard let display = content.displays.first else {
+        guard let display = LiveNaruHelperVideoScreenCaptureKitFiniteCapture
+            .captureDisplay(from: content)
+        else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
         }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let configuration = SCStreamConfiguration()
-        configuration.width = max(display.width, 1)
-        configuration.height = max(display.height, 1)
+        let policy = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy.make(
+            displayWidth: display.width,
+            displayHeight: display.height,
+            frameLimit: frameLimit,
+            qualityBucket: qualityBucket
+        )
+        configuration.width = policy.outputWidth
+        configuration.height = policy.outputHeight
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.queueDepth = 3
+        configuration.queueDepth = policy.queueDepth
         configuration.minimumFrameInterval = frameRateBucket.screenCaptureMinimumFrameInterval
         configuration.capturesAudio = false
         configuration.showsCursor = true

@@ -575,6 +575,16 @@ without unsafe report fields.
   `recommendedAction` such as `inspect-helper-video-sustained-cadence` when
   Screen Recording is already `granted` and the screen probe is
   `sustainedDegraded` or `stalled`. **Done.**
+- [x] T031AK [US2] Add a sustained external ScreenCaptureKit helper-video gate
+  and tune the capture path for live cadence. `helper-readiness-sweep` and
+  `remote-desktop-10fps-readiness` now include
+  `sustainedScreenProbe`, driven by a local stimulus window and routed through
+  the external helper TCP path. The benchmark client can return a safe partial
+  result on idle timeout after a start response, and the ScreenCaptureKit
+  capture policy prefers the main display, readability-scaled output, finite
+  queue depth `5`, continuous queue depth `3`, and newest-one buffering for
+  unbounded streams. Current live evidence moved sustained screen capture from
+  timeout/degraded to `pass` with `sustainedUpdateBand=smooth`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

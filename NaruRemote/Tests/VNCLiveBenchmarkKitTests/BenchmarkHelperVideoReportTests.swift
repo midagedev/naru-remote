@@ -8,9 +8,17 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
             BenchmarkHelperVideoProbeMode.parse("external-helper-sustained-synthetic-encoded-tcp"),
             .externalHelperSustainedSyntheticEncodedTCP
         )
+        XCTAssertEqual(
+            BenchmarkHelperVideoProbeMode.parse("external-helper-sustained-screen-capturekit-tcp"),
+            .externalHelperSustainedScreenCaptureKitTCP
+        )
         XCTAssertTrue(
             BenchmarkHelperVideoProbeMode.usageDescription
                 .contains("external-helper-sustained-synthetic-encoded-tcp")
+        )
+        XCTAssertTrue(
+            BenchmarkHelperVideoProbeMode.usageDescription
+                .contains("external-helper-sustained-screen-capturekit-tcp")
         )
     }
 
@@ -57,6 +65,20 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertTrue(report.issueCodes.contains(.externalHelperUnavailable))
         XCTAssertTrue(json.contains("helper-video-external-helper-unavailable"))
         XCTAssertFalse(json.contains("/tmp/naru-remote-missing-helper"))
+    }
+
+    func testSustainedScreenCaptureKitHelperUnavailableUsesFixedSafeIssueCode() throws {
+        let report = BenchmarkHelperVideoProbe
+            .externalHelperSustainedScreenCaptureKitTCPHelperVideoReport(
+                helperExecutablePath: "/tmp/naru-remote-missing-screen-helper"
+            )
+
+        let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(report.verdict, .fail)
+        XCTAssertTrue(report.issueCodes.contains(.externalHelperUnavailable))
+        XCTAssertTrue(json.contains("helper-video-external-helper-unavailable"))
+        XCTAssertFalse(json.contains("/tmp/naru-remote-missing-screen-helper"))
     }
 
     func testHelperVideoReportFixtureRoundTripsThroughSafeSchema() throws {

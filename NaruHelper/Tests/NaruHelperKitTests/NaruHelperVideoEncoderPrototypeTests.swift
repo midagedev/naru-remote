@@ -159,7 +159,41 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertEqual(unknownFrameRate.dataRateLimits, readability30.dataRateLimits)
     }
 
-    #if os(macOS) && canImport(VideoToolbox)
+    #if os(macOS) && canImport(VideoToolbox) && canImport(ScreenCaptureKit)
+    func testScreenCaptureKitPolicyScalesReadabilityAndUsesLowLatencyContinuousQueue() {
+        let continuousReadability = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy
+            .make(
+                displayWidth: 6_016,
+                displayHeight: 3_384,
+                frameLimit: nil,
+                qualityBucket: .readability
+            )
+        let finiteBalanced = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy
+            .make(
+                displayWidth: 6_016,
+                displayHeight: 3_384,
+                frameLimit: 30,
+                qualityBucket: .balanced
+            )
+        let nativeFidelity = NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy
+            .make(
+                displayWidth: 1_280,
+                displayHeight: 721,
+                frameLimit: nil,
+                qualityBucket: .fidelity
+            )
+
+        XCTAssertEqual(continuousReadability.outputWidth, 960)
+        XCTAssertEqual(continuousReadability.outputHeight, 540)
+        XCTAssertEqual(continuousReadability.queueDepth, 3)
+        XCTAssertEqual(finiteBalanced.outputWidth, 1_920)
+        XCTAssertEqual(finiteBalanced.outputHeight, 1_080)
+        XCTAssertEqual(finiteBalanced.queueDepth, 5)
+        XCTAssertEqual(nativeFidelity.outputWidth, 1_280)
+        XCTAssertEqual(nativeFidelity.outputHeight, 720)
+        XCTAssertEqual(nativeFidelity.queueDepth, 3)
+    }
+
     func testToolboxSyntheticAccessUnitSourceEmitsRealAnnexBParameterSetsAndFrame() throws {
         let source = NaruHelperVideoToolboxSyntheticAccessUnitSource(
             frameCount: 2,
@@ -473,7 +507,8 @@ private final class StubScreenCaptureKitPixelBufferProvider:
 
     func pixelBuffers(
         frameLimit: Int,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> [CVPixelBuffer] {
         lock.lock()
         defer {
@@ -485,7 +520,8 @@ private final class StubScreenCaptureKitPixelBufferProvider:
 
     func pixelBufferStream(
         frameLimit: Int?,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket
     ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
         lock.lock()
         recordedStreamRequests.append(StreamRequest(
