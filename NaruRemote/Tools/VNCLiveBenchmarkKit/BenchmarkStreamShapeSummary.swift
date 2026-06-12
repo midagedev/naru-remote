@@ -3797,6 +3797,9 @@ public struct BenchmarkStreamShapeRequestCadenceHealth: Codable, Equatable, Send
 }
 
 public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable, Sendable {
+    private static let continuousUpdatesNotConfirmedFailureLabel =
+        "stream-continuous-updates-continuous-updates-not-confirmed"
+
     public let targetName: String
     public let recommendedTransportMode: BenchmarkStreamShapeTransportMode?
     public let recommendedNextAction: BenchmarkStreamShapeTransportCadenceNextAction
@@ -3948,7 +3951,7 @@ public struct BenchmarkStreamShapeTransportCadenceDiagnosis: Codable, Equatable,
         }
         if continuousUpdatesStatus == .failedBeforeSamples,
            count(
-               for: "stream-continuous-updates-continuous-updates-not-confirmed",
+               for: continuousUpdatesNotConfirmedFailureLabel,
                in: continuousUpdatesFailureLabelCounts
            ) > 0 {
             return .treatContinuousUpdatesAsUnsupportedForCurrentServer
