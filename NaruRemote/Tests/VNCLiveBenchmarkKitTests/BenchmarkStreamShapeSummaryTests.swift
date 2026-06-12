@@ -1396,7 +1396,7 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         let diagnosis = try XCTUnwrap(BenchmarkStreamShapeTransportCadenceDiagnosis.diagnosis(from: gates))
 
         XCTAssertEqual(diagnosis.continuousUpdatesStatus, .failedBeforeSamples)
-        XCTAssertEqual(diagnosis.recommendedNextAction, .inspectContinuousUpdatesConnection)
+        XCTAssertEqual(diagnosis.recommendedNextAction, .treatContinuousUpdatesAsUnsupportedForCurrentServer)
     }
 
     func testTransportCadenceDiagnosisRoutesPassingGateToPhysicalDevice() throws {

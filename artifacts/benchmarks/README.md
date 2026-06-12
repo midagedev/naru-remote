@@ -105,6 +105,12 @@ the 10fps VNC gate. Request/response reaches about 6 content FPS but still
 fails from first-byte wait, while ContinuousUpdates fails before usable samples
 on the current Mac Screen Sharing target. A paired `screen-recording-setup`
 probe records that the helper app bundle still needs Screen Recording approval.
+Current ContinuousUpdates unsupported diagnosis artifact:
+`artifacts/benchmarks/2026-06-13-continuous-updates-unsupported-diagnosis-summary.md`.
+That run refines the pre-sample ContinuousUpdates failure route: when the
+server never confirms the ContinuousUpdates pseudo-encoding, the diagnosis now
+treats the extension as unsupported for the current server instead of asking
+the operator to keep re-inspecting the same connection.
 Current viewport interaction trace artifact:
 `artifacts/benchmarks/2026-06-13-viewport-interaction-trace-summary.md`.
 That run adds a fixed off-versus-app viewport interaction live trace for the
