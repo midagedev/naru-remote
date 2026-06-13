@@ -19,6 +19,7 @@ Modes:
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app sustained decode smoke.
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
+  simulator-input-viewport-gate Run simulator Compose storm + viewport hot path gate.
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-dev-app-setup Install dev helper app, set launchctl, request text insertion permission.
@@ -85,6 +86,11 @@ Launchctl variables used when present:
   NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SECRET
   NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_FINGERPRINT
   NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE=auto|manual
+  NARU_SIMULATOR_PHONE_DESTINATION
+  NARU_SIMULATOR_PAD_DESTINATION
+  NARU_SIMULATOR_GATE_INCLUDE_IPAD=0|1
+  NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS
+  NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES
   NARU_HELPER_VIDEO_TOKEN
   NARU_HELPER_VIDEO_PROFILE_FINGERPRINT
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
@@ -2511,6 +2517,213 @@ json_string_array() {
     printf '"%s"' "$escaped"
   done
   printf ']'
+}
+
+import_simulator_gate_env() {
+  import_env NARU_SIMULATOR_PHONE_DESTINATION optional
+  import_env NARU_SIMULATOR_PAD_DESTINATION optional
+  import_env NARU_SIMULATOR_GATE_INCLUDE_IPAD optional
+  import_env NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS optional
+  import_env NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES optional
+}
+
+simulator_phone_destination() {
+  printf '%s' "${NARU_SIMULATOR_PHONE_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2}"
+}
+
+simulator_pad_destination() {
+  printf '%s' "${NARU_SIMULATOR_PAD_DESTINATION:-platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2}"
+}
+
+simulator_gate_include_ipad() {
+  case "${NARU_SIMULATOR_GATE_INCLUDE_IPAD:-1}" in
+    1|true|TRUE|yes|YES)
+      return 0
+      ;;
+    0|false|FALSE|no|NO)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+simulator_gate_benchmark_iterations() {
+  local value="${NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS:-3}"
+  case "$value" in
+    ''|*[!0-9]*|0)
+      printf '3'
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
+}
+
+simulator_gate_benchmark_samples() {
+  local value="${NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES:-1000}"
+  case "$value" in
+    ''|*[!0-9]*|0)
+      printf '1000'
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
+}
+
+run_simulator_gate_step() {
+  local step_label="$1"
+  local failure_code="$2"
+  shift 2
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-${step_label}.XXXXXX")"
+
+  if "$@" >"$output_file" 2>&1; then
+    rm -f "$output_file"
+    printf '{"stepLabel":'
+    json_string "$step_label"
+    printf ',"status":"passed"}'
+    return 0
+  fi
+
+  local exit_code=$?
+  printf '{"stepLabel":'
+  json_string "$step_label"
+  printf ',"status":"failed","safeFailureCode":'
+  json_string "$failure_code"
+  printf ',"exitCode":%d,"localOutputFilePath":' "$exit_code"
+  json_string "$output_file"
+  printf '}'
+  return 0
+}
+
+simulator_gate_step_passed() {
+  local step_file="$1"
+  grep -q '"status":"passed"' "$step_file"
+}
+
+simulator_input_viewport_gate() {
+  reject_extra_args
+  import_simulator_gate_env
+  cd "$repo_root"
+
+  local phone_destination
+  local pad_destination
+  local benchmark_iterations
+  local benchmark_samples
+  phone_destination="$(simulator_phone_destination)"
+  pad_destination="$(simulator_pad_destination)"
+  benchmark_iterations="$(simulator_gate_benchmark_iterations)"
+  benchmark_samples="$(simulator_gate_benchmark_samples)"
+
+  local unit_file
+  local phone_compose_file
+  local phone_benchmark_file
+  local pad_compose_file=""
+  unit_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-unit.XXXXXX")"
+  phone_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-compose.XXXXXX")"
+  phone_benchmark_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-benchmark.XXXXXX")"
+
+  run_simulator_gate_step \
+    swift-focused-unit-slice \
+    benchmarkStep.simulatorInputViewportGate.swiftFocusedUnitSlice.failed \
+    swift test --filter 'SessionViewportViewGeometryTests|PointerGestureResolverTests|TrackpadModeModelTests|ViewportInputHotPathDriverTests|ViewportGestureRedrawThrottleTests|HelperVideoViewportInputHotPathBenchmarkTests|ComposeInputSessionIsolationTests' \
+    >"$unit_file"
+
+  run_simulator_gate_step \
+    iphone-compose-storm-ui-tests \
+    benchmarkStep.simulatorInputViewportGate.iPhoneComposeStormUITests.failed \
+    xcodebuild \
+      -project NaruRemote.xcodeproj \
+      -scheme NaruRemote \
+      -destination "$phone_destination" \
+      -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests \
+      test \
+    >"$phone_compose_file"
+
+  run_simulator_gate_step \
+    iphone-viewport-hotpath-benchmark \
+    benchmarkStep.simulatorInputViewportGate.iPhoneViewportHotPathBenchmark.failed \
+    env \
+      NARU_RUN_SIM_BENCHMARKS=1 \
+      NARU_SIM_BENCHMARK_ITERATIONS="$benchmark_iterations" \
+      NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES="$benchmark_samples" \
+      xcodebuild \
+        -project NaruRemote.xcodeproj \
+        -scheme NaruRemote \
+        -destination "$phone_destination" \
+        -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark \
+        test \
+    >"$phone_benchmark_file"
+
+  local step_files=("$unit_file" "$phone_compose_file" "$phone_benchmark_file")
+  local device_coverage=("iphone-simulator")
+  if simulator_gate_include_ipad; then
+    pad_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-pad-compose.XXXXXX")"
+    run_simulator_gate_step \
+      ipad-compose-storm-ui-tests \
+      benchmarkStep.simulatorInputViewportGate.iPadComposeStormUITests.failed \
+      xcodebuild \
+        -project NaruRemote.xcodeproj \
+        -scheme NaruRemote \
+        -destination "$pad_destination" \
+        -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests \
+        test \
+      >"$pad_compose_file"
+    step_files+=("$pad_compose_file")
+    device_coverage+=("ipad-simulator")
+  fi
+
+  local overall_status="passed"
+  local step_file
+  for step_file in "${step_files[@]}"; do
+    if ! simulator_gate_step_passed "$step_file"; then
+      overall_status="failed"
+    fi
+  done
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "simulator-input-viewport-gate",\n'
+  printf '  "targetLabel": "simulator-input-viewport-v1",\n'
+  printf '  "status": "%s",\n' "$overall_status"
+  printf '  "phoneDestinationLabel": '
+  json_string "$phone_destination"
+  printf ',\n'
+  printf '  "padDestinationLabel": '
+  json_string "$pad_destination"
+  printf ',\n'
+  printf '  "deviceCoverageLabels": '
+  json_string_array "${device_coverage[@]}"
+  printf ',\n'
+  printf '  "benchmarkIterations": %s,\n' "$benchmark_iterations"
+  printf '  "benchmarkSamples": %s,\n' "$benchmark_samples"
+  printf '  "policyLabels": [\n'
+  printf '    "korean-cjk-compose-freeze-regression",\n'
+  printf '    "viewport-hotpath-simulator-benchmark",\n'
+  printf '    "iphone-and-ipad-simulator-local-iteration-gate"\n'
+  printf '  ],\n'
+  printf '  "steps": [\n'
+  local first=1
+  for step_file in "${step_files[@]}"; do
+    if ((first)); then
+      first=0
+    else
+      printf ',\n'
+    fi
+    printf '    '
+    cat "$step_file"
+  done
+  printf '\n  ]\n'
+  printf '}\n'
+
+  rm -f "${step_files[@]}"
+  if [[ "$overall_status" != "passed" ]]; then
+    return 1
+  fi
 }
 
 append_unique() {
@@ -7241,6 +7454,9 @@ case "$mode" in
   helper-video-live-gate-self-test)
     reject_extra_args
     helper_video_live_gate_self_test
+    ;;
+  simulator-input-viewport-gate)
+    simulator_input_viewport_gate
     ;;
   physical-iphone-helper-video-gate)
     physical_iphone_helper_video_gate
