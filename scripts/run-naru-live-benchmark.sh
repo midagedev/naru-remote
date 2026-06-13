@@ -2630,7 +2630,7 @@ simulator_input_viewport_gate() {
   run_simulator_gate_step \
     swift-focused-unit-slice \
     benchmarkStep.simulatorInputViewportGate.swiftFocusedUnitSlice.failed \
-    swift test --filter 'SessionViewportViewGeometryTests|PointerGestureResolverTests|TrackpadModeModelTests|ViewportInputHotPathDriverTests|ViewportGestureRedrawThrottleTests|HelperVideoViewportInputHotPathBenchmarkTests|ComposeInputSessionIsolationTests' \
+    swift test --filter 'SessionViewportViewGeometryTests|PointerGestureResolverTests|TrackpadModeModelTests|ViewportInputHotPathDriverTests|ViewportGestureRedrawThrottleTests|ViewportRedrawDiagnosticsTests|DiagnosticExportTests|HelperVideoViewportInputHotPathBenchmarkTests|ComposeInputSessionIsolationTests' \
     >"$unit_file"
 
   run_simulator_gate_step \
@@ -2704,6 +2704,7 @@ simulator_input_viewport_gate() {
   printf '  "policyLabels": [\n'
   printf '    "korean-cjk-compose-freeze-regression",\n'
   printf '    "viewport-hotpath-simulator-benchmark",\n'
+  printf '    "viewport-pressure-diagnostic-regression",\n'
   printf '    "iphone-and-ipad-simulator-local-iteration-gate"\n'
   printf '  ],\n'
   printf '  "steps": [\n'

@@ -74,8 +74,9 @@ state가 남아 있으면 Green이 아니다.
 일상 개발 루프에서는
 `scripts/run-naru-live-benchmark.sh simulator-input-viewport-gate`를 먼저 돌려
 iPhone/iPad simulator에서 Korean/CJK Compose freeze 회귀와 viewport hot path
-퇴행을 잡는다. 이 simulator gate는 빠른 반복 기준이며, Green 승격 근거로는
-manual/physical 또는 live benchmark 증거를 추가한다.
+퇴행, viewport pressure diagnostic 회귀를 잡는다. 이 simulator gate는 빠른
+반복 기준이며, Green 승격 근거로는 manual/physical 또는 live benchmark 증거를
+추가한다.
 
 ## 3. 품질 단계
 
