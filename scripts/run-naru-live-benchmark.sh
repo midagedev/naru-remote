@@ -56,6 +56,8 @@ Modes:
   bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
   bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
+  physical-ipad-device-preflight Safe physical iPad build/signing readiness labels.
+  physical-ipad-device-preflight-self-test Fast regression for physical iPad signing labels.
   physical-signing-setup-summary-self-test Fast regression for physical signing action labels.
   physical-team-inference-self-test Safe local regression for team inference labels.
   physical-device-id-resolution-self-test Safe local regression for physical device id mapping labels.
@@ -72,6 +74,7 @@ Launchctl variables used when present:
   NARU_LIVE_MAC_PASSWORD
   NARU_LIVE_STIMULUS_COMMAND
   NARU_PHYSICAL_IOS_DEVICE_ID
+  NARU_PHYSICAL_IPAD_DEVICE_ID
   NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_PHYSICAL_E2E_HOST
@@ -199,6 +202,11 @@ import_optional_live_env() {
 import_physical_device_env() {
   import_env NARU_PHYSICAL_IOS_DEVICE_ID optional
   import_env NARU_PHYSICAL_IOS_DEVICE_CLASS optional
+  import_env NARU_XCODE_DEVELOPMENT_TEAM optional
+}
+
+import_physical_ipad_env() {
+  import_env NARU_PHYSICAL_IPAD_DEVICE_ID optional
   import_env NARU_XCODE_DEVELOPMENT_TEAM optional
 }
 
@@ -3266,6 +3274,203 @@ physical_iphone_device_count() {
     tr -d ' '
 }
 
+physical_ipad_ids_from_devicectl() {
+  if ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local status=1
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipads.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPad'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    jq -r '
+      .result.devices[]?
+      | select((.connectionProperties.tunnelState // "available") != "unavailable")
+      | select((.deviceProperties.ddiServicesAvailable // true) != false)
+      | .hardwareProperties.udid // .identifier // empty
+    ' "$output_file"
+    status=$?
+  fi
+  rm -f "$output_file"
+  return "$status"
+}
+
+physical_unavailable_ipad_count_from_devicectl() {
+  if ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf '0'
+    return
+  fi
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipads.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPad'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    jq -r '
+      [
+        .result.devices[]?
+        | select(
+          (.connectionProperties.tunnelState // "available") == "unavailable"
+          or (.deviceProperties.ddiServicesAvailable // true) == false
+        )
+      ]
+      | length
+    ' "$output_file"
+  else
+    printf '0'
+  fi
+  rm -f "$output_file"
+}
+
+physical_unavailable_ipad_id_is_known() {
+  local device_id="$1"
+  if [[ -z "$device_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local match_count="0"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipads.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPad'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    match_count="$(
+      jq -r --arg device_id "$device_id" '
+        [
+          .result.devices[]?
+          | select(
+            ((.hardwareProperties.udid // "") == $device_id or (.identifier // "") == $device_id)
+            and (
+              (.connectionProperties.tunnelState // "available") == "unavailable"
+              or (.deviceProperties.ddiServicesAvailable // true) == false
+            )
+          )
+        ]
+        | length
+      ' "$output_file"
+    )"
+  fi
+  rm -f "$output_file"
+  [[ "$match_count" != "0" ]]
+}
+
+physical_ipad_ids_from_xctrace() {
+  if ! command -v xcrun >/dev/null 2>&1; then
+    return 1
+  fi
+
+  xcrun xctrace list devices 2>/dev/null |
+    awk '
+      /^== Devices ==/{in_devices=1; next}
+      /^== Devices Offline ==/{in_devices=0}
+      /^== Simulators ==/{in_devices=0}
+      in_devices
+    ' |
+    grep -i 'iPad' |
+    sed -n 's/.*(\([0-9][0-9.]*\)) (\([0-9A-Fa-f-]\{24,\}\)).*/\2/p'
+}
+
+physical_ipad_ids() {
+  if physical_ipad_ids_from_devicectl; then
+    return 0
+  fi
+  physical_ipad_ids_from_xctrace
+}
+
+physical_ipad_device_count() {
+  local ids
+  ids="$(physical_ipad_ids || true)"
+  if [[ -z "$ids" ]]; then
+    printf '0'
+    return
+  fi
+
+  printf '%s\n' "$ids" |
+    sed '/^$/d' |
+    wc -l |
+    tr -d ' '
+}
+
+physical_ipad_xcodebuild_id_from_devicectl_identifier() {
+  local requested_id="$1"
+  if [[ -z "$requested_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local resolved_id=""
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipads.XXXXXX")"
+  if xcrun devicectl list devices \
+    --filter "hardwareProperties.deviceType == 'iPad'" \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    resolved_id="$(
+      jq -r --arg requested_id "$requested_id" '
+        .result.devices[]?
+        | select(
+            ((.hardwareProperties.udid // "") == $requested_id)
+            or ((.identifier // "") == $requested_id)
+          )
+        | select((.connectionProperties.tunnelState // "available") != "unavailable")
+        | select((.deviceProperties.ddiServicesAvailable // true) != false)
+        | .hardwareProperties.udid // empty
+      ' "$output_file" | sed -n '/./{p;q;}'
+    )"
+  fi
+  rm -f "$output_file"
+  [[ -n "$resolved_id" ]] || return 1
+  printf '%s' "$resolved_id"
+}
+
+discover_physical_ipad_device_id() {
+  PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="unknown"
+  PHYSICAL_DISCOVERED_IPAD_DEVICE_ID=""
+  if [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]]; then
+    local mapped_device_id
+    mapped_device_id="$(physical_ipad_xcodebuild_id_from_devicectl_identifier "$NARU_PHYSICAL_IPAD_DEVICE_ID" || true)"
+    if [[ -n "$mapped_device_id" ]]; then
+      PHYSICAL_DISCOVERED_IPAD_DEVICE_ID="$mapped_device_id"
+      printf '%s' "$mapped_device_id"
+      if [[ "$mapped_device_id" == "$NARU_PHYSICAL_IPAD_DEVICE_ID" ]]; then
+        PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="environmentXcodebuildUDID"
+      else
+        PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="environmentCoreDeviceIdentifierMapped"
+      fi
+      return
+    fi
+    PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="environmentUnresolved"
+    PHYSICAL_DISCOVERED_IPAD_DEVICE_ID="$NARU_PHYSICAL_IPAD_DEVICE_ID"
+    printf '%s' "$NARU_PHYSICAL_IPAD_DEVICE_ID"
+    return
+  fi
+
+  local ids
+  ids="$(physical_ipad_ids || true)"
+  PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="auto"
+  PHYSICAL_DISCOVERED_IPAD_DEVICE_ID="$(printf '%s\n' "$ids" | sed -n '/./{p;q;}')"
+  printf '%s' "$PHYSICAL_DISCOVERED_IPAD_DEVICE_ID"
+}
+
+physical_ios_device_id_is_ipad() {
+  local device_id="$1"
+  local detected_type
+  local detected_id
+  local ids
+
+  detected_type="$(physical_ios_device_type_for_id "$device_id" || true)"
+  if [[ -n "$detected_type" && "$detected_type" != "unknown" ]]; then
+    [[ "$detected_type" == "iPad" ]]
+    return
+  fi
+
+  ids="$(physical_ipad_ids || true)"
+  while IFS= read -r detected_id; do
+    [[ "$detected_id" == "$device_id" ]] && return 0
+  done <<< "$ids"
+  return 1
+}
+
 apple_development_team_ids() {
   if ! command -v security >/dev/null 2>&1; then
     return 1
@@ -3714,6 +3919,388 @@ physical_preflight() {
     json_string_array
   fi
   printf '\n}\n'
+}
+
+print_physical_ipad_signing_setup_summary() {
+  local device_status="$1"
+  local signing_identity_status="$2"
+  local development_team_status="$3"
+  local xcode_account_status="$4"
+  local provisioning_profile_status="$5"
+  local build_check_status="$6"
+  shift 6
+  local diagnostic_labels=("$@")
+  local readiness_state="blocked"
+  local primary_blocked_gate_label="unknown"
+  local recommended_primary_action="inspect-physical-ipad-preflight"
+  local action_sequence=()
+
+  case "$device_status" in
+    connected) ;;
+    missing)
+      primary_blocked_gate_label="physical-ipad-device"
+      recommended_primary_action="connect-and-trust-physical-ipad"
+      append_unique action_sequence "connect-and-trust-physical-ipad"
+      ;;
+    unavailable)
+      primary_blocked_gate_label="physical-ipad-device"
+      recommended_primary_action="unlock-connect-and-enable-developer-mode"
+      append_unique action_sequence "unlock-connect-and-enable-developer-mode"
+      ;;
+    multiple)
+      primary_blocked_gate_label="physical-ipad-device"
+      recommended_primary_action="set-physical-ipad-device-id"
+      append_unique action_sequence "set-physical-ipad-device-id"
+      ;;
+    wrongDeviceType)
+      primary_blocked_gate_label="physical-ipad-device"
+      recommended_primary_action="set-physical-ipad-device-id"
+      append_unique action_sequence "set-physical-ipad-device-id"
+      ;;
+  esac
+
+  if [[ "$primary_blocked_gate_label" == "unknown" ]]; then
+    if [[ "$signing_identity_status" == "missing" ]]; then
+      primary_blocked_gate_label="ios-development-certificate"
+      recommended_primary_action="install-ios-development-certificate"
+      append_unique action_sequence "install-ios-development-certificate"
+    elif [[ "$development_team_status" == "missing" || "$development_team_status" == "ambiguous" ]]; then
+      primary_blocked_gate_label="ios-development-team"
+      recommended_primary_action="set-xcode-development-team"
+      append_unique action_sequence "set-xcode-development-team"
+    elif [[ "$xcode_account_status" == "missing" ]]; then
+      primary_blocked_gate_label="xcode-account"
+      recommended_primary_action="open-xcode-account-settings"
+      append_unique action_sequence "open-xcode-account-settings"
+      append_unique action_sequence "sign-in-to-xcode-account-for-development-team"
+      append_unique action_sequence "rerun-physical-ipad-device-preflight"
+    elif [[ "$provisioning_profile_status" == "missing" ]]; then
+      primary_blocked_gate_label="ios-provisioning-profile"
+      recommended_primary_action="enable-automatic-signing-or-create-development-profile"
+      append_unique action_sequence "enable-automatic-signing-or-create-development-profile"
+      append_unique action_sequence "create-ios-development-provisioning-profile"
+      append_unique action_sequence "rerun-physical-ipad-device-preflight"
+    elif [[ "$build_check_status" == "passed" ]]; then
+      readiness_state="ready"
+      primary_blocked_gate_label="none"
+      recommended_primary_action="install-and-launch-physical-ipad-app"
+      append_unique action_sequence "install-and-launch-physical-ipad-app"
+    else
+      primary_blocked_gate_label="physical-ipad-build"
+      recommended_primary_action="inspect-xcode-physical-ipad-build"
+      append_unique action_sequence "inspect-xcode-physical-ipad-build"
+    fi
+  fi
+
+  printf '{"schemaVersion":1'
+  printf ',"readinessState":'
+  json_string "$readiness_state"
+  printf ',"primaryBlockedGateLabel":'
+  json_string "$primary_blocked_gate_label"
+  printf ',"recommendedPrimaryAction":'
+  json_string "$recommended_primary_action"
+  printf ',"operatorActionSequence":'
+  json_string_array "${action_sequence[@]}"
+  printf ',"diagnosticLabels":'
+  json_string_array "${diagnostic_labels[@]}"
+  printf '}'
+}
+
+physical_ipad_preflight() {
+  reject_extra_args
+  import_physical_ipad_env
+  cd "$repo_root"
+
+  local issue_codes=()
+  local setup_actions=()
+  local device_count
+  local device_id
+  local device_status
+  local device_selection_source
+  local unavailable_device_count
+  local signing_identity_status
+  local development_team_status
+  local device_id_resolution_status
+  local build_check_status
+  local provisioning_profile_status="unknown"
+  local xcode_account_status="unknown"
+  local signing_diagnostic_labels=()
+  local target_device_class="iPad"
+  local resolved_device_class="unknown"
+  local device_unlocked_since_boot_status="unknown"
+  local device_backlight_state="unknown"
+
+  device_count="$(physical_ipad_device_count)"
+  unavailable_device_count="$(physical_unavailable_ipad_count_from_devicectl)"
+  discover_physical_ipad_device_id >/dev/null
+  device_id="$PHYSICAL_DISCOVERED_IPAD_DEVICE_ID"
+  device_id_resolution_status="$PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS"
+  if [[ -n "$device_id" ]]; then
+    resolved_device_class="$(physical_ios_device_type_for_id "$device_id" || true)"
+    resolved_device_class="$(physical_ios_safe_device_class_label "$resolved_device_class")"
+    if [[ "$resolved_device_class" == "unknown" ]] && physical_ios_device_id_is_ipad "$device_id"; then
+      resolved_device_class="iPad"
+    fi
+  fi
+  if [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]]; then
+    device_selection_source="environment"
+  elif [[ -n "$device_id" ]]; then
+    device_selection_source="auto"
+  else
+    device_selection_source="none"
+  fi
+
+  if [[ -z "$device_id" && "$unavailable_device_count" != "0" ]]; then
+    device_status="unavailable"
+    append_unique issue_codes "physical-ipad-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]] && physical_unavailable_ipad_id_is_known "$device_id"; then
+    device_status="unavailable"
+    append_unique issue_codes "physical-ipad-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -z "$device_id" ]]; then
+    device_status="missing"
+    append_unique issue_codes "physical-ipad-device-missing"
+    append_unique setup_actions "connect-and-trust-physical-ipad"
+  elif [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]] && ! physical_ios_device_id_is_ipad "$device_id"; then
+    device_status="wrongDeviceType"
+    append_unique issue_codes "physical-ipad-device-required"
+    append_unique setup_actions "set-physical-ipad-device-id"
+  elif [[ "$device_count" != "1" && -z "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]]; then
+    device_status="multiple"
+    append_unique issue_codes "physical-ipad-device-ambiguous"
+    append_unique setup_actions "set-physical-ipad-device-id"
+  else
+    device_status="connected"
+  fi
+
+  if [[ "$device_status" == "connected" && -n "$device_id" ]]; then
+    device_unlocked_since_boot_status="$(physical_ios_device_unlocked_since_boot_status "$device_id")"
+    device_backlight_state="$(physical_ios_device_backlight_state "$device_id")"
+    if [[ "$device_unlocked_since_boot_status" == "false" ]]; then
+      append_unique issue_codes "physical-ios-device-locked"
+      append_unique setup_actions "unlock-physical-ipad"
+      append_unique signing_diagnostic_labels "physical-ios-device-locked"
+    fi
+    if [[ "$device_backlight_state" != "unknown" &&
+          "$device_backlight_state" != "unavailable" &&
+          "$device_backlight_state" != "activeOn" ]]; then
+      append_unique issue_codes "physical-ios-device-screen-inactive"
+      append_unique setup_actions "unlock-physical-ipad"
+      append_unique signing_diagnostic_labels "physical-ios-device-screen-inactive"
+    fi
+  fi
+
+  if security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
+    signing_identity_status="available"
+  else
+    signing_identity_status="missing"
+    append_unique issue_codes "ios-development-certificate-missing"
+    append_unique setup_actions "install-ios-development-certificate"
+    append_unique signing_diagnostic_labels "apple-development-certificate-missing"
+  fi
+
+  if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+    development_team_status="environment"
+    append_unique signing_diagnostic_labels "development-team-supplied-by-environment"
+  else
+    PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+    resolve_physical_development_team
+    development_team_status="$PHYSICAL_DEVELOPMENT_TEAM_STATUS"
+    if [[ "$development_team_status" == "ambiguous" ]]; then
+      append_unique issue_codes "ios-development-team-ambiguous"
+      append_unique setup_actions "set-xcode-development-team"
+      append_unique signing_diagnostic_labels "development-team-ambiguous"
+    elif [[ "$development_team_status" == "inferred" ]]; then
+      append_unique signing_diagnostic_labels "development-team-inferred-from-local-certificate"
+    else
+      append_unique signing_diagnostic_labels "development-team-not-supplied"
+    fi
+  fi
+
+  if [[ -z "$device_id" || "$device_status" == "multiple" || "$device_status" == "wrongDeviceType" || "$device_status" == "unavailable" ]]; then
+    build_check_status="skipped"
+  else
+    local output_file
+    output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipad-preflight.XXXXXX")"
+    build_check_status="$(physical_preflight_build_status "$device_id" "$output_file")"
+    if [[ "$build_check_status" == "failed" ]]; then
+      if grep -q "requires a development team" "$output_file"; then
+        append_unique issue_codes "ios-development-team-missing"
+        append_unique setup_actions "set-xcode-development-team"
+        append_unique signing_diagnostic_labels "xcodebuild-requires-development-team"
+      fi
+      if grep -q "No Accounts" "$output_file"; then
+        xcode_account_status="missing"
+        append_unique issue_codes "xcode-account-missing"
+        append_unique setup_actions "add-xcode-account"
+        append_unique setup_actions "open-xcode-account-settings"
+        append_unique setup_actions "sign-in-to-xcode-account-for-development-team"
+        append_unique setup_actions "rerun-physical-ipad-device-preflight"
+        append_unique signing_diagnostic_labels "xcode-account-unavailable-to-xcodebuild"
+        if [[ "$development_team_status" == "environment" || "$development_team_status" == "inferred" ]]; then
+          append_unique signing_diagnostic_labels "development-team-supplied-but-xcode-account-missing"
+        fi
+      fi
+      if grep -q "No profiles for" "$output_file"; then
+        provisioning_profile_status="missing"
+        append_unique issue_codes "ios-provisioning-profile-missing"
+        append_unique setup_actions "create-ios-development-provisioning-profile"
+        append_unique setup_actions "enable-automatic-signing-or-create-development-profile"
+        append_unique setup_actions "rerun-physical-ipad-device-preflight"
+        if [[ "$xcode_account_status" == "missing" ]]; then
+          append_unique signing_diagnostic_labels "provisioning-cannot-be-validated-until-xcode-account-is-available"
+        else
+          append_unique signing_diagnostic_labels "account-available-but-profile-missing"
+        fi
+      fi
+      if ((${#issue_codes[@]} == 0)); then
+        append_unique issue_codes "physical-ipad-build-failed"
+        append_unique setup_actions "inspect-xcode-physical-ipad-build"
+        append_unique signing_diagnostic_labels "xcodebuild-failed-without-known-signing-label"
+      fi
+    else
+      provisioning_profile_status="available"
+      xcode_account_status="available"
+      append_unique signing_diagnostic_labels "physical-ipad-signing-ready"
+    fi
+    rm -f "$output_file"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-ipad-device-preflight",\n'
+  printf '  "targetDeviceClass": "%s",\n' "$target_device_class"
+  printf '  "resolvedDeviceClass": "%s",\n' "$resolved_device_class"
+  printf '  "deviceUnlockedSinceBootStatus": "%s",\n' "$device_unlocked_since_boot_status"
+  printf '  "deviceBacklightState": "%s",\n' "$device_backlight_state"
+  printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
+  printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
+  printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
+  printf '  "codeSigningIdentityStatus": "%s",\n' "$signing_identity_status"
+  printf '  "developmentTeamStatus": "%s",\n' "$development_team_status"
+  printf '  "xcodeAccountStatus": "%s",\n' "$xcode_account_status"
+  printf '  "provisioningProfileStatus": "%s",\n' "$provisioning_profile_status"
+  printf '  "buildCheckStatus": "%s",\n' "$build_check_status"
+  printf '  "signingSetupSummary": '
+  print_physical_ipad_signing_setup_summary \
+    "$device_status" \
+    "$signing_identity_status" \
+    "$development_team_status" \
+    "$xcode_account_status" \
+    "$provisioning_profile_status" \
+    "$build_check_status" \
+    "${signing_diagnostic_labels[@]}"
+  printf ',\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf '\n}\n'
+}
+
+physical_ipad_preflight_self_test() {
+  reject_extra_args
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-ipad-device-preflight-self-test","status":"skipped","issueCodes":["jq-unavailable"]}\n'
+    return
+  fi
+
+  local report_file
+  report_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-ipad-preflight-self-test.XXXXXX")"
+
+  physical_ipad_device_count() {
+    printf '1'
+  }
+  physical_unavailable_ipad_count_from_devicectl() {
+    printf '0'
+  }
+  discover_physical_ipad_device_id() {
+    PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS="auto"
+    PHYSICAL_DISCOVERED_IPAD_DEVICE_ID="TEST-IPAD-UDID"
+    printf '%s' "$PHYSICAL_DISCOVERED_IPAD_DEVICE_ID"
+  }
+  physical_ios_device_type_for_id() {
+    case "$1" in
+      TEST-IPAD-UDID) printf 'iPad' ;;
+      *) printf 'unknown' ;;
+    esac
+  }
+  physical_ios_device_id_is_ipad() {
+    [[ "$1" == "TEST-IPAD-UDID" ]]
+  }
+  physical_ios_device_unlocked_since_boot_status() {
+    printf 'true'
+  }
+  physical_ios_device_backlight_state() {
+    printf 'activeOn'
+  }
+  security() {
+    if [[ "${1:-}" == "find-identity" ]]; then
+      printf '  1) 0000000000000000000000000000000000000000 "Apple Development: Test Operator"\n'
+      return 0
+    fi
+    return 1
+  }
+  physical_preflight_build_status() {
+    local _device_id="$1"
+    local output_file="$2"
+    cat >"$output_file" <<'LOG'
+error: No Accounts: Add a new account in Accounts settings.
+error: No profiles for 'com.naruremote.app' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'com.naruremote.app'.
+LOG
+    printf 'failed'
+  }
+
+  export NARU_PHYSICAL_IPAD_DEVICE_ID="TEST-IPAD-UDID"
+  export NARU_XCODE_DEVELOPMENT_TEAM="TESTTEAM01"
+  physical_ipad_preflight >"$report_file"
+
+  if jq -e '
+    .schemaVersion == 1 and
+    .mode == "physical-ipad-device-preflight" and
+    .targetDeviceClass == "iPad" and
+    .resolvedDeviceClass == "iPad" and
+    .deviceDiscoveryStatus == "connected" and
+    .deviceUnlockedSinceBootStatus == "true" and
+    .deviceBacklightState == "activeOn" and
+    .codeSigningIdentityStatus == "available" and
+    .developmentTeamStatus == "environment" and
+    .xcodeAccountStatus == "missing" and
+    .provisioningProfileStatus == "missing" and
+    .buildCheckStatus == "failed" and
+    .signingSetupSummary.primaryBlockedGateLabel == "xcode-account" and
+    .signingSetupSummary.recommendedPrimaryAction == "open-xcode-account-settings" and
+    (.signingSetupSummary.diagnosticLabels | index("xcode-account-unavailable-to-xcodebuild")) and
+    (.signingSetupSummary.diagnosticLabels | index("provisioning-cannot-be-validated-until-xcode-account-is-available")) and
+    (.issueCodes | index("xcode-account-missing")) and
+    (.issueCodes | index("ios-provisioning-profile-missing")) and
+    (.setupActionLabels | index("open-xcode-account-settings")) and
+    (.setupActionLabels | index("create-ios-development-provisioning-profile")) and
+    (.setupActionLabels | index("rerun-physical-ipad-device-preflight"))
+  ' "$report_file" >/dev/null; then
+    printf '{"schemaVersion":1,"mode":"physical-ipad-device-preflight-self-test","status":"passed","report":'
+    cat "$report_file"
+    printf '}\n'
+  else
+    printf '{"schemaVersion":1,"mode":"physical-ipad-device-preflight-self-test","status":"failed","report":'
+    cat "$report_file"
+    printf '}\n'
+    rm -f "$report_file"
+    exit 1
+  fi
+
+  rm -f "$report_file"
 }
 
 physical_iphone_gate_collect_configuration_issues() {
@@ -7945,6 +8532,12 @@ case "$mode" in
     ;;
   physical-device-preflight)
     physical_preflight
+    ;;
+  physical-ipad-device-preflight)
+    physical_ipad_preflight
+    ;;
+  physical-ipad-device-preflight-self-test)
+    physical_ipad_preflight_self_test
     ;;
   physical-team-inference-self-test)
     physical_team_inference_self_test

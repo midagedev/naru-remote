@@ -334,6 +334,18 @@ without unsafe report fields.
   `unlock-physical-iphone`. Covered by JSON parser self-tests plus a current
   safe preflight run reporting `deviceUnlockedSinceBootStatus=true` and
   `deviceBacklightState=activeOn`. **Done.**
+- [x] T030H [US1] Add an iPad-specific physical-device preflight so connected
+  iPad launch/test failures can be separated from the iPhone-first T030 gate.
+  The new `physical-ipad-device-preflight` mode selects only physical iPads,
+  reports fixed target/resolved device-class and lock labels, and classifies
+  Xcode account/provisioning blockers before claiming app launch failure.
+  Current live evidence reports `targetDeviceClass=iPad`,
+  `resolvedDeviceClass=iPad`, `deviceDiscoveryStatus=connected`,
+  `deviceUnlockedSinceBootStatus=true`, `xcode-account-missing`, and
+  `ios-provisioning-profile-missing`, so the iPad app has not reached launch in
+  this execution context. Covered by a live iPad preflight run and
+  `physical-ipad-device-preflight-self-test`, which pins `No Accounts` /
+  `No profiles for` xcodebuild patterns to fixed safe labels. **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current

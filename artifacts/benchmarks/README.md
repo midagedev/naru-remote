@@ -545,6 +545,14 @@ adds fixed `deviceUnlockedSinceBootStatus` and `deviceBacklightState` labels
 so a device that has not been unlocked after boot, or a known inactive
 backlight state, blocks the long physical iPhone UI gate with a fixed setup
 action before it can time out.
+The iPad-specific follow-up artifact is
+`artifacts/benchmarks/2026-06-14-physical-ipad-preflight-summary.md`. Use
+`scripts/run-naru-live-benchmark.sh physical-ipad-device-preflight` when the
+connected iPad does not visibly launch the app or an xcodebuild test appears to
+end before the app opens. The current safe run reports the iPad as connected
+and unlocked, but blocks before app launch with `xcode-account-missing` and
+`ios-provisioning-profile-missing`, so the next action is Xcode account/profile
+setup for the selected iPad rather than runtime UI debugging.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.
