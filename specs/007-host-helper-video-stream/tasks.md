@@ -316,6 +316,15 @@ without unsafe report fields.
   timeout by recording timeout diagnostics without cancelling the active key
   event client or emitter; add a regression that a later key still emits
   down/up events after the first write times out. **Done.**
+- [x] T030F [US1] Add fixed physical device-class labels to
+  `physical-device-preflight` so T030 reruns can prove whether the resolved
+  physical device is `iPhone`, `iPad`, or `unknown` without printing device
+  names or identifiers. The physical iPhone helper-video gate now forces its
+  nested preflight to the iPhone target class and blocks explicit non-iPhone
+  class configuration with `physical-iphone-target-class-required`. Covered by
+  device-id resolution and physical gate self-tests plus a current safe
+  preflight run reporting `targetDeviceClass=iPhone` and
+  `resolvedDeviceClass=iPhone`. **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current

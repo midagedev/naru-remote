@@ -530,7 +530,15 @@ Development team is available, the runner may use it for the captured build
 check and report only `developmentTeamStatus=inferred`. A paired but unavailable
 iPhone is now reported as `deviceDiscoveryStatus=unavailable` and skips the
 build check so the next action stays device setup rather than a generic Xcode
-build investigation.
+build investigation. Current follow-up artifact
+`artifacts/benchmarks/2026-06-14-physical-device-class-preflight-guard-summary.md`
+adds fixed `targetDeviceClass` and `resolvedDeviceClass` labels to preflight
+output, so iPad/iPhone target confusion can be resolved from the JSON before
+repeating broader inventory or live helper-video experiments. The
+`physical-iphone-helper-video-gate` mode itself is stricter than generic
+preflight: explicit non-iPhone target class configuration is reported as
+`physical-iphone-target-class-required` instead of allowing an iPad sustained
+run to satisfy the iPhone-first product gate.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.

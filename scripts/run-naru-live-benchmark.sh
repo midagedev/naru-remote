@@ -72,6 +72,7 @@ Launchctl variables used when present:
   NARU_LIVE_MAC_PASSWORD
   NARU_LIVE_STIMULUS_COMMAND
   NARU_PHYSICAL_IOS_DEVICE_ID
+  NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_PHYSICAL_E2E_HOST
   NARU_PHYSICAL_E2E_PORT
@@ -197,6 +198,7 @@ import_optional_live_env() {
 
 import_physical_device_env() {
   import_env NARU_PHYSICAL_IOS_DEVICE_ID optional
+  import_env NARU_PHYSICAL_IOS_DEVICE_CLASS optional
   import_env NARU_XCODE_DEVELOPMENT_TEAM optional
 }
 
@@ -3013,6 +3015,44 @@ physical_unavailable_iphone_id_is_known() {
   [[ "$match_count" != "0" ]]
 }
 
+physical_ios_safe_device_class_label() {
+  case "$1" in
+    iPhone|iphone|IPHONE)
+      printf 'iPhone'
+      ;;
+    iPad|ipad|IPAD)
+      printf 'iPad'
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+physical_ios_device_type_for_id() {
+  local device_id="$1"
+  if [[ -z "$device_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local output_file
+  local device_type=""
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
+  if xcrun devicectl list devices \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    device_type="$(
+      jq -r --arg device_id "$device_id" '
+        .result.devices[]?
+        | select((.hardwareProperties.udid // "") == $device_id or (.identifier // "") == $device_id)
+        | .hardwareProperties.deviceType // empty
+      ' "$output_file" | sed -n '/./{p;q;}'
+    )"
+  fi
+  rm -f "$output_file"
+  [[ -n "$device_type" ]] || return 1
+  physical_ios_safe_device_class_label "$device_type"
+}
+
 physical_iphone_ids_from_xctrace() {
   if ! command -v xcrun >/dev/null 2>&1; then
     return 1
@@ -3099,8 +3139,15 @@ discover_physical_ios_device_id() {
 
 physical_ios_device_id_is_iphone() {
   local device_id="$1"
+  local detected_type
   local detected_id
   local ids
+
+  detected_type="$(physical_ios_device_type_for_id "$device_id" || true)"
+  if [[ -n "$detected_type" && "$detected_type" != "unknown" ]]; then
+    [[ "$detected_type" == "iPhone" ]]
+    return
+  fi
 
   ids="$(physical_iphone_ids || true)"
   while IFS= read -r detected_id; do
@@ -3245,6 +3292,7 @@ physical_device_id_resolution_self_test() {
   reject_extra_args
 
   local saved_device_id="${NARU_PHYSICAL_IOS_DEVICE_ID:-}"
+  local saved_device_class="${NARU_PHYSICAL_IOS_DEVICE_CLASS:-}"
   local failure_code=""
 
   physical_iphone_xcodebuild_id_from_devicectl_identifier() {
@@ -3255,7 +3303,14 @@ physical_device_id_resolution_self_test() {
     esac
   }
   physical_iphone_ids() {
-    printf 'AUTO-XCODEBUILD-UDID\n'
+    printf 'AUTO-XCODEBUILD-UDID\nXCODEBUILD-UDID\n'
+  }
+  physical_ios_device_type_for_id() {
+    case "$1" in
+      AUTO-XCODEBUILD-UDID|XCODEBUILD-UDID) printf 'iPhone' ;;
+      IPAD-UDID) printf 'iPad' ;;
+      *) return 1 ;;
+    esac
   }
 
   export NARU_PHYSICAL_IOS_DEVICE_ID="CORE-DEVICE-ID"
@@ -3284,10 +3339,25 @@ physical_device_id_resolution_self_test() {
     failure_code="physicalDeviceIDResolution.auto"
   fi
 
+  if [[ -z "$failure_code" ]] && ! physical_ios_device_id_is_iphone "XCODEBUILD-UDID"; then
+    failure_code="physicalDeviceIDResolution.iphoneClassMatch"
+  fi
+  if [[ -z "$failure_code" ]] && physical_ios_device_id_is_iphone "IPAD-UDID"; then
+    failure_code="physicalDeviceIDResolution.iphoneRejectsIPad"
+  fi
+  if [[ -z "$failure_code" && "$(physical_ios_safe_device_class_label "$(physical_ios_device_type_for_id "IPAD-UDID")")" != "iPad" ]]; then
+    failure_code="physicalDeviceIDResolution.safeDeviceClassLabel"
+  fi
+
   if [[ -n "$saved_device_id" ]]; then
     export NARU_PHYSICAL_IOS_DEVICE_ID="$saved_device_id"
   else
     unset NARU_PHYSICAL_IOS_DEVICE_ID
+  fi
+  if [[ -n "$saved_device_class" ]]; then
+    export NARU_PHYSICAL_IOS_DEVICE_CLASS="$saved_device_class"
+  else
+    unset NARU_PHYSICAL_IOS_DEVICE_CLASS
   fi
 
   if [[ -n "$failure_code" ]]; then
@@ -3340,12 +3410,21 @@ physical_preflight() {
   local provisioning_profile_status="unknown"
   local xcode_account_status="unknown"
   local signing_diagnostic_labels=()
+  local target_device_class="iPhone"
+  local resolved_device_class="unknown"
 
   device_count="$(physical_iphone_device_count)"
   unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
   discover_physical_ios_device_id >/dev/null
   device_id="$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
   device_id_resolution_status="$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS"
+  if [[ -n "$device_id" ]]; then
+    resolved_device_class="$(physical_ios_device_type_for_id "$device_id" || true)"
+    resolved_device_class="$(physical_ios_safe_device_class_label "$resolved_device_class")"
+    if [[ "$resolved_device_class" == "unknown" ]] && physical_ios_device_id_is_iphone "$device_id"; then
+      resolved_device_class="iPhone"
+    fi
+  fi
   if [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
     device_selection_source="environment"
   elif [[ -n "$device_id" ]]; then
@@ -3462,6 +3541,8 @@ physical_preflight() {
   printf '{\n'
   printf '  "schemaVersion": 1,\n'
   printf '  "mode": "physical-device-preflight",\n'
+  printf '  "targetDeviceClass": "%s",\n' "$target_device_class"
+  printf '  "resolvedDeviceClass": "%s",\n' "$resolved_device_class"
   printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
   printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
   printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
@@ -3631,6 +3712,20 @@ physical_iphone_gate_duration_label() {
 physical_iphone_gate_helper_video_profile_mode() {
   physical_iphone_gate_prepare_helper_video_pairing
   printf '%s' "${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-missing}"
+}
+
+physical_iphone_gate_validate_target_class() {
+  local requested_class="${1:-iphone}"
+  case "$requested_class" in
+    ""|iphone|iPhone|IPHONE)
+      return 0
+      ;;
+    *)
+      append_unique PHYSICAL_GATE_ISSUE_CODES "physical-iphone-target-class-required"
+      append_unique PHYSICAL_GATE_SETUP_ACTIONS "set-physical-ios-device-class-to-iphone"
+      return 1
+      ;;
+  esac
 }
 
 physical_iphone_gate_wall_timeout_seconds() {
@@ -3904,6 +3999,8 @@ physical_iphone_helper_video_gate() {
   import_physical_device_env
   import_optional_live_env
   import_physical_e2e_env
+  local requested_physical_device_class="${NARU_PHYSICAL_IOS_DEVICE_CLASS:-iphone}"
+  export NARU_PHYSICAL_IOS_DEVICE_CLASS="iphone"
   cd "$repo_root"
 
   local preflight_file
@@ -3917,6 +4014,7 @@ physical_iphone_helper_video_gate() {
 
   physical_preflight >"$preflight_file"
   physical_iphone_gate_collect_configuration_issues
+  physical_iphone_gate_validate_target_class "$requested_physical_device_class" >/dev/null || true
 
   local build_check_status="unknown"
   local device_id="$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
@@ -3984,6 +4082,7 @@ physical_iphone_helper_video_gate_self_test() {
   local saved_helper_source="${NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE:-}"
   local saved_listener_mode="${NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE:-}"
   local saved_helper_executable="${NARU_HELPER_EXECUTABLE:-}"
+  local saved_device_class="${NARU_PHYSICAL_IOS_DEVICE_CLASS:-}"
   local saved_live_host="${NARU_LIVE_MAC_HOST:-}"
   local saved_live_port="${NARU_LIVE_MAC_PORT:-}"
   local saved_live_password="${NARU_LIVE_MAC_PASSWORD:-}"
@@ -4005,6 +4104,7 @@ physical_iphone_helper_video_gate_self_test() {
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE
   unset NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE
   unset NARU_HELPER_EXECUTABLE
+  unset NARU_PHYSICAL_IOS_DEVICE_CLASS
 
   physical_iphone_gate_collect_configuration_issues
   local missing_status="failed"
@@ -4079,6 +4179,21 @@ physical_iphone_helper_video_gate_self_test() {
     [[ "$(physical_iphone_gate_duration_label)" == "ten-minutes" ]] &&
     [[ "$(physical_iphone_gate_helper_video_profile_mode)" == "generated" ]]; then
     valid_status="passed"
+  fi
+
+  PHYSICAL_GATE_ISSUE_CODES=()
+  PHYSICAL_GATE_SETUP_ACTIONS=()
+  local target_class_status="failed"
+  if ! physical_iphone_gate_validate_target_class "ipad" >/dev/null &&
+    [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-iphone-target-class-required "* ]] &&
+    [[ " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-ios-device-class-to-iphone "* ]]; then
+    PHYSICAL_GATE_ISSUE_CODES=()
+    PHYSICAL_GATE_SETUP_ACTIONS=()
+    if physical_iphone_gate_validate_target_class "iphone" >/dev/null &&
+      ((${#PHYSICAL_GATE_ISSUE_CODES[@]} == 0)) &&
+      ((${#PHYSICAL_GATE_SETUP_ACTIONS[@]} == 0)); then
+      target_class_status="passed"
+    fi
   fi
 
   local fake_helper
@@ -4161,14 +4276,15 @@ LOG
   if [[ -n "$saved_helper_source" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE="$saved_helper_source"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_PAIRING_SOURCE; fi
   if [[ -n "$saved_listener_mode" ]]; then export NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE="$saved_listener_mode"; else unset NARU_PHYSICAL_E2E_HELPER_VIDEO_LISTENER_MODE; fi
   if [[ -n "$saved_helper_executable" ]]; then export NARU_HELPER_EXECUTABLE="$saved_helper_executable"; else unset NARU_HELPER_EXECUTABLE; fi
+  if [[ -n "$saved_device_class" ]]; then export NARU_PHYSICAL_IOS_DEVICE_CLASS="$saved_device_class"; else unset NARU_PHYSICAL_IOS_DEVICE_CLASS; fi
   if [[ -n "$saved_live_host" ]]; then export NARU_LIVE_MAC_HOST="$saved_live_host"; else unset NARU_LIVE_MAC_HOST; fi
   if [[ -n "$saved_live_port" ]]; then export NARU_LIVE_MAC_PORT="$saved_live_port"; else unset NARU_LIVE_MAC_PORT; fi
   if [[ -n "$saved_live_password" ]]; then export NARU_LIVE_MAC_PASSWORD="$saved_live_password"; else unset NARU_LIVE_MAC_PASSWORD; fi
   if [[ -n "$saved_helper_video_token" ]]; then export NARU_HELPER_VIDEO_TOKEN="$saved_helper_video_token"; else unset NARU_HELPER_VIDEO_TOKEN; fi
   if [[ -n "$saved_helper_video_fingerprint" ]]; then export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="$saved_helper_video_fingerprint"; else unset NARU_HELPER_VIDEO_PROFILE_FINGERPRINT; fi
 
-  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$listener_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
-    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","listenerLifecycleCase":"passed","diagnosticSummaryCase":"passed"}\n'
+  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$target_class_status" == "passed" && "$listener_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","targetClassCase":"passed","listenerLifecycleCase":"passed","diagnosticSummaryCase":"passed"}\n'
   else
     printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"failed","configurationMissingCase":'
     json_string "$missing_status"
@@ -4178,6 +4294,8 @@ LOG
     json_string "$port_status"
     printf ',"configurationValidCase":'
     json_string "$valid_status"
+    printf ',"targetClassCase":'
+    json_string "$target_class_status"
     printf ',"listenerLifecycleCase":'
     json_string "$listener_status"
     printf ',"diagnosticSummaryCase":'
