@@ -539,6 +539,12 @@ repeating broader inventory or live helper-video experiments. The
 preflight: explicit non-iPhone target class configuration is reported as
 `physical-iphone-target-class-required` instead of allowing an iPad sustained
 run to satisfy the iPhone-first product gate.
+Follow-up artifact
+`artifacts/benchmarks/2026-06-14-physical-lock-backlight-preflight-summary.md`
+adds fixed `deviceUnlockedSinceBootStatus` and `deviceBacklightState` labels
+so a device that has not been unlocked after boot, or a known inactive
+backlight state, blocks the long physical iPhone UI gate with a fixed setup
+action before it can time out.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.

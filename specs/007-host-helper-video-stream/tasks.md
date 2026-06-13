@@ -325,6 +325,15 @@ without unsafe report fields.
   device-id resolution and physical gate self-tests plus a current safe
   preflight run reporting `targetDeviceClass=iPhone` and
   `resolvedDeviceClass=iPhone`. **Done.**
+- [x] T030G [US1] Add fixed lock/backlight readiness labels to
+  `physical-device-preflight` so a device that has not been unlocked after
+  boot, or a known inactive backlight state, blocks the long physical iPhone
+  helper-video UI gate before it can time out. The runner reports
+  `deviceUnlockedSinceBootStatus` and `deviceBacklightState` without exporting
+  device identifiers or raw OS errors, and maps blockers to
+  `unlock-physical-iphone`. Covered by JSON parser self-tests plus a current
+  safe preflight run reporting `deviceUnlockedSinceBootStatus=true` and
+  `deviceBacklightState=activeOn`. **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current

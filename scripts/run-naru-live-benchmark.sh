@@ -3053,6 +3053,102 @@ physical_ios_device_type_for_id() {
   physical_ios_safe_device_class_label "$device_type"
 }
 
+physical_ios_unlocked_since_boot_status_from_file() {
+  local json_file="$1"
+  if [[ ! -s "$json_file" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+
+  jq -r '
+    if .result.unlockedSinceBoot == true then "true"
+    elif .result.unlockedSinceBoot == false then "false"
+    else "unknown"
+    end
+  ' "$json_file" 2>/dev/null || printf 'unknown'
+}
+
+physical_ios_device_unlocked_since_boot_status() {
+  local device_id="$1"
+  if [[ -z "$device_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-lock-state.XXXXXX")"
+  if xcrun devicectl device info lockState \
+    --device "$device_id" \
+    --timeout 10 \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    physical_ios_unlocked_since_boot_status_from_file "$output_file"
+  else
+    printf 'unavailable'
+  fi
+  rm -f "$output_file"
+}
+
+physical_ios_safe_backlight_state_label() {
+  case "$1" in
+    activeOn|activeOff|inactive|unknown|unavailable)
+      printf '%s' "$1"
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+physical_ios_backlight_state_from_file() {
+  local json_file="$1"
+  local raw_state
+  if [[ ! -s "$json_file" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+
+  raw_state="$(jq -r '.result.backlightState // "unknown"' "$json_file" 2>/dev/null || printf 'unknown')"
+  physical_ios_safe_backlight_state_label "$raw_state"
+}
+
+physical_ios_device_backlight_state() {
+  local device_id="$1"
+  if [[ -z "$device_id" ]] || ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-displays.XXXXXX")"
+  if xcrun devicectl device info displays \
+    --device "$device_id" \
+    --timeout 10 \
+    --json-output "$output_file" >/dev/null 2>&1; then
+    physical_ios_backlight_state_from_file "$output_file"
+  else
+    printf 'unavailable'
+  fi
+  rm -f "$output_file"
+}
+
+physical_preflight_classify_device_interaction_state() {
+  local unlocked_since_boot_status="$1"
+  local backlight_state="$2"
+
+  if [[ "$unlocked_since_boot_status" == "false" ]]; then
+    append_unique issue_codes "physical-ios-device-locked"
+    append_unique setup_actions "unlock-physical-iphone"
+    append_unique signing_diagnostic_labels "physical-ios-device-locked"
+  fi
+  if [[ "$backlight_state" != "unknown" &&
+        "$backlight_state" != "unavailable" &&
+        "$backlight_state" != "activeOn" ]]; then
+    append_unique issue_codes "physical-ios-device-screen-inactive"
+    append_unique setup_actions "unlock-physical-iphone"
+    append_unique signing_diagnostic_labels "physical-ios-device-screen-inactive"
+  fi
+}
+
 physical_iphone_ids_from_xctrace() {
   if ! command -v xcrun >/dev/null 2>&1; then
     return 1
@@ -3349,6 +3445,37 @@ physical_device_id_resolution_self_test() {
     failure_code="physicalDeviceIDResolution.safeDeviceClassLabel"
   fi
 
+  local lock_fixture_file
+  local display_fixture_file
+  lock_fixture_file="$(mktemp "${TMPDIR:-/tmp}/naru-lock-state-fixture.XXXXXX")"
+  display_fixture_file="$(mktemp "${TMPDIR:-/tmp}/naru-display-state-fixture.XXXXXX")"
+  printf '{"result":{"unlockedSinceBoot":false}}\n' >"$lock_fixture_file"
+  printf '{"result":{"backlightState":"activeOff"}}\n' >"$display_fixture_file"
+  if [[ -z "$failure_code" && "$(physical_ios_unlocked_since_boot_status_from_file "$lock_fixture_file")" != "false" ]]; then
+    failure_code="physicalDeviceIDResolution.lockStateFalse"
+  fi
+  if [[ -z "$failure_code" && "$(physical_ios_backlight_state_from_file "$display_fixture_file")" != "activeOff" ]]; then
+    failure_code="physicalDeviceIDResolution.backlightStateActiveOff"
+  fi
+  printf '{"result":{"backlightState":"raw-device-name-would-not-be-safe"}}\n' >"$display_fixture_file"
+  if [[ -z "$failure_code" && "$(physical_ios_backlight_state_from_file "$display_fixture_file")" != "unknown" ]]; then
+    failure_code="physicalDeviceIDResolution.backlightStateSafeUnknown"
+  fi
+  rm -f "$lock_fixture_file" "$display_fixture_file"
+
+  local issue_codes=()
+  local setup_actions=()
+  local signing_diagnostic_labels=()
+  physical_preflight_classify_device_interaction_state "false" "activeOff"
+  if [[ -z "$failure_code" &&
+        ( " ${issue_codes[*]} " != *" physical-ios-device-locked "* ||
+          " ${issue_codes[*]} " != *" physical-ios-device-screen-inactive "* ||
+          " ${setup_actions[*]} " != *" unlock-physical-iphone "* ||
+          " ${signing_diagnostic_labels[*]} " != *" physical-ios-device-locked "* ||
+          " ${signing_diagnostic_labels[*]} " != *" physical-ios-device-screen-inactive "* ) ]]; then
+    failure_code="physicalDeviceIDResolution.interactionStateIssues"
+  fi
+
   if [[ -n "$saved_device_id" ]]; then
     export NARU_PHYSICAL_IOS_DEVICE_ID="$saved_device_id"
   else
@@ -3412,6 +3539,8 @@ physical_preflight() {
   local signing_diagnostic_labels=()
   local target_device_class="iPhone"
   local resolved_device_class="unknown"
+  local device_unlocked_since_boot_status="unknown"
+  local device_backlight_state="unknown"
 
   device_count="$(physical_iphone_device_count)"
   unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
@@ -3455,6 +3584,14 @@ physical_preflight() {
     append_unique setup_actions "set-physical-ios-device-id"
   else
     device_status="connected"
+  fi
+
+  if [[ "$device_status" == "connected" && -n "$device_id" ]]; then
+    device_unlocked_since_boot_status="$(physical_ios_device_unlocked_since_boot_status "$device_id")"
+    device_backlight_state="$(physical_ios_device_backlight_state "$device_id")"
+    physical_preflight_classify_device_interaction_state \
+      "$device_unlocked_since_boot_status" \
+      "$device_backlight_state"
   fi
 
   if security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
@@ -3543,6 +3680,8 @@ physical_preflight() {
   printf '  "mode": "physical-device-preflight",\n'
   printf '  "targetDeviceClass": "%s",\n' "$target_device_class"
   printf '  "resolvedDeviceClass": "%s",\n' "$resolved_device_class"
+  printf '  "deviceUnlockedSinceBootStatus": "%s",\n' "$device_unlocked_since_boot_status"
+  printf '  "deviceBacklightState": "%s",\n' "$device_backlight_state"
   printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
   printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
   printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
