@@ -571,6 +571,17 @@ a short observation window. The current iPad smoke passes install, launch, PID,
 and running checks with the iPad unlocked and screen active. Keep Auto-Lock off
 for longer physical UX/performance runs; a locked or inactive-screen iPad should
 block with `unlock-physical-ipad`, not be triaged as an app launch failure.
+Current physical iPad state-marker artifact:
+`artifacts/benchmarks/2026-06-14-physical-ipad-state-marker-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh physical-ipad-state-marker-smoke` after
+the app bundle has been freshly built for the connected iPad. The mode launches
+with fixed non-secret seed profile/helper-video state, copies a privacy-safe
+marker from the app data container, and requires `markerValidationLabel=passed`
+before treating the physical app-state path as verified. Current simulator
+evidence verifies the marker hook and container path. Current physical iPad
+evidence verifies install/launch/running, but marker verification remains
+blocked because the non-interactive CLI signing path sees no matching local
+provisioning profile for a fresh physical app build.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.

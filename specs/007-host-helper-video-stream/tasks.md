@@ -370,6 +370,16 @@ without unsafe report fields.
   unlocked, active screen, app bundle present, install passed, launch passed,
   launch PID present, and running passed, so short XCTest completion should not
   be triaged as an app launch failure. **Done.**
+- [x] T030K [US1] Add a connected iPad app-state marker smoke gate so physical
+  device runs can prove the launched app applied safe seed profile and helper
+  video test state without XCTest owning application lifetime. The app writes a
+  privacy-safe marker only when `NARU_TEST_WRITE_DEVICE_STATE_MARKER` is set;
+  `physical-ipad-state-marker-smoke` launches with fixed non-secret seed
+  values, copies the marker from the app data container, and reports only fixed
+  labels. Current simulator evidence verifies marker writing; current physical
+  iPad evidence verifies install/launch/running but reports marker missing
+  because CLI signing/provisioning still prevents installing a fresh physical
+  app bundle with this hook. **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current

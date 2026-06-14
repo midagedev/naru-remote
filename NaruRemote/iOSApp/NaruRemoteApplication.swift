@@ -1,3 +1,4 @@
+import Foundation
 import NaruRemoteApp
 import NaruRemoteCore
 import SwiftUI
@@ -141,8 +142,109 @@ struct NaruRemoteApplication: App {
             applyTestHelperVideoHealthStorm(to: model)
             applyTestIncomingClipboardChromeStorm(to: model)
             applyTestDelayedFirstFrameAfterComposeFocus(to: model)
+            writeTestDeviceStateMarkerIfRequested(for: model)
         }
         return model
+    }
+
+    /// Physical-device smoke hook — when explicitly requested by the
+    /// launch environment, write a privacy-safe marker into the app
+    /// Documents container.  The CLI gate can fetch this through
+    /// `devicectl` to prove the freshly launched app applied test
+    /// seed/profile settings without relying on XCTest on a locked or
+    /// transient device.
+    @MainActor
+    private static func writeTestDeviceStateMarkerIfRequested(
+        for model: NaruRemoteAppModel
+    ) {
+        guard testEnvironmentFlag("NARU_TEST_WRITE_DEVICE_STATE_MARKER") else {
+            return
+        }
+
+        let selectedProfile = model.selectedProfile
+        let marker = TestDeviceStateMarker(
+            profileCount: model.profiles.count,
+            selectedProfileStatus: selectedProfile == nil ? "missing" : "present",
+            selectedProfileHostKind: selectedProfile?.hostKind.rawValue ?? "none",
+            selectedProfileCredentialReferenceStatus: selectedProfile?.credentialRef == nil ? "missing" : "present",
+            selectedProfileHelperVideoStatus: selectedProfile?.helperVideo?.isEnabled == true ? "enabled" : "disabled",
+            selectedProfileHelperVideoSecretReferenceStatus: selectedProfile?.helperVideo?.pairingSecretRef == nil ? "missing" : "present",
+            profileStoreLoadSkippedStatus: testSkipsProfileStoreLoad() ? "true" : "false",
+            startsOnSelectedProfileDetailStatus: testStartsOnSelectedProfileDetail() ? "true" : "false",
+            streamSettingsOverrideStatus: testStreamSettingsOverrideStatus(),
+            markerRunNonce: ProcessInfo.processInfo.environment["NARU_TEST_DEVICE_STATE_MARKER_NONCE"] ?? ""
+        )
+
+        do {
+            let url = testDeviceStateMarkerURL()
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(marker)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Production never enables this hook.  The physical-device
+            // gate reports a missing marker if the file cannot be written.
+        }
+    }
+
+    private struct TestDeviceStateMarker: Encodable {
+        let schemaVersion = 1
+        let mode = "physical-ipad-state-marker"
+        let profileCount: Int
+        let selectedProfileStatus: String
+        let selectedProfileHostKind: String
+        let selectedProfileCredentialReferenceStatus: String
+        let selectedProfileHelperVideoStatus: String
+        let selectedProfileHelperVideoSecretReferenceStatus: String
+        let profileStoreLoadSkippedStatus: String
+        let startsOnSelectedProfileDetailStatus: String
+        let streamSettingsOverrideStatus: String
+        let markerRunNonce: String
+    }
+
+    private static func testStreamSettingsOverrideStatus() -> String {
+        let env = ProcessInfo.processInfo.environment
+        let keys = [
+            "NARU_TEST_STREAM_POWER_MODE",
+            "NARU_TEST_STREAM_ENCODING_MODE",
+            "NARU_TEST_STARTUP_PREFLIGHT_MODE",
+            "NARU_TEST_STARTUP_GLANCE_SCALE_MODE"
+        ]
+        return keys.contains { env[$0]?.isEmpty == false } ? "present" : "absent"
+    }
+
+    private static func testDeviceStateMarkerURL() -> URL {
+        let filename = ProcessInfo.processInfo.environment["NARU_TEST_DEVICE_STATE_MARKER_FILENAME"]
+            .flatMap(Self.sanitizedTestDeviceStateMarkerFilename)
+            ?? "naru-device-state-marker.json"
+        let documentsURL = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
+        return documentsURL.appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private static func sanitizedTestDeviceStateMarkerFilename(_ raw: String) -> String? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.rangeOfCharacter(from: allowed.inverted) == nil,
+              !trimmed.contains(".."),
+              !trimmed.hasPrefix(".")
+        else { return nil }
+        return trimmed
+    }
+
+    private static func testEnvironmentFlag(_ key: String) -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else { return false }
+        let lowered = raw.lowercased()
+        return lowered == "1" || lowered == "true" || lowered == "yes"
     }
 
     /// XCUITest physical-gate hook — lets the test launch a specific

@@ -60,6 +60,8 @@ Modes:
   physical-ipad-device-preflight-self-test Fast regression for physical iPad signing labels.
   physical-ipad-launch-smoke Install/launch the app on a connected iPad and verify it stays running.
   physical-ipad-launch-smoke-self-test Fast regression for iPad launch-smoke JSON parsing.
+  physical-ipad-state-marker-smoke Launch iPad app with safe seed env and verify app-container marker.
+  physical-ipad-state-marker-smoke-self-test Fast regression for iPad state-marker labels.
   physical-signing-setup-summary-self-test Fast regression for physical signing action labels.
   physical-team-inference-self-test Safe local regression for team inference labels.
   physical-device-id-resolution-self-test Safe local regression for physical device id mapping labels.
@@ -79,6 +81,7 @@ Launchctl variables used when present:
   NARU_PHYSICAL_IPAD_DEVICE_ID
   NARU_PHYSICAL_IPAD_APP_PATH
   NARU_PHYSICAL_IPAD_LAUNCH_OBSERVE_SECONDS
+  NARU_PHYSICAL_IPAD_STATE_MARKER_FILENAME
   NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_PHYSICAL_E2E_HOST
@@ -4878,6 +4881,478 @@ JSON
   printf '{"schemaVersion":1,"mode":"physical-ipad-launch-smoke-self-test","status":"passed"}\n'
 }
 
+physical_ipad_state_marker_filename() {
+  local raw="${NARU_PHYSICAL_IPAD_STATE_MARKER_FILENAME:-naru-device-state-marker.json}"
+  case "$raw" in
+    ""|.*|*..*|*/*|*\\*|*[!A-Za-z0-9._-]*)
+      printf 'naru-device-state-marker.json'
+      ;;
+    *)
+      printf '%s' "$raw"
+      ;;
+  esac
+}
+
+physical_ipad_state_marker_launch_environment_json() {
+  local marker_filename="$1"
+  local marker_nonce="$2"
+
+  jq -nc \
+    --arg marker_filename "$marker_filename" \
+    --arg marker_nonce "$marker_nonce" \
+    '{
+      NARU_TEST_WRITE_DEVICE_STATE_MARKER: "1",
+      NARU_TEST_DEVICE_STATE_MARKER_FILENAME: $marker_filename,
+      NARU_TEST_DEVICE_STATE_MARKER_NONCE: $marker_nonce,
+      NARU_TEST_SKIP_PROFILE_STORE_LOAD: "1",
+      NARU_TEST_START_PROFILE_DETAIL: "1",
+      NARU_TEST_SEED_PROFILE_ID: "00000000-0000-0000-0000-00000000E2E0",
+      NARU_TEST_SEED_PROFILE_NAME: "Device State Marker",
+      NARU_TEST_SEED_PROFILE_HOST: "192.0.2.1",
+      NARU_TEST_SEED_PROFILE_PORT: "5900",
+      NARU_TEST_SEED_PROFILE_HOST_KIND: "privateAddress",
+      NARU_TEST_SEED_PROFILE_CREDENTIAL_REF: "vnc-password:device-state-marker",
+      NARU_TEST_SEED_HELPER_VIDEO_ENABLED: "1",
+      NARU_TEST_SEED_HELPER_VIDEO_SECRET_REF: "helper-video-token:device-state-marker",
+      NARU_TEST_SEED_HELPER_VIDEO_PAIRING_FINGERPRINT: "sha256:device-state-marker"
+    }'
+}
+
+physical_ipad_state_marker_validation_label() {
+  local marker_file="$1"
+  local marker_nonce="$2"
+
+  if [[ ! -s "$marker_file" ]]; then
+    printf 'missing'
+    return
+  fi
+  if ! jq empty "$marker_file" >/dev/null 2>&1; then
+    printf 'invalidJSON'
+    return
+  fi
+  if ! jq -e --arg marker_nonce "$marker_nonce" '
+    .schemaVersion == 1 and
+    .mode == "physical-ipad-state-marker" and
+    .markerRunNonce == $marker_nonce
+  ' "$marker_file" >/dev/null; then
+    if jq -e --arg marker_nonce "$marker_nonce" '
+      .schemaVersion == 1 and
+      .mode == "physical-ipad-state-marker" and
+      .markerRunNonce != $marker_nonce
+    ' "$marker_file" >/dev/null; then
+      printf 'stale'
+    else
+      printf 'invalidEnvelope'
+    fi
+    return
+  fi
+  if jq -e '
+    .profileCount == 1 and
+    .selectedProfileStatus == "present" and
+    .selectedProfileHostKind == "privateAddress" and
+    .selectedProfileCredentialReferenceStatus == "present" and
+    .selectedProfileHelperVideoStatus == "enabled" and
+    .selectedProfileHelperVideoSecretReferenceStatus == "present" and
+    .profileStoreLoadSkippedStatus == "true" and
+    .startsOnSelectedProfileDetailStatus == "true"
+  ' "$marker_file" >/dev/null; then
+    printf 'passed'
+  else
+    printf 'contentMismatch'
+  fi
+}
+
+physical_ipad_state_marker_field_label() {
+  local marker_file="$1"
+  local field="$2"
+  local fallback="${3:-unknown}"
+  local value
+
+  if [[ ! -s "$marker_file" ]] || ! jq empty "$marker_file" >/dev/null 2>&1; then
+    printf '%s' "$fallback"
+    return
+  fi
+  value="$(jq -r --arg field "$field" '.[$field] // empty' "$marker_file" |
+    sed -n '/./{p;q;}' |
+    sed 's/[^A-Za-z0-9._-]/_/g' |
+    sed -n '/./{p;q;}')"
+  if [[ -n "$value" ]]; then
+    printf '%s' "$value"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
+physical_ipad_state_marker_profile_count_label() {
+  local marker_file="$1"
+
+  if [[ ! -s "$marker_file" ]] || ! jq empty "$marker_file" >/dev/null 2>&1; then
+    printf 'unknown'
+    return
+  fi
+  local count
+  count="$(jq -r '.profileCount // empty' "$marker_file" | sed -n '/./{p;q;}')"
+  case "$count" in
+    0) printf 'zero' ;;
+    1) printf 'one' ;;
+    ''|*[!0-9]*) printf 'unknown' ;;
+    *) printf 'multiple' ;;
+  esac
+}
+
+physical_ipad_state_marker_smoke() {
+  reject_extra_args
+  import_physical_ipad_env
+  cd "$repo_root"
+
+  local issue_codes=()
+  local setup_actions=()
+  local device_count
+  local unavailable_device_count
+  local device_id
+  local device_status
+  local device_selection_source
+  local device_id_resolution_status
+  local resolved_device_class="unknown"
+  local device_unlocked_since_boot_status="unknown"
+  local device_backlight_state="unknown"
+  local app_path
+  local app_bundle_status="unknown"
+  local install_status="skipped"
+  local launch_status="skipped"
+  local launch_pid_status="skipped"
+  local running_status="skipped"
+  local marker_copy_status="skipped"
+  local marker_validation_label="skipped"
+  local marker_profile_count_status="unknown"
+  local marker_selected_profile_status="unknown"
+  local marker_host_kind_status="unknown"
+  local marker_credential_reference_status="unknown"
+  local marker_helper_video_status="unknown"
+  local marker_helper_video_secret_reference_status="unknown"
+  local marker_profile_store_load_skipped_status="unknown"
+  local marker_start_detail_status="unknown"
+  local marker_stream_settings_override_status="unknown"
+  local safe_failure_label="none"
+  local observe_seconds
+  local observe_bucket
+  local marker_filename
+  local marker_nonce
+  local launch_environment_json
+
+  if ! command -v xcrun >/dev/null 2>&1; then
+    safe_failure_label="xcrunUnavailable"
+    append_unique issue_codes "xcrun-unavailable"
+    append_unique setup_actions "install-xcode-command-line-tools"
+  elif ! command -v jq >/dev/null 2>&1; then
+    safe_failure_label="jqUnavailable"
+    append_unique issue_codes "jq-unavailable"
+    append_unique setup_actions "install-jq"
+  fi
+
+  observe_seconds="$(physical_ipad_launch_observe_seconds)"
+  observe_bucket="$(physical_ipad_launch_observe_bucket "$observe_seconds")"
+  marker_filename="$(physical_ipad_state_marker_filename)"
+  marker_nonce="$(random_hex_32 | cut -c 1-16)"
+
+  device_count="$(physical_ipad_device_count)"
+  unavailable_device_count="$(physical_unavailable_ipad_count_from_devicectl)"
+  discover_physical_ipad_device_id >/dev/null
+  device_id="$PHYSICAL_DISCOVERED_IPAD_DEVICE_ID"
+  device_id_resolution_status="$PHYSICAL_IPAD_DEVICE_ID_RESOLUTION_STATUS"
+  if [[ -n "$device_id" ]]; then
+    resolved_device_class="$(physical_ios_device_type_for_id "$device_id" || true)"
+    resolved_device_class="$(physical_ios_safe_device_class_label "$resolved_device_class")"
+    if [[ "$resolved_device_class" == "unknown" ]] && physical_ios_device_id_is_ipad "$device_id"; then
+      resolved_device_class="iPad"
+    fi
+  fi
+  if [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]]; then
+    device_selection_source="environment"
+  elif [[ -n "$device_id" ]]; then
+    device_selection_source="auto"
+  else
+    device_selection_source="none"
+  fi
+
+  if [[ -z "$device_id" && "$unavailable_device_count" != "0" ]]; then
+    device_status="unavailable"
+    [[ "$safe_failure_label" != "none" ]] || safe_failure_label="deviceUnavailable"
+    append_unique issue_codes "physical-ipad-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]] && physical_unavailable_ipad_id_is_known "$device_id"; then
+    device_status="unavailable"
+    [[ "$safe_failure_label" != "none" ]] || safe_failure_label="deviceUnavailable"
+    append_unique issue_codes "physical-ipad-device-unavailable"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -z "$device_id" ]]; then
+    device_status="missing"
+    [[ "$safe_failure_label" != "none" ]] || safe_failure_label="deviceMissing"
+    append_unique issue_codes "physical-ipad-device-missing"
+    append_unique setup_actions "connect-and-trust-physical-ipad"
+  elif [[ -n "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]] && ! physical_ios_device_id_is_ipad "$device_id"; then
+    device_status="wrongDeviceType"
+    [[ "$safe_failure_label" != "none" ]] || safe_failure_label="wrongDeviceType"
+    append_unique issue_codes "physical-ipad-device-required"
+    append_unique setup_actions "set-physical-ipad-device-id"
+  elif [[ "$device_count" != "1" && -z "${NARU_PHYSICAL_IPAD_DEVICE_ID:-}" ]]; then
+    device_status="multiple"
+    [[ "$safe_failure_label" != "none" ]] || safe_failure_label="multipleDevices"
+    append_unique issue_codes "physical-ipad-device-ambiguous"
+    append_unique setup_actions "set-physical-ipad-device-id"
+  else
+    device_status="connected"
+  fi
+
+  if [[ "$device_status" == "connected" && -n "$device_id" ]]; then
+    device_unlocked_since_boot_status="$(physical_ios_device_unlocked_since_boot_status "$device_id")"
+    device_backlight_state="$(physical_ios_device_backlight_state "$device_id")"
+    if [[ "$device_unlocked_since_boot_status" == "false" ]]; then
+      [[ "$safe_failure_label" != "none" ]] || safe_failure_label="deviceLocked"
+      append_unique issue_codes "physical-ios-device-locked"
+      append_unique setup_actions "unlock-physical-ipad"
+    fi
+    if [[ "$device_backlight_state" != "unknown" &&
+          "$device_backlight_state" != "unavailable" &&
+          "$device_backlight_state" != "activeOn" ]]; then
+      [[ "$safe_failure_label" != "none" ]] || safe_failure_label="deviceScreenInactive"
+      append_unique issue_codes "physical-ios-device-screen-inactive"
+      append_unique setup_actions "unlock-physical-ipad"
+    fi
+  fi
+
+  app_path="$(physical_ipad_default_app_path || true)"
+  if [[ -n "$app_path" && -d "$app_path" ]]; then
+    app_bundle_status="present"
+  else
+    app_bundle_status="missing"
+    if [[ "$safe_failure_label" == "none" ]]; then
+      safe_failure_label="appBundleMissing"
+    fi
+    append_unique issue_codes "physical-ipad-app-bundle-missing"
+    append_unique setup_actions "build-naruremote-iphoneos-app"
+  fi
+
+  if [[ "$safe_failure_label" == "none" && "$device_status" == "connected" && "$app_bundle_status" == "present" ]]; then
+    local install_json
+    local install_log
+    local launch_json
+    local launch_log
+    local process_json
+    local marker_copy_json
+    local marker_copy_log
+    local marker_tmpdir
+    local marker_file
+    local launch_pid=""
+    install_json="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-install.XXXXXX")"
+    install_log="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-install-log.XXXXXX")"
+    launch_json="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-launch.XXXXXX")"
+    launch_log="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-launch-log.XXXXXX")"
+    process_json="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-processes.XXXXXX")"
+    marker_copy_json="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-copy.XXXXXX")"
+    marker_copy_log="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-copy-log.XXXXXX")"
+    marker_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-ipad-marker.XXXXXX")"
+    marker_file="$marker_tmpdir/$marker_filename"
+    launch_environment_json="$(physical_ipad_state_marker_launch_environment_json "$marker_filename" "$marker_nonce")"
+
+    install_status="failed"
+    if xcrun devicectl device install app \
+      --device "$device_id" \
+      "$app_path" \
+      --json-output "$install_json" \
+      --log-output "$install_log" >/dev/null 2>&1; then
+      install_status="passed"
+    else
+      safe_failure_label="$(physical_ipad_install_failure_label "$install_log")"
+      append_unique issue_codes "physical-ipad-install-failed"
+      append_unique setup_actions "inspect-physical-ipad-install"
+    fi
+
+    if [[ "$install_status" == "passed" ]]; then
+      launch_status="failed"
+      if xcrun devicectl device process launch \
+        --device "$device_id" \
+        --environment-variables "$launch_environment_json" \
+        --terminate-existing \
+        --activate \
+        --json-output "$launch_json" \
+        --log-output "$launch_log" \
+        com.naruremote.app >/dev/null 2>&1; then
+        launch_status="passed"
+        launch_pid="$(physical_ipad_launch_pid_from_file "$launch_json" || true)"
+        if [[ -n "$launch_pid" ]]; then
+          launch_pid_status="present"
+        else
+          launch_pid_status="absent"
+        fi
+      else
+        safe_failure_label="$(physical_ipad_launch_failure_label "$launch_log")"
+        append_unique issue_codes "physical-ipad-launch-failed"
+        append_unique setup_actions "inspect-physical-ipad-launch"
+      fi
+    fi
+
+    if [[ "$launch_status" == "passed" ]]; then
+      sleep "$observe_seconds"
+      if xcrun devicectl device info processes \
+        --device "$device_id" \
+        --json-output "$process_json" >/dev/null 2>&1; then
+        running_status="$(physical_ipad_running_status_from_file "$process_json" "$launch_pid" "NaruRemote")"
+      else
+        running_status="failed"
+      fi
+      if [[ "$running_status" != "passed" ]]; then
+        safe_failure_label="processNotObservedAfterLaunch"
+        append_unique issue_codes "physical-ipad-app-not-running-after-launch"
+        append_unique setup_actions "inspect-physical-ipad-app-crash-or-background"
+      fi
+    fi
+
+    if [[ "$launch_status" == "passed" ]]; then
+      marker_copy_status="failed"
+      if xcrun devicectl device copy from \
+        --device "$device_id" \
+        --domain-type appDataContainer \
+        --domain-identifier com.naruremote.app \
+        --source "Documents/$marker_filename" \
+        --destination "$marker_tmpdir" \
+        --json-output "$marker_copy_json" \
+        --log-output "$marker_copy_log" >/dev/null 2>&1; then
+        marker_copy_status="passed"
+      else
+        append_unique issue_codes "physical-ipad-state-marker-copy-failed"
+        append_unique setup_actions "rebuild-and-reinstall-naruremote-physical-ipad-app"
+      fi
+
+      marker_validation_label="$(physical_ipad_state_marker_validation_label "$marker_file" "$marker_nonce")"
+      marker_profile_count_status="$(physical_ipad_state_marker_profile_count_label "$marker_file")"
+      marker_selected_profile_status="$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileStatus")"
+      marker_host_kind_status="$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileHostKind")"
+      marker_credential_reference_status="$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileCredentialReferenceStatus")"
+      marker_helper_video_status="$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileHelperVideoStatus")"
+      marker_helper_video_secret_reference_status="$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileHelperVideoSecretReferenceStatus")"
+      marker_profile_store_load_skipped_status="$(physical_ipad_state_marker_field_label "$marker_file" "profileStoreLoadSkippedStatus")"
+      marker_start_detail_status="$(physical_ipad_state_marker_field_label "$marker_file" "startsOnSelectedProfileDetailStatus")"
+      marker_stream_settings_override_status="$(physical_ipad_state_marker_field_label "$marker_file" "streamSettingsOverrideStatus")"
+      if [[ "$marker_validation_label" != "passed" ]]; then
+        [[ "$safe_failure_label" != "none" ]] || safe_failure_label="stateMarkerNotVerified"
+        append_unique issue_codes "physical-ipad-state-marker-not-verified"
+        append_unique setup_actions "rebuild-and-reinstall-naruremote-physical-ipad-app"
+      fi
+    fi
+
+    rm -f "$install_json" "$install_log" "$launch_json" "$launch_log" \
+      "$process_json" "$marker_copy_json" "$marker_copy_log"
+    rm -rf "$marker_tmpdir"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-ipad-state-marker-smoke",\n'
+  printf '  "targetDeviceClass": "iPad",\n'
+  printf '  "resolvedDeviceClass": "%s",\n' "$resolved_device_class"
+  printf '  "deviceUnlockedSinceBootStatus": "%s",\n' "$device_unlocked_since_boot_status"
+  printf '  "deviceBacklightState": "%s",\n' "$device_backlight_state"
+  printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
+  printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
+  printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
+  printf '  "appBundleStatus": "%s",\n' "$app_bundle_status"
+  printf '  "installStatus": "%s",\n' "$install_status"
+  printf '  "launchStatus": "%s",\n' "$launch_status"
+  printf '  "launchPIDStatus": "%s",\n' "$launch_pid_status"
+  printf '  "runningStatus": "%s",\n' "$running_status"
+  printf '  "markerCopyStatus": "%s",\n' "$marker_copy_status"
+  printf '  "markerValidationLabel": "%s",\n' "$marker_validation_label"
+  printf '  "markerProfileCountStatus": "%s",\n' "$marker_profile_count_status"
+  printf '  "markerSelectedProfileStatus": "%s",\n' "$marker_selected_profile_status"
+  printf '  "markerHostKindStatus": "%s",\n' "$marker_host_kind_status"
+  printf '  "markerCredentialReferenceStatus": "%s",\n' "$marker_credential_reference_status"
+  printf '  "markerHelperVideoStatus": "%s",\n' "$marker_helper_video_status"
+  printf '  "markerHelperVideoSecretReferenceStatus": "%s",\n' "$marker_helper_video_secret_reference_status"
+  printf '  "markerProfileStoreLoadSkippedStatus": "%s",\n' "$marker_profile_store_load_skipped_status"
+  printf '  "markerStartsOnSelectedProfileDetailStatus": "%s",\n' "$marker_start_detail_status"
+  printf '  "markerStreamSettingsOverrideStatus": "%s",\n' "$marker_stream_settings_override_status"
+  printf '  "observationDurationBucket": "%s",\n' "$observe_bucket"
+  printf '  "safeFailureLabel": "%s",\n' "$safe_failure_label"
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf '\n}\n'
+}
+
+physical_ipad_state_marker_smoke_self_test() {
+  reject_extra_args
+
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-ipad-state-marker-smoke-self-test","status":"skipped","issueCodes":["jq-unavailable"]}\n'
+    return
+  fi
+
+  local marker_file
+  local failure_code=""
+  marker_file="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-state-marker-fixture.XXXXXX")"
+  cat >"$marker_file" <<'JSON'
+{
+  "schemaVersion": 1,
+  "mode": "physical-ipad-state-marker",
+  "profileCount": 1,
+  "selectedProfileStatus": "present",
+  "selectedProfileHostKind": "privateAddress",
+  "selectedProfileCredentialReferenceStatus": "present",
+  "selectedProfileHelperVideoStatus": "enabled",
+  "selectedProfileHelperVideoSecretReferenceStatus": "present",
+  "profileStoreLoadSkippedStatus": "true",
+  "startsOnSelectedProfileDetailStatus": "true",
+  "streamSettingsOverrideStatus": "absent",
+  "markerRunNonce": "nonce-1"
+}
+JSON
+
+  if [[ "$(physical_ipad_state_marker_filename)" != "naru-device-state-marker.json" ]]; then
+    failure_code="defaultFilename"
+  elif [[ "$(NARU_PHYSICAL_IPAD_STATE_MARKER_FILENAME='bad/name.json' physical_ipad_state_marker_filename)" != "naru-device-state-marker.json" ]]; then
+    failure_code="unsafeFilenameFallback"
+  elif [[ "$(physical_ipad_state_marker_validation_label "$marker_file" "nonce-1")" != "passed" ]]; then
+    failure_code="validMarker"
+  elif [[ "$(physical_ipad_state_marker_validation_label "$marker_file" "nonce-2")" != "stale" ]]; then
+    failure_code="staleMarker"
+  elif [[ "$(physical_ipad_state_marker_profile_count_label "$marker_file")" != "one" ]]; then
+    failure_code="profileCount"
+  elif [[ "$(physical_ipad_state_marker_field_label "$marker_file" "selectedProfileStatus")" != "present" ]]; then
+    failure_code="fieldLabel"
+  elif ! physical_ipad_state_marker_launch_environment_json "marker.json" "nonce-1" |
+    jq -e '
+      .NARU_TEST_WRITE_DEVICE_STATE_MARKER == "1" and
+      .NARU_TEST_DEVICE_STATE_MARKER_FILENAME == "marker.json" and
+      .NARU_TEST_DEVICE_STATE_MARKER_NONCE == "nonce-1" and
+      .NARU_TEST_SKIP_PROFILE_STORE_LOAD == "1" and
+      .NARU_TEST_SEED_HELPER_VIDEO_ENABLED == "1"
+    ' >/dev/null; then
+    failure_code="launchEnvironment"
+  fi
+
+  rm -f "$marker_file"
+
+  if [[ -n "$failure_code" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-ipad-state-marker-smoke-self-test","status":"failed","safeFailureCode":'
+    json_string "$failure_code"
+    printf '}\n'
+    exit 1
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-ipad-state-marker-smoke-self-test","status":"passed"}\n'
+}
+
 physical_iphone_gate_collect_configuration_issues() {
   PHYSICAL_GATE_ISSUE_CODES=()
   PHYSICAL_GATE_SETUP_ACTIONS=()
@@ -9129,6 +9604,12 @@ case "$mode" in
     ;;
   physical-ipad-launch-smoke-self-test)
     physical_ipad_launch_smoke_self_test
+    ;;
+  physical-ipad-state-marker-smoke)
+    physical_ipad_state_marker_smoke
+    ;;
+  physical-ipad-state-marker-smoke-self-test)
+    physical_ipad_state_marker_smoke_self_test
     ;;
   physical-team-inference-self-test)
     physical_team_inference_self_test
