@@ -25,6 +25,36 @@ public struct RFBRawFramebuffer: Codable, Equatable, Sendable {
         self.pixels = Array(repeating: fill, count: self.width * self.height)
     }
 
+    init(
+        width: Int,
+        height: Int,
+        pixels: [RFBColor],
+        fill: RFBColor = RFBColor(red: 0, green: 0, blue: 0)
+    ) {
+        let safeWidth = max(width, 0)
+        let safeHeight = max(height, 0)
+        guard safeWidth == 0 || safeHeight <= Int.max / safeWidth else {
+            self.width = 0
+            self.height = 0
+            self.pixels = []
+            return
+        }
+
+        self.width = safeWidth
+        self.height = safeHeight
+        let expectedCount = self.width * self.height
+        if pixels.count == expectedCount {
+            self.pixels = pixels
+        } else if pixels.count > expectedCount {
+            self.pixels = Array(pixels.prefix(expectedCount))
+        } else {
+            self.pixels = pixels + Array(
+                repeating: fill,
+                count: expectedCount - pixels.count
+            )
+        }
+    }
+
     public subscript(x: Int, y: Int) -> RFBColor? {
         guard x >= 0, y >= 0, x < width, y < height else {
             return nil
@@ -90,6 +120,28 @@ extension RFBRawFramebuffer {
                 }
             }
         }
+        return changed
+    }
+
+    @discardableResult
+    mutating func replaceAllPixelsTrackingChange(_ nextPixels: [RFBColor]) -> Int {
+        let expectedCount = width * height
+        guard nextPixels.count == expectedCount else {
+            let previousPixels = pixels
+            self = RFBRawFramebuffer(width: width, height: height, pixels: nextPixels)
+            let sharedCount = min(previousPixels.count, pixels.count)
+            var changed = abs(previousPixels.count - pixels.count)
+            for index in 0..<sharedCount where previousPixels[index] != pixels[index] {
+                changed += 1
+            }
+            return changed
+        }
+
+        var changed = 0
+        for index in 0..<expectedCount where pixels[index] != nextPixels[index] {
+            changed += 1
+        }
+        pixels = nextPixels
         return changed
     }
 
@@ -663,6 +715,33 @@ extension RFBPixelFormat {
                 | UInt32(bytes[offset + 3]) << 24
         }
         return colorFromValue(value)
+    }
+
+    func decodeColors(_ bytes: [UInt8], bytesPerPixel: Int, pixelCount: Int) -> [RFBColor] {
+        var decodedPixels: [RFBColor] = []
+        decodedPixels.reserveCapacity(pixelCount)
+
+        if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixel) {
+            var offset = 0
+            for _ in 0..<pixelCount {
+                decodedPixels.append(
+                    RFBColor(
+                        red: bytes[offset + offsets.red],
+                        green: bytes[offset + offsets.green],
+                        blue: bytes[offset + offsets.blue]
+                    )
+                )
+                offset += bytesPerPixel
+            }
+            return decodedPixels
+        }
+
+        var offset = 0
+        for _ in 0..<pixelCount {
+            decodedPixels.append(decodeColor(bytes, at: offset))
+            offset += bytesPerPixel
+        }
+        return decodedPixels
     }
 
     /// Maps a raw 32-bit pixel value to an `RFBColor` via the format's

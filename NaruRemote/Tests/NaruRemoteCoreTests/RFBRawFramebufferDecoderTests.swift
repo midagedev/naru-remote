@@ -17,6 +17,43 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(framebuffer[1, 1], RFBColor(red: 255, green: 255, blue: 255))
     }
 
+    func testFullFrameRawFastPathMatchesSplitGenericRawDecode() throws {
+        let colors = [
+            RFBColor(red: 255, green: 0, blue: 0),
+            RFBColor(red: 0, green: 255, blue: 0),
+            RFBColor(red: 0, green: 0, blue: 255),
+            RFBColor(red: 0, green: 0, blue: 0),
+            RFBColor(red: 64, green: 128, blue: 192),
+            RFBColor(red: 255, green: 255, blue: 255)
+        ]
+        let serverInit = Self.serverInit(width: 3, height: 2)
+
+        let fastPathResult = try RFBRawFramebufferDecoder.apply(
+            updateData: Self.rawUpdateData(rectangles: [
+                RawRectangle(x: 0, y: 0, width: 3, height: 2, colors: colors)
+            ]),
+            serverInit: serverInit
+        )
+        let splitGenericResult = try RFBRawFramebufferDecoder.apply(
+            updateData: Self.rawUpdateData(rectangles: [
+                RawRectangle(x: 0, y: 0, width: 3, height: 1, colors: Array(colors[0..<3])),
+                RawRectangle(x: 0, y: 1, width: 3, height: 1, colors: Array(colors[3..<6]))
+            ]),
+            serverInit: serverInit
+        )
+
+        XCTAssertEqual(fastPathResult.framebuffer, splitGenericResult.framebuffer)
+        XCTAssertEqual(fastPathResult.changedPixelCount, splitGenericResult.changedPixelCount)
+        XCTAssertEqual(fastPathResult.changedPixelCount, 5)
+        XCTAssertEqual(fastPathResult.dirtyRectangles, [
+            RFBFrameDamageRect(x: 0, y: 0, width: 3, height: 2)
+        ])
+        XCTAssertEqual(splitGenericResult.dirtyRectangles, [
+            RFBFrameDamageRect(x: 0, y: 0, width: 3, height: 1),
+            RFBFrameDamageRect(x: 0, y: 1, width: 3, height: 1)
+        ])
+    }
+
     func testFastPixelDecodeHandlesCommonLittleEndianRGB888Layout() {
         let format = Self.rgb888Format(isBigEndian: false, redShift: 16, greenShift: 8, blueShift: 0)
         let bytes: [UInt8] = [0x33, 0x22, 0x11, 0x00]
@@ -408,6 +445,38 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         ])
     }
 
+    private static func rawUpdateData(rectangles: [RawRectangle]) -> Data {
+        var data = Data([0, 0])
+        appendUInt16(UInt16(rectangles.count), to: &data)
+        for rectangle in rectangles {
+            appendUInt16(rectangle.x, to: &data)
+            appendUInt16(rectangle.y, to: &data)
+            appendUInt16(rectangle.width, to: &data)
+            appendUInt16(rectangle.height, to: &data)
+            appendInt32(RFBEncoding.raw, to: &data)
+            for color in rectangle.colors {
+                data.append(color.blue)
+                data.append(color.green)
+                data.append(color.red)
+                data.append(0)
+            }
+        }
+        return data
+    }
+
+    private static func appendUInt16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8((value >> 8) & 0x00ff))
+        data.append(UInt8(value & 0x00ff))
+    }
+
+    private static func appendInt32(_ value: Int32, to data: inout Data) {
+        let rawValue = UInt32(bitPattern: value)
+        data.append(UInt8((rawValue >> 24) & 0x000000ff))
+        data.append(UInt8((rawValue >> 16) & 0x000000ff))
+        data.append(UInt8((rawValue >> 8) & 0x000000ff))
+        data.append(UInt8(rawValue & 0x000000ff))
+    }
+
     private static func serverInit(width: Int, height: Int) -> RFBServerInit {
         RFBServerInit(
             width: width,
@@ -436,4 +505,12 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
             blueShift: blueShift
         )
     }
+}
+
+private struct RawRectangle {
+    let x: UInt16
+    let y: UInt16
+    let width: UInt16
+    let height: UInt16
+    let colors: [RFBColor]
 }
