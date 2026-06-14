@@ -5,6 +5,9 @@ rules for VNC streaming work. Do not store screenshots, framebuffer
 pixels, target hostnames, passwords, cursor pixels, or raw connection
 payloads here.
 
+Recent simulator input/viewport gate evidence:
+`artifacts/benchmarks/2026-06-14-compose-input-storm-pacing-summary.md`.
+
 ## iPhone Simulator: Synthetic Frame Pipeline
 
 Use the opt-in XCTest benchmarks when investigating heat, low FPS, or

@@ -103,6 +103,48 @@ final class IncomingClipboardReviewTests: XCTestCase {
         XCTAssertTrue(writer.writes.isEmpty)
     }
 
+    func testFocusedComposeDefersIncomingClipboardReviewUntilFocusLeaves() throws {
+        let writer = RecordingClipboardWriter()
+        let model = NaruRemoteAppModel(localClipboardWriter: writer)
+
+        model.setComposeInputEditingActive(true)
+        model.recordIncomingClipboard("first")
+        model.recordIncomingClipboard("second")
+
+        XCTAssertNil(
+            model.pendingIncomingClipboard,
+            "Remote clipboard review chrome should not appear while Compose owns first responder."
+        )
+        XCTAssertTrue(writer.writes.isEmpty)
+
+        model.setComposeInputEditingActive(false)
+
+        let review = try XCTUnwrap(model.pendingIncomingClipboard)
+        XCTAssertEqual(
+            review.text,
+            "second",
+            "Leaving focused Compose should surface only the latest deferred remote clipboard review."
+        )
+    }
+
+    func testFocusedComposeHidesExistingIncomingClipboardReviewUntilFocusLeaves() throws {
+        let writer = RecordingClipboardWriter()
+        let model = NaruRemoteAppModel(localClipboardWriter: writer)
+
+        model.recordIncomingClipboard("review before focus")
+        XCTAssertNotNil(model.pendingIncomingClipboard)
+
+        model.setComposeInputEditingActive(true)
+
+        XCTAssertNil(model.pendingIncomingClipboard)
+
+        model.setComposeInputEditingActive(false)
+
+        let review = try XCTUnwrap(model.pendingIncomingClipboard)
+        XCTAssertEqual(review.text, "review before focus")
+        XCTAssertTrue(writer.writes.isEmpty)
+    }
+
     func testStreamingConnectorTriggersReceiveLoopAndRecordsPending() async throws {
         // Pending re-enable after task #30: a single multiplexed RFB
         // reader replaces the concurrent

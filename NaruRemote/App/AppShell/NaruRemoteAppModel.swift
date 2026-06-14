@@ -699,9 +699,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var frameDeliveryInteractionReasons: Set<FrameDeliveryInteractionReason> = []
     private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
     private var transientFrameDeliveryInteractionLeaseID: UUID?
-    private var focusedInputChromePublishTask: Task<Void, Never>?
     private var pendingFocusedInputConnectionQuality: ConnectionQuality?
     private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
+    private var pendingFocusedInputIncomingClipboard: IncomingClipboardReview?
+    private var isFocusedInputSendFeedbackClearPending = false
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
     private var isViewportInteractionActive: Bool {
         viewportInteractionFrameStrategy != nil
@@ -749,7 +750,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
-    static let focusedInputChromePublishInterval: Duration = .milliseconds(250)
     public static let defaultActiveFrameInterval: TimeInterval =
         StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -1549,7 +1549,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
-            pendingIncomingClipboard = nil
+            clearIncomingClipboardReviewState()
             activeTextClient = nil
             activePointerClient = nil
             activeKeyEventClient = nil
@@ -1639,7 +1639,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             resetFrameDeliveryInteractionState()
             stopFrameStream()
             stopIncomingClipboardReceive()
-            pendingIncomingClipboard = nil
+            clearIncomingClipboardReviewState()
             let newSession = RemoteSession(profileID: profileToSave.id)
             session = newSession
             composeDraft = ComposeDraft(sessionID: newSession.id)
@@ -2371,7 +2371,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             stopHelperVideoStreamBootstrap()
             stopFrameStream()
             stopIncomingClipboardReceive()
-            pendingIncomingClipboard = nil
+            clearIncomingClipboardReviewState()
             activeTextClient = nil
             activePointerClient = nil
             activeKeyEventClient = nil
@@ -3443,7 +3443,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
         stopFrameStream()
         stopIncomingClipboardReceive()
-        pendingIncomingClipboard = nil
+        clearIncomingClipboardReviewState()
         if let streamingClient = connector as? any RFBStreamingClient {
             startFrameStream(
                 streamingClient,
@@ -4282,6 +4282,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             frameDeliveryInteractionReasons.remove(reason)
         }
         frameStore.setDeliveryPriority(frameDeliveryPriority(for: frameDeliveryInteractionReasons))
+        if !wasFocusedInputActive && isFocusedInputChromeCoalescingActive {
+            deferFocusedInputChromeUpdates()
+        }
         if wasFocusedInputActive && !isFocusedInputChromeCoalescingActive {
             flushFocusedInputChromeUpdates()
         }
@@ -4317,7 +4320,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         pendingFocusedInputConnectionQuality = quality
-        scheduleFocusedInputChromePublish()
     }
 
     private func publishHelperVideoStreamHealth(_ health: HelperVideoStreamHealth) {
@@ -4332,30 +4334,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         pendingFocusedInputHelperVideoHealth = health
-        scheduleFocusedInputChromePublish()
     }
 
-    private func scheduleFocusedInputChromePublish() {
-        guard focusedInputChromePublishTask == nil else {
-            return
-        }
-        let delay = Self.focusedInputChromePublishInterval
-        focusedInputChromePublishTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
-            }
-            self?.flushFocusedInputChromeUpdates(cancelScheduledTask: false)
-        }
-    }
-
-    private func flushFocusedInputChromeUpdates(cancelScheduledTask: Bool = true) {
-        if cancelScheduledTask {
-            focusedInputChromePublishTask?.cancel()
-        }
-        focusedInputChromePublishTask = nil
-
+    private func flushFocusedInputChromeUpdates() {
         if let quality = pendingFocusedInputConnectionQuality {
             pendingFocusedInputConnectionQuality = nil
             if connectionQuality != quality {
@@ -4367,13 +4348,52 @@ public final class NaruRemoteAppModel: ObservableObject {
             pendingFocusedInputHelperVideoHealth = nil
             helperVideoStreamHealth = health
         }
+
+        if let review = pendingFocusedInputIncomingClipboard {
+            pendingFocusedInputIncomingClipboard = nil
+            pendingIncomingClipboard = review
+        }
+
+        if isFocusedInputSendFeedbackClearPending {
+            clearComposeSendFeedbackState()
+        }
     }
 
     private func cancelFocusedInputChromeUpdates() {
-        focusedInputChromePublishTask?.cancel()
-        focusedInputChromePublishTask = nil
         pendingFocusedInputConnectionQuality = nil
         pendingFocusedInputHelperVideoHealth = nil
+        pendingFocusedInputIncomingClipboard = nil
+        isFocusedInputSendFeedbackClearPending = false
+    }
+
+    private func deferFocusedInputChromeUpdates() {
+        if let review = pendingIncomingClipboard {
+            pendingIncomingClipboard = nil
+            pendingFocusedInputIncomingClipboard = review
+        }
+    }
+
+    private func clearIncomingClipboardReviewState() {
+        pendingIncomingClipboard = nil
+        pendingFocusedInputIncomingClipboard = nil
+    }
+
+    private func clearComposeSendFeedbackAfterLocalEdit() {
+        guard latestInjectionAttempt != nil || latestComposeSendPreparation != nil else {
+            isFocusedInputSendFeedbackClearPending = false
+            return
+        }
+        guard isFocusedInputChromeCoalescingActive else {
+            clearComposeSendFeedbackState()
+            return
+        }
+        isFocusedInputSendFeedbackClearPending = true
+    }
+
+    private func clearComposeSendFeedbackState() {
+        latestInjectionAttempt = nil
+        latestComposeSendPreparation = nil
+        isFocusedInputSendFeedbackClearPending = false
     }
 
     public func recordOutboundInputEvent(
@@ -5008,6 +5028,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         isFocusedInputChromeCoalescingActive
     }
 
+    public var frameApplicationContentFrameMinimumIntervalForTesting: TimeInterval {
+        currentFrameApplicationContentFrameMinimumInterval()
+    }
+
     public func publishFirstFrameForTesting(_ framebuffer: RFBRawFramebuffer) {
         guard var currentSession = session else {
             return
@@ -5301,7 +5325,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         stopHelperVideoStreamBootstrap()
         stopFrameStream()
         stopIncomingClipboardReceive()
-        pendingIncomingClipboard = nil
+        clearIncomingClipboardReviewState()
         activeTextClient = nil
         activePointerClient = nil
         activeKeyEventClient = nil
@@ -5484,7 +5508,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         // REPLACE policy: a newer arrival supersedes a still-pending
         // older review.  See `startIncomingClipboardReceive` for
         // rationale.
-        pendingIncomingClipboard = IncomingClipboardReview(text: text, arrivedAt: date)
+        let review = IncomingClipboardReview(text: text, arrivedAt: date)
+        if isFocusedInputChromeCoalescingActive {
+            pendingFocusedInputIncomingClipboard = review
+            return
+        }
+        pendingFocusedInputIncomingClipboard = nil
+        pendingIncomingClipboard = review
     }
 
     /// User reviewed the preview and accepted the remote copy.
@@ -5495,13 +5525,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         localClipboardWriter?.write(review.text)
-        pendingIncomingClipboard = nil
+        clearIncomingClipboardReviewState()
     }
 
     /// User dismissed the review.  Nothing is written to the local
     /// pasteboard.  The full `text` is dropped on the floor.
     public func dismissIncomingClipboard() {
-        pendingIncomingClipboard = nil
+        clearIncomingClipboardReviewState()
     }
 
     // MARK: - Pointer control mode
@@ -6035,18 +6065,17 @@ public final class NaruRemoteAppModel: ObservableObject {
             var nextDraft = ComposeDraft(sessionID: draft.sessionID)
             nextDraft.updateText(text)
             composeDraft = nextDraft
-            latestInjectionAttempt = nil
-            latestComposeSendPreparation = nil
+            clearComposeSendFeedbackAfterLocalEdit()
             return
         }
 
         draft.updateText(text)
         composeDraft = draft
-        latestInjectionAttempt = nil
-        latestComposeSendPreparation = nil
+        clearComposeSendFeedbackAfterLocalEdit()
     }
 
     public func recordComposeSendPreparation(_ report: ComposeSendPreparationReport) {
+        isFocusedInputSendFeedbackClearPending = false
         latestComposeSendPreparation = report
     }
 
@@ -6059,6 +6088,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        isFocusedInputSendFeedbackClearPending = false
         draft.updateText(text)
         let now = Date()
         let payloadEncoding = TextInjectionPayloadEncoding.classify(draft.text)

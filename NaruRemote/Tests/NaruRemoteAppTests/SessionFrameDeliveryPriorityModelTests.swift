@@ -27,6 +27,33 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         )
     }
 
+    func testTestingFrameApplicationIntervalTracksComposeFocusPriority() {
+        let model = NaruRemoteAppModel()
+
+        XCTAssertEqual(
+            model.frameApplicationContentFrameMinimumIntervalForTesting,
+            SessionFrameApplicationWorkerPacing.visualContentFrameMinimumInterval,
+            accuracy: 0.0001
+        )
+
+        model.setComposeInputEditingActive(true)
+
+        XCTAssertEqual(
+            model.frameApplicationContentFrameMinimumIntervalForTesting,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval,
+            accuracy: 0.0001,
+            "Synthetic frame pressure used by XCUITest should follow the same IME-friendly cadence as production frame application."
+        )
+
+        model.setComposeInputEditingActive(false)
+
+        XCTAssertEqual(
+            model.frameApplicationContentFrameMinimumIntervalForTesting,
+            SessionFrameApplicationWorkerPacing.visualContentFrameMinimumInterval,
+            accuracy: 0.0001
+        )
+    }
+
     func testViewportGestureUsesNavigationFrameDeliveryUntilGestureEnds() {
         let model = NaruRemoteAppModel()
 
@@ -243,7 +270,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
             "Focused Compose should not republish chrome-only quality updates synchronously with IME events."
         )
 
-        try await Task.sleep(for: .milliseconds(80))
+        try await Task.sleep(for: .milliseconds(330))
         XCTAssertEqual(model.connectionQuality, .unknown)
 
         model.setComposeInputEditingActive(false)
@@ -288,11 +315,39 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
             "Functional helper-video fallback must remain immediate even during focused input."
         )
 
-        try await Task.sleep(for: NaruRemoteAppModel.focusedInputChromePublishInterval + .milliseconds(80))
+        try await Task.sleep(for: .milliseconds(330))
         XCTAssertEqual(
             model.helperVideoStreamHealth.state,
             .fallbackToVNC,
             "A pending healthy chrome sample must not overwrite an immediate fallback decision."
+        )
+    }
+
+    func testComposeFocusFlushesLatestHelperVideoHealthWhenFocusLeaves() async throws {
+        let model = NaruRemoteAppModel()
+        let healthy = HelperVideoStreamHealth(
+            state: .healthy,
+            startupBand: .fast,
+            sustainedUpdateBand: .smooth,
+            decodePressure: .low
+        )
+
+        model.setComposeInputEditingActive(true)
+        model.updateHelperVideoStreamHealth(healthy)
+
+        try await Task.sleep(for: .milliseconds(330))
+        XCTAssertEqual(
+            model.helperVideoStreamHealth,
+            HelperVideoStreamHealth(),
+            "Non-critical helper-video chrome should stay deferred while Compose owns first responder."
+        )
+
+        model.setComposeInputEditingActive(false)
+
+        XCTAssertEqual(
+            model.helperVideoStreamHealth,
+            healthy,
+            "Leaving Compose focus should publish the latest deferred helper-video health sample."
         )
     }
 }
