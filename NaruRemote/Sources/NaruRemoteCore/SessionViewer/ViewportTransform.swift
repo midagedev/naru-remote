@@ -28,6 +28,10 @@ public struct ViewportTransform: Equatable, Sendable {
     /// Pan translation in view points, clamped so content edges stay
     /// flush against the view (no out-of-bounds background revealed).
     public let panOffset: CGSize
+    private let resolvedFitScale: CGFloat
+    private let resolvedDisplayScale: CGFloat
+    private let resolvedContentSize: CGSize
+    private let resolvedContentOrigin: CGPoint
 
     public init(
         framebufferSize: CGSize,
@@ -46,40 +50,40 @@ public struct ViewportTransform: Equatable, Sendable {
         )
         let cappedMax = Swift.max(1, maxZoomScale)
         let clampedZoom = Swift.min(Swift.max(zoomScale, 1), cappedMax)
-        let scale = Self.fitScale(framebufferSize: fb, viewSize: view) * clampedZoom
-        let content = CGSize(width: fb.width * scale, height: fb.height * scale)
+        let fitScale = Self.fitScale(framebufferSize: fb, viewSize: view)
+        let displayScale = fitScale * clampedZoom
+        let content = CGSize(width: fb.width * displayScale, height: fb.height * displayScale)
+        let clampedPan = Self.clampPan(panOffset, contentSize: content, viewSize: view)
 
         self.framebufferSize = fb
         self.viewSize = view
         self.maxZoomScale = cappedMax
         self.zoomScale = clampedZoom
-        self.panOffset = Self.clampPan(panOffset, contentSize: content, viewSize: view)
+        self.panOffset = clampedPan
+        self.resolvedFitScale = fitScale
+        self.resolvedDisplayScale = displayScale
+        self.resolvedContentSize = content
+        self.resolvedContentOrigin = Self.contentOrigin(
+            contentSize: content,
+            viewSize: view,
+            panOffset: clampedPan
+        )
     }
 
     /// Scale that fits the whole framebuffer inside the view.
     public var fitScale: CGFloat {
-        Self.fitScale(framebufferSize: framebufferSize, viewSize: viewSize)
+        resolvedFitScale
     }
 
     /// Scale at which framebuffer pixels are actually drawn.
-    public var displayScale: CGFloat { fitScale * zoomScale }
+    public var displayScale: CGFloat { resolvedDisplayScale }
 
     /// Size of the displayed framebuffer content in view points.
-    public var contentSize: CGSize {
-        CGSize(
-            width: framebufferSize.width * displayScale,
-            height: framebufferSize.height * displayScale
-        )
-    }
+    public var contentSize: CGSize { resolvedContentSize }
 
     /// Top-left origin of the displayed content in view space, after
     /// centering and pan.
-    public var contentOrigin: CGPoint {
-        CGPoint(
-            x: (viewSize.width - contentSize.width) / 2 + panOffset.width,
-            y: (viewSize.height - contentSize.height) / 2 + panOffset.height
-        )
-    }
+    public var contentOrigin: CGPoint { resolvedContentOrigin }
 
     /// `true` once the user has zoomed past the fit scale.
     public var isZoomed: Bool { zoomScale > 1.0001 }
@@ -169,12 +173,15 @@ public struct ViewportTransform: Equatable, Sendable {
         ViewportTransform(
             framebufferSize: framebufferSize,
             viewSize: viewSize,
+            maxZoomScale: maxZoomScale,
             zoomScale: zoomScale,
             panOffset: CGSize(
                 width: panOffset.width + delta.width,
                 height: panOffset.height + delta.height
             ),
-            maxZoomScale: maxZoomScale
+            fitScale: resolvedFitScale,
+            displayScale: resolvedDisplayScale,
+            contentSize: resolvedContentSize
         )
     }
 
@@ -234,6 +241,47 @@ public struct ViewportTransform: Equatable, Sendable {
         return CGSize(
             width: Swift.min(Swift.max(pan.width, -maxX), maxX),
             height: Swift.min(Swift.max(pan.height, -maxY), maxY)
+        )
+    }
+
+    private init(
+        framebufferSize: CGSize,
+        viewSize: CGSize,
+        maxZoomScale: CGFloat,
+        zoomScale: CGFloat,
+        panOffset: CGSize,
+        fitScale: CGFloat,
+        displayScale: CGFloat,
+        contentSize: CGSize
+    ) {
+        let clampedPan = Self.clampPan(
+            panOffset,
+            contentSize: contentSize,
+            viewSize: viewSize
+        )
+        self.framebufferSize = framebufferSize
+        self.viewSize = viewSize
+        self.maxZoomScale = maxZoomScale
+        self.zoomScale = zoomScale
+        self.panOffset = clampedPan
+        self.resolvedFitScale = fitScale
+        self.resolvedDisplayScale = displayScale
+        self.resolvedContentSize = contentSize
+        self.resolvedContentOrigin = Self.contentOrigin(
+            contentSize: contentSize,
+            viewSize: viewSize,
+            panOffset: clampedPan
+        )
+    }
+
+    private static func contentOrigin(
+        contentSize: CGSize,
+        viewSize: CGSize,
+        panOffset: CGSize
+    ) -> CGPoint {
+        CGPoint(
+            x: (viewSize.width - contentSize.width) / 2 + panOffset.width,
+            y: (viewSize.height - contentSize.height) / 2 + panOffset.height
         )
     }
 }
