@@ -1484,3 +1484,10 @@ updates. The fix caches the fallback cursor image and skips unchanged UIKit
 image/bounds/front-order work while preserving immediate cursor position
 updates, reducing synthetic hot-path wall/CPU time by about 40% in the focused
 benchmark.
+The viewport transform reuse performance artifact is
+`2026-06-14-viewport-transform-reuse-performance-summary.md`; it records a
+measured iPhone simulator improvement for zoomed viewport transform updates
+while the fallback hot cursor is visible. The fix reuses already computed
+`ViewportTransform` values across layer transforms, immediate viewport
+publication, and hot-cursor placement, reducing synthetic hot-path wall/CPU time
+by about 12% and passing the iPhone/iPad simulator input viewport gate.

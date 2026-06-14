@@ -37,6 +37,39 @@ final class MetalFramebufferHotCursorOverlayBenchmarkTests: XCTestCase {
         }
     }
 
+    func testZoomedViewportTransformWithFallbackHotCursorBenchmark() throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let host = MetalFramebufferHostingView(
+            coordinator: MetalFramebufferView.Coordinator(device: nil)
+        )
+        host.frame = CGRect(origin: .zero, size: CGSize(width: 390, height: 240))
+        host.syncInputState(
+            pointerControlMode: .trackpad,
+            trackpadCursor: TrackpadCursor(
+                position: CGPoint(x: 960, y: 540),
+                isVisible: true
+            ),
+            serverCursor: nil,
+            framebufferSize: CGSize(width: 1_920, height: 1_080)
+        )
+
+        let options = XCTMeasureOptions()
+        options.iterationCount = configuration.iterations
+
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()], options: options) {
+            autoreleasepool {
+                for sample in 0..<configuration.sampleCount {
+                    let direction: CGFloat = ((sample / 32) % 2 == 0) ? 1 : -1
+                    let offset = CGSize(
+                        width: direction * CGFloat(sample % 64),
+                        height: direction * CGFloat((sample * 3) % 32)
+                    )
+                    host.syncZoomPan(scale: 2.2, offset: offset)
+                }
+            }
+        }
+    }
+
     private func requireBenchmarkConfiguration() throws -> BenchmarkConfiguration {
         let environment = ProcessInfo.processInfo.environment
         guard environment["NARU_RUN_SIM_BENCHMARKS"] == "1" else {
