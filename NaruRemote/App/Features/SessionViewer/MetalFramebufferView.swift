@@ -878,16 +878,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         let nextZoomScale = min(max(scale, currentMinimumZoomScale), Self.maxZoomScale)
-        let nextPanOffset = viewportTransform(
+        let nextTransform = viewportTransform(
             zoomScale: nextZoomScale,
             panOffset: offset
-        ).panOffset
+        )
+        let nextPanOffset = nextTransform.panOffset
         let didChange = abs(nextZoomScale - currentZoomScale) > 0.0001
             || nextPanOffset != currentPanOffset
         currentZoomScale = nextZoomScale
         currentPanOffset = nextPanOffset
         if didChange {
-            applyViewportTransformToMetalView()
+            applyViewportTransformToMetalView(using: nextTransform)
         }
     }
 
@@ -1208,7 +1209,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         let nextPanOffset = nextTransform.panOffset
         let panDidChange = nextPanOffset != currentPanOffset
         currentPanOffset = nextPanOffset
-        applyViewportTransformToMetalView()
+        applyViewportTransformToMetalView(using: nextTransform)
         // Constitution §I: pinch is a LOCAL view transform.  We must
         // never translate this into a remote scroll/zoom event.  The layer
         // transform stays immediate so the content remains under the user's
@@ -1350,12 +1351,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             width: currentPanOffset.width + translation.width,
             height: currentPanOffset.height + translation.height
         )
-        let nextPanOffset = clampedPan(proposed)
+        let nextTransform = viewportTransform(
+            zoomScale: currentZoomScale,
+            panOffset: proposed
+        )
+        let nextPanOffset = nextTransform.panOffset
         guard nextPanOffset != currentPanOffset else {
             return
         }
         currentPanOffset = nextPanOffset
-        applyViewportTransformToMetalView()
+        applyViewportTransformToMetalView(using: nextTransform)
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: currentPanOffset,
@@ -1424,27 +1429,27 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
     }
 
-    private func applyViewportTransformToMetalView() {
+    private func applyViewportTransformToMetalView(using transform: ViewportTransform? = nil) {
         // Keep local viewport navigation on Core Animation's compositor
         // path. The renderer already draws the latest texture at its
         // stable aspect-fit baseline, so the hot path should not mutate
         // renderer state for every display tick.
-        let currentTransform = viewportTransform(
+        let currentTransform = transform ?? viewportTransform(
             zoomScale: currentZoomScale,
             panOffset: currentPanOffset
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            metalView?.transform = viewportLayerTransform()
+            metalView?.transform = viewportLayerTransform(using: currentTransform)
         }
         CATransaction.commit()
         immediateViewportTransformHandler?(currentTransform)
-        updateHotCursorOverlay()
+        updateHotCursorOverlay(using: currentTransform)
     }
 
-    private func viewportLayerTransform() -> CGAffineTransform {
-        let clampedScale = min(max(currentZoomScale, currentMinimumZoomScale), Self.maxZoomScale)
+    private func viewportLayerTransform(using transform: ViewportTransform) -> CGAffineTransform {
+        let clampedScale = min(max(transform.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
         guard clampedScale > 0 else {
             return .identity
         }
@@ -1453,18 +1458,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         // anchor point (center by default). Keep the matrix simple:
         // translate the scaled surface by the clamped local pan.
         return CGAffineTransform(
-            translationX: currentPanOffset.width,
-            y: currentPanOffset.height
+            translationX: transform.panOffset.width,
+            y: transform.panOffset.height
         )
             .scaledBy(x: clampedScale, y: clampedScale)
     }
 
     @MainActor
     private func startViewportDecelerationIfNeeded(velocity: CGPoint) -> Bool {
-        let clampedStart = clampedPan(currentPanOffset)
+        let startTransform = viewportTransform(
+            zoomScale: currentZoomScale,
+            panOffset: currentPanOffset
+        )
+        let clampedStart = startTransform.panOffset
         guard clampedStart == currentPanOffset else {
             currentPanOffset = clampedStart
-            applyViewportTransformToMetalView()
+            applyViewportTransformToMetalView(using: startTransform)
             queueViewportStatePublish(
                 zoomScale: currentZoomScale,
                 panOffset: currentPanOffset,
@@ -1566,12 +1575,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             width: currentPanOffset.width + viewportDecelerationVelocity.x * deltaTime,
             height: currentPanOffset.height + viewportDecelerationVelocity.y * deltaTime
         )
-        let nextPanOffset = clampedPan(proposed)
+        let nextTransform = viewportTransform(
+            zoomScale: currentZoomScale,
+            panOffset: proposed
+        )
+        let nextPanOffset = nextTransform.panOffset
         let movedX = abs(nextPanOffset.width - currentPanOffset.width) > 0.01
         let movedY = abs(nextPanOffset.height - currentPanOffset.height) > 0.01
 
         currentPanOffset = nextPanOffset
-        applyViewportTransformToMetalView()
+        applyViewportTransformToMetalView(using: nextTransform)
         queueViewportStatePublish(
             zoomScale: currentZoomScale,
             panOffset: currentPanOffset,
@@ -1792,13 +1805,23 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
 
         let updated = result.transform
-        let zoomDidChange = abs(updated.zoomScale - currentZoomScale) > 0.0001
-        let panDidChange = updated.panOffset != currentPanOffset
+        let nextZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
+        let nextTransform: ViewportTransform
+        if abs(nextZoomScale - updated.zoomScale) <= 0.0001 {
+            nextTransform = updated
+        } else {
+            nextTransform = viewportTransform(
+                zoomScale: nextZoomScale,
+                panOffset: updated.panOffset
+            )
+        }
+        let zoomDidChange = abs(nextTransform.zoomScale - currentZoomScale) > 0.0001
+        let panDidChange = nextTransform.panOffset != currentPanOffset
         currentTrackpadCursor = result.cursor
-        currentZoomScale = min(max(updated.zoomScale, currentMinimumZoomScale), Self.maxZoomScale)
-        currentPanOffset = clampedPan(updated.panOffset)
+        currentZoomScale = nextTransform.zoomScale
+        currentPanOffset = nextTransform.panOffset
         if zoomDidChange || panDidChange {
-            applyViewportTransformToMetalView()
+            applyViewportTransformToMetalView(using: nextTransform)
             queueViewportStatePublish(
                 zoomScale: currentZoomScale,
                 panOffset: currentPanOffset,
@@ -1814,7 +1837,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         return result
     }
 
-    private func updateHotCursorOverlay() {
+    private func updateHotCursorOverlay(using transform: ViewportTransform? = nil) {
         guard pointerControlMode.isTrackpad,
               currentTrackpadCursor.isVisible,
               currentFramebufferSize.width > 0,
@@ -1822,11 +1845,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
               bounds.width > 0,
               bounds.height > 0
         else {
-            hotCursorView.isHidden = true
+            if !hotCursorView.isHidden {
+                hotCursorView.isHidden = true
+            }
             return
         }
 
-        let transform = ViewportTransform(
+        let transform = transform ?? ViewportTransform(
             framebufferSize: currentFramebufferSize,
             viewSize: bounds.size,
             zoomScale: currentZoomScale,
