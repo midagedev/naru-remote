@@ -564,6 +564,19 @@ launch with `developmentTeamCertificateMatchStatus=matched`,
 `localProvisioningProfileInventoryStatus=none`, `xcode-account-missing`, and
 `ios-provisioning-profile-missing`. Treat this as Xcode account/profile setup,
 not a helper-video runtime failure.
+The provisioning doctor follow-up artifact is
+`artifacts/benchmarks/2026-06-14-physical-provisioning-doctor-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh physical-provisioning-doctor` when a
+profile appears to exist in Xcode GUI but CLI preflight still reports missing
+account/profile labels. The doctor separates project signing settings, caller
+versus launchctl team-env presence, local certificate/team match, standard
+installed profile inventory, and optional candidate-profile app/team/device
+match labels without printing profile paths, UUIDs, team IDs, device IDs, or
+bundle identifiers. Current iPhone and iPad doctor runs both report connected
+devices, matched local certificate/team, expected app target, but zero
+CLI-visible installed provisioning profiles, so the next setup action is to
+download/install a matching development profile or point
+`NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH` at the candidate profile file.
 The same artifact now also records a connected iPad `physical-ipad-launch-smoke`
 run. That `devicectl` path installs the existing app bundle, foreground
 launches `com.naruremote.app`, and verifies the process is still running after
