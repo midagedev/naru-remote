@@ -109,6 +109,8 @@ Launchctl variables used when present:
   NARU_HELPER_VIDEO_PROFILE_FINGERPRINT
   NARU_HELPER_VIDEO_SUSTAINED_FRAME_COUNT
   NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES
+  NARU_HELPER_VIDEO_DISPLAY_WAKE_SECONDS
+  NARU_HELPER_VIDEO_DISPLAY_WAKE_SETTLE_SECONDS
   NARU_HELPER_DEV_APP_ROOT
   NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
   NARU_HELPER_SCREEN_RECORDING_WATCH_MAX_POLLS
@@ -8617,6 +8619,62 @@ helper_video_app_benchmark_frame_count() {
   fi
 }
 
+helper_video_display_wake_seconds() {
+  local raw_value="${NARU_HELPER_VIDEO_DISPLAY_WAKE_SECONDS:-}"
+  local default_value=90
+  local minimum_value=5
+  local maximum_value=600
+
+  if [[ -z "$raw_value" || ! "$raw_value" =~ ^[0-9]+$ ]]; then
+    printf '%d' "$default_value"
+    return
+  fi
+
+  if ((raw_value < minimum_value)); then
+    printf '%d' "$minimum_value"
+  elif ((raw_value > maximum_value)); then
+    printf '%d' "$maximum_value"
+  else
+    printf '%d' "$raw_value"
+  fi
+}
+
+helper_video_display_wake_settle_seconds() {
+  local raw_value="${NARU_HELPER_VIDEO_DISPLAY_WAKE_SETTLE_SECONDS:-}"
+  local default_value="1"
+
+  if [[ -z "$raw_value" || ! "$raw_value" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf '%s' "$default_value"
+    return
+  fi
+  printf '%s' "$raw_value"
+}
+
+start_helper_video_display_wake() {
+  HELPER_VIDEO_DISPLAY_WAKE_PID=""
+  if ! command -v caffeinate >/dev/null 2>&1; then
+    return
+  fi
+
+  local wake_seconds
+  wake_seconds="$(helper_video_display_wake_seconds)"
+  caffeinate -dimsu -t "$wake_seconds" >/dev/null 2>&1 &
+  HELPER_VIDEO_DISPLAY_WAKE_PID=$!
+
+  local settle_seconds
+  settle_seconds="$(helper_video_display_wake_settle_seconds)"
+  sleep "$settle_seconds"
+}
+
+stop_helper_video_display_wake() {
+  local wake_pid="${HELPER_VIDEO_DISPLAY_WAKE_PID:-}"
+  HELPER_VIDEO_DISPLAY_WAKE_PID=""
+  if [[ -n "$wake_pid" ]]; then
+    kill "$wake_pid" >/dev/null 2>&1 || true
+    wait "$wake_pid" >/dev/null 2>&1 || true
+  fi
+}
+
 print_helper_video_live_gate_report() {
   local watch_file
   local readiness_file
@@ -8878,11 +8936,7 @@ print_helper_readiness_sweep_report() {
   json_step_or_fixed_failure \
     externalScreenCaptureKitProbe \
     benchmarkStep.externalScreenCaptureKitProbe.failed \
-    swift run --quiet VNCLiveBenchmark \
-    --helper-video-probe-only \
-    --visual-transport helper-video \
-    --helper-video-probe external-helper-screen-capturekit-tcp \
-    --json
+    run_helper_screen_probe_command
   printf ',\n'
   printf '  "sustainedScreenProbe": '
   json_step_or_fixed_failure \
@@ -8892,12 +8946,46 @@ print_helper_readiness_sweep_report() {
   printf '\n}\n'
 }
 
+run_helper_screen_probe_command() {
+  swift build --quiet --product VNCLiveStimulusWindow
+  local stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  local stimulus_duration="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_DURATION_SECONDS:-8}"
+  local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
+  local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
+
+  start_helper_video_display_wake
+  "$stimulus_executable" \
+    --titled-animation-window \
+    --duration "$stimulus_duration" \
+    --frame-interval "$stimulus_frame_interval" \
+    --width 960 \
+    --height 720 \
+    --x 24 \
+    --y 24 \
+    >/dev/null 2>&1 &
+  local stimulus_pid=$!
+  sleep "$stimulus_warmup"
+
+  local command_status=0
+  run_benchmark_with_extra \
+    --helper-video-probe-only \
+    --visual-transport helper-video \
+    --helper-video-probe external-helper-screen-capturekit-tcp \
+    --json || command_status=$?
+
+  kill "$stimulus_pid" >/dev/null 2>&1 || true
+  wait "$stimulus_pid" >/dev/null 2>&1 || true
+  stop_helper_video_display_wake
+  return "$command_status"
+}
+
 run_helper_sustained_screen_probe_command() {
   swift build --quiet --product VNCLiveStimulusWindow
   local stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
   local stimulus_duration="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_DURATION_SECONDS:-8}"
   local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
   local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
+  start_helper_video_display_wake
   "$stimulus_executable" \
     --titled-animation-window \
     --duration "$stimulus_duration" \
@@ -8919,6 +9007,7 @@ run_helper_sustained_screen_probe_command() {
 
   kill "$stimulus_pid" >/dev/null 2>&1 || true
   wait "$stimulus_pid" >/dev/null 2>&1 || true
+  stop_helper_video_display_wake
   return "$status"
 }
 
@@ -8931,12 +9020,17 @@ print_helper_screen_app_bootstrap_benchmark_report() {
   local issue_codes=()
   local setup_actions=()
 
-  if NARU_RUN_SIM_BENCHMARKS=1 \
+  start_helper_video_display_wake
+  local benchmark_status=0
+  NARU_RUN_SIM_BENCHMARKS=1 \
     NARU_SIM_BENCHMARK_ITERATIONS=1 \
     NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES="$requested_frame_count" \
     swift test --filter \
       HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke \
-      >"$output_file" 2>&1; then
+      >"$output_file" 2>&1 || benchmark_status=$?
+  stop_helper_video_display_wake
+
+  if [[ "$benchmark_status" == "0" ]]; then
     if grep -q "Test skipped -" "$output_file"; then
       result_status="skipped"
       if grep -q "Set NARU_HELPER_EXECUTABLE\\|Configured external helper executable is unavailable" "$output_file"; then
@@ -9942,11 +10036,7 @@ case "$mode" in
   helper-screen-probe)
     import_helper_env
     cd "$repo_root"
-    run_benchmark_with_extra \
-      --helper-video-probe-only \
-      --visual-transport helper-video \
-      --helper-video-probe external-helper-screen-capturekit-tcp \
-      --json
+    run_helper_screen_probe_command
     ;;
   helper-sustained-screen-probe)
     import_helper_env
