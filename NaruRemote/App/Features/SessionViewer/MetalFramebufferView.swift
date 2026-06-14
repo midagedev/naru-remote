@@ -546,6 +546,11 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private weak var metalView: MTKView?
     private weak var coordinator: MetalFramebufferView.Coordinator?
     private let hotCursorView = UIImageView()
+    private static let fallbackHotCursorImage = UIImage(systemName: "cursorarrow")
+    private static let fallbackHotCursorBounds = CGRect(
+        origin: .zero,
+        size: CGSize(width: 22, height: 22)
+    )
 
     /// Closure invoked on a tap inside the host view.  Reassigned by
     /// the SwiftUI representable on every `updateUIView` so the model
@@ -1843,19 +1848,44 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 x: anchor.x - CGFloat(cursor.hotSpotX) * visualScale,
                 y: anchor.y - CGFloat(cursor.hotSpotY) * visualScale
             )
-            hotCursorView.image = image
-            hotCursorView.bounds = CGRect(origin: .zero, size: size)
-            hotCursorView.center = CGPoint(
+            let nextBounds = CGRect(origin: .zero, size: size)
+            let nextCenter = CGPoint(
                 x: origin.x + size.width / 2,
                 y: origin.y + size.height / 2
             )
+            if hotCursorView.image !== image {
+                hotCursorView.image = image
+            }
+            if hotCursorView.bounds != nextBounds {
+                hotCursorView.bounds = nextBounds
+            }
+            if hotCursorView.center != nextCenter {
+                hotCursorView.center = nextCenter
+            }
         } else {
-            hotCursorView.image = UIImage(systemName: "cursorarrow")
-            hotCursorView.bounds = CGRect(origin: .zero, size: CGSize(width: 22, height: 22))
-            hotCursorView.center = anchor
+            if hotCursorView.image !== Self.fallbackHotCursorImage {
+                hotCursorView.image = Self.fallbackHotCursorImage
+            }
+            if hotCursorView.bounds != Self.fallbackHotCursorBounds {
+                hotCursorView.bounds = Self.fallbackHotCursorBounds
+            }
+            if hotCursorView.center != anchor {
+                hotCursorView.center = anchor
+            }
         }
 
-        hotCursorView.isHidden = false
+        if hotCursorView.isHidden {
+            hotCursorView.isHidden = false
+        }
+        ensureHotCursorViewOnTop()
+    }
+
+    private func ensureHotCursorViewOnTop() {
+        guard hotCursorView.superview === self,
+              subviews.last !== hotCursorView
+        else {
+            return
+        }
         bringSubviewToFront(hotCursorView)
     }
 
