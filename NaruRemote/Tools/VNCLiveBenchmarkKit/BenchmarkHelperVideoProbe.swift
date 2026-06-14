@@ -614,7 +614,7 @@ enum BenchmarkHelperVideoProbeTiming {
     }
 
     static func clientTimeout(forExternalHelperFrameCount frameCount: Int) -> TimeInterval {
-        max(clientTimeout, Double(clampedExternalHelperFrameCount(frameCount)) / 15.0 + 2.0)
+        max(clientTimeout, Double(clampedExternalHelperFrameCount(frameCount)) / 15.0 + 4.0)
     }
 
     static func startStreamTimeout(forExternalHelperFrameCount frameCount: Int) -> TimeInterval {
