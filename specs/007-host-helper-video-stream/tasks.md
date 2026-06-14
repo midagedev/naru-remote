@@ -346,6 +346,30 @@ without unsafe report fields.
   this execution context. Covered by a live iPad preflight run and
   `physical-ipad-device-preflight-self-test`, which pins `No Accounts` /
   `No profiles for` xcodebuild patterns to fixed safe labels. **Done.**
+- [x] T030I [US1] Add fixed physical signing inventory labels so repeated
+  physical iPhone signing blockers can distinguish team/certificate mismatch
+  from missing local provisioning inventory without printing team IDs,
+  certificate names, profile filenames, profile UUIDs, account IDs, raw
+  xcodebuild logs, or device identifiers. `physical-device-preflight`,
+  `physical-ipad-device-preflight`, `helper-video-live-gate` summary, and
+  `remote-desktop-10fps-readiness` summary now report
+  `developmentTeamCertificateMatchStatus` and
+  `localProvisioningProfileInventoryStatus`. Current live helper-video gate
+  reports helper-video probes and app bootstrap passing, then blocks only on
+  physical iPhone signing with `developmentTeamCertificateMatchStatus=matched`,
+  `localProvisioningProfileInventoryStatus=none`, `xcode-account-missing`, and
+  `ios-provisioning-profile-missing`. Covered by self-tests and live preflight
+  / helper-video gate evidence. **Done.**
+- [x] T030J [US1] Add a connected iPad launch-smoke gate that does not rely on
+  XCTest application lifetime: `physical-ipad-launch-smoke` installs the
+  existing `NaruRemote.app`, foreground-launches `com.naruremote.app`, and
+  verifies the launched process remains running after a short observation
+  window. The gate also records fixed lock/backlight labels and blocks with
+  `unlock-physical-ipad` before install/launch if the iPad is locked or the
+  screen is inactive. Current connected-iPad evidence reports connected,
+  unlocked, active screen, app bundle present, install passed, launch passed,
+  launch PID present, and running passed, so short XCTest completion should not
+  be triaged as an app launch failure. **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current
