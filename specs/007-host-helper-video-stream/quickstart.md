@@ -255,6 +255,30 @@ and explicit-environment branches without invoking `security` or `xcodebuild`.
 `physical-signing-setup-summary-self-test` verifies the account-blocked,
 profile-blocked, and ready action labels without invoking `security` or
 `xcodebuild`.
+`physical-provisioning-doctor` is the focused follow-up when the operator
+believes a provisioning profile exists but `physical-device-preflight` still
+reports `xcode-account-missing` or `ios-provisioning-profile-missing`.
+It reports only fixed labels for project signing settings, caller versus
+launchctl team-env presence, local certificate/team match, the standard
+installed provisioning inventory, and optional candidate-profile app/team/device
+matching. It must not print profile paths, filenames, UUIDs, team IDs, device
+IDs, bundle identifiers, account IDs, raw xcodebuild logs, credentials, helper
+paths, or live target values.
+
+```bash
+scripts/run-naru-live-benchmark.sh physical-provisioning-doctor
+NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad \
+  scripts/run-naru-live-benchmark.sh physical-provisioning-doctor
+NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH=/path/to/profile.mobileprovision \
+  scripts/run-naru-live-benchmark.sh physical-provisioning-doctor
+scripts/run-naru-live-benchmark.sh physical-provisioning-doctor-self-test
+```
+
+Use the candidate profile path only to diagnose a profile file that is not
+installed in the standard provisioning profile directory. A matching candidate
+routes to `install-provisioning-profile-into-standard-directory`; a mismatched
+candidate routes to the fixed app/team/device/expiration setup label instead of
+asking the operator to repeat a full physical UI run.
 `physical-iphone-helper-video-gate` is the standard handoff from helper-video
 Mac-side readiness into physical iPhone evidence. It imports
 `NARU_PHYSICAL_E2E_*` values, falling back to the launchctl-backed

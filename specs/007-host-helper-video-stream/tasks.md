@@ -380,6 +380,19 @@ without unsafe report fields.
   iPad evidence verifies install/launch/running but reports marker missing
   because CLI signing/provisioning still prevents installing a fresh physical
   app bundle with this hook. **Done.**
+- [x] T030L [US1] Add a privacy-safe `physical-provisioning-doctor` so
+  "Xcode has a profile" versus "non-interactive xcodebuild can see a matching
+  installed profile" is diagnosed without printing profile paths, filenames,
+  UUIDs, team IDs, device IDs, bundle identifiers, account IDs, raw xcodebuild
+  logs, or credentials. The doctor reports project signing settings, caller
+  versus launchctl team-env presence, local Apple Development identity bucket,
+  standard provisioning inventory, optional candidate-profile match labels, and
+  a single recommended action. Current iPhone and iPad evidence both report
+  connected devices, matched local certificate/team, expected app bundle, but
+  missing project team/profile specifier and zero standard installed
+  provisioning profiles, so the next action is to download/install a development
+  profile visible to CLI or point the doctor at the candidate profile path.
+  **Done.**
 - [x] T031C [US2] Add a sustained external synthetic H.264 helper-video probe,
   frame-budget-aware helper timeouts, deterministic synthetic VideoToolbox
   batch encoding, and fixed external-helper transport issue labels. Current

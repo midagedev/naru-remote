@@ -62,6 +62,8 @@ Modes:
   physical-ipad-launch-smoke-self-test Fast regression for iPad launch-smoke JSON parsing.
   physical-ipad-state-marker-smoke Launch iPad app with safe seed env and verify app-container marker.
   physical-ipad-state-marker-smoke-self-test Fast regression for iPad state-marker labels.
+  physical-provisioning-doctor Safe local inventory doctor for physical iOS provisioning confusion.
+  physical-provisioning-doctor-self-test Fast regression for provisioning doctor labels.
   physical-signing-setup-summary-self-test Fast regression for physical signing action labels.
   physical-team-inference-self-test Safe local regression for team inference labels.
   physical-device-id-resolution-self-test Safe local regression for physical device id mapping labels.
@@ -82,6 +84,7 @@ Launchctl variables used when present:
   NARU_PHYSICAL_IPAD_APP_PATH
   NARU_PHYSICAL_IPAD_LAUNCH_OBSERVE_SECONDS
   NARU_PHYSICAL_IPAD_STATE_MARKER_FILENAME
+  NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH
   NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_PHYSICAL_E2E_HOST
@@ -3656,6 +3659,641 @@ physical_team_inference_self_test() {
   rm -rf "$profile_tmpdir"
 
   printf '{"schemaVersion":1,"mode":"physical-team-inference-self-test","status":"passed"}\n'
+}
+
+physical_provisioning_doctor_python() {
+  python3 - <<'PY'
+import glob
+import json
+import os
+import plistlib
+import re
+import subprocess
+import time
+from pathlib import Path
+
+EXPECTED_APP_BUNDLE = "com.naruremote.app"
+
+
+def run_text(args):
+    try:
+        return subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return None
+
+
+def run_bytes(args):
+    try:
+        return subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except Exception:
+        return None
+
+
+def count_bucket(count):
+    if count <= 0:
+        return "zero"
+    if count == 1:
+        return "one"
+    return "multiple"
+
+
+def label_bool(value):
+    if value is True:
+        return "matched"
+    if value is False:
+        return "notMatched"
+    return "unknown"
+
+
+def load_launchctl_env(name):
+    proc = run_text(["launchctl", "getenv", name])
+    if proc is None or proc.returncode != 0:
+        return None
+    value = proc.stdout.strip()
+    return value or None
+
+
+def project_settings():
+    if os.environ.get("NARU_PROVISIONING_DOCTOR_FIXTURE") == "1":
+        return {
+            "available": True,
+            "bundle": EXPECTED_APP_BUNDLE,
+            "developmentTeam": os.environ.get("NARU_FIXTURE_PROJECT_TEAM", ""),
+            "codeSignStyle": os.environ.get("NARU_FIXTURE_CODE_SIGN_STYLE", ""),
+            "profileSpecifier": os.environ.get("NARU_FIXTURE_PROFILE_SPECIFIER", ""),
+        }
+
+    proc = run_text([
+        "xcodebuild",
+        "-project",
+        "NaruRemote.xcodeproj",
+        "-scheme",
+        "NaruRemote",
+        "-showBuildSettings",
+        "-json",
+    ])
+    if proc is None or proc.returncode != 0:
+        return {"available": False}
+    try:
+        payload = json.loads(proc.stdout)
+    except Exception:
+        return {"available": False}
+
+    selected = None
+    for item in payload:
+        settings = item.get("buildSettings", {})
+        if settings.get("PRODUCT_BUNDLE_IDENTIFIER") == EXPECTED_APP_BUNDLE:
+            selected = settings
+            break
+    if selected is None:
+        for item in payload:
+            if item.get("target") == "NaruRemote":
+                selected = item.get("buildSettings", {})
+                break
+    selected = selected or {}
+    return {
+        "available": True,
+        "bundle": selected.get("PRODUCT_BUNDLE_IDENTIFIER", ""),
+        "developmentTeam": selected.get("DEVELOPMENT_TEAM", ""),
+        "codeSignStyle": selected.get("CODE_SIGN_STYLE", ""),
+        "profileSpecifier": selected.get("PROVISIONING_PROFILE_SPECIFIER", ""),
+    }
+
+
+def apple_development_team_ids():
+    if os.environ.get("NARU_PROVISIONING_DOCTOR_FIXTURE") == "1":
+        raw = os.environ.get("NARU_FIXTURE_IDENTITY_TEAMS", "")
+        return [item for item in raw.splitlines() if item]
+
+    proc = run_text(["security", "find-identity", "-v", "-p", "codesigning"])
+    if proc is None or proc.returncode != 0:
+        return None
+    team_ids = []
+    for line in proc.stdout.splitlines():
+        if "Apple Development" not in line:
+            continue
+        match = re.search(r"\(([A-Z0-9]{10})\)", line)
+        if match:
+            team_ids.append(match.group(1))
+    return sorted(set(team_ids))
+
+
+def selected_device_udid(target_device_class):
+    if os.environ.get("NARU_PROVISIONING_DOCTOR_FIXTURE") == "1":
+        status = os.environ.get("NARU_FIXTURE_DEVICE_STATUS", "present")
+        return ("FIXTURE-DEVICE", status) if status == "present" else (None, status)
+
+    if target_device_class == "iPad":
+        env_name = "NARU_PHYSICAL_IPAD_DEVICE_ID"
+        filter_value = "hardwareProperties.deviceType == 'iPad'"
+    else:
+        env_name = "NARU_PHYSICAL_IOS_DEVICE_ID"
+        filter_value = "hardwareProperties.deviceType == 'iPhone'"
+
+    requested = os.environ.get(env_name, "")
+    output_path = None
+    try:
+        import tempfile
+
+        fd, output_path = tempfile.mkstemp(prefix="naru-provisioning-doctor-devices.")
+        os.close(fd)
+        proc = run_text([
+            "xcrun",
+            "devicectl",
+            "list",
+            "devices",
+            "--filter",
+            filter_value,
+            "--json-output",
+            output_path,
+        ])
+        if proc is None or proc.returncode != 0:
+            return (None, "unavailable")
+        with open(output_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return (None, "unavailable")
+    finally:
+        if output_path:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
+
+    available = []
+    unavailable = []
+    for device in payload.get("result", {}).get("devices", []):
+        hardware = device.get("hardwareProperties", {})
+        connection = device.get("connectionProperties", {})
+        properties = device.get("deviceProperties", {})
+        identifier = hardware.get("udid") or device.get("identifier") or ""
+        is_unavailable = (
+            (connection.get("tunnelState") or "available") == "unavailable"
+            or properties.get("ddiServicesAvailable", True) is False
+        )
+        if is_unavailable:
+            unavailable.append(identifier)
+        else:
+            available.append(identifier)
+
+    if requested:
+        if requested in available:
+            return (requested, "present")
+        if requested in unavailable:
+            return (None, "unavailable")
+        return (None, "missing")
+    if len(available) == 1:
+        return (available[0], "present")
+    if len(available) > 1:
+        return (None, "multiple")
+    if unavailable:
+        return (None, "unavailable")
+    return (None, "missing")
+
+
+def profile_from_plist(plist):
+    entitlements = plist.get("Entitlements", {}) or {}
+    app_identifier = entitlements.get("application-identifier", "") or ""
+    bundle = app_identifier.split(".", 1)[1] if "." in app_identifier else app_identifier
+    team_ids = plist.get("TeamIdentifier") or []
+    devices = plist.get("ProvisionedDevices") or []
+    expiration = plist.get("ExpirationDate")
+    expired = None
+    if expiration is not None:
+        try:
+            expired = expiration.timestamp() < time.time()
+        except Exception:
+            expired = None
+    return {
+        "bundle": bundle,
+        "teamIDs": team_ids,
+        "devices": devices,
+        "expired": expired,
+    }
+
+
+def parse_mobileprovision(path):
+    proc = run_bytes(["security", "cms", "-D", "-i", path])
+    if proc is None or proc.returncode != 0:
+        return None
+    try:
+        return profile_from_plist(plistlib.loads(proc.stdout))
+    except Exception:
+        return None
+
+
+def fixture_profiles():
+    fixture = os.environ.get("NARU_FIXTURE_PROFILE_SCENARIO", "none")
+    matching = {
+        "bundle": EXPECTED_APP_BUNDLE,
+        "teamIDs": ["TEAMFIX123"],
+        "devices": ["FIXTURE-DEVICE"],
+        "expired": False,
+    }
+    if fixture == "installed-match":
+        return [matching], None, "notSupplied"
+    if fixture == "candidate-match":
+        return [], matching, "parsed"
+    if fixture == "candidate-device-mismatch":
+        mismatch = dict(matching)
+        mismatch["devices"] = ["OTHER-DEVICE"]
+        return [], mismatch, "parsed"
+    return [], None, "notSupplied"
+
+
+def installed_profiles_and_candidate():
+    if os.environ.get("NARU_PROVISIONING_DOCTOR_FIXTURE") == "1":
+        return fixture_profiles()
+
+    profile_dir = Path.home() / "Library" / "MobileDevice" / "Provisioning Profiles"
+    profiles = []
+    if profile_dir.is_dir():
+        for path in glob.glob(str(profile_dir / "*.mobileprovision")):
+            parsed = parse_mobileprovision(path)
+            if parsed is not None:
+                profiles.append(parsed)
+
+    candidate_path = os.environ.get("NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH", "")
+    candidate = None
+    candidate_status = "notSupplied"
+    if candidate_path:
+        if not os.path.exists(candidate_path):
+            candidate_status = "missing"
+        else:
+            candidate = parse_mobileprovision(candidate_path)
+            candidate_status = "parsed" if candidate is not None else "invalid"
+    return profiles, candidate, candidate_status
+
+
+def bundle_match(profile, bundle):
+    profile_bundle = profile.get("bundle", "")
+    if not bundle or not profile_bundle:
+        return None
+    if profile_bundle == bundle:
+        return True
+    if profile_bundle.endswith(".*"):
+        prefix = profile_bundle[:-1]
+        return bundle.startswith(prefix)
+    return False
+
+
+def exact_or_wildcard_label(profile, bundle):
+    matched = bundle_match(profile, bundle)
+    if matched is None:
+        return "unknown"
+    if not matched:
+        return "notMatched"
+    if profile.get("bundle", "").endswith(".*"):
+        return "wildcard"
+    return "matched"
+
+
+def team_match(profile, team):
+    if not team:
+        return None
+    return team in set(profile.get("teamIDs", []))
+
+
+def device_match(profile, device):
+    if not device:
+        return None
+    return device in set(profile.get("devices", []))
+
+
+def unexpired(profile):
+    return profile.get("expired") is False
+
+
+def first_status(profiles, predicate):
+    if any(predicate(profile) for profile in profiles):
+        return "present"
+    return "missing"
+
+
+def status_for_candidate(candidate, matcher):
+    if candidate is None:
+        return "unknown"
+    return label_bool(matcher(candidate))
+
+
+def append_issue(issues, value):
+    if value not in issues:
+        issues.append(value)
+
+
+def main():
+    target_raw = os.environ.get("NARU_PHYSICAL_IOS_DEVICE_CLASS", "iphone").lower()
+    target_device_class = "iPad" if target_raw == "ipad" else "iPhone"
+    settings = project_settings()
+    team_ids = apple_development_team_ids()
+    device_udid, device_status = selected_device_udid(target_device_class)
+    profiles, candidate, candidate_status = installed_profiles_and_candidate()
+
+    shell_team = os.environ.get("NARU_XCODE_DEVELOPMENT_TEAM") or ""
+    launchctl_team = load_launchctl_env("NARU_XCODE_DEVELOPMENT_TEAM")
+    caller_team_env_status = os.environ.get("NARU_PROVISIONING_DOCTOR_CALLER_TEAM_ENV_STATUS")
+    launchctl_team_env_status = os.environ.get("NARU_PROVISIONING_DOCTOR_LAUNCHCTL_TEAM_ENV_STATUS")
+    team_source_hint = os.environ.get("NARU_PROVISIONING_DOCTOR_TEAM_SOURCE_HINT", "")
+    project_team = settings.get("developmentTeam", "") if settings.get("available") else ""
+    inferred_team = ""
+    if not shell_team and not project_team and team_ids and len(team_ids) == 1:
+        inferred_team = team_ids[0]
+    effective_team = shell_team or project_team or inferred_team
+    if shell_team:
+        effective_team_source = "launchctlEnvironment" if team_source_hint == "launchctlEnvironment" else "environment"
+    elif project_team:
+        effective_team_source = "project"
+    elif inferred_team:
+        effective_team_source = "inferredLocalIdentity"
+    else:
+        effective_team_source = "missing"
+
+    bundle = settings.get("bundle", "") if settings.get("available") else ""
+    project_bundle_status = (
+        "expectedApp"
+        if bundle == EXPECTED_APP_BUNDLE
+        else ("missing" if not bundle else "presentOther")
+    ) if settings.get("available") else "unavailable"
+    code_sign_style = settings.get("codeSignStyle", "") if settings.get("available") else ""
+    code_sign_style_label = (
+        "automatic" if code_sign_style.lower() == "automatic"
+        else "manual" if code_sign_style.lower() == "manual"
+        else "missing" if not code_sign_style
+        else "other"
+    ) if settings.get("available") else "unavailable"
+
+    app_profiles = [
+        profile for profile in profiles
+        if bundle_match(profile, EXPECTED_APP_BUNDLE) and unexpired(profile)
+    ]
+    app_team_profiles = [
+        profile for profile in app_profiles
+        if team_match(profile, effective_team)
+    ]
+    app_device_profiles = [
+        profile for profile in app_profiles
+        if device_match(profile, device_udid)
+    ]
+    app_team_device_profiles = [
+        profile for profile in app_profiles
+        if team_match(profile, effective_team) and device_match(profile, device_udid)
+    ]
+
+    candidate_bundle_label = exact_or_wildcard_label(candidate, EXPECTED_APP_BUNDLE) if candidate else "unknown"
+    candidate_team_label = status_for_candidate(candidate, lambda profile: team_match(profile, effective_team))
+    candidate_device_label = status_for_candidate(candidate, lambda profile: device_match(profile, device_udid))
+    candidate_expired_label = (
+        "true" if candidate and candidate.get("expired") is True
+        else "false" if candidate and candidate.get("expired") is False
+        else "unknown"
+    )
+
+    issues = []
+    actions = []
+    standard_dir = Path.home() / "Library" / "MobileDevice" / "Provisioning Profiles"
+    standard_dir_status = "present" if standard_dir.is_dir() else "missing"
+    if project_bundle_status != "expectedApp":
+        append_issue(issues, "project-app-bundle-unexpected")
+        actions.append("inspect-xcode-project-settings")
+    if not shell_team and not project_team:
+        append_issue(issues, "ios-development-team-missing")
+        actions.append("set-xcode-development-team-or-export-env")
+    if team_ids is None:
+        local_identity_bucket = "unavailable"
+    else:
+        local_identity_bucket = count_bucket(len(team_ids))
+        if not team_ids:
+            append_issue(issues, "ios-development-certificate-missing")
+            actions.append("install-ios-development-certificate")
+    if effective_team and team_ids is not None and effective_team not in team_ids:
+        append_issue(issues, "ios-development-team-certificate-mismatch")
+        actions.append("set-xcode-development-team")
+    if not profiles:
+        append_issue(issues, "local-ios-provisioning-profile-inventory-empty")
+        actions.append("download-or-install-ios-development-profile")
+    if not app_profiles:
+        append_issue(issues, "ios-provisioning-profile-missing")
+        actions.append("create-ios-development-provisioning-profile")
+    elif effective_team and not app_team_profiles:
+        append_issue(issues, "ios-provisioning-profile-team-mismatch")
+        actions.append("create-profile-for-selected-development-team")
+    elif device_status == "present" and not app_device_profiles:
+        append_issue(issues, "ios-provisioning-profile-device-mismatch")
+        actions.append("add-device-to-development-profile")
+
+    if candidate_status in {"missing", "invalid"}:
+        append_issue(issues, f"candidate-provisioning-profile-{candidate_status}")
+        actions.append("inspect-candidate-provisioning-profile")
+    elif candidate_status == "parsed":
+        if candidate_bundle_label == "notMatched" or candidate_team_label == "notMatched":
+            append_issue(issues, "candidate-provisioning-profile-target-mismatch")
+            actions.append("select-matching-ios-development-profile")
+        elif candidate_device_label == "notMatched":
+            append_issue(issues, "candidate-provisioning-profile-device-mismatch")
+            actions.append("add-device-to-candidate-profile")
+        elif candidate_expired_label == "true":
+            append_issue(issues, "candidate-provisioning-profile-expired")
+            actions.append("refresh-ios-development-profile")
+        elif not app_team_device_profiles:
+            actions.append("install-provisioning-profile-into-standard-directory")
+
+    if app_team_device_profiles:
+        diagnosis_label = "matchingProfileInstalled"
+        recommended_action = "rerun-physical-device-preflight"
+    elif candidate_status == "parsed" and candidate_bundle_label in {"matched", "wildcard"} and candidate_team_label == "matched" and candidate_device_label == "matched" and candidate_expired_label == "false":
+        diagnosis_label = "candidateProfileMatchesButNotInstalled"
+        recommended_action = "install-provisioning-profile-into-standard-directory"
+    elif candidate_status == "parsed" and (
+        candidate_bundle_label == "notMatched"
+        or candidate_team_label == "notMatched"
+        or candidate_device_label == "notMatched"
+        or candidate_expired_label == "true"
+    ):
+        diagnosis_label = "candidateProfileDoesNotMatchTarget"
+        recommended_action = "select-matching-ios-development-profile"
+    elif not profiles:
+        diagnosis_label = "localProvisioningInventoryEmpty"
+        recommended_action = "download-or-install-ios-development-profile"
+    elif not app_profiles:
+        diagnosis_label = "noProfileForAppBundle"
+        recommended_action = "create-ios-development-provisioning-profile"
+    elif effective_team and not app_team_profiles:
+        diagnosis_label = "noProfileForSelectedTeam"
+        recommended_action = "create-profile-for-selected-development-team"
+    elif device_status != "present":
+        diagnosis_label = "deviceUnavailableForProfileMatch"
+        recommended_action = "connect-and-unlock-target-device"
+    elif not app_device_profiles:
+        diagnosis_label = "deviceNotInMatchingProfile"
+        recommended_action = "add-device-to-development-profile"
+    else:
+        diagnosis_label = "inspectXcodeSigning"
+        recommended_action = "inspect-xcode-physical-build"
+
+    if recommended_action not in actions:
+        actions.insert(0, recommended_action)
+
+    report = {
+        "schemaVersion": 1,
+        "mode": "physical-provisioning-doctor",
+        "targetDeviceClass": target_device_class,
+        "targetDeviceStatus": device_status,
+        "projectBuildSettingsStatus": "passed" if settings.get("available") else "failed",
+        "projectBundleIdentifierStatus": project_bundle_status,
+        "projectDevelopmentTeamStatus": "present" if project_team else "missing",
+        "projectCodeSignStyle": code_sign_style_label,
+        "projectProvisioningProfileSpecifierStatus": "present" if settings.get("profileSpecifier") else "missing",
+        "shellTeamEnvStatus": caller_team_env_status or ("present" if shell_team else "missing"),
+        "currentProcessTeamEnvStatus": "present" if shell_team else "missing",
+        "launchctlTeamEnvStatus": launchctl_team_env_status or ("present" if launchctl_team else "missing"),
+        "effectiveDevelopmentTeamSource": effective_team_source,
+        "localAppleDevelopmentIdentityCountBucket": local_identity_bucket,
+        "effectiveTeamCertificateMatchStatus": (
+            "matched" if effective_team and team_ids and effective_team in team_ids
+            else "notMatched" if effective_team and team_ids is not None
+            else "notSupplied" if not effective_team
+            else "unknown"
+        ),
+        "standardProvisioningDirectoryStatus": standard_dir_status,
+        "installedProvisioningProfileCountBucket": count_bucket(len(profiles)),
+        "appBundleMatchingProfileCountBucket": count_bucket(len(app_profiles)),
+        "appTeamMatchingProfileStatus": first_status(app_profiles, lambda profile: team_match(profile, effective_team)) if effective_team else "unknown",
+        "appDeviceMatchingProfileStatus": first_status(app_profiles, lambda profile: device_match(profile, device_udid)) if device_status == "present" else "unknown",
+        "appTeamDeviceMatchingProfileStatus": "present" if app_team_device_profiles else "missing",
+        "candidateProfileStatus": candidate_status,
+        "candidateProfileBundleMatchStatus": candidate_bundle_label,
+        "candidateProfileTeamMatchStatus": candidate_team_label,
+        "candidateProfileDeviceMatchStatus": candidate_device_label,
+        "candidateProfileExpiredStatus": candidate_expired_label,
+        "diagnosisLabel": diagnosis_label,
+        "recommendedAction": recommended_action,
+        "issueCodes": issues,
+        "setupActionLabels": list(dict.fromkeys(actions)),
+    }
+    print(json.dumps(report, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
+physical_provisioning_doctor() {
+  reject_extra_args
+  local caller_team_env_status="missing"
+  local launchctl_team_env_status="missing"
+  local launchctl_team_value=""
+  local team_source_hint="environment"
+  if [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+    caller_team_env_status="present"
+  else
+    launchctl_team_value="$(launchctl_env NARU_XCODE_DEVELOPMENT_TEAM)"
+    if [[ -n "$launchctl_team_value" ]]; then
+      launchctl_team_env_status="present"
+      team_source_hint="launchctlEnvironment"
+    fi
+  fi
+  export NARU_PROVISIONING_DOCTOR_CALLER_TEAM_ENV_STATUS="$caller_team_env_status"
+  export NARU_PROVISIONING_DOCTOR_LAUNCHCTL_TEAM_ENV_STATUS="$launchctl_team_env_status"
+  export NARU_PROVISIONING_DOCTOR_TEAM_SOURCE_HINT="$team_source_hint"
+  import_env NARU_PHYSICAL_IOS_DEVICE_CLASS optional
+  import_env NARU_PHYSICAL_IOS_DEVICE_ID optional
+  import_env NARU_PHYSICAL_IPAD_DEVICE_ID optional
+  import_env NARU_XCODE_DEVELOPMENT_TEAM optional
+  import_env NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH optional
+  cd "$repo_root"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-provisioning-doctor","status":"skipped","issueCodes":["python3-unavailable"]}\n'
+    return
+  fi
+
+  physical_provisioning_doctor_python
+}
+
+physical_provisioning_doctor_self_test() {
+  reject_extra_args
+
+  if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-provisioning-doctor-self-test","status":"skipped","issueCodes":["python3-or-jq-unavailable"]}\n'
+    return
+  fi
+
+  local report_file
+  local failure_code=""
+  report_file="$(mktemp "${TMPDIR:-/tmp}/naru-provisioning-doctor-self-test.XXXXXX")"
+
+  NARU_PROVISIONING_DOCTOR_FIXTURE=1 \
+    NARU_FIXTURE_IDENTITY_TEAMS="TEAMFIX123" \
+    NARU_XCODE_DEVELOPMENT_TEAM="TEAMFIX123" \
+    NARU_FIXTURE_DEVICE_STATUS="present" \
+    NARU_FIXTURE_PROFILE_SCENARIO="candidate-match" \
+    physical_provisioning_doctor_python >"$report_file"
+  if ! jq -e '
+    .mode == "physical-provisioning-doctor" and
+    .diagnosisLabel == "candidateProfileMatchesButNotInstalled" and
+    .recommendedAction == "install-provisioning-profile-into-standard-directory" and
+    .candidateProfileBundleMatchStatus == "matched" and
+    .candidateProfileTeamMatchStatus == "matched" and
+    .candidateProfileDeviceMatchStatus == "matched" and
+    (.setupActionLabels | index("install-provisioning-profile-into-standard-directory"))
+  ' "$report_file" >/dev/null; then
+    failure_code="candidateMatch"
+  fi
+
+  if [[ -z "$failure_code" ]]; then
+    NARU_PROVISIONING_DOCTOR_FIXTURE=1 \
+      NARU_FIXTURE_IDENTITY_TEAMS="TEAMFIX123" \
+      NARU_XCODE_DEVELOPMENT_TEAM="TEAMFIX123" \
+      NARU_FIXTURE_DEVICE_STATUS="present" \
+      NARU_FIXTURE_PROFILE_SCENARIO="installed-match" \
+      physical_provisioning_doctor_python >"$report_file"
+    if ! jq -e '
+      .diagnosisLabel == "matchingProfileInstalled" and
+      .recommendedAction == "rerun-physical-device-preflight" and
+      .appTeamDeviceMatchingProfileStatus == "present"
+    ' "$report_file" >/dev/null; then
+      failure_code="installedMatch"
+    fi
+  fi
+
+  if [[ -z "$failure_code" ]]; then
+    NARU_PROVISIONING_DOCTOR_FIXTURE=1 \
+      NARU_FIXTURE_IDENTITY_TEAMS="TEAMFIX123" \
+      NARU_XCODE_DEVELOPMENT_TEAM="TEAMFIX123" \
+      NARU_FIXTURE_DEVICE_STATUS="present" \
+      NARU_FIXTURE_PROFILE_SCENARIO="candidate-device-mismatch" \
+      physical_provisioning_doctor_python >"$report_file"
+    if ! jq -e '
+      .diagnosisLabel == "candidateProfileDoesNotMatchTarget" and
+      .candidateProfileDeviceMatchStatus == "notMatched" and
+      (.issueCodes | index("candidate-provisioning-profile-device-mismatch"))
+    ' "$report_file" >/dev/null; then
+      failure_code="candidateDeviceMismatch"
+    fi
+  fi
+
+  rm -f "$report_file"
+
+  if [[ -n "$failure_code" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-provisioning-doctor-self-test","status":"failed","safeFailureCode":'
+    json_string "$failure_code"
+    printf '}\n'
+    exit 1
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-provisioning-doctor-self-test","status":"passed"}\n'
 }
 
 physical_device_id_resolution_self_test() {
@@ -9610,6 +10248,12 @@ case "$mode" in
     ;;
   physical-ipad-state-marker-smoke-self-test)
     physical_ipad_state_marker_smoke_self_test
+    ;;
+  physical-provisioning-doctor)
+    physical_provisioning_doctor
+    ;;
+  physical-provisioning-doctor-self-test)
+    physical_provisioning_doctor_self_test
     ;;
   physical-team-inference-self-test)
     physical_team_inference_self_test
