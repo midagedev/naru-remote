@@ -553,6 +553,24 @@ end before the app opens. The current safe run reports the iPad as connected
 and unlocked, but blocks before app launch with `xcode-account-missing` and
 `ios-provisioning-profile-missing`, so the next action is Xcode account/profile
 setup for the selected iPad rather than runtime UI debugging.
+The signing inventory follow-up artifact is
+`artifacts/benchmarks/2026-06-14-physical-signing-inventory-diagnostics-summary.md`.
+Physical preflight and the live/readiness summaries now include
+`developmentTeamCertificateMatchStatus` and
+`localProvisioningProfileInventoryStatus`. The current live helper-video gate
+has Screen Recording, helper-video probes, sustained ScreenCaptureKit, and app
+bootstrap passing, while the physical iPhone gate remains blocked before app
+launch with `developmentTeamCertificateMatchStatus=matched`,
+`localProvisioningProfileInventoryStatus=none`, `xcode-account-missing`, and
+`ios-provisioning-profile-missing`. Treat this as Xcode account/profile setup,
+not a helper-video runtime failure.
+The same artifact now also records a connected iPad `physical-ipad-launch-smoke`
+run. That `devicectl` path installs the existing app bundle, foreground
+launches `com.naruremote.app`, and verifies the process is still running after
+a short observation window. The current iPad smoke passes install, launch, PID,
+and running checks with the iPad unlocked and screen active. Keep Auto-Lock off
+for longer physical UX/performance runs; a locked or inactive-screen iPad should
+block with `unlock-physical-ipad`, not be triaged as an app launch failure.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.
