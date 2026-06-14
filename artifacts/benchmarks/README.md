@@ -1477,3 +1477,10 @@ post-connect gesture freeze where a stalled pointer write cleared the active
 pointer client and coordinate space, then fixes the boundary so pointer/key
 events return after transport enqueue and pointer-lane timeouts no longer
 permanently disable later gestures in the same session.
+The hot cursor overlay performance artifact is
+`2026-06-14-hot-cursor-overlay-performance-summary.md`; it records a measured
+iPhone simulator improvement for repeated fallback trackpad cursor overlay
+updates. The fix caches the fallback cursor image and skips unchanged UIKit
+image/bounds/front-order work while preserving immediate cursor position
+updates, reducing synthetic hot-path wall/CPU time by about 40% in the focused
+benchmark.

@@ -2678,6 +2678,7 @@ simulator_input_viewport_gate() {
         -scheme NaruRemote \
         -destination "$phone_destination" \
         -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark \
+        -only-testing:NaruRemoteBenchmarkTests/MetalFramebufferHotCursorOverlayBenchmarkTests/testFallbackHotCursorOverlayUpdateBenchmark \
         test \
     >"$phone_benchmark_file"
 
