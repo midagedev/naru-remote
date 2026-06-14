@@ -5598,6 +5598,37 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNil(model.snapshot.latestInjectionAttempt)
     }
 
+    func testFocusedComposeEditingDefersStaleSendFeedbackClearUntilFocusLeaves() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let attempt = TextInjectionAttempt(
+            draftID: UUID(),
+            sessionID: session.id,
+            path: .vncClipboardPaste,
+            status: .unknown,
+            safeMessage: "Paste command sent; remote app confirmation unavailable."
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                composeDraft: ComposeDraft(sessionID: session.id, text: ""),
+                latestInjectionAttempt: attempt
+            )
+        )
+
+        model.setComposeInputEditingActive(true)
+        model.updateComposeDraftText("입")
+
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "입")
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.safeMessage, attempt.safeMessage)
+
+        model.setComposeInputEditingActive(false)
+
+        XCTAssertNil(model.snapshot.latestInjectionAttempt)
+    }
+
     func testDiagnosticExportIncludesComposeSendPreparationWithoutDraftText() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id)

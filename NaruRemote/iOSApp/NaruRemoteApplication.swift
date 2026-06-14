@@ -319,9 +319,26 @@ struct NaruRemoteApplication: App {
             model.togglePointerControlMode()
         }
 
-        let framebufferSize = CGSize(width: framebuffer.width, height: framebuffer.height)
         Task { @MainActor in
-            for index in 0..<300 {
+            for _ in 0..<160 {
+                guard !Task.isCancelled else {
+                    return
+                }
+                if model.isComposeInputEditingActiveForTesting {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(15))
+            }
+            guard !Task.isCancelled,
+                  model.isComposeInputEditingActiveForTesting
+            else {
+                return
+            }
+
+            let framebufferSize = CGSize(width: framebuffer.width, height: framebuffer.height)
+            let stormEndsAt = Date().addingTimeInterval(6)
+            var index = 0
+            while Date() < stormEndsAt {
                 guard !Task.isCancelled else {
                     return
                 }
@@ -340,7 +357,8 @@ struct NaruRemoteApplication: App {
                     ),
                     transform: transform
                 )
-                try? await Task.sleep(for: .milliseconds(8))
+                index += 1
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -372,7 +390,9 @@ struct NaruRemoteApplication: App {
         framebufferFloodTask?.cancel()
         framebufferFloodTask = Task { @MainActor in
             defer { framebufferFloodTask = nil }
-            for index in 0..<1_200 {
+            let floodEndsAt = Date().addingTimeInterval(10)
+            var index = 0
+            while Date() < floodEndsAt {
                 guard !Task.isCancelled else {
                     return
                 }
@@ -383,7 +403,12 @@ struct NaruRemoteApplication: App {
                     changedPixelCount: frame.width * frame.height,
                     serverCursor: nil
                 )
-                try? await Task.sleep(for: .milliseconds(8))
+                index += 1
+                let frameInterval = model.frameApplicationContentFrameMinimumIntervalForTesting
+                let frameDelayNanoseconds = Int64(
+                    (max(frameInterval, 0.008) * 1_000_000_000).rounded(.up)
+                )
+                try? await Task.sleep(for: .nanoseconds(frameDelayNanoseconds))
             }
         }
     }
