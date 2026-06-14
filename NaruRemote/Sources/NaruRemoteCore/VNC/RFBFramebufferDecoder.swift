@@ -145,10 +145,16 @@ public enum RFBFramebufferDecoder {
         let declaredRectangleCount = Int(try reader.readUInt16())
         let hasUnknownCount = declaredRectangleCount == 0xFFFF
 
-        var framebuffer = try baseFramebuffer(
-            serverInit: serverInit,
-            previousFramebuffer: previousFramebuffer
-        )
+        var needsInitialFramebufferMaterialization = previousFramebuffer == nil
+        var framebuffer: RFBRawFramebuffer
+        if let previousFramebuffer {
+            framebuffer = try baseFramebuffer(
+                serverInit: serverInit,
+                previousFramebuffer: previousFramebuffer
+            )
+        } else {
+            framebuffer = RFBRawFramebuffer(width: 0, height: 0)
+        }
         // Current framebuffer dimensions — start from the server init and
         // track DesktopSize reallocations so later rectangles in the same
         // update validate against the new bounds.
@@ -167,6 +173,14 @@ public enum RFBFramebufferDecoder {
         // every ZRLE rectangle in THIS update.
         var activeZlibStream = zlibStream
         var activeTightZlibStreams = tightZlibStreams
+
+        func materializeInitialFramebufferIfNeeded() {
+            guard needsInitialFramebufferMaterialization else {
+                return
+            }
+            framebuffer = RFBRawFramebuffer(width: currentWidth, height: currentHeight)
+            needsInitialFramebufferMaterialization = false
+        }
 
         rectangleLoop: while true {
             if !hasUnknownCount, processed >= declaredRectangleCount {
@@ -197,6 +211,7 @@ public enum RFBFramebufferDecoder {
                     currentWidth: &currentWidth,
                     currentHeight: &currentHeight
                 )
+                needsInitialFramebufferMaterialization = false
                 didResizeDesktop = true
                 dirtyRectangles.append(RFBFrameDamageRect(x: 0, y: 0, width: width, height: height))
                 changedPixelCount += width * height
@@ -210,6 +225,7 @@ public enum RFBFramebufferDecoder {
                     currentWidth: &currentWidth,
                     currentHeight: &currentHeight
                 )
+                needsInitialFramebufferMaterialization = false
                 didResizeDesktop = true
                 dirtyRectangles.append(RFBFrameDamageRect(x: 0, y: 0, width: width, height: height))
                 changedPixelCount += width * height
@@ -235,6 +251,9 @@ public enum RFBFramebufferDecoder {
                 )
 
             case RFBEncoding.raw:
+                if x != 0 || y != 0 || width != currentWidth || height != currentHeight {
+                    materializeInitialFramebufferIfNeeded()
+                }
                 let changed = try decodeRaw(
                     reader: reader,
                     into: &framebuffer,
@@ -242,12 +261,16 @@ public enum RFBFramebufferDecoder {
                     currentWidth: currentWidth, currentHeight: currentHeight,
                     pixelFormat: pixelFormat, bytesPerPixel: bytesPerPixel
                 )
+                if framebuffer.width == currentWidth, framebuffer.height == currentHeight {
+                    needsInitialFramebufferMaterialization = false
+                }
                 if width > 0, height > 0 {
                     dirtyRectangles.append(RFBFrameDamageRect(x: x, y: y, width: width, height: height))
                 }
                 changedPixelCount += changed
 
             case RFBEncoding.copyRect:
+                materializeInitialFramebufferIfNeeded()
                 let changed = try decodeCopyRect(
                     reader: reader,
                     into: &framebuffer,
@@ -260,6 +283,7 @@ public enum RFBFramebufferDecoder {
                 }
 
             case RFBEncoding.hextile:
+                materializeInitialFramebufferIfNeeded()
                 let changed = try decodeHextile(
                     reader: reader,
                     into: &framebuffer,
@@ -273,6 +297,7 @@ public enum RFBFramebufferDecoder {
                 }
 
             case RFBEncoding.zrle:
+                materializeInitialFramebufferIfNeeded()
                 let stream: RFBZlibInflateStream
                 if let activeZlibStream {
                     stream = activeZlibStream
@@ -293,6 +318,7 @@ public enum RFBFramebufferDecoder {
                 changedPixelCount += damage.changedPixelCount
 
             case RFBEncoding.tight:
+                materializeInitialFramebufferIfNeeded()
                 let tightStreams: RFBTightZlibStreams
                 if let activeTightZlibStreams {
                     tightStreams = activeTightZlibStreams
@@ -318,6 +344,7 @@ public enum RFBFramebufferDecoder {
             }
         }
 
+        materializeInitialFramebufferIfNeeded()
         return RFBFramebufferUpdateResult(
             framebuffer: framebuffer,
             dirtyRectangles: dirtyRectangles,
@@ -502,6 +529,17 @@ public enum RFBFramebufferDecoder {
         guard width > 0, height > 0 else {
             return 0
         }
+        if x == 0, y == 0, width == currentWidth, height == currentHeight {
+            return try decodeFullRawFrame(
+                reader: reader,
+                into: &framebuffer,
+                width: width,
+                height: height,
+                pixelFormat: pixelFormat,
+                bytesPerPixel: bytesPerPixel
+            )
+        }
+
         let pixels = try reader.readBytes(width * height * bytesPerPixel)
         var changed = 0
         for localY in 0..<height {
@@ -514,6 +552,33 @@ public enum RFBFramebufferDecoder {
             }
         }
         return changed
+    }
+
+    private static func decodeFullRawFrame(
+        reader: RFBByteReader,
+        into framebuffer: inout RFBRawFramebuffer,
+        width: Int,
+        height: Int,
+        pixelFormat: RFBPixelFormat,
+        bytesPerPixel: Int
+    ) throws -> Int {
+        let pixelCount = width * height
+        let pixels = try reader.readBytes(pixelCount * bytesPerPixel)
+        let decodedPixels = pixelFormat.decodeColors(
+            pixels,
+            bytesPerPixel: bytesPerPixel,
+            pixelCount: pixelCount
+        )
+
+        guard framebuffer.width == width, framebuffer.height == height else {
+            framebuffer = RFBRawFramebuffer(width: width, height: height, pixels: decodedPixels)
+            let black = RFBColor(red: 0, green: 0, blue: 0)
+            return decodedPixels.reduce(0) { partialResult, pixel in
+                pixel == black ? partialResult : partialResult + 1
+            }
+        }
+
+        return framebuffer.replaceAllPixelsTrackingChange(decodedPixels)
     }
 
     // MARK: - CopyRect (encoding 1, RFC 6143 §7.7.2)

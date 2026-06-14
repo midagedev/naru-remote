@@ -41,6 +41,7 @@ The benchmark target measures:
 - steady-state full Metal texture upload
 - steady-state small dirty-rectangle Metal texture upload
 - same-frame upload-gate skip overhead
+- full-frame Raw VNC first-paint decode overhead
 
 For the app-side helper-video path, run the companion opt-in benchmark:
 
@@ -76,6 +77,11 @@ Current baseline artifact:
 That run keeps renderer upload as a regression guard but moves the next large
 optimization unit toward live profile gates and physical iPhone
 hand-feel/thermal verification.
+Current RFB Raw first-frame decode artifact:
+`artifacts/benchmarks/2026-06-14-rfb-raw-first-frame-decode-performance-summary.md`.
+That run adds an opt-in first-paint Raw decode benchmark and records a clear
+simulator CPU reduction from replacing the full-frame per-pixel setter path
+with a contiguous framebuffer replacement fast path.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:
