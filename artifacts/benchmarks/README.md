@@ -124,6 +124,13 @@ That run adds a fixed off-versus-app viewport interaction live trace for the
 `first-byte-wait-failed` on both candidates, which keeps the next visual
 smoothness work pointed at receive-path/server cadence and helper-video primary
 validation rather than renderer upload.
+Current viewport transform cache performance artifact:
+`artifacts/benchmarks/2026-06-14-viewport-transform-cache-performance-summary.md`.
+This run caches resolved viewport geometry inside `ViewportTransform` and
+stores hot-path update change flags once, improving the helper-video pure
+viewport input benchmark by about 16% on CPU cycles, CPU time, and retired
+instructions. This is a local zoom/pan/trackpad hot-path improvement only; it
+does not claim VNC receive-path, network traffic, or live FPS improvement.
 Current best-effort pointer input artifact:
 `artifacts/benchmarks/2026-06-07-best-effort-pointer-move-summary.md`.
 That pass removes a remaining input-path blocking point by routing only single

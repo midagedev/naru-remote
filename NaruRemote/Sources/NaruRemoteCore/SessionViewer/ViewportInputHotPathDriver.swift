@@ -121,16 +121,15 @@ public struct ViewportInputHotPathDriver: Sendable {
 public struct ViewportInputHotPathUpdate: Equatable, Sendable {
     public let previous: ViewportTransform
     public let current: ViewportTransform
+    public let zoomDidChange: Bool
+    public let panDidChange: Bool
+    public let didChange: Bool
 
-    public var zoomDidChange: Bool {
-        abs(previous.zoomScale - current.zoomScale) > 0.0001
-    }
-
-    public var panDidChange: Bool {
-        previous.panOffset != current.panOffset
-    }
-
-    public var didChange: Bool {
-        zoomDidChange || panDidChange
+    public init(previous: ViewportTransform, current: ViewportTransform) {
+        self.previous = previous
+        self.current = current
+        self.zoomDidChange = abs(previous.zoomScale - current.zoomScale) > 0.0001
+        self.panDidChange = previous.panOffset != current.panOffset
+        self.didChange = zoomDidChange || panDidChange
     }
 }
