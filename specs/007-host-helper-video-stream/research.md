@@ -3378,3 +3378,43 @@ must not export helper endpoints, credentials, profile fingerprints,
 access-unit payloads, frame content, display dimensions, real-session byte
 counts, device identifiers, hostnames, Compose text, clipboard contents, raw
 network errors, or exact per-frame timing series.
+
+## D81 - Keep Raw full-frame pixel payloads as Data until color decode
+
+**Decision**: The VNC Raw full-frame decoder should use `RFBByteReader.readData`
+for large pixel payloads and decode colors through `Data.withUnsafeBytes`
+instead of forcing a whole-frame `[UInt8]` copy before pixel conversion.
+
+**Rationale**:
+- Raw first paint and Raw fallback remain important when helper video is not yet
+  available or when a server/profile falls back to request/response VNC.
+- `ConnectionByteReader` already receives frame payloads as `Data` from
+  `readExactly`. Converting the full 1920x1080 32-bit payload to `[UInt8]`
+  adds an avoidable 8 MiB-class allocation/copy before color conversion.
+- Keeping small rectangle/compressed paths on `readBytes(_:)` limits the change
+  to the full-frame Raw payload path where the copy is large enough to matter.
+
+**Evidence**:
+- `swift test --filter
+  'RFBByteReaderTests|RFBRawFramebufferDecoderTests|RFBProtocolDecoderTests|RFBFramePumpTests'`
+  passes 56 selected tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080 swift test
+  --filter RFBRawDecodeBenchmarkTests` compares `readBytes` versus `readData`
+  full-frame Raw decode for one synthetic 1920x1080 update per measured
+  iteration.
+- `readBytes` measured `0.514 s` clock time, `0.508 s` CPU time,
+  `1610893.994 kC`, `9231329.883 kI`, and `41440.230 kB` peak physical memory.
+- `readData` measured `0.538 s` clock time, `0.503 s` CPU time,
+  `1569990.629 kC`, `8711832.519 kI`, and `24748.250 kB` peak physical memory,
+  reducing peak physical memory by about 40%, CPU cycles by about 3%, and
+  retired instructions by about 6%. The CPU-time and wall-clock metrics were
+  effectively flat/noisy in this microbenchmark.
+- See
+  `artifacts/benchmarks/2026-06-15-rfb-raw-read-data-fast-path-summary.md`.
+
+**Privacy rule**: Raw decode benchmarks may record only aggregate CPU/time and
+memory metrics, fixed synthetic dimensions, and fixed test names. They must not
+export hostnames, endpoints, credentials, frame pixels, screenshots, raw
+payload bytes, profile fingerprints, device identifiers, Compose text,
+clipboard contents, raw network errors, or exact per-frame timing series.

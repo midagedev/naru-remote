@@ -16,6 +16,14 @@ final class RFBByteReaderTests: XCTestCase {
         XCTAssertEqual(reader.remaining, 0)
     }
 
+    func testReadsDataAndAdvancesCursor() throws {
+        let reader = RFBDataReader(Data([0x10, 0x20, 0x30, 0x40]))
+        XCTAssertEqual(try reader.readData(3), Data([0x10, 0x20, 0x30]))
+        XCTAssertEqual(reader.offset, 3)
+        XCTAssertEqual(reader.remaining, 1)
+        XCTAssertEqual(try reader.readBytes(1), [0x40])
+    }
+
     func testZeroLengthReadReturnsEmptyWithoutAdvancing() throws {
         let reader = RFBDataReader([0xAA])
         XCTAssertEqual(try reader.readBytes(0), [])

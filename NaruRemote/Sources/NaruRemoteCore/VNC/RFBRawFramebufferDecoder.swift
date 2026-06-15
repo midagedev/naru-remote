@@ -694,6 +694,12 @@ extension RFBPixelFormat {
     /// Decodes one `bytesPerPixelValue`-wide pixel at `offset` in
     /// `bytes`, honoring endianness, shifts, and maxima.
     func decodeColor(_ bytes: [UInt8], at offset: Int) -> RFBColor {
+        bytes.withUnsafeBufferPointer { buffer in
+            decodeColor(buffer, at: offset)
+        }
+    }
+
+    private func decodeColor(_ bytes: UnsafeBufferPointer<UInt8>, at offset: Int) -> RFBColor {
         if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixelValue) {
             return RFBColor(
                 red: bytes[offset + offsets.red],
@@ -718,6 +724,26 @@ extension RFBPixelFormat {
     }
 
     func decodeColors(_ bytes: [UInt8], bytesPerPixel: Int, pixelCount: Int) -> [RFBColor] {
+        bytes.withUnsafeBufferPointer { buffer in
+            decodeColors(buffer, bytesPerPixel: bytesPerPixel, pixelCount: pixelCount)
+        }
+    }
+
+    func decodeColors(_ data: Data, bytesPerPixel: Int, pixelCount: Int) -> [RFBColor] {
+        data.withUnsafeBytes { rawBuffer in
+            decodeColors(
+                rawBuffer.bindMemory(to: UInt8.self),
+                bytesPerPixel: bytesPerPixel,
+                pixelCount: pixelCount
+            )
+        }
+    }
+
+    private func decodeColors(
+        _ bytes: UnsafeBufferPointer<UInt8>,
+        bytesPerPixel: Int,
+        pixelCount: Int
+    ) -> [RFBColor] {
         var decodedPixels: [RFBColor] = []
         decodedPixels.reserveCapacity(pixelCount)
 

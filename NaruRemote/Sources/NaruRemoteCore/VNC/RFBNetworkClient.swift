@@ -1288,8 +1288,15 @@ private final class ConnectionByteReader: RFBByteReader {
     }
 
     func readBytes(_ count: Int) throws -> [UInt8] {
+        try [UInt8](readData(count))
+    }
+
+    func readData(_ count: Int) throws -> Data {
+        guard count >= 0 else {
+            throw RFBByteReaderError.negativeRequest(count)
+        }
         guard count > 0 else {
-            return []
+            return Data()
         }
         let startedAt = RFBMonotonicTiming.now()
         do {
@@ -1300,7 +1307,7 @@ private final class ConnectionByteReader: RFBByteReader {
                 firstByteWaitNanoseconds = elapsedNanoseconds
             }
             consumedByteCount += data.count
-            return [UInt8](data)
+            return data
         } catch {
             readDurationNanoseconds += RFBMonotonicTiming.nanoseconds(since: startedAt)
             throw error
@@ -1322,26 +1329,33 @@ private final class PrefixedByteReader: RFBByteReader {
     }
 
     func readBytes(_ count: Int) throws -> [UInt8] {
+        try [UInt8](readData(count))
+    }
+
+    func readData(_ count: Int) throws -> Data {
         guard count >= 0 else {
             throw RFBByteReaderError.negativeRequest(count)
         }
         guard count > 0 else {
-            return []
+            return Data()
         }
 
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(count)
+        var data = Data()
+        data.reserveCapacity(count)
 
-        while bytes.count < count, let next = prefix.first {
-            bytes.append(next)
+        while data.count < count, let next = prefix.first {
+            data.append(next)
             prefix = prefix.dropFirst()
         }
 
-        if bytes.count < count {
-            bytes.append(contentsOf: try base.readBytes(count - bytes.count))
+        if data.count < count {
+            if data.isEmpty {
+                return try base.readData(count)
+            }
+            data.append(try base.readData(count - data.count))
         }
 
-        return bytes
+        return data
     }
 }
 
