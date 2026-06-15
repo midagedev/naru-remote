@@ -751,6 +751,16 @@ without unsafe report fields.
   CPU cycles, and 35% fewer retired instructions for 1,000 decodes with a 256 KiB
   payload. Covered by split-codec round-trip, helper-video network-service,
   session-runner regressions, and `HelperVideoWireCodecBenchmarkTests`. **Done.**
+- [x] T031AW [US1] Remove the full-payload `Data` to `[UInt8]` copy from the
+  app-side helper-video Annex-B parser. The sample-buffer factory now scans the
+  received `Data` with `withUnsafeBytes` while preserving owned NAL payloads,
+  parameter-set caching, AVCC payload creation, and CoreMedia sample-buffer
+  semantics. The opt-in benchmark shows about 62% lower CPU time, 62% fewer CPU
+  cycles, and 71% fewer retired instructions for 500 delta access-unit
+  preparations with a 256 KiB payload. A follow-up filter/capacity tweak was
+  rejected after noisier benchmark results. Covered by parser/sample-buffer
+  renderer regressions and `HelperVideoSampleBufferFactoryBenchmarkTests`.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

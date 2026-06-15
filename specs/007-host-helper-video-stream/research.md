@@ -3335,3 +3335,46 @@ export helper endpoints, credentials, profile fingerprints, access-unit
 payloads, frame content, display dimensions, real-session byte counts, device
 identifiers, hostnames, Compose text, clipboard contents, raw network errors,
 or exact per-frame timing series.
+
+## D80 - Scan helper-video Annex-B payloads without a full array copy
+
+**Decision**: The app-side H.264 sample-buffer factory should parse Annex-B
+start-code boundaries from the received `Data` buffer with `withUnsafeBytes`
+instead of first copying the entire access-unit payload into a `[UInt8]` array.
+
+**Rationale**:
+- Helper-video sample-buffer preparation runs once for each received access
+  unit after the network/wire decode path. Copying the entire H.264 payload
+  before scanning start codes duplicates memory traffic before CoreMedia
+  sample-buffer preparation can begin.
+- The unsafe-bytes scan preserves the existing parser output type and
+  downstream semantics. The factory still owns NAL payload `Data` values before
+  parameter-set caching, AVCC payload construction, and `CMSampleBuffer`
+  creation.
+- A follow-up attempt to remove the media-unit `filter` and reserve AVCC
+  payload capacity did not improve stable CPU metrics and produced a noisier
+  clock run, so it was rejected for this slice.
+
+**Evidence**:
+- `swift test --filter HelperVideoH264SampleBufferRendererTests` passes 11
+  selected parser, sample-buffer factory, and renderer tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_SAMPLE_BUFFER_BENCHMARK_PAYLOAD_BYTES=262144
+  NARU_HELPER_VIDEO_SAMPLE_BUFFER_BENCHMARK_SAMPLES=500 swift test --filter
+  HelperVideoSampleBufferFactoryBenchmarkTests` compares the original
+  array-copy parser with the unsafe-bytes parser for 500 delta access-unit
+  preparations per measured iteration.
+- Array-copy parser measured `1.630 s` clock time, `1.601 s` CPU time,
+  `5043918.311 kC`, and `24324873.735 kI`.
+- Unsafe-bytes parser measured `0.609 s` clock time, `0.602 s` CPU time,
+  `1915992.024 kC`, and `7072515.380 kI`, reducing CPU time by about 62%,
+  CPU cycles by about 62%, and retired instructions by about 71%.
+- See
+  `artifacts/benchmarks/2026-06-15-helper-video-annexb-parser-performance-summary.md`.
+
+**Privacy rule**: Sample-buffer factory benchmarks may record only aggregate
+CPU/time metrics, fixed test names, and synthetic payload size labels. They
+must not export helper endpoints, credentials, profile fingerprints,
+access-unit payloads, frame content, display dimensions, real-session byte
+counts, device identifiers, hostnames, Compose text, clipboard contents, raw
+network errors, or exact per-frame timing series.
