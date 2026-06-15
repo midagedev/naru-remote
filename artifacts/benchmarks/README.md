@@ -193,6 +193,13 @@ binary-header, and binary-payload frames instead of concatenating a full
 payload frame for each H.264 access unit. The opt-in wire codec benchmark shows
 about 39% lower wall time, 45% fewer CPU cycles, and 35% fewer retired
 instructions for 1,000 access-unit decodes with a 256 KiB payload.
+Current helper-video Annex-B parser performance artifact:
+`artifacts/benchmarks/2026-06-15-helper-video-annexb-parser-performance-summary.md`.
+The app-side helper-video sample-buffer factory now scans received H.264
+Annex-B payloads from `Data.withUnsafeBytes` instead of first copying the whole
+payload into a `[UInt8]` array. The opt-in sample-buffer factory benchmark
+shows about 62% lower CPU time, 62% fewer CPU cycles, and 71% fewer retired
+instructions for 500 delta access-unit preparations with a 256 KiB payload.
 Current helper-video connect bootstrap artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-connect-bootstrap-summary.md`.
 The app model now starts helper-video after the first VNC framebuffer for

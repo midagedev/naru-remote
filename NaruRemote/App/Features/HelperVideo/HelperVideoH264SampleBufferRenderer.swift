@@ -61,35 +61,47 @@ struct HelperVideoH264NALUnit: Equatable, Sendable {
 
 enum HelperVideoH264AnnexBParser {
     static func parse(_ payload: Data) throws -> [HelperVideoH264NALUnit] {
-        let bytes = [UInt8](payload)
-        let startCodes = startCodeBoundaries(in: bytes)
-        guard !startCodes.isEmpty else {
-            throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
-        }
-
-        let units = startCodes.enumerated().compactMap { index, boundary -> HelperVideoH264NALUnit? in
-            let payloadStart = boundary.nalStart
-            let payloadEnd = index + 1 < startCodes.count
-                ? startCodes[index + 1].codeStart
-                : bytes.count
-            guard payloadStart < payloadEnd else {
-                return nil
+        try payload.withUnsafeBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            guard let baseAddress = bytes.baseAddress else {
+                throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
             }
 
-            let nalPayload = Data(bytes[payloadStart..<payloadEnd])
-            guard let firstByte = nalPayload.first else {
-                return nil
+            let startCodes = startCodeBoundaries(in: bytes)
+            guard !startCodes.isEmpty else {
+                throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
             }
-            return HelperVideoH264NALUnit(type: firstByte & 0x1F, payload: nalPayload)
-        }
 
-        guard !units.isEmpty else {
-            throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
+            var units: [HelperVideoH264NALUnit] = []
+            units.reserveCapacity(startCodes.count)
+            for (index, boundary) in startCodes.enumerated() {
+                let payloadStart = boundary.nalStart
+                let payloadEnd = index + 1 < startCodes.count
+                    ? startCodes[index + 1].codeStart
+                    : bytes.count
+                guard payloadStart < payloadEnd else {
+                    continue
+                }
+
+                let payloadCount = payloadEnd - payloadStart
+                let firstByte = baseAddress.advanced(by: payloadStart).pointee
+                let nalPayload = Data(
+                    bytes: baseAddress.advanced(by: payloadStart),
+                    count: payloadCount
+                )
+                units.append(HelperVideoH264NALUnit(type: firstByte & 0x1F, payload: nalPayload))
+            }
+
+            guard !units.isEmpty else {
+                throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
+            }
+            return units
         }
-        return units
     }
 
-    private static func startCodeBoundaries(in bytes: [UInt8]) -> [(codeStart: Int, nalStart: Int)] {
+    private static func startCodeBoundaries(
+        in bytes: UnsafeBufferPointer<UInt8>
+    ) -> [(codeStart: Int, nalStart: Int)] {
         var boundaries: [(codeStart: Int, nalStart: Int)] = []
         var index = 0
 
