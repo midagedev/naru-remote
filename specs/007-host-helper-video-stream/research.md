@@ -3465,3 +3465,48 @@ CPU/time and memory metrics, fixed sample counts, and fixed test names. They
 must not export hostnames, endpoints, credentials, frame pixels, screenshots,
 pointer coordinates, keysyms, Compose text, clipboard contents, device
 identifiers, raw network errors, or exact per-interaction timing series.
+
+## D83 - Build profile preview thumbnails directly into RGBA Data
+
+**Decision**: Active-session connection-grid preview thumbnails should
+downsample live framebuffers directly into the final RGBA `Data` buffer, use
+the framebuffer's existing pixel storage for source reads, and decode stored
+thumbnail pixels through `Data.withUnsafeBytes` instead of copying through
+intermediate `[RFBColor]`, `flatMap`, or `[UInt8]` arrays.
+
+**Rationale**:
+- Preview thumbnails are intentionally throttled, but they still run during
+  live sessions so the connection grid can show the last visible surface after
+  disconnect/reconnect. Reducing this utility work helps the thermal/power
+  budget without changing VNC protocol cadence or helper-video semantics.
+- The previous framebuffer initializer sampled into `[RFBColor]` and then
+  converted that array into `Data` via `flatMap`, producing avoidable
+  allocation and copy pressure for each preview publication.
+- Writing RGBA bytes directly into the final `Data` buffer preserves the
+  persisted thumbnail schema while reducing CPU and memory traffic.
+- Reading `rgbaData` through `withUnsafeBytes` preserves the testing/debug
+  `pixels` API without forcing a full `Data` to `[UInt8]` copy.
+
+**Evidence**:
+- `swift test --filter ProfilePreviewStoreTests` passes 3 selected preview
+  store tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_PROFILE_PREVIEW_BENCHMARK_SAMPLES=200 swift test --filter
+  ProfilePreviewThumbnailBenchmarkTests/testProfilePreviewThumbnailGenerationBenchmark`
+  compares 200 synthetic 1920x1080 thumbnail generations per measured
+  iteration.
+- Intermediate-array baseline measured `5.775 s` clock time, `5.663 s` CPU
+  time, `17936516.674 kC`, `100678438.426 kI`, and `16602.125 kB` peak
+  physical memory.
+- Direct RGBA `Data` generation measured `1.747 s` clock time, `1.727 s` CPU
+  time, `5496996.210 kC`, `30890787.925 kI`, and `15638.682 kB` peak physical
+  memory, reducing CPU time by about 70%, CPU cycles by about 69%, retired
+  instructions by about 69%, and peak physical memory by about 6%.
+- See
+  `artifacts/benchmarks/2026-06-15-profile-preview-thumbnail-performance-summary.md`.
+
+**Privacy rule**: Profile preview benchmarks may record only aggregate CPU/time
+and memory metrics, fixed synthetic dimensions, fixed sample counts, and fixed
+test names. They must not export screenshots, frame pixels, target hostnames,
+endpoints, credentials, profile fingerprints, device identifiers, Compose text,
+clipboard contents, raw network errors, or exact per-frame timing series.
