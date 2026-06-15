@@ -5656,7 +5656,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         publishTrackpadCursor(outcome.cursor, immediately: !isContinuousDrag)
 
-        guard !outcome.commands.isEmpty,
+        guard !outcome.commandBatch.isEmpty,
               let pointerClient = activePointerClient
         else {
             return result
@@ -5666,7 +5666,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let sessionID = session.id
         let profileID = selectedProfileID
         if case .dragChanged(_, _) = gesture,
-           let command = Self.singleButtonlessPointerMove(outcome.commands) {
+           let command = outcome.commandBatch.singleButtonlessPointerMove {
             enqueueCoalescedPointerMove(
                 command,
                 pointerClient: pointerClient,
@@ -5680,7 +5680,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         flushPendingPointerMove()
         enqueuePointerCommands(
-            outcome.commands,
+            outcome.commandBatch,
             pointerClient: pointerClient,
             streamID: streamID,
             sessionID: sessionID,
@@ -7238,17 +7238,30 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?
     ) {
-        guard !commands.isEmpty else {
+        enqueuePointerCommands(
+            RFBPointerCommandBatch(commands),
+            pointerClient: pointerClient,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID
+        )
+    }
+
+    private func enqueuePointerCommands(
+        _ commandBatch: RFBPointerCommandBatch,
+        pointerClient: RFBPointerEventClient,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard !commandBatch.isEmpty else {
             return
         }
 
         pointerInputDispatcher.enqueue(
-            operation: { [pointerClient, commands] in
-                let useBestEffort = commands.count == 1
-                    && commands[0].buttonMask == RFBPointerCommand.released
-                if useBestEffort,
-                   let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient,
-                   let command = commands.first
+            operation: { [pointerClient, commandBatch] in
+                if let command = commandBatch.singleButtonlessPointerMove,
+                   let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient
                 {
                     try bestEffortClient.sendBestEffortPointerEvent(
                         buttonMask: command.buttonMask,
@@ -7258,7 +7271,10 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
 
-                for command in commands {
+                switch commandBatch {
+                case .none:
+                    return
+                case let .one(command):
                     guard !Task.isCancelled else {
                         return
                     }
@@ -7267,6 +7283,34 @@ public final class NaruRemoteAppModel: ObservableObject {
                         x: command.x,
                         y: command.y
                     )
+                case let .two(first, second):
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    try await pointerClient.sendPointerEvent(
+                        buttonMask: first.buttonMask,
+                        x: first.x,
+                        y: first.y
+                    )
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    try await pointerClient.sendPointerEvent(
+                        buttonMask: second.buttonMask,
+                        x: second.x,
+                        y: second.y
+                    )
+                case let .many(commands):
+                    for command in commands {
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        try await pointerClient.sendPointerEvent(
+                            buttonMask: command.buttonMask,
+                            x: command.x,
+                            y: command.y
+                        )
+                    }
                 }
             },
             validate: { [weak self, pointerClient, streamID, sessionID, profileID] in
@@ -7317,16 +7361,6 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }
             }
         )
-    }
-
-    private static func singleButtonlessPointerMove(_ commands: [RFBPointerCommand]) -> RFBPointerCommand? {
-        guard commands.count == 1,
-              let command = commands.first,
-              command.buttonMask == RFBPointerCommand.released
-        else {
-            return nil
-        }
-        return command
     }
 
     private func enqueueCoalescedPointerMove(

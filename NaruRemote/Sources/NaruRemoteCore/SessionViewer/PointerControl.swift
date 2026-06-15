@@ -110,3 +110,83 @@ public struct RFBPointerCommand: Equatable, Sendable {
         return UInt16(rounded)
     }
 }
+
+public enum RFBPointerCommandBatch: Equatable, Sendable {
+    case none
+    case one(RFBPointerCommand)
+    case two(RFBPointerCommand, RFBPointerCommand)
+    case many([RFBPointerCommand])
+
+    public init(_ commands: [RFBPointerCommand]) {
+        switch commands.count {
+        case 0:
+            self = .none
+        case 1:
+            self = .one(commands[0])
+        case 2:
+            self = .two(commands[0], commands[1])
+        default:
+            self = .many(commands)
+        }
+    }
+
+    public var isEmpty: Bool {
+        if case .none = self {
+            return true
+        }
+        return false
+    }
+
+    public var count: Int {
+        switch self {
+        case .none:
+            return 0
+        case .one:
+            return 1
+        case .two:
+            return 2
+        case let .many(commands):
+            return commands.count
+        }
+    }
+
+    public var first: RFBPointerCommand? {
+        switch self {
+        case .none:
+            return nil
+        case let .one(command), let .two(command, _):
+            return command
+        case let .many(commands):
+            return commands.first
+        }
+    }
+
+    public var commands: [RFBPointerCommand] {
+        switch self {
+        case .none:
+            return []
+        case let .one(command):
+            return [command]
+        case let .two(first, second):
+            return [first, second]
+        case let .many(commands):
+            return commands
+        }
+    }
+
+    public var singleButtonlessPointerMove: RFBPointerCommand? {
+        guard case let .one(command) = self,
+              command.buttonMask == RFBPointerCommand.released
+        else {
+            return nil
+        }
+        return command
+    }
+
+    public static func click(mask: UInt8, x: UInt16, y: UInt16) -> RFBPointerCommandBatch {
+        .two(
+            RFBPointerCommand(buttonMask: mask, x: x, y: y),
+            RFBPointerCommand(buttonMask: RFBPointerCommand.released, x: x, y: y)
+        )
+    }
+}

@@ -34,7 +34,13 @@ public enum PointerGesture: Equatable, Sendable {
 public struct PointerGestureOutcome: Equatable, Sendable {
     public var transform: ViewportTransform
     public var cursor: TrackpadCursor
-    public var commands: [RFBPointerCommand]
+    public var commandBatch: RFBPointerCommandBatch
+    public var commands: [RFBPointerCommand] {
+        commandBatch.commands
+    }
+    public var commandCount: Int {
+        commandBatch.count
+    }
 
     public init(
         transform: ViewportTransform,
@@ -43,7 +49,17 @@ public struct PointerGestureOutcome: Equatable, Sendable {
     ) {
         self.transform = transform
         self.cursor = cursor
-        self.commands = commands
+        self.commandBatch = RFBPointerCommandBatch(commands)
+    }
+
+    public init(
+        transform: ViewportTransform,
+        cursor: TrackpadCursor,
+        commandBatch: RFBPointerCommandBatch
+    ) {
+        self.transform = transform
+        self.cursor = cursor
+        self.commandBatch = commandBatch
     }
 }
 
@@ -114,13 +130,13 @@ public struct PointerGestureResolver: Sendable {
             return PointerGestureOutcome(
                 transform: transform,
                 cursor: hiddenCursor,
-                commands: clickCommands(atViewPoint: viewPoint, transform: transform, mask: RFBPointerCommand.leftButton)
+                commandBatch: clickCommands(atViewPoint: viewPoint, transform: transform, mask: RFBPointerCommand.leftButton)
             )
         case let .secondaryTap(viewPoint), let .longPress(viewPoint):
             return PointerGestureOutcome(
                 transform: transform,
                 cursor: hiddenCursor,
-                commands: clickCommands(atViewPoint: viewPoint, transform: transform, mask: RFBPointerCommand.rightButton)
+                commandBatch: clickCommands(atViewPoint: viewPoint, transform: transform, mask: RFBPointerCommand.rightButton)
             )
         case .dragBegan:
             // A pan begins; no wire event. (Drag-to-click in direct
@@ -175,7 +191,7 @@ public struct PointerGestureResolver: Sendable {
             return PointerGestureOutcome(
                 transform: pannedTransform,
                 cursor: movedCursor,
-                commands: [buttonlessPointerMove(at: movedCursor)]
+                commandBatch: .one(buttonlessPointerMove(at: movedCursor))
             )
         case .dragEnded:
             return PointerGestureOutcome(transform: transform, cursor: cursor)
@@ -186,7 +202,9 @@ public struct PointerGestureResolver: Sendable {
             return PointerGestureOutcome(
                 transform: transform,
                 cursor: cursor,
-                commands: [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: x, y: y)]
+                commandBatch: .one(
+                    RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: x, y: y)
+                )
             )
         case let .pressDragChanged(translation):
             let movedCursor = cursor.moved(
@@ -206,7 +224,9 @@ public struct PointerGestureResolver: Sendable {
             return PointerGestureOutcome(
                 transform: pannedTransform,
                 cursor: movedCursor,
-                commands: [RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: x, y: y)]
+                commandBatch: .one(
+                    RFBPointerCommand(buttonMask: RFBPointerCommand.leftButton, x: x, y: y)
+                )
             )
         case .pressDragEnded:
             let x = RFBPointerCommand.clamp(cursor.position.x)
@@ -214,7 +234,9 @@ public struct PointerGestureResolver: Sendable {
             return PointerGestureOutcome(
                 transform: transform,
                 cursor: cursor,
-                commands: [RFBPointerCommand(buttonMask: RFBPointerCommand.released, x: x, y: y)]
+                commandBatch: .one(
+                    RFBPointerCommand(buttonMask: RFBPointerCommand.released, x: x, y: y)
+                )
             )
         }
     }
@@ -225,12 +247,12 @@ public struct PointerGestureResolver: Sendable {
         atViewPoint viewPoint: CGPoint,
         transform: ViewportTransform,
         mask: UInt8
-    ) -> [RFBPointerCommand] {
+    ) -> RFBPointerCommandBatch {
         guard let fbPoint = transform.framebufferPoint(fromViewPoint: viewPoint) else {
             // Letterbox band → no-op (not a clamped edge click).
-            return []
+            return .none
         }
-        return RFBPointerCommand.click(
+        return RFBPointerCommandBatch.click(
             mask: mask,
             x: RFBPointerCommand.clamp(fbPoint.x),
             y: RFBPointerCommand.clamp(fbPoint.y)
@@ -247,7 +269,7 @@ public struct PointerGestureResolver: Sendable {
         return PointerGestureOutcome(
             transform: transform,
             cursor: cursor,
-            commands: RFBPointerCommand.click(mask: mask, x: x, y: y)
+            commandBatch: RFBPointerCommandBatch.click(mask: mask, x: x, y: y)
         )
     }
 
@@ -294,13 +316,32 @@ public struct PointerGestureResolver: Sendable {
             transform,
             touchTranslation: touchTranslation
         )
-        let target = coupledTransform.panToReveal(
-            framebufferPoint: framebufferPoint,
-            margin: followPanMargin(for: coupledTransform)
+        guard coupledTransform.isZoomed else {
+            return coupledTransform
+        }
+
+        let cursorViewPoint = coupledTransform.viewPoint(fromFramebufferPoint: framebufferPoint)
+        let margin = followPanMargin(for: coupledTransform)
+        let rawRevealDelta = revealDelta(
+            for: cursorViewPoint,
+            viewSize: coupledTransform.viewSize,
+            margin: margin
+        )
+        guard rawRevealDelta != .zero else {
+            return coupledTransform
+        }
+
+        let targetPanOffset = ViewportTransform.clampPan(
+            CGSize(
+                width: coupledTransform.panOffset.width + rawRevealDelta.width,
+                height: coupledTransform.panOffset.height + rawRevealDelta.height
+            ),
+            contentSize: coupledTransform.contentSize,
+            viewSize: coupledTransform.viewSize
         )
         let delta = CGSize(
-            width: target.panOffset.width - coupledTransform.panOffset.width,
-            height: target.panOffset.height - coupledTransform.panOffset.height
+            width: targetPanOffset.width - coupledTransform.panOffset.width,
+            height: targetPanOffset.height - coupledTransform.panOffset.height
         )
         guard delta != .zero else {
             return coupledTransform
@@ -319,6 +360,26 @@ public struct PointerGestureResolver: Sendable {
         let maximumStep = min(140, touchDistance * 0.45)
         let limited = limit(damped, maximumLength: maximumStep)
         return coupledTransform.panned(by: limited)
+    }
+
+    private func revealDelta(
+        for viewPoint: CGPoint,
+        viewSize: CGSize,
+        margin: CGFloat
+    ) -> CGSize {
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        if viewPoint.x < margin {
+            dx = margin - viewPoint.x
+        } else if viewPoint.x > viewSize.width - margin {
+            dx = (viewSize.width - margin) - viewPoint.x
+        }
+        if viewPoint.y < margin {
+            dy = margin - viewPoint.y
+        } else if viewPoint.y > viewSize.height - margin {
+            dy = (viewSize.height - margin) - viewPoint.y
+        }
+        return CGSize(width: dx, height: dy)
     }
 
     private func touchCoupledTrackpadPanTransform(
