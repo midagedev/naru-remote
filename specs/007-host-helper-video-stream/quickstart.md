@@ -629,6 +629,11 @@ NARU_SIM_BENCHMARK_HEIGHT=1080 \
 swift test --filter RFBRawDecodeBenchmarkTests
 
 NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=5 \
+NARU_TRANSIENT_INTERACTION_BENCHMARK_SAMPLES=5000 \
+swift test --filter TransientFrameDeliveryInteractionBenchmarkTests
+
+NARU_RUN_SIM_BENCHMARKS=1 \
 NARU_SIM_BENCHMARK_ITERATIONS=1 \
 NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=30 \
 swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke
