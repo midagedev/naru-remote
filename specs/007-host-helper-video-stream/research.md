@@ -3510,3 +3510,56 @@ and memory metrics, fixed synthetic dimensions, fixed sample counts, and fixed
 test names. They must not export screenshots, frame pixels, target hostnames,
 endpoints, credentials, profile fingerprints, device identifiers, Compose text,
 clipboard contents, raw network errors, or exact per-frame timing series.
+
+## D84 - Prepare compact staged payloads for small dirty rectangles
+
+**Decision**: The draw-time Metal staged-upload path should choose the
+full-versus-partial upload plan during off-render preparation. For same-size
+small dirty-rectangle updates, it should copy only dirty bytes into compact
+region payloads and replace those regions in the existing texture. It
+must keep the full-buffer path for first frames, texture recreation, invalid
+dirty rectangles, excessive region counts, and high-area damage.
+
+**Rationale**:
+- The renderer already avoids broad SwiftUI invalidation for steady VNC frames,
+  but the staged upload worker still prepared a full framebuffer buffer before
+  the render callback could use only a small dirty rectangle. For 1920x1080
+  RGBA frames, that meant an 8 MiB-class buffer per update even for terminal
+  cursor or text-line changes.
+- Small dirty rectangles are common in text-heavy terminal, editor, browser,
+  and AI CLI workflows. Reducing staged preparation and region payload size lowers
+  CPU and memory pressure in the visual lane without changing VNC transport
+  cadence or user input ordering.
+- Full-buffer fallback remains necessary whenever the texture is missing or
+  changing size because untouched texture pixels would otherwise be
+  uninitialized.
+
+**Evidence**:
+- `swift test --filter
+  'MetalFramebufferRendererTests/testStagedSmallDirtyRectPreparationUsesPartialBufferWhenTextureMatches|MetalFramebufferRendererTests/testPreparedStagedPartialUploadPreservesUntouchedPixelsFromPreviousFrame|MetalFramebufferRendererTests/testStagedPreparationUsesFullBufferWhenTextureIsMissing'`
+  passes 3 focused renderer tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080
+  NARU_STAGED_UPLOAD_BENCHMARK_SAMPLES=500 swift test --filter
+  SyntheticFramePipelineBenchmarkTests/testLegacyFullStagedSmallDirtyRectPreparationBenchmark`
+  and the same environment with `--filter
+  SyntheticFramePipelineBenchmarkTests/testStagedSmallDirtyRectPreparationBenchmark`
+  compare legacy full staged buffer preparation with compact dirty-rect staged
+  payloads for 500 samples per measured iteration. The cases are run in
+  separate test processes so peak physical memory is not dominated by the
+  previous case's process high-water.
+- Legacy full staged buffer measured `0.358 s` clock time, `0.358 s` CPU time,
+  `1164671.258 kC`, `2638902.616 kI`, and `40755.418 kB` peak physical memory.
+- Compact dirty-rect staged payloads measured `0.017 s` clock time, `0.017 s`
+  CPU time, `56101.377 kC`, `267786.993 kI`, and `32940.186 kB` peak physical
+  memory, reducing CPU cycles by about 95%, retired instructions by about 90%,
+  and peak physical memory by about 19%.
+- See
+  `artifacts/benchmarks/2026-06-15-staged-dirty-rect-upload-performance-summary.md`.
+
+**Privacy rule**: Staged-upload benchmarks may record only aggregate CPU/time
+and memory metrics, fixed synthetic dimensions, fixed dirty-rectangle size,
+fixed sample counts, and fixed test names. They must not export screenshots,
+frame pixels, target hostnames, endpoints, credentials, profile fingerprints,
+device identifiers, Compose text, clipboard contents, raw network errors, raw
+payload bytes, or exact per-frame timing series.

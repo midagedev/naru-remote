@@ -784,6 +784,15 @@ without unsafe report fields.
   thumbnail benchmark shows about 69% fewer CPU cycles, 69% fewer retired
   instructions, and 6% lower peak physical memory. Covered by preview store
   regressions and `ProfilePreviewThumbnailBenchmarkTests`. **Done.**
+- [x] T031BA [US1] Avoid full-frame staged Metal buffers for same-size small
+  dirty-rectangle updates. The staged renderer now prepares compact region
+  payloads for partial upload plans and replaces those regions in the texture,
+  while first-frame, texture-recreation, invalid, scattered, and high-area
+  updates still use a full buffer. The opt-in 1920x1080 / 320x180 dirty-rect
+  benchmark shows about 95% lower CPU cycles, 90% fewer retired instructions,
+  and 19% lower peak physical memory versus the legacy full staged buffer.
+  Covered by Metal renderer regressions and
+  `SyntheticFramePipelineBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

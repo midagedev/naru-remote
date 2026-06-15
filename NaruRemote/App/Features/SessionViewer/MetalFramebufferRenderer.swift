@@ -12,20 +12,42 @@ private struct SendableMetalDevice: @unchecked Sendable {
     let device: MTLDevice
 }
 
+private struct MetalFramebufferStagedUploadRegion: @unchecked Sendable {
+    let rectangle: RFBFrameDamageRect
+    let bytesPerRow: Int
+    let bytes: Data
+}
+
+private enum MetalFramebufferStagedUploadStorage: @unchecked Sendable {
+    case full(buffer: MTLBuffer, bytesPerRow: Int)
+    case partial([MetalFramebufferStagedUploadRegion])
+
+    var bufferByteCount: Int {
+        switch self {
+        case .full(let buffer, _):
+            return buffer.length
+        case .partial(let regions):
+            return regions.reduce(0) { $0 + $1.bytes.count }
+        }
+    }
+}
+
 private struct MetalFramebufferStagedUpload: @unchecked Sendable {
     let width: Int
     let height: Int
-    let bytesPerRow: Int
-    let buffer: MTLBuffer
-    let dirtyRectangles: [RFBFrameDamageRect]?
-    let changedPixelCount: Int?
+    let storage: MetalFramebufferStagedUploadStorage
     let preparationMilliseconds: Int
+
+    var bufferByteCount: Int {
+        storage.bufferByteCount
+    }
 
     static func make(
         device: MTLDevice,
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]?,
-        changedPixelCount: Int?
+        changedPixelCount: Int?,
+        requiresTextureRecreation: Bool
     ) -> MetalFramebufferStagedUpload? {
         guard framebuffer.width > 0,
               framebuffer.height > 0,
@@ -42,51 +64,135 @@ private struct MetalFramebufferStagedUpload: @unchecked Sendable {
 
         let startedAt = DispatchTime.now().uptimeNanoseconds
         let byteCount = pixelCount * 4
-        let buffer: MTLBuffer?
-        if MemoryLayout<RFBColor>.stride == 4 {
-            buffer = framebuffer.pixels.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    return nil
-                }
-                return device.makeBuffer(
-                    bytes: baseAddress,
-                    length: byteCount,
-                    options: .storageModeShared
-                )
-            }
+        let bytesPerRow = framebuffer.width * 4
+        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
+            dirtyRectangles,
+            textureWidth: framebuffer.width,
+            textureHeight: framebuffer.height
+        )
+        let uploadPlan = FramebufferUploadPlan.plan(
+            framebufferWidth: framebuffer.width,
+            framebufferHeight: framebuffer.height,
+            dirtyRectangles: validDirtyRectangles,
+            requiresTextureRecreation: requiresTextureRecreation,
+            changedPixelCount: changedPixelCount
+        )
+
+        let storage: MetalFramebufferStagedUploadStorage
+        if uploadPlan.strategy == .partial,
+           MemoryLayout<RFBColor>.stride == 4,
+           let regions = makePartialRegions(
+               framebuffer: framebuffer,
+               dirtyRectangles: validDirtyRectangles,
+               sourceBytesPerRow: bytesPerRow
+           ),
+           !regions.isEmpty
+        {
+            storage = .partial(regions)
+        } else if let buffer = makeFullBuffer(
+            device: device,
+            framebuffer: framebuffer,
+            pixelCount: pixelCount,
+            byteCount: byteCount
+        ) {
+            storage = .full(buffer: buffer, bytesPerRow: bytesPerRow)
         } else {
-            var bytes = [UInt8]()
-            bytes.reserveCapacity(byteCount)
-            for pixel in framebuffer.pixels.prefix(pixelCount) {
-                bytes.append(pixel.red)
-                bytes.append(pixel.green)
-                bytes.append(pixel.blue)
-                bytes.append(pixel.alpha)
-            }
-            buffer = bytes.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    return nil
-                }
-                return device.makeBuffer(
-                    bytes: baseAddress,
-                    length: byteCount,
-                    options: .storageModeShared
-                )
-            }
-        }
-        guard let buffer else {
             return nil
         }
 
         return MetalFramebufferStagedUpload(
             width: framebuffer.width,
             height: framebuffer.height,
-            bytesPerRow: framebuffer.width * 4,
-            buffer: buffer,
-            dirtyRectangles: dirtyRectangles,
-            changedPixelCount: changedPixelCount.map { max($0, 0) },
+            storage: storage,
             preparationMilliseconds: Self.elapsedMilliseconds(since: startedAt)
         )
+    }
+
+    private static func makeFullBuffer(
+        device: MTLDevice,
+        framebuffer: RFBRawFramebuffer,
+        pixelCount: Int,
+        byteCount: Int
+    ) -> MTLBuffer? {
+        if MemoryLayout<RFBColor>.stride == 4 {
+            return framebuffer.pixels.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return nil
+                }
+                return device.makeBuffer(
+                    bytes: baseAddress,
+                    length: byteCount,
+                    options: .storageModeShared
+                )
+            }
+        }
+
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(byteCount)
+        for pixel in framebuffer.pixels.prefix(pixelCount) {
+            bytes.append(pixel.red)
+            bytes.append(pixel.green)
+            bytes.append(pixel.blue)
+            bytes.append(pixel.alpha)
+        }
+        return bytes.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return nil
+            }
+            return device.makeBuffer(
+                bytes: baseAddress,
+                length: byteCount,
+                options: .storageModeShared
+            )
+        }
+    }
+
+    private static func makePartialRegions(
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect],
+        sourceBytesPerRow: Int
+    ) -> [MetalFramebufferStagedUploadRegion]? {
+        guard !dirtyRectangles.isEmpty else {
+            return nil
+        }
+
+        let regions = framebuffer.pixels.withUnsafeBytes { rawBuffer
+            -> [MetalFramebufferStagedUploadRegion]? in
+            guard let sourceBaseAddress = rawBuffer.baseAddress else {
+                return nil
+            }
+            var regions: [MetalFramebufferStagedUploadRegion] = []
+            regions.reserveCapacity(dirtyRectangles.count)
+            for rect in dirtyRectangles {
+                let rectBytesPerRow = rect.width * 4
+                let rectByteCount = rectBytesPerRow * rect.height
+                var bytes = Data(count: rectByteCount)
+                bytes.withUnsafeMutableBytes { destinationRawBuffer in
+                    guard let destinationBaseAddress = destinationRawBuffer.baseAddress else {
+                        return
+                    }
+                    for row in 0..<rect.height {
+                        let sourceOffset = ((rect.y + row) * sourceBytesPerRow) + (rect.x * 4)
+                        let destinationOffset = row * rectBytesPerRow
+                        destinationBaseAddress
+                            .advanced(by: destinationOffset)
+                            .copyMemory(
+                                from: sourceBaseAddress.advanced(by: sourceOffset),
+                                byteCount: rectBytesPerRow
+                            )
+                    }
+                }
+                regions.append(
+                    MetalFramebufferStagedUploadRegion(
+                        rectangle: rect,
+                        bytesPerRow: rectBytesPerRow,
+                        bytes: bytes
+                    )
+                )
+            }
+            return regions
+        }
+        return regions
     }
 
     private static func elapsedMilliseconds(since start: UInt64) -> Int {
@@ -101,24 +207,26 @@ private struct MetalFramebufferStagingRequest: Sendable {
     let framebuffer: RFBRawFramebuffer
     let dirtyRectangles: [RFBFrameDamageRect]?
     let changedPixelCount: Int?
+    let requiresTextureRecreation: Bool
 }
 
 /// GPU-backed renderer for `RFBRawFramebuffer` pixels.
 ///
 /// Maintains a single `MTLTexture` whose dimensions track the most
-/// recently presented framebuffer.  Each new frame is uploaded via
-/// `texture.replaceRegion(_:mipmapLevel:withBytes:bytesPerRow:)`; the
-/// texture is recreated only when framebuffer dimensions change so
-/// steady-state streaming avoids per-frame allocations.
+/// recently presented framebuffer.  Draw-time uploads normally use a
+/// staged `MTLBuffer` plus a blit pass so pixel preparation can happen
+/// outside the render callback.  The immediate testing/fallback path
+/// still uses `texture.replaceRegion(_:mipmapLevel:withBytes:bytesPerRow:)`
+/// directly.
 ///
 /// When the caller supplies `dirtyRectangles` for an incremental frame
 /// and the texture dimensions still match the incoming buffer, the
-/// renderer issues one `replaceRegion` call per damage rect — only the
-/// changed region is copied to the GPU.  When dirty rectangles are nil
-/// or empty (full frame, first frame), or when the texture had to be
-/// recreated for a dimension change, the renderer falls back to a
-/// single full-frame upload.  The two paths are mutually exclusive on
-/// any given frame so we never double-upload pixels.
+/// staged path copies only the dirty bytes into compact region payloads
+/// and replaces those regions in the existing texture.  When dirty
+/// rectangles are nil or empty (full frame, first frame), or when the
+/// texture had to be recreated for a dimension change, the renderer
+/// falls back to a single full-frame upload.  The two paths are mutually
+/// exclusive on any given frame so we never double-upload pixels.
 ///
 /// Rendering uses an inline Metal Shading Language source (no separate
 /// `.metal` file is needed for the fullscreen-quad pass).  The pipeline
@@ -295,6 +403,49 @@ public final class MetalFramebufferRenderer: NSObject {
         return applyPendingFramebufferIfAllowed()
     }
 
+    public func stagedUploadByteCountForTesting(
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?
+    ) -> Int? {
+        MetalFramebufferStagedUpload.make(
+            device: device,
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount,
+            requiresTextureRecreation: texture?.width != framebuffer.width
+                || texture?.height != framebuffer.height
+        )?.bufferByteCount
+    }
+
+    @discardableResult
+    public func preparePendingStagedUploadForTesting(
+        framebuffer: RFBRawFramebuffer,
+        dirtyRectangles: [RFBFrameDamageRect]?,
+        changedPixelCount: Int?
+    ) -> Bool {
+        pendingStagedUpload = MetalFramebufferStagedUpload.make(
+            device: device,
+            framebuffer: framebuffer,
+            dirtyRectangles: dirtyRectangles,
+            changedPixelCount: changedPixelCount,
+            requiresTextureRecreation: texture?.width != framebuffer.width
+                || texture?.height != framebuffer.height
+        )
+        return pendingStagedUpload != nil
+    }
+
+    @discardableResult
+    public func applyPendingStagedUploadForTesting() -> Bool {
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            return false
+        }
+        let applied = applyPendingStagedUpload(commandBuffer: commandBuffer)
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        return applied
+    }
+
     /// Read-back of texture pixels for unit tests.  The buffer is
     /// returned in the texture's pixel format (RGBA8Unorm), one byte per
     /// channel, row-major.
@@ -326,7 +477,9 @@ public final class MetalFramebufferRenderer: NSObject {
             generation: stagedUploadGeneration,
             framebuffer: framebuffer,
             dirtyRectangles: dirtyRectangles,
-            changedPixelCount: changedPixelCount
+            changedPixelCount: changedPixelCount,
+            requiresTextureRecreation: texture?.width != framebuffer.width
+                || texture?.height != framebuffer.height
         )
         pendingStagedUpload = nil
         guard stagedUploadPreparationTask == nil else {
@@ -363,7 +516,8 @@ public final class MetalFramebufferRenderer: NSObject {
                     device: device.device,
                     framebuffer: request.framebuffer,
                     dirtyRectangles: request.dirtyRectangles,
-                    changedPixelCount: request.changedPixelCount
+                    changedPixelCount: request.changedPixelCount,
+                    requiresTextureRecreation: request.requiresTextureRecreation
                 ), !Task.isCancelled else {
                     continue
                 }
@@ -605,7 +759,11 @@ public final class MetalFramebufferRenderer: NSObject {
         lastUploadRegionCount = 0
         lastUploadMilliseconds = nil
 
-        let textureWasRecreated: Bool
+        if case .partial = stagedUpload.storage,
+           (texture?.width != stagedUpload.width || texture?.height != stagedUpload.height) {
+            return false
+        }
+
         if texture?.width != stagedUpload.width || texture?.height != stagedUpload.height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
                 pixelFormat: .rgba8Unorm,
@@ -619,62 +777,47 @@ public final class MetalFramebufferRenderer: NSObject {
                 return false
             }
             texture = newTexture
-            textureWasRecreated = true
-        } else {
-            textureWasRecreated = false
         }
 
-        guard let texture,
-              let blitEncoder = commandBuffer.makeBlitCommandEncoder()
-        else {
+        guard let texture else {
             return false
         }
 
-        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
-            stagedUpload.dirtyRectangles,
-            textureWidth: texture.width,
-            textureHeight: texture.height
-        )
-        let uploadPlan = FramebufferUploadPlan.plan(
-            framebufferWidth: stagedUpload.width,
-            framebufferHeight: stagedUpload.height,
-            dirtyRectangles: validDirtyRectangles,
-            requiresTextureRecreation: textureWasRecreated
-                || texture.width != stagedUpload.width
-                || texture.height != stagedUpload.height,
-            changedPixelCount: stagedUpload.changedPixelCount
-        )
-
-        if uploadPlan.strategy == .partial {
-            for rect in validDirtyRectangles {
-                blitEncoder.copy(
-                    from: stagedUpload.buffer,
-                    sourceOffset: (rect.y * stagedUpload.bytesPerRow) + (rect.x * 4),
-                    sourceBytesPerRow: stagedUpload.bytesPerRow,
-                    sourceBytesPerImage: stagedUpload.bytesPerRow * stagedUpload.height,
-                    sourceSize: MTLSize(width: rect.width, height: rect.height, depth: 1),
-                    to: texture,
-                    destinationSlice: 0,
-                    destinationLevel: 0,
-                    destinationOrigin: MTLOrigin(x: rect.x, y: rect.y, z: 0)
-                )
+        switch stagedUpload.storage {
+        case .partial(let regions):
+            for region in regions {
+                let rect = region.rectangle
+                region.bytes.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress else {
+                        return
+                    }
+                    texture.replace(
+                        region: MTLRegionMake2D(rect.x, rect.y, rect.width, rect.height),
+                        mipmapLevel: 0,
+                        withBytes: baseAddress,
+                        bytesPerRow: region.bytesPerRow
+                    )
+                }
                 lastUploadRegionCount += 1
             }
-        } else {
+        case .full(let buffer, let bytesPerRow):
+            guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
+                return false
+            }
             blitEncoder.copy(
-                from: stagedUpload.buffer,
+                from: buffer,
                 sourceOffset: 0,
-                sourceBytesPerRow: stagedUpload.bytesPerRow,
-                sourceBytesPerImage: stagedUpload.bytesPerRow * stagedUpload.height,
+                sourceBytesPerRow: bytesPerRow,
+                sourceBytesPerImage: bytesPerRow * stagedUpload.height,
                 sourceSize: MTLSize(width: stagedUpload.width, height: stagedUpload.height, depth: 1),
                 to: texture,
                 destinationSlice: 0,
                 destinationLevel: 0,
                 destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
             )
+            blitEncoder.endEncoding()
             lastUploadRegionCount = 1
         }
-        blitEncoder.endEncoding()
         recordSuccessfulUploadTiming(
             startedAt: uploadStart,
             additionalMilliseconds: stagedUpload.preparationMilliseconds

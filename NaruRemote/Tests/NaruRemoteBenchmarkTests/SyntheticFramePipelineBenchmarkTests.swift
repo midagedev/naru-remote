@@ -86,6 +86,77 @@ final class SyntheticFramePipelineBenchmarkTests: XCTestCase {
         }
     }
 
+    func testStagedSmallDirtyRectPreparationBenchmark() throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let renderer = try makeRenderer()
+        let baseline = RFBRawFramebuffer(
+            width: configuration.width,
+            height: configuration.height,
+            fill: configuration.baselineColor
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: configuration.width,
+            height: configuration.height,
+            fill: configuration.nextFrameColor
+        )
+        let changedPixelCount = configuration.smallDirtyRect.width
+            * configuration.smallDirtyRect.height
+        renderer.enqueue(baseline)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let options = measureOptions(iterations: configuration.iterations)
+        measure(
+            metrics: benchmarkMetrics,
+            options: options
+        ) {
+            for _ in 0..<configuration.stagedUploadSampleCount {
+                autoreleasepool {
+                    let byteCount = renderer.stagedUploadByteCountForTesting(
+                        framebuffer: framebuffer,
+                        dirtyRectangles: [configuration.smallDirtyRect],
+                        changedPixelCount: changedPixelCount
+                    )
+                    XCTAssertNotNil(byteCount)
+                    XCTAssertEqual(byteCount, changedPixelCount * 4)
+                }
+            }
+        }
+    }
+
+    func testLegacyFullStagedSmallDirtyRectPreparationBenchmark() throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let renderer = try makeRenderer()
+        let baseline = RFBRawFramebuffer(
+            width: configuration.width,
+            height: configuration.height,
+            fill: configuration.baselineColor
+        )
+        let framebuffer = RFBRawFramebuffer(
+            width: configuration.width,
+            height: configuration.height,
+            fill: configuration.nextFrameColor
+        )
+        let expectedByteCount = configuration.width * configuration.height * 4
+        renderer.enqueue(baseline)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let options = measureOptions(iterations: configuration.iterations)
+        measure(
+            metrics: benchmarkMetrics,
+            options: options
+        ) {
+            for _ in 0..<configuration.stagedUploadSampleCount {
+                autoreleasepool {
+                    let byteCount = Self.legacyFullStagedBufferByteCount(
+                        device: renderer.device,
+                        framebuffer: framebuffer
+                    )
+                    XCTAssertEqual(byteCount, expectedByteCount)
+                }
+            }
+        }
+    }
+
     func testSameFramebufferUploadGateSkipBenchmark() throws {
         let configuration = try requireBenchmarkConfiguration()
         var uploadGate = FramebufferUploadGate()
@@ -151,6 +222,12 @@ final class SyntheticFramePipelineBenchmarkTests: XCTestCase {
                 in: environment,
                 defaultValue: 10,
                 range: 1...100
+            ),
+            stagedUploadSampleCount: Self.integerEnvironmentValue(
+                "NARU_STAGED_UPLOAD_BENCHMARK_SAMPLES",
+                in: environment,
+                defaultValue: 500,
+                range: 1...5_000
             )
         )
     }
@@ -169,12 +246,33 @@ final class SyntheticFramePipelineBenchmarkTests: XCTestCase {
         }
         return integer
     }
+
+    private static func legacyFullStagedBufferByteCount(
+        device: MTLDevice,
+        framebuffer: RFBRawFramebuffer
+    ) -> Int? {
+        let pixelCount = framebuffer.width * framebuffer.height
+        let byteCount = pixelCount * 4
+        return framebuffer.pixels.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress,
+                  let buffer = device.makeBuffer(
+                      bytes: baseAddress,
+                      length: byteCount,
+                      options: .storageModeShared
+                  )
+            else {
+                return nil
+            }
+            return buffer.length
+        }
+    }
 }
 
 private struct SyntheticBenchmarkConfiguration {
     let width: Int
     let height: Int
     let iterations: Int
+    let stagedUploadSampleCount: Int
 
     var baselineColor: RFBColor {
         RFBColor(red: 10, green: 20, blue: 30, alpha: 255)
