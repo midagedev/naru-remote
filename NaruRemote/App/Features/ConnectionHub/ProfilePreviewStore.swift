@@ -13,6 +13,35 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
     public let capturedAt: Date
     public let rgbaData: Data
 
+    private init(
+        width: Int,
+        height: Int,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        capturedAt: Date,
+        rgbaData: Data
+    ) {
+        let normalizedWidth = max(width, 0)
+        let normalizedHeight = max(height, 0)
+        let expectedByteCount = normalizedWidth * normalizedHeight * 4
+        self.width = normalizedWidth
+        self.height = normalizedHeight
+        self.sourceWidth = max(sourceWidth, 0)
+        self.sourceHeight = max(sourceHeight, 0)
+        self.capturedAt = capturedAt
+        if rgbaData.count == expectedByteCount {
+            self.rgbaData = rgbaData
+        } else if rgbaData.count > expectedByteCount {
+            self.rgbaData = Data(rgbaData.prefix(expectedByteCount))
+        } else {
+            var padded = rgbaData
+            padded.append(
+                contentsOf: repeatElement(UInt8(0), count: expectedByteCount - rgbaData.count)
+            )
+            self.rgbaData = padded
+        }
+    }
+
     public init(
         width: Int,
         height: Int,
@@ -29,20 +58,19 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
         self.sourceWidth = max(sourceWidth, 0)
         self.sourceHeight = max(sourceHeight, 0)
         self.capturedAt = capturedAt
-        let normalizedPixels: [RFBColor]
-        if pixels.count == expectedCount {
-            normalizedPixels = pixels
-        } else if pixels.count > expectedCount {
-            normalizedPixels = Array(pixels.prefix(expectedCount))
-        } else {
-            normalizedPixels = pixels + Array(
-                repeating: RFBColor(red: 0, green: 0, blue: 0, alpha: 0),
-                count: expectedCount - pixels.count
-            )
+        var rgbaData = Data(count: expectedCount * 4)
+        rgbaData.withUnsafeMutableBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            guard !bytes.isEmpty else {
+                return
+            }
+            let clear = RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
+            for index in 0..<expectedCount {
+                let pixel = index < pixels.count ? pixels[index] : clear
+                Self.write(pixel, into: bytes, atPixelIndex: index)
+            }
         }
-        self.rgbaData = Data(normalizedPixels.flatMap { pixel in
-            [pixel.red, pixel.green, pixel.blue, pixel.alpha]
-        })
+        self.rgbaData = rgbaData
     }
 
     public init?(
@@ -65,22 +93,37 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
         let thumbnailWidth = max(1, Int((Double(framebuffer.width) * scale).rounded()))
         let thumbnailHeight = max(1, Int((Double(framebuffer.height) * scale).rounded()))
 
-        var sampledPixels: [RFBColor] = []
-        sampledPixels.reserveCapacity(thumbnailWidth * thumbnailHeight)
-
-        for y in 0..<thumbnailHeight {
-            let sourceY = min(
-                framebuffer.height - 1,
-                Int(Double(y) * Double(framebuffer.height) / Double(thumbnailHeight))
-            )
-            for x in 0..<thumbnailWidth {
-                let sourceX = min(
-                    framebuffer.width - 1,
-                    Int(Double(x) * Double(framebuffer.width) / Double(thumbnailWidth))
+        let pixelCount = thumbnailWidth * thumbnailHeight
+        let sourcePixels = framebuffer.pixels
+        let sourceXScale = Double(framebuffer.width) / Double(thumbnailWidth)
+        let sourceYScale = Double(framebuffer.height) / Double(thumbnailHeight)
+        var rgbaData = Data(count: pixelCount * 4)
+        rgbaData.withUnsafeMutableBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            guard !bytes.isEmpty else {
+                return
+            }
+            let clear = RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
+            var pixelIndex = 0
+            for y in 0..<thumbnailHeight {
+                let sourceY = min(
+                    framebuffer.height - 1,
+                    Int(Double(y) * sourceYScale)
                 )
-                sampledPixels.append(
-                    framebuffer[sourceX, sourceY] ?? RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
-                )
+                let sourceRowOffset = sourceY * framebuffer.width
+                for x in 0..<thumbnailWidth {
+                    let sourceX = min(
+                        framebuffer.width - 1,
+                        Int(Double(x) * sourceXScale)
+                    )
+                    let sourceIndex = sourceRowOffset + sourceX
+                    Self.write(
+                        sourceIndex < sourcePixels.count ? sourcePixels[sourceIndex] : clear,
+                        into: bytes,
+                        atPixelIndex: pixelIndex
+                    )
+                    pixelIndex += 1
+                }
             }
         }
 
@@ -90,7 +133,7 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
             sourceWidth: framebuffer.width,
             sourceHeight: framebuffer.height,
             capturedAt: capturedAt,
-            pixels: sampledPixels
+            rgbaData: rgbaData
         )
     }
 
@@ -103,20 +146,22 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
             return []
         }
 
-        let bytes = [UInt8](rgbaData)
-        var decodedPixels: [RFBColor] = []
-        decodedPixels.reserveCapacity(width * height)
-        for offset in stride(from: 0, to: bytes.count, by: 4) {
-            decodedPixels.append(
-                RFBColor(
-                    red: bytes[offset],
-                    green: bytes[offset + 1],
-                    blue: bytes[offset + 2],
-                    alpha: bytes[offset + 3]
+        return rgbaData.withUnsafeBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            var decodedPixels: [RFBColor] = []
+            decodedPixels.reserveCapacity(width * height)
+            for offset in stride(from: 0, to: bytes.count, by: 4) {
+                decodedPixels.append(
+                    RFBColor(
+                        red: bytes[offset],
+                        green: bytes[offset + 1],
+                        blue: bytes[offset + 2],
+                        alpha: bytes[offset + 3]
+                    )
                 )
-            )
+            }
+            return decodedPixels
         }
-        return decodedPixels
     }
 
     public var cgImage: CGImage? {
@@ -144,6 +189,18 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
             shouldInterpolate: true,
             intent: .defaultIntent
         )
+    }
+
+    private static func write(
+        _ pixel: RFBColor,
+        into bytes: UnsafeMutableBufferPointer<UInt8>,
+        atPixelIndex pixelIndex: Int
+    ) {
+        let offset = pixelIndex * 4
+        bytes[offset] = pixel.red
+        bytes[offset + 1] = pixel.green
+        bytes[offset + 2] = pixel.blue
+        bytes[offset + 3] = pixel.alpha
     }
 }
 

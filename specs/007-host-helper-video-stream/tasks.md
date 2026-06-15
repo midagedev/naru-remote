@@ -776,6 +776,14 @@ without unsafe report fields.
   70% fewer CPU cycles, 64% fewer retired instructions, and 79% lower peak
   physical memory. Covered by frame-delivery priority
   regressions and `TransientFrameDeliveryInteractionBenchmarkTests`. **Done.**
+- [x] T031AZ [US1] Remove avoidable intermediate arrays from active-session
+  connection-grid preview thumbnail generation. Thumbnails now downsample live
+  framebuffers directly into the final RGBA `Data` buffer and decode stored
+  thumbnails through `Data.withUnsafeBytes`, avoiding the prior `[RFBColor]`
+  sampling array, `flatMap` byte array, and readback copy. The opt-in 200
+  thumbnail benchmark shows about 69% fewer CPU cycles, 69% fewer retired
+  instructions, and 6% lower peak physical memory. Covered by preview store
+  regressions and `ProfilePreviewThumbnailBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

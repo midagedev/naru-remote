@@ -98,6 +98,12 @@ deadline instead of cancelling and recreating a task for every input/viewport
 mark, and skips redundant priority writes when the reason set is unchanged. The
 5,000-mark opt-in benchmark shows about 70% fewer CPU cycles, 64% fewer retired
 instructions, and 79% lower peak physical memory.
+Current profile preview thumbnail performance artifact:
+`artifacts/benchmarks/2026-06-15-profile-preview-thumbnail-performance-summary.md`.
+Connection-grid last-frame thumbnails now downsample live framebuffers directly
+into final RGBA `Data` and decode stored thumbnails with `Data.withUnsafeBytes`.
+The opt-in 200 thumbnail benchmark shows about 69% fewer CPU cycles, 69% fewer
+retired instructions, and 6% lower peak physical memory.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:
