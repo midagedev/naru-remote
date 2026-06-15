@@ -698,7 +698,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var activeHelperVideoStreamID: UUID?
     private var frameDeliveryInteractionReasons: Set<FrameDeliveryInteractionReason> = []
     private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
-    private var transientFrameDeliveryInteractionLeaseID: UUID?
+    private var transientFrameDeliveryInteractionExpiresAt: ContinuousClock.Instant?
     private var pendingFocusedInputConnectionQuality: ConnectionQuality?
     private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
     private var pendingFocusedInputIncomingClipboard: IncomingClipboardReview?
@@ -4253,21 +4253,34 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func markTransientFrameDeliveryInteractionActivity() {
         setFrameDeliveryInteractionReason(.transientInteraction, active: true)
-        let leaseID = UUID()
-        transientFrameDeliveryInteractionLeaseID = leaseID
-        transientFrameDeliveryInteractionTask?.cancel()
+        transientFrameDeliveryInteractionExpiresAt =
+            ContinuousClock.now + Self.transientFrameDeliveryInteractionPriorityDuration
+        guard transientFrameDeliveryInteractionTask == nil else {
+            return
+        }
         transientFrameDeliveryInteractionTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.transientFrameDeliveryInteractionPriorityDuration)
-            } catch {
+            while true {
+                guard let self,
+                      let expiresAt = self.transientFrameDeliveryInteractionExpiresAt
+                else {
+                    return
+                }
+
+                let now = ContinuousClock.now
+                if now < expiresAt {
+                    do {
+                        try await Task.sleep(for: now.duration(to: expiresAt))
+                    } catch {
+                        return
+                    }
+                    continue
+                }
+
+                self.transientFrameDeliveryInteractionExpiresAt = nil
+                self.transientFrameDeliveryInteractionTask = nil
+                self.setFrameDeliveryInteractionReason(.transientInteraction, active: false)
                 return
             }
-            guard self?.transientFrameDeliveryInteractionLeaseID == leaseID else {
-                return
-            }
-            self?.transientFrameDeliveryInteractionLeaseID = nil
-            self?.transientFrameDeliveryInteractionTask = nil
-            self?.setFrameDeliveryInteractionReason(.transientInteraction, active: false)
         }
     }
 
@@ -4276,10 +4289,14 @@ public final class NaruRemoteAppModel: ObservableObject {
         active: Bool
     ) {
         let wasFocusedInputActive = isFocusedInputChromeCoalescingActive
+        let didChange: Bool
         if active {
-            frameDeliveryInteractionReasons.insert(reason)
+            didChange = frameDeliveryInteractionReasons.insert(reason).inserted
         } else {
-            frameDeliveryInteractionReasons.remove(reason)
+            didChange = frameDeliveryInteractionReasons.remove(reason) != nil
+        }
+        guard didChange else {
+            return
         }
         frameStore.setDeliveryPriority(frameDeliveryPriority(for: frameDeliveryInteractionReasons))
         if !wasFocusedInputActive && isFocusedInputChromeCoalescingActive {
@@ -5295,7 +5312,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func resetFrameDeliveryInteractionState() {
         transientFrameDeliveryInteractionTask?.cancel()
         transientFrameDeliveryInteractionTask = nil
-        transientFrameDeliveryInteractionLeaseID = nil
+        transientFrameDeliveryInteractionExpiresAt = nil
         cancelFocusedInputChromeUpdates()
         frameDeliveryInteractionReasons.removeAll()
         viewportInteractionFrameStrategy = nil

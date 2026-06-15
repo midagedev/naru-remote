@@ -3418,3 +3418,50 @@ memory metrics, fixed synthetic dimensions, and fixed test names. They must not
 export hostnames, endpoints, credentials, frame pixels, screenshots, raw
 payload bytes, profile fingerprints, device identifiers, Compose text,
 clipboard contents, raw network errors, or exact per-frame timing series.
+
+## D82 - Reuse one transient interaction lease task while refreshing the deadline
+
+**Decision**: The app model should keep one sleeper task for the transient
+input/viewport frame-delivery lease, refresh its expiration instant on each
+interaction mark, and skip redundant priority writes when the active reason set
+is unchanged, instead of cancelling and recreating a task for every keyboard,
+pointer, trackpad, or viewport sample.
+
+**Rationale**:
+- The transient lease is intentionally called from hot MainActor interaction
+  paths so stream frame application backs off while the user is typing,
+  tapping direct keys, using quick keys, dragging the trackpad cursor, or
+  manipulating the viewport.
+- Per-sample `UUID` creation plus task cancellation/recreation adds avoidable
+  MainActor and scheduler churn exactly where the product target requires
+  input to stay independent from visual backlog.
+- A deadline-following task preserves the existing "latest activity extends the
+  lease" behavior while making repeated marks a cheap deadline update.
+- Avoiding redundant `frameStore.setDeliveryPriority` calls keeps repeated
+  input samples from re-publishing the same priority state.
+
+**Evidence**:
+- `swift test --filter SessionFrameDeliveryPriorityModelTests` passes 13
+  focused frame-delivery priority tests.
+- `swift test --filter
+  'SessionFrameDeliveryPriorityModelTests|DirectKeystrokeModeTests|ComposeQuickKeyModelTests|TrackpadModeModelTests|PointerEventTapTests'`
+  passes 88 selected input, pointer, trackpad, and frame-delivery tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_TRANSIENT_INTERACTION_BENCHMARK_SAMPLES=5000 swift test --filter
+  TransientFrameDeliveryInteractionBenchmarkTests` compares 5,000 repeated
+  transient interaction marks per measured iteration.
+- Per-mark cancel/recreate measured `0.008269 s` clock time, `0.008629 s` CPU
+  time, `27306.192 kC`, `79535.751 kI`, `7572.698 kB` physical memory, and
+  `37835.878 kB` peak physical memory.
+- Single-task deadline refresh measured `0.002253 s` clock time, `0.002615 s`
+  CPU time, `8192.716 kC`, `28278.129 kI`, `85.197 kB` physical memory, and
+  `7908.838 kB` peak physical memory, reducing CPU cycles by about 70%,
+  retired instructions by about 64%, and peak physical memory by about 79%.
+- See
+  `artifacts/benchmarks/2026-06-15-transient-interaction-lease-task-reuse-summary.md`.
+
+**Privacy rule**: Transient interaction benchmarks may record only aggregate
+CPU/time and memory metrics, fixed sample counts, and fixed test names. They
+must not export hostnames, endpoints, credentials, frame pixels, screenshots,
+pointer coordinates, keysyms, Compose text, clipboard contents, device
+identifiers, raw network errors, or exact per-interaction timing series.

@@ -91,6 +91,13 @@ The Raw full-frame decoder now reads large pixel payloads as `Data` and decodes
 through `Data.withUnsafeBytes`, avoiding a whole-frame `Data` to `[UInt8]`
 copy. The 1920x1080 opt-in benchmark shows about 40% lower peak physical
 memory, 3% fewer CPU cycles, and 6% fewer retired instructions.
+Current input/viewport transient lease artifact:
+`artifacts/benchmarks/2026-06-15-transient-interaction-lease-task-reuse-summary.md`.
+The MainActor transient frame-delivery lease now refreshes a single expiration
+deadline instead of cancelling and recreating a task for every input/viewport
+mark, and skips redundant priority writes when the reason set is unchanged. The
+5,000-mark opt-in benchmark shows about 70% fewer CPU cycles, 64% fewer retired
+instructions, and 79% lower peak physical memory.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:

@@ -768,6 +768,14 @@ without unsafe report fields.
   cycles, and 6% fewer retired instructions. Covered by byte-reader, raw
   framebuffer, protocol-decoder, frame-pump regressions, and
   `RFBRawDecodeBenchmarkTests`. **Done.**
+- [x] T031AY [US1] Remove per-sample task cancel/recreate churn from the
+  MainActor transient input/viewport frame-delivery lease. Repeated direct-key,
+  quick-key, pointer, trackpad, and viewport marks now refresh one expiration
+  deadline while a single sleeper task owns expiry, and unchanged reason sets
+  skip redundant priority writes. The opt-in 5,000-mark benchmark shows about
+  70% fewer CPU cycles, 64% fewer retired instructions, and 79% lower peak
+  physical memory. Covered by frame-delivery priority
+  regressions and `TransientFrameDeliveryInteractionBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
