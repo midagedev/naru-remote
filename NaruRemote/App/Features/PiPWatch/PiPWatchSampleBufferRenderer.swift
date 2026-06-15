@@ -252,6 +252,35 @@ public final class PiPWatchSampleBufferFactory {
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let pointer = baseAddress.assumingMemoryBound(to: UInt8.self)
         let sourceRect = viewport.sourceRect(framebufferWidth: framebuffer.width, height: framebuffer.height)
+        guard sourceRect.width > 0, sourceRect.height > 0 else {
+            return
+        }
+
+        if sourceRect.x == 0,
+           sourceRect.y == 0,
+           sourceRect.width == framebuffer.width,
+           sourceRect.height == framebuffer.height {
+            framebuffer.pixels.withUnsafeBufferPointer { sourcePixels in
+                guard let sourceBaseAddress = sourcePixels.baseAddress else {
+                    return
+                }
+                for y in 0..<framebuffer.height {
+                    var destinationOffset = y * bytesPerRow
+                    var sourceOffset = y * framebuffer.width
+                    for _ in 0..<framebuffer.width {
+                        let color = sourceBaseAddress[sourceOffset]
+                        pointer[destinationOffset] = color.blue
+                        pointer[destinationOffset + 1] = color.green
+                        pointer[destinationOffset + 2] = color.red
+                        pointer[destinationOffset + 3] = color.alpha
+                        sourceOffset += 1
+                        destinationOffset += 4
+                    }
+                }
+            }
+            return
+        }
+
         let sourceColumns = (0..<framebuffer.width).map { x in
             sourceRect.x + min(
                 sourceRect.width - 1,

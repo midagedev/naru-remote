@@ -3563,3 +3563,56 @@ fixed sample counts, and fixed test names. They must not export screenshots,
 frame pixels, target hostnames, endpoints, credentials, profile fingerprints,
 device identifiers, Compose text, clipboard contents, raw network errors, raw
 payload bytes, or exact per-frame timing series.
+
+## D85 - Skip identity lookup arrays for full-frame PiP sample buffers
+
+**Decision**: The PiP Watch sample-buffer factory should detect the full-frame
+viewport and write directly from `RFBRawFramebuffer.pixels` into the BGRA
+CoreVideo pixel buffer. It should keep the existing row/column lookup and
+resampling path for zoomed or cropped PiP viewports.
+
+**Rationale**:
+- PiP/watch sample-buffer creation runs on a visual side path while live
+  sessions are active. Reducing avoidable CPU work here protects the same
+  thermal and responsiveness budget used by streaming, gestures, and input.
+- The previous implementation built identity `sourceColumns` and `sourceRows`
+  arrays even when the viewport covered the whole framebuffer. For full-frame
+  PiP writes those arrays add allocation and per-pixel indexing work without
+  changing output pixels.
+- Keeping the existing resampling path for zoomed/cropped viewports avoids
+  changing PiP focus semantics while the product's primary zoom/pan smoothness
+  work remains in the session viewport/helper-video path.
+
+**Evidence**:
+- `swift test --filter PiPWatchSampleBufferRendererTests` passes 8 focused
+  renderer tests, including BGRA byte order and zoomed/panned viewport output.
+- `swift test --filter
+  'PiPWatchSampleBufferRendererTests|PiPWatchSampleBufferFactoryBenchmarkTests'`
+  passes, with the opt-in benchmark cases skipped by default.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080
+  NARU_PIP_SAMPLE_BUFFER_BENCHMARK_SAMPLES=20 swift test --filter
+  PiPWatchSampleBufferFactoryBenchmarkTests/testLegacyFullFramePixelBufferFactoryBenchmark`
+  and the same environment with `--filter
+  PiPWatchSampleBufferFactoryBenchmarkTests/testFullFramePixelBufferFactoryBenchmark`
+  compare legacy identity lookup arrays against the direct full-frame write in
+  separate test processes.
+- Legacy measured `5.688 s` clock time, `5.640 s` CPU time,
+  `18194909.654 kC`, `106437803.174 kI`, and `31265.741 kB` peak physical
+  memory.
+- Direct full-frame write measured `4.883 s` clock time, `4.827 s` CPU time,
+  `15718535.732 kC`, `94768673.531 kI`, and `31334.618 kB` peak physical
+  memory, reducing clock/CPU time by about 14%, CPU cycles by about 14%, and
+  retired instructions by about 11%. Peak physical memory did not improve.
+- A 32-bit packed BGRA store variant was rejected after measuring worse than
+  direct byte writes (`5.083 s` clock, `5.008 s` CPU time,
+  `16118490.079 kC`, `96771476.719 kI`, `31403.430 kB` peak physical memory).
+- See
+  `artifacts/benchmarks/2026-06-16-pip-sample-buffer-full-frame-performance-summary.md`.
+
+**Privacy rule**: PiP sample-buffer benchmarks may record only aggregate
+CPU/time and memory metrics, fixed synthetic dimensions, fixed sample counts,
+and fixed test names. They must not export screenshots, frame pixels, target
+hostnames, endpoints, credentials, profile fingerprints, device identifiers,
+Compose text, clipboard contents, raw network errors, raw payload bytes, or
+exact per-frame timing series.

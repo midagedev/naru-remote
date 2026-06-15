@@ -111,6 +111,12 @@ small dirty-rectangle updates instead of staging a full framebuffer buffer. The
 opt-in 1920x1080 / 320x180 dirty-rect benchmark shows about 95% fewer CPU
 cycles, 90% fewer retired instructions, and 19% lower peak physical memory
 versus the legacy full staged buffer path.
+Current PiP sample-buffer full-frame artifact:
+`artifacts/benchmarks/2026-06-16-pip-sample-buffer-full-frame-performance-summary.md`.
+The PiP Watch sample-buffer factory now skips identity source row/column lookup
+arrays when the viewport covers the full framebuffer. The opt-in 1920x1080
+benchmark shows about 14% lower CPU time/cycles and 11% fewer retired
+instructions; peak physical memory is unchanged.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:
