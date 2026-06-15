@@ -3729,3 +3729,48 @@ test names. They must not export screenshots, framebuffer pixels, target
 hostnames, credentials, helper tokens, profile fingerprints, device
 identifiers, raw connection payloads, Compose text, keysyms, pointer
 coordinates from a real session, clipboard contents, or raw Xcode logs.
+
+## D88 - Parse helper-video wire length headers without small Data copies
+
+**Decision**: `HelperVideoWireCodec` should parse its fixed 4-byte JSON and
+binary length headers from `Data.withUnsafeBytes`. Combined-frame decode should
+read the JSON and binary headers directly from known offsets in the frame
+buffer instead of creating a header `Data` slice and then copying that slice
+into a `[UInt8]` array.
+
+**Rationale**:
+- The helper-video split access-unit path is the production-like receive path
+  for the visual-primary candidate. It parses one JSON header and one binary
+  header per access unit, so even tiny per-frame allocations compete with
+  decode/display work at sustained frame rates.
+- This keeps the existing wire format and validation behavior intact:
+  fixed-endian 4-byte lengths, JSON size limits, binary payload size limits,
+  truncated-frame checks, and unexpected-payload checks are unchanged.
+- This is distinct from the previously rejected AVCC length-prefix append
+  experiment. That experiment touched sample-buffer payload construction; this
+  one touches only helper-video wire-codec header parsing.
+
+**Evidence**:
+- `swift test --filter
+  'HelperVideoFakeTransportTests|HelperVideoStreamNetworkServiceTests|HelperVideoStreamSessionRunnerTests'`
+  passes 28 focused helper-video transport/session tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=1000
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144 swift test
+  --filter HelperVideoWireCodecBenchmarkTests` compares the previous small
+  header-copy parser with the unsafe-bytes parser.
+- Full-frame decode moved from `0.014542 s`, `0.014548 s` CPU time,
+  `45542.147 kC`, and `164201.409 kI` to `0.012648 s`, `0.012717 s` CPU time,
+  `40505.876 kC`, and `153974.057 kI`.
+- Split access-unit decode moved from `0.007423 s`, `0.007743 s` CPU time,
+  `24333.822 kC`, and `106709.829 kI` to `0.006745 s`, `0.007017 s` CPU time,
+  `22067.545 kC`, and `98109.161 kI`.
+- See
+  `artifacts/benchmarks/2026-06-16-helper-video-wire-length-header-performance-summary.md`.
+
+**Privacy rule**: Wire-codec header benchmarks may record only aggregate
+CPU/time metrics, fixed synthetic payload size, and fixed test names. They must
+not export helper endpoints, credentials, profile fingerprints, access-unit
+payloads, frame content, display dimensions, real-session byte counts, device
+identifiers, hostnames, Compose text, clipboard contents, raw network errors,
+or exact per-frame timing series.
