@@ -33,6 +33,35 @@ final class PiPWatchSampleBufferFactoryBenchmarkTests: XCTestCase {
         XCTAssertEqual(CVPixelBufferGetPixelFormatType(pixelBuffer), kCVPixelFormatType_32BGRA)
     }
 
+    func testZoomedViewportPixelBufferFactoryBenchmark() throws {
+        let configuration = try requireBenchmarkConfiguration()
+        let framebuffer = Self.makeFramebuffer(width: configuration.width, height: configuration.height)
+        let viewport = PiPWatchViewport(centerX: 0.5, centerY: 0.5, zoomScale: 2)
+        let factory = PiPWatchSampleBufferFactory()
+        let options = measureOptions(iterations: configuration.iterations)
+        var lastPixelBuffer: CVPixelBuffer?
+
+        measure(
+            metrics: benchmarkMetrics,
+            options: options
+        ) {
+            autoreleasepool {
+                for _ in 0..<configuration.sampleCount {
+                    lastPixelBuffer = try? factory.makePixelBuffer(
+                        from: framebuffer,
+                        viewport: viewport
+                    )
+                    XCTAssertNotNil(lastPixelBuffer)
+                }
+            }
+        }
+
+        let pixelBuffer = try XCTUnwrap(lastPixelBuffer)
+        XCTAssertEqual(CVPixelBufferGetWidth(pixelBuffer), configuration.width)
+        XCTAssertEqual(CVPixelBufferGetHeight(pixelBuffer), configuration.height)
+        XCTAssertEqual(CVPixelBufferGetPixelFormatType(pixelBuffer), kCVPixelFormatType_32BGRA)
+    }
+
     func testLegacyFullFramePixelBufferFactoryBenchmark() throws {
         let configuration = try requireBenchmarkConfiguration()
         let framebuffer = Self.makeFramebuffer(width: configuration.width, height: configuration.height)

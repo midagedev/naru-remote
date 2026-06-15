@@ -117,6 +117,13 @@ The PiP Watch sample-buffer factory now skips identity source row/column lookup
 arrays when the viewport covers the full framebuffer. The opt-in 1920x1080
 benchmark shows about 14% lower CPU time/cycles and 11% fewer retired
 instructions; peak physical memory is unchanged.
+Current PiP zoomed viewport crop artifact:
+`artifacts/benchmarks/2026-06-16-pip-zoomed-viewport-crop-performance-summary.md`.
+The PiP Watch zoom/crop path now reads cropped source rows and columns through
+unsafe buffer pointers instead of repeated array subscript lookups. The opt-in
+1920x1080 / 2x zoom benchmark shows about 13% lower clock/CPU time, 14% fewer
+CPU cycles, and 11% fewer retired instructions; peak physical memory is not
+improved.
 Current trackpad command batch artifact:
 `artifacts/benchmarks/2026-06-16-trackpad-command-batch-performance-summary.md`.
 The pointer resolver now stores hot-path pointer commands in a small

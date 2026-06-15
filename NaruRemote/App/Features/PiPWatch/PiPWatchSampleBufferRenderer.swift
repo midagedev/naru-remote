@@ -294,17 +294,31 @@ public final class PiPWatchSampleBufferFactory {
             )
         }
 
-        for y in 0..<framebuffer.height {
-            let sourceY = sourceRows[y]
-            let sourceRowBase = sourceY * framebuffer.width
-            for x in 0..<framebuffer.width {
-                let color = framebuffer.pixels[sourceRowBase + sourceColumns[x]]
+        sourceColumns.withUnsafeBufferPointer { sourceColumnIndices in
+            sourceRows.withUnsafeBufferPointer { sourceRowIndices in
+                framebuffer.pixels.withUnsafeBufferPointer { sourcePixels in
+                    guard let sourceColumnBaseAddress = sourceColumnIndices.baseAddress,
+                          let sourceRowBaseAddress = sourceRowIndices.baseAddress,
+                          let sourceBaseAddress = sourcePixels.baseAddress else {
+                        return
+                    }
 
-                let offset = y * bytesPerRow + x * 4
-                pointer[offset] = color.blue
-                pointer[offset + 1] = color.green
-                pointer[offset + 2] = color.red
-                pointer[offset + 3] = color.alpha
+                    for y in 0..<framebuffer.height {
+                        let sourceY = sourceRowBaseAddress.advanced(by: y).pointee
+                        let sourceRowBase = sourceBaseAddress.advanced(by: sourceY * framebuffer.width)
+                        var destinationOffset = y * bytesPerRow
+                        for x in 0..<framebuffer.width {
+                            let sourceX = sourceColumnBaseAddress.advanced(by: x).pointee
+                            let color = sourceRowBase.advanced(by: sourceX).pointee
+
+                            pointer[destinationOffset] = color.blue
+                            pointer[destinationOffset + 1] = color.green
+                            pointer[destinationOffset + 2] = color.red
+                            pointer[destinationOffset + 3] = color.alpha
+                            destinationOffset += 4
+                        }
+                    }
+                }
             }
         }
     }
