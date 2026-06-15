@@ -3774,3 +3774,47 @@ not export helper endpoints, credentials, profile fingerprints, access-unit
 payloads, frame content, display dimensions, real-session byte counts, device
 identifiers, hostnames, Compose text, clipboard contents, raw network errors,
 or exact per-frame timing series.
+
+## D89 - Decode helper-video network JSON without rebuilding JSON frames
+
+**Decision**: `HelperVideoWireCodec` should expose separated JSON decode
+overloads for callers that already received the JSON header and JSON payload as
+separate `Data` values. `HelperVideoStreamNetworkClient` should use those
+overloads in both finite start-result collection and streaming event delivery
+instead of rebuilding `jsonHeader + jsonPayload` before decoding.
+
+**Rationale**:
+- After D88, the next remaining receive-path allocation in the helper-video
+  wire client was the combined JSON frame rebuild. `NWConnection.receive`
+  already gives the client a validated JSON header and payload separately.
+- The streaming event path is the sustained helper-video path most relevant to
+  smooth visual-primary delivery; removing this per-access-unit rebuild keeps
+  work away from decode/display and mailbox backpressure handling.
+- The protocol remains identical. JSON length validation, binary length
+  validation, unexpected-payload checks, event buffering, timeout refresh, and
+  fallback semantics are unchanged.
+
+**Evidence**:
+- `swift test --filter
+  'HelperVideoFakeTransportTests|HelperVideoStreamNetworkServiceTests|HelperVideoStreamSessionRunnerTests'`
+  passes 28 focused helper-video transport/session tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=1000
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144 swift test
+  --filter HelperVideoWireCodecBenchmarkTests/testSplitAccessUnitNetworkStyleDecodeBenchmark`
+  compares the previous network-style `jsonHeader + jsonPayload` rebuild with
+  separated JSON decode.
+- Network-style split access-unit decode moved from `0.007320 s`,
+  `0.007695 s` CPU time, `24250.981 kC`, and `105295.688 kI` to
+  `0.006395 s`, `0.006733 s` CPU time, `21514.050 kC`, and `97096.178 kI`.
+- The full `HelperVideoWireCodecBenchmarkTests` suite also passes with the new
+  network-style benchmark included.
+- See
+  `artifacts/benchmarks/2026-06-16-helper-video-separated-json-decode-performance-summary.md`.
+
+**Privacy rule**: Separated JSON decode benchmarks may record only aggregate
+CPU/time metrics, fixed synthetic payload size, and fixed test names. They must
+not export helper endpoints, credentials, profile fingerprints, access-unit
+payloads, frame content, display dimensions, real-session byte counts, device
+identifiers, hostnames, Compose text, clipboard contents, raw network errors,
+or exact per-frame timing series.

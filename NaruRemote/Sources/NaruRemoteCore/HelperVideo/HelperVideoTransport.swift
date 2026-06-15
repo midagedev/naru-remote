@@ -376,6 +376,44 @@ public enum HelperVideoWireCodec {
         )
     }
 
+    public static func decodeFrame<Envelope: Decodable & Equatable & Sendable>(
+        _ type: Envelope.Type,
+        fromJSONHeader jsonHeader: Data,
+        jsonPayload: Data
+    ) throws -> HelperVideoDecodedFrame<Envelope> {
+        let envelope = try decodeJSONEnvelope(
+            type,
+            header: jsonHeader,
+            payload: jsonPayload
+        )
+        return HelperVideoDecodedFrame(envelope: envelope)
+    }
+
+    public static func decodeFrame<Envelope: Decodable & Equatable & Sendable>(
+        _ type: Envelope.Type,
+        fromJSONHeader jsonHeader: Data,
+        jsonPayload: Data,
+        binaryHeader: Data,
+        binaryPayload: Data
+    ) throws -> HelperVideoDecodedFrame<Envelope> {
+        let envelope = try decodeJSONEnvelope(
+            type,
+            header: jsonHeader,
+            payload: jsonPayload
+        )
+        let binaryLength = try binaryPayloadLength(from: binaryHeader)
+        guard binaryPayload.count >= binaryLength else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard binaryPayload.count == binaryLength else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+        return HelperVideoDecodedFrame(
+            envelope: envelope,
+            binaryPayload: binaryPayload
+        )
+    }
+
     public static func jsonPayloadLength(from header: Data) throws -> Int {
         try payloadLength(
             from: header,
@@ -424,6 +462,21 @@ public enum HelperVideoWireCodec {
         var data = Data(bytes: &length, count: headerByteCount)
         data.append(payload)
         return data
+    }
+
+    private static func decodeJSONEnvelope<Envelope: Decodable & Equatable & Sendable>(
+        _ type: Envelope.Type,
+        header: Data,
+        payload: Data
+    ) throws -> Envelope {
+        let jsonLength = try jsonPayloadLength(from: header)
+        guard payload.count >= jsonLength else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard payload.count == jsonLength else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+        return try JSONDecoder().decode(type, from: payload)
     }
 
     private static func payloadLength(

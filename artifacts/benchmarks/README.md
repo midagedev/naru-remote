@@ -247,6 +247,13 @@ header `Data` / `[UInt8]` values. The opt-in wire codec benchmark shows about
 9% lower split access-unit decode clock/CPU time, 9% fewer CPU cycles, and 8%
 fewer retired instructions for 1,000 access-unit decodes with a 256 KiB
 payload.
+Current helper-video separated JSON decode performance artifact:
+`artifacts/benchmarks/2026-06-16-helper-video-separated-json-decode-performance-summary.md`.
+The helper-video network client now decodes access units from the already
+received JSON header and JSON payload instead of rebuilding a combined JSON
+frame. The opt-in network-style wire codec benchmark shows about 13% lower
+clock/CPU time, 11% fewer CPU cycles, and 8% fewer retired instructions for
+1,000 access-unit decodes with a 256 KiB payload.
 Current helper-video Annex-B parser performance artifact:
 `artifacts/benchmarks/2026-06-15-helper-video-annexb-parser-performance-summary.md`.
 The app-side helper-video sample-buffer factory now scans received H.264

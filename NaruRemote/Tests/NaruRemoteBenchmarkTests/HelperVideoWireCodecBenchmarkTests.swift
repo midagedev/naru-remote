@@ -41,6 +41,24 @@ final class HelperVideoWireCodecBenchmarkTests: XCTestCase {
         }
     }
 
+    func testSplitAccessUnitNetworkStyleDecodeBenchmark() throws {
+        let fixture = try Self.fixture()
+        let options = Self.measureOptions(iterations: fixture.iterations)
+
+        measure(metrics: Self.benchmarkMetrics, options: options) {
+            for _ in 0..<fixture.sampleCount {
+                let decoded = try! HelperVideoWireCodec.decodeFrame(
+                    HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
+                    fromJSONHeader: fixture.jsonHeader,
+                    jsonPayload: fixture.jsonPayload,
+                    binaryHeader: fixture.binaryHeader,
+                    binaryPayload: fixture.binaryPayload
+                )
+                XCTAssertEqual(decoded.binaryPayload?.count, fixture.payloadByteCount)
+            }
+        }
+    }
+
     private static var benchmarkMetrics: [XCTMetric] {
         [
             XCTClockMetric(),
@@ -98,6 +116,8 @@ final class HelperVideoWireCodecBenchmarkTests: XCTestCase {
             payloadByteCount: payloadByteCount,
             fullFrame: frame,
             jsonFrame: frame.subdata(in: 0..<jsonEnd),
+            jsonHeader: frame.subdata(in: 0..<HelperVideoWireCodec.headerByteCount),
+            jsonPayload: frame.subdata(in: HelperVideoWireCodec.headerByteCount..<jsonEnd),
             binaryHeader: frame.subdata(in: jsonEnd..<binaryHeaderEnd),
             binaryPayload: frame.subdata(in: binaryHeaderEnd..<frame.count)
         )
@@ -125,6 +145,8 @@ private struct HelperVideoWireCodecBenchmarkFixture {
     let payloadByteCount: Int
     let fullFrame: Data
     let jsonFrame: Data
+    let jsonHeader: Data
+    let jsonPayload: Data
     let binaryHeader: Data
     let binaryPayload: Data
 }
