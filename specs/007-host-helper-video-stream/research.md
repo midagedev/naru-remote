@@ -3255,3 +3255,40 @@ payloads, byte counters, endpoints, credentials, physical device identifiers,
 or exact timing series in diagnostics or benchmark reports. Selection metadata
 is process-local only; public artifacts remain fixed-label and aggregate-band
 only.
+
+## D78 - Wake the display during helper ScreenCaptureKit startup
+
+**Decision**: The macOS helper should declare short display wake/no-display-sleep
+activity around finite and streaming ScreenCaptureKit capture startup. If
+`SCShareableContent` initially has no display capture source, the helper waits
+briefly and queries shareable content once more before using the existing window
+fallback path.
+
+**Rationale**:
+- Live helper-video readiness in a Screen Sharing environment showed Screen
+  Recording permission granted, but ScreenCaptureKit did not expose a usable
+  display capture source until the display was explicitly woken.
+- The benchmark runner already wakes the display around helper-video gates, but
+  the product helper path must also protect real app sessions from starting
+  capture while the display is asleep or still recovering.
+- A single short retry keeps the startup path deterministic and bounded while
+  preserving the D77 window fallback for sessions that genuinely have no display
+  source.
+
+**Evidence**:
+- Before this change, the live helper-video gate could stop at
+  `overallGateState=blockedByHelperScreenCapture` with fixed
+  `helper-video-capture-non-displayable-frames` and
+  `helper-video-app-bootstrap-capture-non-displayable-frames` labels.
+- After waking the display and refreshing the helper app, the same live gate
+  reached `overallGateState=blockedByPhysicalIPhoneGate`; external synthetic,
+  sustained synthetic, ScreenCaptureKit, sustained ScreenCaptureKit, and app
+  bootstrap helper-video checks reported pass/passed labels.
+- The scoped benchmark artifact is
+  `artifacts/benchmarks/2026-06-15-helper-video-display-wake-readiness-summary.md`.
+
+**Privacy rule**: Display-wake readiness evidence may include only fixed gate
+state labels, fixed issue codes, and aggregate pass/fail readiness labels. It
+must not include hostnames, endpoints, credentials, app/window/display names,
+display dimensions, screenshots, frame payloads, byte counts, exact timing
+series, raw OS errors, or physical device identifiers.

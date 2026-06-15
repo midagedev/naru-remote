@@ -17,6 +17,7 @@ public enum NaruHelperVideoScreenCaptureKitAccessUnitSourceError: Error, Equatab
 @preconcurrency import CoreMedia
 @preconcurrency import CoreVideo
 @preconcurrency import ScreenCaptureKit
+import IOKit.pwr_mgt
 import VideoToolbox
 
 public protocol NaruHelperVideoScreenCaptureKitPixelBufferProvider: Sendable {
@@ -484,16 +485,65 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
     }
 }
 
+private final class LiveNaruHelperVideoScreenCaptureKitDisplayWakeAssertion:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var assertionIDs: [IOPMAssertionID] = []
+
+    init() {
+        let reason = "Naru Remote helper video capture" as CFString
+        var userActivityAssertionID = IOPMAssertionID(0)
+        if IOPMAssertionDeclareUserActivity(
+            reason,
+            kIOPMUserActiveLocal,
+            &userActivityAssertionID
+        ) == kIOReturnSuccess,
+            userActivityAssertionID != 0
+        {
+            assertionIDs.append(userActivityAssertionID)
+        }
+
+        var noDisplaySleepAssertionID = IOPMAssertionID(0)
+        if IOPMAssertionCreateWithName(
+            kIOPMAssertionTypeNoDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason,
+            &noDisplaySleepAssertionID
+        ) == kIOReturnSuccess,
+            noDisplaySleepAssertionID != 0
+        {
+            assertionIDs.append(noDisplaySleepAssertionID)
+        }
+    }
+
+    deinit {
+        release()
+    }
+
+    func release() {
+        let ids = lock.withLock {
+            let ids = assertionIDs
+            assertionIDs.removeAll()
+            return ids
+        }
+        for id in ids {
+            IOPMAssertionRelease(id)
+        }
+    }
+}
+
 private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
     var frameLimit: Int
     var frameRateBucket: HelperVideoFrameRateBucket
     var qualityBucket: HelperVideoQualityBucket
 
     func capture() async throws -> [CapturedPixelBuffer] {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: true
-        )
+        let displayWakeAssertion = LiveNaruHelperVideoScreenCaptureKitDisplayWakeAssertion()
+        defer {
+            displayWakeAssertion.release()
+        }
+        let content = try await Self.shareableContentAfterDisplayWake()
         guard let target = Self.captureTarget(from: content) else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
@@ -563,6 +613,22 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
                 }
             }
         }
+    }
+
+    fileprivate static func shareableContentAfterDisplayWake() async throws -> SCShareableContent {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
+        guard content.displays.isEmpty else {
+            return content
+        }
+
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        return try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
     }
 
     fileprivate static func captureDisplay(from content: SCShareableContent) -> SCDisplay? {
@@ -685,10 +751,12 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
     let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
 
     func captureUntilFinished() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: true
-        )
+        let displayWakeAssertion = LiveNaruHelperVideoScreenCaptureKitDisplayWakeAssertion()
+        defer {
+            displayWakeAssertion.release()
+        }
+        let content = try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture
+            .shareableContentAfterDisplayWake()
         guard let target = LiveNaruHelperVideoScreenCaptureKitFiniteCapture
             .captureTarget(from: content)
         else {

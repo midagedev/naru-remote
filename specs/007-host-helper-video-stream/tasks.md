@@ -737,6 +737,12 @@ without unsafe report fields.
   short screen probe, sustained 30-frame screen probe, and app-bootstrap
   benchmark from capture-source/stall failures to `pass` /
   `readyForPhysicalGate`. **Done.**
+- [x] T031AU [US2] Hold a short display wake assertion during finite and
+  streaming helper ScreenCaptureKit startup so live app sessions are not
+  blocked by a sleeping or still-recovering display. The helper retries
+  shareable-content discovery once before the existing window fallback, and the
+  scoped evidence artifact records the live gate moving from helper
+  screen-capture blocker labels to the physical iPhone handoff. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
