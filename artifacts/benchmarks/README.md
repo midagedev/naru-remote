@@ -186,6 +186,13 @@ Current helper-video app runner benchmark artifact:
 The app benchmark now exercises the finite helper-video access-unit path
 through visual transport selection and sample-buffer creation without requiring
 Screen Recording permission.
+Current helper-video split decode performance artifact:
+`artifacts/benchmarks/2026-06-15-helper-video-split-decode-performance-summary.md`.
+The helper-video client now decodes access units from separately received JSON,
+binary-header, and binary-payload frames instead of concatenating a full
+payload frame for each H.264 access unit. The opt-in wire codec benchmark shows
+about 39% lower wall time, 45% fewer CPU cycles, and 35% fewer retired
+instructions for 1,000 access-unit decodes with a 256 KiB payload.
 Current helper-video connect bootstrap artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-connect-bootstrap-summary.md`.
 The app model now starts helper-video after the first VNC framebuffer for

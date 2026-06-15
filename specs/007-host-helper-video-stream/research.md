@@ -3292,3 +3292,46 @@ state labels, fixed issue codes, and aggregate pass/fail readiness labels. It
 must not include hostnames, endpoints, credentials, app/window/display names,
 display dimensions, screenshots, frame payloads, byte counts, exact timing
 series, raw OS errors, or physical device identifiers.
+
+## D79 - Decode helper-video access units without rebuilding full payload frames
+
+**Decision**: The helper-video client should decode received access units from
+the already separated JSON frame, binary length header, and binary payload
+instead of concatenating those pieces into a new full-frame `Data` value before
+decoding.
+
+**Rationale**:
+- Sustained helper-video is the visual-primary candidate for smoothness. Its
+  receive path runs once per encoded H.264 access unit, so copying the full
+  payload before decode directly competes with decode/display work and device
+  thermal budget.
+- `NWConnection.receive` already delivers the JSON frame, binary header, and
+  binary payload separately. Validating the binary header against the received
+  payload preserves protocol checks without allocating a combined frame.
+- This does not change wire format, helper behavior, mailbox coalescing,
+  decoder sync, or fallback semantics; it removes only client-side assembly
+  work.
+
+**Evidence**:
+- `swift test --filter
+  'HelperVideoFakeTransportTests|HelperVideoStreamNetworkServiceTests|HelperVideoStreamSessionRunnerTests'`
+  passes 28 selected tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=1000 swift test --filter
+  HelperVideoWireCodecBenchmarkTests` compares full-frame decode with split
+  decode for 1,000 access units per measured iteration.
+- Full-frame decode measured `0.018150 s`, `49209.438 kC`, and
+  `164592.894 kI`.
+- Split-frame decode measured `0.011103 s`, `27095.705 kC`, and
+  `106735.765 kI`, reducing wall time by about 39%, CPU cycles by about 45%,
+  and retired instructions by about 35%.
+- See
+  `artifacts/benchmarks/2026-06-15-helper-video-split-decode-performance-summary.md`.
+
+**Privacy rule**: Wire codec benchmarks may record only aggregate CPU/time
+metrics, fixed test names, and synthetic payload size labels. They must not
+export helper endpoints, credentials, profile fingerprints, access-unit
+payloads, frame content, display dimensions, real-session byte counts, device
+identifiers, hostnames, Compose text, clipboard contents, raw network errors,
+or exact per-frame timing series.

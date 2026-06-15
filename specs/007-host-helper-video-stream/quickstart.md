@@ -611,6 +611,12 @@ NARU_SIM_BENCHMARK_ITERATIONS=1 \
 swift test --filter HelperVideoAppRunnerBenchmarkTests
 
 NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=5 \
+NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144 \
+NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=1000 \
+swift test --filter HelperVideoWireCodecBenchmarkTests
+
+NARU_RUN_SIM_BENCHMARKS=1 \
 NARU_SIM_BENCHMARK_ITERATIONS=1 \
 NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=30 \
 swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke
@@ -627,6 +633,10 @@ receives its first VNC framebuffer, feeds the iOS sample-buffer renderer, and
 confirms VNC pointer/control remains active. Do not store payload bytes, display
 dimensions, helper endpoints, byte counts, exact timings, raw encoder errors,
 host names, or credentials in benchmark artifacts.
+`HelperVideoWireCodecBenchmarkTests` compares full-frame access-unit decode
+against the split JSON/header/payload decode used by the helper-video network
+client receive path. It is a CPU/copy-pressure benchmark only, not a physical
+smoothness claim.
 
 ## Helper-Video Viewport/Input Hot Path Check
 
