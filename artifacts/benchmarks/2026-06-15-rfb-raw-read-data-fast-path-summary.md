@@ -42,7 +42,7 @@ measured iteration.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `readBytes` full-frame payload | 0.514 s | 0.508 s | 1610893.994 kC | 9231329.883 kI | 41440.230 kB |
 | `readData` full-frame payload | 0.520 s | 0.494 s | 1559683.515 kC | 8711090.317 kI | 24899.046 kB |
-| Change | -1.2% | 2.8% | 3.2% | 5.6% | 39.9% |
+| Improvement | flat/noisy | 2.8% lower | 3.2% lower | 5.6% lower | 39.9% lower |
 
 Functional regressions passed: 56 selected RFB byte-reader, raw framebuffer,
 protocol decoder, and frame-pump tests.
