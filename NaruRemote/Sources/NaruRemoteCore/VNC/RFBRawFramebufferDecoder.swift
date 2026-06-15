@@ -770,6 +770,58 @@ extension RFBPixelFormat {
         return decodedPixels
     }
 
+    func decodeColorsAndCountNonBlack(
+        _ data: Data,
+        bytesPerPixel: Int,
+        pixelCount: Int
+    ) -> (pixels: [RFBColor], nonBlackCount: Int) {
+        data.withUnsafeBytes { rawBuffer in
+            decodeColorsAndCountNonBlack(
+                rawBuffer.bindMemory(to: UInt8.self),
+                bytesPerPixel: bytesPerPixel,
+                pixelCount: pixelCount
+            )
+        }
+    }
+
+    private func decodeColorsAndCountNonBlack(
+        _ bytes: UnsafeBufferPointer<UInt8>,
+        bytesPerPixel: Int,
+        pixelCount: Int
+    ) -> (pixels: [RFBColor], nonBlackCount: Int) {
+        var decodedPixels: [RFBColor] = []
+        decodedPixels.reserveCapacity(pixelCount)
+        var nonBlackCount = 0
+
+        if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixel) {
+            var offset = 0
+            for _ in 0..<pixelCount {
+                let color = RFBColor(
+                    red: bytes[offset + offsets.red],
+                    green: bytes[offset + offsets.green],
+                    blue: bytes[offset + offsets.blue]
+                )
+                if color != Self.blackColor {
+                    nonBlackCount += 1
+                }
+                decodedPixels.append(color)
+                offset += bytesPerPixel
+            }
+            return (decodedPixels, nonBlackCount)
+        }
+
+        var offset = 0
+        for _ in 0..<pixelCount {
+            let color = decodeColor(bytes, at: offset)
+            if color != Self.blackColor {
+                nonBlackCount += 1
+            }
+            decodedPixels.append(color)
+            offset += bytesPerPixel
+        }
+        return (decodedPixels, nonBlackCount)
+    }
+
     /// Maps a raw 32-bit pixel value to an `RFBColor` via the format's
     /// per-channel shift + max. Shared by full-PIXEL and CPIXEL decode.
     func colorFromValue(_ value: UInt32) -> RFBColor {
@@ -867,6 +919,8 @@ extension RFBPixelFormat {
     private static func scale(_ component: UInt32, max: UInt16) -> UInt8 {
         UInt8((component * 255) / UInt32(max))
     }
+
+    private static let blackColor = RFBColor(red: 0, green: 0, blue: 0)
 }
 
 /// Backward-compatible Raw entry points. Both wrap the incoming `Data`

@@ -564,20 +564,22 @@ public enum RFBFramebufferDecoder {
     ) throws -> Int {
         let pixelCount = width * height
         let pixels = try reader.readData(pixelCount * bytesPerPixel)
+
+        guard framebuffer.width == width, framebuffer.height == height else {
+            let decoded = pixelFormat.decodeColorsAndCountNonBlack(
+                pixels,
+                bytesPerPixel: bytesPerPixel,
+                pixelCount: pixelCount
+            )
+            framebuffer = RFBRawFramebuffer(width: width, height: height, pixels: decoded.pixels)
+            return decoded.nonBlackCount
+        }
+
         let decodedPixels = pixelFormat.decodeColors(
             pixels,
             bytesPerPixel: bytesPerPixel,
             pixelCount: pixelCount
         )
-
-        guard framebuffer.width == width, framebuffer.height == height else {
-            framebuffer = RFBRawFramebuffer(width: width, height: height, pixels: decodedPixels)
-            let black = RFBColor(red: 0, green: 0, blue: 0)
-            return decodedPixels.reduce(0) { partialResult, pixel in
-                pixel == black ? partialResult : partialResult + 1
-            }
-        }
-
         return framebuffer.replaceAllPixelsTrackingChange(decodedPixels)
     }
 
