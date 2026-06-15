@@ -134,6 +134,13 @@ stores hot-path update change flags once, improving the helper-video pure
 viewport input benchmark by about 16% on CPU cycles, CPU time, and retired
 instructions. This is a local zoom/pan/trackpad hot-path improvement only; it
 does not claim VNC receive-path, network traffic, or live FPS improvement.
+Current helper-video display-wake readiness artifact:
+`artifacts/benchmarks/2026-06-15-helper-video-display-wake-readiness-summary.md`.
+That run scopes a Mac-side helper readiness fix: ScreenCaptureKit startup now
+holds a short display-wake assertion and retries shareable-content discovery
+once before the existing window fallback. The live gate evidence moves the
+helper path from screen-capture blocker labels to the physical iPhone handoff,
+but it does not claim product Green, live iPhone FPS, or traffic improvement.
 Current best-effort pointer input artifact:
 `artifacts/benchmarks/2026-06-07-best-effort-pointer-move-summary.md`.
 That pass removes a remaining input-path blocking point by routing only single
