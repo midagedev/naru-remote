@@ -243,17 +243,17 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 return
             }
 
-            let frame = header + payload
             switch messageType {
             case .startStream:
-                completion.recordStartResponse(frame)
+                completion.recordStartResponse(jsonHeader: header, jsonPayload: payload)
                 receiveNextFrameIfNeeded(on: connection, completion: completion)
             case .streamStalled:
-                completion.recordStall(frame)
+                completion.recordStall(jsonHeader: header, jsonPayload: payload)
                 receiveNextFrameIfNeeded(on: connection, completion: completion)
             case .videoAccessUnit:
                 receiveBinaryPayload(
-                    jsonFrame: frame,
+                    jsonHeader: header,
+                    jsonPayload: payload,
                     on: connection,
                     completion: completion
                 )
@@ -266,7 +266,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     }
 
     private static func receiveBinaryPayload(
-        jsonFrame: Data,
+        jsonHeader: Data,
+        jsonPayload: Data,
         on connection: NWConnection,
         completion: HelperVideoStreamNetworkCompletion
     ) {
@@ -305,7 +306,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 }
 
                 completion.recordAccessUnit(
-                    jsonFrame: jsonFrame,
+                    jsonHeader: jsonHeader,
+                    jsonPayload: jsonPayload,
                     binaryHeader: binaryHeader,
                     binaryPayload: binaryPayload
                 )
@@ -390,13 +392,13 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 return
             }
 
-            let frame = header + payload
             switch messageType {
             case .startStream:
                 do {
                     let response = try HelperVideoWireCodec.decodeFrame(
                         HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
-                        from: frame
+                        fromJSONHeader: header,
+                        jsonPayload: payload
                     ).envelope
                     let result = eventStream.yield(.startResponse(response))
                     receiveNextEventFrame(
@@ -411,7 +413,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 do {
                     let stall = try HelperVideoWireCodec.decodeFrame(
                         HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
-                        from: frame
+                        fromJSONHeader: header,
+                        jsonPayload: payload
                     ).envelope
                     let result = eventStream.yield(.stall(stall))
                     receiveNextEventFrame(
@@ -424,7 +427,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 }
             case .videoAccessUnit:
                 receiveEventBinaryPayload(
-                    jsonFrame: frame,
+                    jsonHeader: header,
+                    jsonPayload: payload,
                     on: connection,
                     eventStream: eventStream
                 )
@@ -437,7 +441,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     }
 
     private static func receiveEventBinaryPayload(
-        jsonFrame: Data,
+        jsonHeader: Data,
+        jsonPayload: Data,
         on connection: NWConnection,
         eventStream: HelperVideoStreamNetworkEventStream
     ) {
@@ -478,7 +483,8 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 do {
                     let accessUnit = try HelperVideoWireCodec.decodeFrame(
                         HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                        fromJSONFrame: jsonFrame,
+                        fromJSONHeader: jsonHeader,
+                        jsonPayload: jsonPayload,
                         binaryHeader: binaryHeader,
                         binaryPayload: binaryPayload
                     )
@@ -990,11 +996,12 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         }
     }
 
-    func recordStartResponse(_ frame: Data) {
+    func recordStartResponse(jsonHeader: Data, jsonPayload: Data) {
         do {
             let response = try HelperVideoWireCodec.decodeFrame(
                 HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
-                from: frame
+                fromJSONHeader: jsonHeader,
+                jsonPayload: jsonPayload
             ).envelope
             lock.withLock {
                 receivedFrameCount += 1
@@ -1007,14 +1014,16 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
     }
 
     func recordAccessUnit(
-        jsonFrame: Data,
+        jsonHeader: Data,
+        jsonPayload: Data,
         binaryHeader: Data,
         binaryPayload: Data
     ) {
         do {
             let accessUnit = try HelperVideoWireCodec.decodeFrame(
                 HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                fromJSONFrame: jsonFrame,
+                fromJSONHeader: jsonHeader,
+                jsonPayload: jsonPayload,
                 binaryHeader: binaryHeader,
                 binaryPayload: binaryPayload
             )
@@ -1028,11 +1037,12 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         }
     }
 
-    func recordStall(_ frame: Data) {
+    func recordStall(jsonHeader: Data, jsonPayload: Data) {
         do {
             let stall = try HelperVideoWireCodec.decodeFrame(
                 HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
-                from: frame
+                fromJSONHeader: jsonHeader,
+                jsonPayload: jsonPayload
             ).envelope
             lock.withLock {
                 receivedFrameCount += 1
