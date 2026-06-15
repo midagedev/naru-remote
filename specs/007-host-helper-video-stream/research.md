@@ -3818,3 +3818,61 @@ not export helper endpoints, credentials, profile fingerprints, access-unit
 payloads, frame content, display dimensions, real-session byte counts, device
 identifiers, hostnames, Compose text, clipboard contents, raw network errors,
 or exact per-frame timing series.
+
+## D90 - Count first Raw full-frame changed pixels while decoding
+
+**Decision**: The VNC Raw fallback first-paint decoder should count non-black
+pixels during the initial full-frame pixel decode when there is no compatible
+previous framebuffer. Incremental full-frame updates should keep using the
+existing compare-against-previous replacement path.
+
+**Rationale**:
+- The first request/response Raw paint still matters as the visual fallback
+  path while helper-video promotion is being verified. It is also part of the
+  user's perception of whether the session is alive on slow networks.
+- For the first full Raw frame, the previous code decoded the complete pixel
+  array and then made a second full pass only to count non-black pixels for
+  `changedPixelCount`. Counting while decoding removes that duplicate pass
+  without changing the framebuffer bytes, dirty rectangle, encoding mix, or
+  incremental update behavior.
+- This complements D84/D86/D88/D89 helper-video receive work: helper-video
+  remains the primary smooth visual candidate, but the VNC fallback should not
+  burn avoidable local CPU on startup.
+
+**Evidence**:
+- `swift test --filter RFBRawFramebufferDecoderTests` passes 20 focused Raw
+  decoder tests, including the full-frame fast-path equality and changed-pixel
+  count case.
+- `swift test --filter RFBFramebufferDecoderTests` passes 20 mixed encoding
+  framebuffer tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080 swift test
+  --filter RFBRawDecodeBenchmarkTests/testFullFrameRawFirstPaintDecodeBenchmark`
+  compares the previous initial full-frame decode/count behavior with the
+  one-pass count path.
+- Baseline measured `0.488 s` clock time, `0.485 s` CPU time,
+  `1544232.557 kC`, `8708818.303 kI`, and `24840.000 kB` peak physical
+  memory.
+- The repeated current run measured `0.314 s` clock time, `0.309 s` CPU time,
+  `977068.223 kC`, `5525754.930 kI`, and `24790.784 kB` peak physical memory,
+  reducing clock/CPU time by about 36% and CPU counters by about 37%. Peak
+  physical memory is effectively flat and is not claimed.
+- See
+  `artifacts/benchmarks/2026-06-16-rfb-raw-first-frame-one-pass-count-summary.md`.
+
+**Alternatives considered**:
+- `Array(unsafeUninitializedCapacity:)` for the common direct RGB decode loop:
+  rejected because the improvement was only about 3% on CPU counters, wall
+  time was noisy, and peak memory increased.
+- Reserving extra capacity before `HelperVideoWireCodec.frameAccessUnit`
+  appends the binary length/payload: rejected because both the raw unsafe
+  length append and reserve-only variants measured slower than the existing
+  path.
+
+**Privacy rule**: Raw first-frame benchmarks may record only aggregate CPU/time
+and memory metrics, fixed synthetic dimensions, fixed sample counts, and fixed
+test names. They must not export screenshots, framebuffer pixels, target
+hostnames, credentials, helper tokens, profile fingerprints, device
+identifiers, raw connection payloads, Compose text, keysyms, pointer
+coordinates from a real session, clipboard contents, raw network errors, or
+raw Xcode logs.

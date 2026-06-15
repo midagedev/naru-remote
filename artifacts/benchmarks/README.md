@@ -1589,3 +1589,12 @@ while the fallback hot cursor is visible. The fix reuses already computed
 `ViewportTransform` values across layer transforms, immediate viewport
 publication, and hot-cursor placement, reducing synthetic hot-path wall/CPU time
 by about 12% and passing the iPhone/iPad simulator input viewport gate.
+The RFB Raw first-frame one-pass count artifact is
+`2026-06-16-rfb-raw-first-frame-one-pass-count-summary.md`; it records a
+measured simulator improvement for the VNC Raw fallback first-paint path. The
+initial full-frame decoder now counts non-black pixels while decoding the
+first pixel array instead of making a second pass, reducing synthetic 1080p
+clock/CPU time by about 36% and CPU counters by about 37%. The artifact also
+records rejected `unsafeUninitializedCapacity` raw decode and helper-video
+access-unit encoding reserve experiments so they are not repeated without new
+profile evidence.
