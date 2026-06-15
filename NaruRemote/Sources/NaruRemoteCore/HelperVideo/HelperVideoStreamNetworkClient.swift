@@ -304,7 +304,11 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                     return
                 }
 
-                completion.recordAccessUnit(jsonFrame + binaryHeader + binaryPayload)
+                completion.recordAccessUnit(
+                    jsonFrame: jsonFrame,
+                    binaryHeader: binaryHeader,
+                    binaryPayload: binaryPayload
+                )
                 receiveNextFrameIfNeeded(on: connection, completion: completion)
             }
         }
@@ -474,8 +478,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 do {
                     let accessUnit = try HelperVideoWireCodec.decodeFrame(
                         HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                        from: jsonFrame + binaryHeader + binaryPayload,
-                        expectsBinaryPayload: true
+                        fromJSONFrame: jsonFrame,
+                        binaryHeader: binaryHeader,
+                        binaryPayload: binaryPayload
                     )
                     let result = eventStream.yield(.accessUnit(accessUnit))
                     receiveNextEventFrame(
@@ -1001,12 +1006,17 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         }
     }
 
-    func recordAccessUnit(_ frame: Data) {
+    func recordAccessUnit(
+        jsonFrame: Data,
+        binaryHeader: Data,
+        binaryPayload: Data
+    ) {
         do {
             let accessUnit = try HelperVideoWireCodec.decodeFrame(
                 HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                from: frame,
-                expectsBinaryPayload: true
+                fromJSONFrame: jsonFrame,
+                binaryHeader: binaryHeader,
+                binaryPayload: binaryPayload
             )
             lock.withLock {
                 receivedFrameCount += 1

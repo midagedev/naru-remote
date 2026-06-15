@@ -743,6 +743,14 @@ without unsafe report fields.
   shareable-content discovery once before the existing window fallback, and the
   scoped evidence artifact records the live gate moving from helper
   screen-capture blocker labels to the physical iPhone handoff. **Done.**
+- [x] T031AV [US1] Remove avoidable full-payload `Data` concatenation from the
+  helper-video client access-unit receive path. The wire codec now decodes
+  access units from the separately received JSON frame, binary header, and H.264
+  payload, and both finite `startStream` and sustained `streamEvents` use that
+  split decode. The opt-in benchmark shows about 39% lower wall time, 45% fewer
+  CPU cycles, and 35% fewer retired instructions for 1,000 decodes with a 256 KiB
+  payload. Covered by split-codec round-trip, helper-video network-service,
+  session-runner regressions, and `HelperVideoWireCodecBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

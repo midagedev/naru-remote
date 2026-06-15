@@ -341,6 +341,41 @@ public enum HelperVideoWireCodec {
         )
     }
 
+    public static func decodeFrame<Envelope: Decodable & Equatable & Sendable>(
+        _ type: Envelope.Type,
+        fromJSONFrame jsonFrame: Data,
+        binaryHeader: Data,
+        binaryPayload: Data
+    ) throws -> HelperVideoDecodedFrame<Envelope> {
+        guard jsonFrame.count >= headerByteCount else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+
+        let jsonLength = try jsonPayloadLength(from: jsonFrame.prefixData(headerByteCount))
+        let jsonStart = headerByteCount
+        let jsonEnd = jsonStart + jsonLength
+        guard jsonFrame.count >= jsonEnd else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard jsonFrame.count == jsonEnd else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+
+        let binaryLength = try binaryPayloadLength(from: binaryHeader)
+        guard binaryPayload.count >= binaryLength else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard binaryPayload.count == binaryLength else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+
+        let jsonPayload = jsonFrame.subdata(in: jsonStart..<jsonEnd)
+        return HelperVideoDecodedFrame(
+            envelope: try JSONDecoder().decode(type, from: jsonPayload),
+            binaryPayload: binaryPayload
+        )
+    }
+
     public static func jsonPayloadLength(from header: Data) throws -> Int {
         try payloadLength(
             from: header,
