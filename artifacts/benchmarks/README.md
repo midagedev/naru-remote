@@ -104,6 +104,13 @@ Connection-grid last-frame thumbnails now downsample live framebuffers directly
 into final RGBA `Data` and decode stored thumbnails with `Data.withUnsafeBytes`.
 The opt-in 200 thumbnail benchmark shows about 69% fewer CPU cycles, 69% fewer
 retired instructions, and 6% lower peak physical memory.
+Current staged dirty-rect upload performance artifact:
+`artifacts/benchmarks/2026-06-15-staged-dirty-rect-upload-performance-summary.md`.
+The Metal staged-upload path now prepares compact region payloads for same-size
+small dirty-rectangle updates instead of staging a full framebuffer buffer. The
+opt-in 1920x1080 / 320x180 dirty-rect benchmark shows about 95% fewer CPU
+cycles, 90% fewer retired instructions, and 19% lower peak physical memory
+versus the legacy full staged buffer path.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:

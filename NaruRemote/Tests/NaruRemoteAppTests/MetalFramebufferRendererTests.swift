@@ -314,6 +314,103 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(bytes[18], 0)
     }
 
+    func testStagedPreparationUsesFullBufferWhenTextureIsMissing() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        let dirtyRect = RFBFrameDamageRect(x: 0, y: 0, width: 4, height: 2)
+        let framebuffer = RFBRawFramebuffer(
+            width: 16,
+            height: 8,
+            fill: RFBColor(red: 0, green: 220, blue: 0, alpha: 255)
+        )
+
+        let byteCount = try XCTUnwrap(
+            renderer.stagedUploadByteCountForTesting(
+                framebuffer: framebuffer,
+                dirtyRectangles: [dirtyRect],
+                changedPixelCount: dirtyRect.width * dirtyRect.height
+            )
+        )
+
+        XCTAssertEqual(
+            byteCount,
+            16 * 8 * 4,
+            "First-frame or dimension-changing staged uploads must keep a full buffer."
+        )
+    }
+
+    func testStagedSmallDirtyRectPreparationUsesPartialBufferWhenTextureMatches() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 16, height: 8, fill: RFBColor(red: 200, green: 0, blue: 0))
+        )
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let dirtyRect = RFBFrameDamageRect(x: 2, y: 1, width: 4, height: 2)
+        let framebuffer = RFBRawFramebuffer(
+            width: 16,
+            height: 8,
+            fill: RFBColor(red: 0, green: 220, blue: 0, alpha: 255)
+        )
+        let byteCount = try XCTUnwrap(
+            renderer.stagedUploadByteCountForTesting(
+                framebuffer: framebuffer,
+                dirtyRectangles: [dirtyRect],
+                changedPixelCount: dirtyRect.width * dirtyRect.height
+            )
+        )
+
+        XCTAssertEqual(
+            byteCount,
+            dirtyRect.width * dirtyRect.height * 4,
+            "Steady-state staged uploads should copy only the dirty rect bytes."
+        )
+    }
+
+    func testPreparedStagedPartialUploadPreservesUntouchedPixelsFromPreviousFrame() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        let baseline = RFBRawFramebuffer(
+            width: 4,
+            height: 2,
+            fill: RFBColor(red: 200, green: 0, blue: 0, alpha: 255)
+        )
+        renderer.enqueue(baseline)
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let dirtyRect = RFBFrameDamageRect(x: 0, y: 0, width: 2, height: 1)
+        let next = try makeHeterogeneousFramebuffer(
+            width: 4,
+            height: 2,
+            dirtyColor: RFBColor(red: 0, green: 220, blue: 0, alpha: 255),
+            otherColor: RFBColor(red: 0, green: 0, blue: 222, alpha: 255),
+            dirtyRect: dirtyRect
+        )
+
+        XCTAssertTrue(
+            renderer.preparePendingStagedUploadForTesting(
+                framebuffer: next,
+                dirtyRectangles: [dirtyRect],
+                changedPixelCount: dirtyRect.width * dirtyRect.height
+            )
+        )
+        XCTAssertTrue(renderer.applyPendingStagedUploadForTesting())
+        XCTAssertEqual(renderer.lastUploadRegionCount, 1)
+
+        let bytes = try XCTUnwrap(renderer.readbackTextureForTesting())
+        XCTAssertEqual(bytes[0], 0)
+        XCTAssertEqual(bytes[1], 220)
+        XCTAssertEqual(bytes[2], 0)
+        XCTAssertEqual(bytes[8], 200, "untouched pixel must keep baseline red")
+        XCTAssertEqual(bytes[9], 0)
+        XCTAssertEqual(bytes[10], 0)
+        XCTAssertEqual(bytes[16], 200, "untouched bottom-row pixel keeps baseline red")
+        XCTAssertEqual(bytes[17], 0)
+        XCTAssertEqual(bytes[18], 0)
+    }
+
     func testLargeDirtyAreaFallsBackToFullUpload() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
