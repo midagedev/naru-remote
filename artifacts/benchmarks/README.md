@@ -117,6 +117,13 @@ The PiP Watch sample-buffer factory now skips identity source row/column lookup
 arrays when the viewport covers the full framebuffer. The opt-in 1920x1080
 benchmark shows about 14% lower CPU time/cycles and 11% fewer retired
 instructions; peak physical memory is unchanged.
+Current trackpad command batch artifact:
+`artifacts/benchmarks/2026-06-16-trackpad-command-batch-performance-summary.md`.
+The pointer resolver now stores hot-path pointer commands in a small
+0/1/2/many batch and computes zoomed reveal deltas without constructing an
+extra temporary `ViewportTransform`. The 5,000-sample pure viewport/input
+benchmark shows about 9-10% lower CPU time/cycles/instructions and about 8%
+lower wall time. This is a local trackpad/viewport hot-path improvement only.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:

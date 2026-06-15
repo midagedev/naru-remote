@@ -3616,3 +3616,58 @@ and fixed test names. They must not export screenshots, frame pixels, target
 hostnames, endpoints, credentials, profile fingerprints, device identifiers,
 Compose text, clipboard contents, raw network errors, raw payload bytes, or
 exact per-frame timing series.
+
+## D86 - Batch pointer commands and compute reveal deltas without extra transforms
+
+**Decision**: The trackpad pointer resolver should represent the common
+command counts (`none`, `one`, `two`) without allocating an array, while
+retaining the existing array view for compatibility tests and non-hot debug
+callers. Zoomed trackpad auto-pan should compute the reveal delta from the
+coupled transform's cursor view point and the clamped target pan directly
+instead of constructing a temporary target `ViewportTransform` just to read its
+pan offset.
+
+**Rationale**:
+- Continuous trackpad drag samples usually emit exactly one buttonless pointer
+  move. Allocating an array for that one command is avoidable work on the same
+  MainActor-adjacent path where the product target requires cursor movement and
+  viewport follow-pan to stay independent from visual backlog.
+- Taps still need down/up pairs and less frequent multi-command paths still
+  exist, so a small batch type keeps behavior explicit without changing RFB
+  ordering.
+- The previous reveal path called `panToReveal`, which built a temporary
+  transform and then the resolver built another damped transform. Directly
+  computing the raw reveal delta and clamping the target pan preserves the
+  existing finger-paced tests while removing the extra transform construction
+  from reveal samples.
+
+**Evidence**:
+- `swift test --filter
+  'PointerGestureResolverTests|ViewportInputHotPathDriverTests|HelperVideoViewportInputHotPathBenchmarkTests/testPureInputHotPathPublishesImmediateTransforms'`
+  passes 23 focused pointer, viewport, and benchmark smoke tests.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=5000 swift test --filter
+  HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark`
+  compares the pure viewport/input hot path from a detached `origin/main`
+  baseline worktree against the patched worktree.
+- Baseline measured `0.002687 s` clock time, `0.003013 s` CPU time,
+  `9755.558 kC`, `39314.492 kI`, and `5870.541 kB` peak physical memory.
+- Current measured `0.002463 s` clock time, `0.002717 s` CPU time,
+  `8830.766 kC`, `35345.626 kI`, and `5811.430 kB` peak physical memory,
+  reducing clock time by about 8%, CPU time/cycles by about 9-10%, and retired
+  instructions by about 10%. Peak physical memory is not claimed.
+- See
+  `artifacts/benchmarks/2026-06-16-trackpad-command-batch-performance-summary.md`.
+- A range-based helper-video H.264 Annex-B sample-buffer parser was tried and
+  rejected in the same investigation because it only reduced CPU cycles by
+  about 0.4% and retired instructions by about 0.3% with noisy wall-clock
+  behavior. Do not repeat that experiment unless profiling later shows per-NAL
+  `Data` materialization has become dominant again.
+
+**Privacy rule**: Trackpad hot-path benchmarks may record only aggregate
+CPU/time and memory metrics, fixed synthetic sample counts, fixed test names,
+and safe commit identifiers. They must not export hostnames, endpoints,
+credentials, profile fingerprints, device identifiers, frame pixels,
+screenshots, display dimensions, pointer coordinates from a real session, byte
+counts, exact live-frame timing series, Compose text, keysyms, clipboard
+contents, raw network errors, or raw UIKit/Xcode logs.

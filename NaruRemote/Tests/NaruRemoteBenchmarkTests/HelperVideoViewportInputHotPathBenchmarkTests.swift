@@ -43,7 +43,7 @@ final class HelperVideoViewportInputHotPathBenchmarkTests: XCTestCase {
         )
         let trackpadUpdate = driver.adopt(outcome.transform)
 
-        XCTAssertEqual(outcome.commands.count, 1)
+        XCTAssertEqual(outcome.commandCount, 1)
         XCTAssertTrue(trackpadUpdate.didChange)
         XCTAssertNotEqual(outcome.cursor.position, cursor.position)
     }
@@ -113,7 +113,7 @@ final class HelperVideoViewportInputHotPathBenchmarkTests: XCTestCase {
                     cursor: cursor
                 )
                 cursor = outcome.cursor
-                trackpadCommandCount += outcome.commands.count
+                trackpadCommandCount += outcome.commandCount
                 update = driver.adopt(outcome.transform)
             }
 
