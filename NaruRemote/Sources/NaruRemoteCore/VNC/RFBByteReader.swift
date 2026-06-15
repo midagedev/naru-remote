@@ -22,9 +22,18 @@ public protocol RFBByteReader: AnyObject {
     /// Reads exactly `count` bytes, advancing the cursor. Throws
     /// ``RFBByteReaderError`` if the bytes are unavailable.
     func readBytes(_ count: Int) throws -> [UInt8]
+
+    /// Reads exactly `count` bytes as `Data`, advancing the cursor.
+    /// Implementations that already receive `Data` can override this to
+    /// avoid a full intermediate `[UInt8]` copy on large payload paths.
+    func readData(_ count: Int) throws -> Data
 }
 
 public extension RFBByteReader {
+    func readData(_ count: Int) throws -> Data {
+        try Data(readBytes(count))
+    }
+
     func readUInt8() throws -> UInt8 {
         try readBytes(1)[0]
     }
@@ -60,38 +69,42 @@ public extension RFBByteReader {
 /// shim, which wraps the incoming `Data` so the offline test path and the
 /// live network path share one decoder.
 public final class RFBDataReader: RFBByteReader {
-    private let bytes: [UInt8]
+    private let data: Data
     public private(set) var offset: Int
 
     public init(_ data: Data) {
-        self.bytes = [UInt8](data)
+        self.data = data
         self.offset = 0
     }
 
     public init(_ bytes: [UInt8]) {
-        self.bytes = bytes
+        self.data = Data(bytes)
         self.offset = 0
     }
 
     /// Bytes not yet consumed.
     public var remaining: Int {
-        bytes.count - offset
+        data.count - offset
     }
 
     public func readBytes(_ count: Int) throws -> [UInt8] {
+        try Array(readData(count))
+    }
+
+    public func readData(_ count: Int) throws -> Data {
         guard count >= 0 else {
             throw RFBByteReaderError.negativeRequest(count)
         }
         guard count > 0 else {
-            return []
+            return Data()
         }
-        guard offset + count <= bytes.count else {
+        guard offset + count <= data.count else {
             throw RFBByteReaderError.insufficientData(
                 requested: count,
-                available: bytes.count - offset
+                available: data.count - offset
             )
         }
-        let slice = Array(bytes[offset..<(offset + count)])
+        let slice = data[offset..<(offset + count)]
         offset += count
         return slice
     }

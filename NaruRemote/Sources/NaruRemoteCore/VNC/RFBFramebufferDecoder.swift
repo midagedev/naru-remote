@@ -563,7 +563,7 @@ public enum RFBFramebufferDecoder {
         bytesPerPixel: Int
     ) throws -> Int {
         let pixelCount = width * height
-        let pixels = try reader.readBytes(pixelCount * bytesPerPixel)
+        let pixels = try reader.readData(pixelCount * bytesPerPixel)
         let decodedPixels = pixelFormat.decodeColors(
             pixels,
             bytesPerPixel: bytesPerPixel,

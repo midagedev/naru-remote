@@ -623,6 +623,12 @@ NARU_HELPER_VIDEO_SAMPLE_BUFFER_BENCHMARK_SAMPLES=500 \
 swift test --filter HelperVideoSampleBufferFactoryBenchmarkTests
 
 NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=5 \
+NARU_SIM_BENCHMARK_WIDTH=1920 \
+NARU_SIM_BENCHMARK_HEIGHT=1080 \
+swift test --filter RFBRawDecodeBenchmarkTests
+
+NARU_RUN_SIM_BENCHMARKS=1 \
 NARU_SIM_BENCHMARK_ITERATIONS=1 \
 NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES=30 \
 swift test --filter HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke

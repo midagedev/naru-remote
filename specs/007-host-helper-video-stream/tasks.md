@@ -761,6 +761,13 @@ without unsafe report fields.
   rejected after noisier benchmark results. Covered by parser/sample-buffer
   renderer regressions and `HelperVideoSampleBufferFactoryBenchmarkTests`.
   **Done.**
+- [x] T031AX [US1] Remove the avoidable whole-frame `Data` to `[UInt8]` copy
+  from VNC Raw full-frame decode by adding `RFBByteReader.readData(_:)` and
+  decoding full-frame raw pixels through `Data.withUnsafeBytes`. The opt-in
+  1920x1080 benchmark shows about 40% lower peak physical memory, 3% fewer CPU
+  cycles, and 6% fewer retired instructions. Covered by byte-reader, raw
+  framebuffer, protocol-decoder, frame-pump regressions, and
+  `RFBRawDecodeBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.

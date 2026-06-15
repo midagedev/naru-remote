@@ -1288,8 +1288,15 @@ private final class ConnectionByteReader: RFBByteReader {
     }
 
     func readBytes(_ count: Int) throws -> [UInt8] {
+        try [UInt8](readData(count))
+    }
+
+    func readData(_ count: Int) throws -> Data {
+        guard count >= 0 else {
+            throw RFBByteReaderError.negativeRequest(count)
+        }
         guard count > 0 else {
-            return []
+            return Data()
         }
         let startedAt = RFBMonotonicTiming.now()
         do {
@@ -1300,7 +1307,7 @@ private final class ConnectionByteReader: RFBByteReader {
                 firstByteWaitNanoseconds = elapsedNanoseconds
             }
             consumedByteCount += data.count
-            return [UInt8](data)
+            return data
         } catch {
             readDurationNanoseconds += RFBMonotonicTiming.nanoseconds(since: startedAt)
             throw error
@@ -1322,11 +1329,15 @@ private final class PrefixedByteReader: RFBByteReader {
     }
 
     func readBytes(_ count: Int) throws -> [UInt8] {
+        try [UInt8](readData(count))
+    }
+
+    func readData(_ count: Int) throws -> Data {
         guard count >= 0 else {
             throw RFBByteReaderError.negativeRequest(count)
         }
         guard count > 0 else {
-            return []
+            return Data()
         }
 
         var bytes: [UInt8] = []
@@ -1338,10 +1349,13 @@ private final class PrefixedByteReader: RFBByteReader {
         }
 
         if bytes.count < count {
+            if bytes.isEmpty {
+                return try base.readData(count)
+            }
             bytes.append(contentsOf: try base.readBytes(count - bytes.count))
         }
 
-        return bytes
+        return Data(bytes)
     }
 }
 

@@ -85,6 +85,12 @@ Current RFB Raw first-frame decode artifact:
 That run adds an opt-in first-paint Raw decode benchmark and records a clear
 simulator CPU reduction from replacing the full-frame per-pixel setter path
 with a contiguous framebuffer replacement fast path.
+Current RFB Raw read-data fast path artifact:
+`artifacts/benchmarks/2026-06-15-rfb-raw-read-data-fast-path-summary.md`.
+The Raw full-frame decoder now reads large pixel payloads as `Data` and decodes
+through `Data.withUnsafeBytes`, avoiding a whole-frame `Data` to `[UInt8]`
+copy. The 1920x1080 opt-in benchmark shows about 40% lower peak physical
+memory, 3% fewer CPU cycles, and 6% fewer retired instructions.
 Current helper-video readiness surface artifact:
 `artifacts/benchmarks/2026-06-07-helper-video-readiness-surface-summary.md`.
 That run records the current `remote-desktop-10fps-readiness` state:
