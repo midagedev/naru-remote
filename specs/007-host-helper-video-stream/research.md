@@ -3671,3 +3671,61 @@ credentials, profile fingerprints, device identifiers, frame pixels,
 screenshots, display dimensions, pointer coordinates from a real session, byte
 counts, exact live-frame timing series, Compose text, keysyms, clipboard
 contents, raw network errors, or raw UIKit/Xcode logs.
+
+## D87 - Use pointer-backed pixel reads for PiP zoomed viewport crops
+
+**Decision**: The PiP Watch zoomed/cropped viewport pixel-buffer writer should
+keep the existing stable full-size output buffer, but read source rows,
+columns, and framebuffer pixels through unsafe buffer pointers while writing
+destination bytes with a rolling row offset. The full-frame PiP writer remains
+on its existing direct path.
+
+**Rationale**:
+- PiP Watch can mirror the user's zoomed/panned focus. That local crop path is
+  important for iPhone readability while another app is foregrounded, and it
+  previously retained the more expensive row/column lookup path left in place
+  after the full-frame PiP optimization.
+- The crop writer already computes safe, clamped source row and column lookup
+  tables. Using buffer pointers for those tables and the framebuffer removes
+  repeated nested `Array` subscript overhead without changing crop semantics or
+  the privacy boundary.
+- The output pixel buffer stays the original framebuffer size, preserving the
+  stable PiP sample-buffer dimensions needed by AVKit.
+
+**Evidence**:
+- `swift test --filter PiPWatchSampleBufferRendererTests` passes 8 focused
+  renderer tests, including BGRA byte order, zoomed/panned viewport output,
+  sample-buffer readiness, and presentation-time behavior.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080
+  NARU_PIP_SAMPLE_BUFFER_BENCHMARK_SAMPLES=20 swift test --filter
+  PiPWatchSampleBufferFactoryBenchmarkTests/testZoomedViewportPixelBufferFactoryBenchmark`
+  compares the previous zoomed crop writer with the pointer-backed crop writer
+  in the same worktree, before and after the production change.
+- Baseline measured `5.701 s` clock time, `5.658 s` CPU time,
+  `18204829.073 kC`, `106485484.110 kI`, and `31324.723 kB` peak physical
+  memory.
+- Current measured `4.973 s` clock time, `4.928 s` CPU time,
+  `15686431.865 kC`, `94748328.079 kI`, and `31393.536 kB` peak physical
+  memory, reducing clock/CPU time by about 13%, CPU cycles by about 14%, and
+  retired instructions by about 11%. Peak physical memory is not claimed.
+- See
+  `artifacts/benchmarks/2026-06-16-pip-zoomed-viewport-crop-performance-summary.md`.
+
+**Alternatives considered**:
+- Avoid selected `model.snapshot` reads in `HelperVideoStreamSessionRunner`:
+  rejected because the app-runner benchmark did not improve; instructions
+  increased slightly and cycle/time metrics were noisy.
+- Reserve and append raw AVCC length-prefix bytes in
+  `HelperVideoH264SampleBufferFactory`: rejected because the sample-buffer
+  benchmark measured slower than the existing `Data(bytes:count:)` prefix append
+  path.
+- Emit a smaller cropped PiP pixel buffer: rejected for this slice because PiP
+  sample-buffer dimensions are intentionally stable across zoom/pan changes.
+
+**Privacy rule**: PiP zoom/crop benchmarks may record only aggregate CPU/time
+and memory metrics, fixed synthetic dimensions, fixed sample counts, and fixed
+test names. They must not export screenshots, framebuffer pixels, target
+hostnames, credentials, helper tokens, profile fingerprints, device
+identifiers, raw connection payloads, Compose text, keysyms, pointer
+coordinates from a real session, clipboard contents, or raw Xcode logs.
