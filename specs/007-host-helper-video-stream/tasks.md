@@ -793,6 +793,14 @@ without unsafe report fields.
   and 19% lower peak physical memory versus the legacy full staged buffer.
   Covered by Metal renderer regressions and
   `SyntheticFramePipelineBenchmarkTests`. **Done.**
+- [x] T031BB [US1] Skip identity row/column lookup arrays in the PiP Watch
+  full-frame sample-buffer write path. Full-frame PiP pixel-buffer creation now
+  writes directly from framebuffer pixel storage, while zoomed/cropped
+  viewports keep the existing resampling path. The opt-in 1920x1080 benchmark
+  shows about 14% lower CPU time/cycles and 11% fewer retired instructions; the
+  rejected 32-bit packed-write variant is recorded to avoid repeating it.
+  Covered by PiP renderer regressions and
+  `PiPWatchSampleBufferFactoryBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
