@@ -41,8 +41,8 @@ measured iteration.
 | Path | Clock time | CPU time | CPU cycles | CPU instructions | Peak physical memory |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `readBytes` full-frame payload | 0.514 s | 0.508 s | 1610893.994 kC | 9231329.883 kI | 41440.230 kB |
-| `readData` full-frame payload | 0.520 s | 0.494 s | 1559683.515 kC | 8711090.317 kI | 24899.046 kB |
-| Improvement | flat/noisy | 2.8% lower | 3.2% lower | 5.6% lower | 39.9% lower |
+| `readData` full-frame payload | 0.538 s | 0.503 s | 1569990.629 kC | 8711832.519 kI | 24748.250 kB |
+| Improvement | flat/noisy | 1.0% lower | 2.5% lower | 5.6% lower | 40.3% lower |
 
 Functional regressions passed: 56 selected RFB byte-reader, raw framebuffer,
 protocol decoder, and frame-pump tests.
@@ -51,9 +51,9 @@ protocol decoder, and frame-pump tests.
 
 Use `readData(_:)` for large Raw full-frame pixel payloads. This is PR-worthy
 because it removes an avoidable whole-frame copy from the VNC visual fallback
-path and cuts peak benchmark memory by about 40%, with smaller CPU-time,
-cycle, and retired-instruction reductions. The wall-clock metric was effectively
-flat/noisy in this microbenchmark. It does not change the larger live VNC
+path and cuts peak benchmark memory by about 40%, with smaller CPU-counter
+reductions. The CPU-time and wall-clock metrics were effectively flat/noisy in
+this microbenchmark. It does not change the larger live VNC
 finding that Apple Screen Sharing cadence and first-byte wait dominate many
 poor-network runs.
 

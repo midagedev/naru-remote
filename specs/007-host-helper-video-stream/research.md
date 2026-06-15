@@ -3405,10 +3405,10 @@ instead of forcing a whole-frame `[UInt8]` copy before pixel conversion.
   iteration.
 - `readBytes` measured `0.514 s` clock time, `0.508 s` CPU time,
   `1610893.994 kC`, `9231329.883 kI`, and `41440.230 kB` peak physical memory.
-- `readData` measured `0.520 s` clock time, `0.494 s` CPU time,
-  `1559683.515 kC`, `8711090.317 kI`, and `24899.046 kB` peak physical memory,
-  reducing peak physical memory by about 40%, CPU time by about 3%, CPU cycles
-  by about 3%, and retired instructions by about 6%. The wall-clock metric was
+- `readData` measured `0.538 s` clock time, `0.503 s` CPU time,
+  `1569990.629 kC`, `8711832.519 kI`, and `24748.250 kB` peak physical memory,
+  reducing peak physical memory by about 40%, CPU cycles by about 3%, and
+  retired instructions by about 6%. The CPU-time and wall-clock metrics were
   effectively flat/noisy in this microbenchmark.
 - See
   `artifacts/benchmarks/2026-06-15-rfb-raw-read-data-fast-path-summary.md`.

@@ -1340,22 +1340,22 @@ private final class PrefixedByteReader: RFBByteReader {
             return Data()
         }
 
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(count)
+        var data = Data()
+        data.reserveCapacity(count)
 
-        while bytes.count < count, let next = prefix.first {
-            bytes.append(next)
+        while data.count < count, let next = prefix.first {
+            data.append(next)
             prefix = prefix.dropFirst()
         }
 
-        if bytes.count < count {
-            if bytes.isEmpty {
+        if data.count < count {
+            if data.isEmpty {
                 return try base.readData(count)
             }
-            bytes.append(contentsOf: try base.readBytes(count - bytes.count))
+            data.append(try base.readData(count - data.count))
         }
 
-        return Data(bytes)
+        return data
     }
 }
 
