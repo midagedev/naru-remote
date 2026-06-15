@@ -301,7 +301,7 @@ public enum HelperVideoWireCodec {
             throw HelperVideoWireCodecError.truncatedFrame
         }
 
-        let jsonLength = try jsonPayloadLength(from: frame.prefixData(headerByteCount))
+        let jsonLength = try jsonPayloadLength(fromFramePrefix: frame)
         let jsonStart = headerByteCount
         let jsonEnd = jsonStart + jsonLength
         guard frame.count >= jsonEnd else {
@@ -325,7 +325,7 @@ public enum HelperVideoWireCodec {
 
         let binaryLengthStart = jsonEnd
         let binaryLengthEnd = binaryLengthStart + headerByteCount
-        let binaryLength = try binaryPayloadLength(from: frame.subdata(in: binaryLengthStart..<binaryLengthEnd))
+        let binaryLength = try binaryPayloadLength(from: frame, at: binaryLengthStart)
         let binaryStart = binaryLengthEnd
         let binaryEnd = binaryStart + binaryLength
         guard frame.count >= binaryEnd else {
@@ -351,7 +351,7 @@ public enum HelperVideoWireCodec {
             throw HelperVideoWireCodecError.truncatedFrame
         }
 
-        let jsonLength = try jsonPayloadLength(from: jsonFrame.prefixData(headerByteCount))
+        let jsonLength = try jsonPayloadLength(fromFramePrefix: jsonFrame)
         let jsonStart = headerByteCount
         let jsonEnd = jsonStart + jsonLength
         guard jsonFrame.count >= jsonEnd else {
@@ -385,9 +385,29 @@ public enum HelperVideoWireCodec {
         )
     }
 
+    private static func jsonPayloadLength(fromFramePrefix frame: Data) throws -> Int {
+        try payloadLength(
+            from: frame,
+            at: 0,
+            maximumByteCount: maximumJSONFrameByteCount,
+            allowsZero: false,
+            oversizedError: .oversizedJSONFrame
+        )
+    }
+
     public static func binaryPayloadLength(from header: Data) throws -> Int {
         try payloadLength(
             from: header,
+            maximumByteCount: maximumBinaryPayloadByteCount,
+            allowsZero: true,
+            oversizedError: .oversizedBinaryPayload
+        )
+    }
+
+    private static func binaryPayloadLength(from frame: Data, at offset: Int) throws -> Int {
+        try payloadLength(
+            from: frame,
+            at: offset,
             maximumByteCount: maximumBinaryPayloadByteCount,
             allowsZero: true,
             oversizedError: .oversizedBinaryPayload
@@ -415,8 +435,54 @@ public enum HelperVideoWireCodec {
         guard header.count == headerByteCount else {
             throw HelperVideoWireCodecError.invalidLength
         }
+        return try header.withUnsafeBytes { bytes in
+            try payloadLength(
+                from: bytes,
+                maximumByteCount: maximumByteCount,
+                allowsZero: allowsZero,
+                oversizedError: oversizedError
+            )
+        }
+    }
 
-        let bytes = [UInt8](header)
+    private static func payloadLength(
+        from frame: Data,
+        at offset: Int,
+        maximumByteCount: Int,
+        allowsZero: Bool,
+        oversizedError: HelperVideoWireCodecError
+    ) throws -> Int {
+        guard offset >= 0, offset <= frame.count - headerByteCount else {
+            throw HelperVideoWireCodecError.invalidLength
+        }
+        return try frame.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else {
+                throw HelperVideoWireCodecError.invalidLength
+            }
+            let headerBytes = UnsafeRawBufferPointer(
+                start: baseAddress.advanced(by: offset),
+                count: headerByteCount
+            )
+            return try payloadLength(
+                from: headerBytes,
+                maximumByteCount: maximumByteCount,
+                allowsZero: allowsZero,
+                oversizedError: oversizedError
+            )
+        }
+    }
+
+    private static func payloadLength(
+        from rawBytes: UnsafeRawBufferPointer,
+        maximumByteCount: Int,
+        allowsZero: Bool,
+        oversizedError: HelperVideoWireCodecError
+    ) throws -> Int {
+        guard rawBytes.count == headerByteCount else {
+            throw HelperVideoWireCodecError.invalidLength
+        }
+
+        let bytes = rawBytes.bindMemory(to: UInt8.self)
         let value = UInt32(bytes[0]) << 24
             | UInt32(bytes[1]) << 16
             | UInt32(bytes[2]) << 8
@@ -431,10 +497,6 @@ public enum HelperVideoWireCodec {
 }
 
 private extension Data {
-    func prefixData(_ count: Int) -> Data {
-        Data(prefix(count))
-    }
-
     func hexEncodedString() -> String {
         map { String(format: "%02x", $0) }.joined()
     }

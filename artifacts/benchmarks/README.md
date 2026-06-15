@@ -239,6 +239,14 @@ binary-header, and binary-payload frames instead of concatenating a full
 payload frame for each H.264 access unit. The opt-in wire codec benchmark shows
 about 39% lower wall time, 45% fewer CPU cycles, and 35% fewer retired
 instructions for 1,000 access-unit decodes with a 256 KiB payload.
+Current helper-video wire length-header performance artifact:
+`artifacts/benchmarks/2026-06-16-helper-video-wire-length-header-performance-summary.md`.
+The helper-video wire codec now parses 4-byte JSON/binary length headers from
+`Data.withUnsafeBytes` and direct frame offsets instead of materializing small
+header `Data` / `[UInt8]` values. The opt-in wire codec benchmark shows about
+9% lower split access-unit decode clock/CPU time, 9% fewer CPU cycles, and 8%
+fewer retired instructions for 1,000 access-unit decodes with a 256 KiB
+payload.
 Current helper-video Annex-B parser performance artifact:
 `artifacts/benchmarks/2026-06-15-helper-video-annexb-parser-performance-summary.md`.
 The app-side helper-video sample-buffer factory now scans received H.264
