@@ -142,36 +142,38 @@ public struct NaruRemoteAppShell: View {
             // filling viewport merely shrinks instead of being crushed to a
             // sliver.  Pre-connect / disconnected keeps the historical
             // scrollable stack so the diagnostics summary stays reachable.
-            Group {
-                if isEmptyHome {
-                    EmptyHomeView(onAddProfile: { showsProfileEditor = true })
-                } else if showsConnectionGrid {
-                    ConnectionGridView(
-                        cards: snapshot.connectionGridCards,
-                        onSelect: { id in
-                            model.selectProfile(id: id)
-                            showsSelectedProfileDetail = true
-                            preferredCompactColumn = .detail
-                        },
-                        onAddProfile: { showsProfileEditor = true }
-                    )
-                    .navigationBarBackButtonHidden(true)
-                } else if usesLiveSessionLayout {
-                    sessionViewport(fillsAvailableHeight: true)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .naruLiveSessionChromeHidden()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            sessionViewport(fillsAvailableHeight: false)
+            ZStack {
+                Group {
+                    if isEmptyHome {
+                        EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                    } else if showsConnectionGrid {
+                        ConnectionGridView(
+                            cards: snapshot.connectionGridCards,
+                            onSelect: { id in
+                                model.selectProfile(id: id)
+                                showsSelectedProfileDetail = true
+                                preferredCompactColumn = .detail
+                            },
+                            onAddProfile: { showsProfileEditor = true }
+                        )
+                        .navigationBarBackButtonHidden(true)
+                    } else if usesLiveSessionLayout {
+                        sessionViewport(fillsAvailableHeight: true)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .naruLiveSessionChromeHidden()
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                sessionViewport(fillsAvailableHeight: false)
 
-                            DiagnosticSummaryView(
-                                rows: snapshot.diagnosticRows,
-                                shareTextProvider: { [buildVersion] in
-                                    model.makeDiagnosticExport()
-                                        .renderSharePayload(buildVersion: buildVersion)
-                                }
-                            )
+                                DiagnosticSummaryView(
+                                    rows: snapshot.diagnosticRows,
+                                    shareTextProvider: { [buildVersion] in
+                                        model.makeDiagnosticExport()
+                                            .renderSharePayload(buildVersion: buildVersion)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
