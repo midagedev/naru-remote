@@ -1611,3 +1611,9 @@ messages. The small fixed-size `KeyEvent` and `PointerEvent` encoders now fill
 fixed-length `Data` directly instead of allocating temporary byte arrays,
 reducing checksum-protected synthetic clock/CPU time by about 61% and CPU
 instructions by about 60% while preserving exact wire bytes.
+The simulator gate step timeout artifact is
+`2026-06-16-simulator-gate-step-timeout-summary.md`; it records a benchmark
+runner reliability fix after `simulator-input-viewport-gate` reproduced an
+unbounded iPhone Compose UI-test wait. Each simulator gate step is now bounded
+by `NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS` (default 600s) and reports a
+fixed `*.timedOut` label instead of silently blocking long-running work.
