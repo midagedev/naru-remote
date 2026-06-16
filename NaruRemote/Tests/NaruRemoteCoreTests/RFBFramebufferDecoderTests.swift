@@ -62,6 +62,26 @@ final class RFBFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(result.framebuffer[3, 0], blue)
     }
 
+    func testCopyRectVerticalOverlapIsSnapshotSafe() throws {
+        // 1x4 = [a,b,c,d]; copy src(0,0,1,3) to dst(0,1). A snapshot-safe
+        // copy yields [a,a,b,c]; an in-place top-to-bottom copy would smear.
+        let previous = try RFBRawFramebufferDecoder.decode(
+            updateData: rawUpdate(x: 0, y: 0, width: 1, height: 4, colors: [red, green, blue, white]),
+            serverInit: serverInit(width: 1, height: 4)
+        )
+
+        let result = try RFBRawFramebufferDecoder.apply(
+            updateData: copyRectUpdate(dstX: 0, dstY: 1, width: 1, height: 3, srcX: 0, srcY: 0),
+            serverInit: serverInit(width: 1, height: 4),
+            previousFramebuffer: previous
+        )
+
+        XCTAssertEqual(result.framebuffer[0, 0], red)
+        XCTAssertEqual(result.framebuffer[0, 1], red)
+        XCTAssertEqual(result.framebuffer[0, 2], green)
+        XCTAssertEqual(result.framebuffer[0, 3], blue)
+    }
+
     func testCopyRectReportsZeroChangedPixelsWhenDestinationAlreadyMatches() throws {
         let previous = try RFBRawFramebufferDecoder.decode(
             updateData: rawUpdate(x: 0, y: 0, width: 2, height: 1, colors: [red, green]),

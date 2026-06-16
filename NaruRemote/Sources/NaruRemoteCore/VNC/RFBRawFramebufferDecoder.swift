@@ -145,10 +145,11 @@ extension RFBRawFramebuffer {
         return changed
     }
 
-    /// Copies a `width × height` block from `(srcX, srcY)` to
-    /// `(dstX, dstY)` of the *current* framebuffer (CopyRect, RFC 6143
-    /// §7.7.2). Overlap-safe: the source region is snapshotted before any
-    /// destination write. Caller must have bounds-validated both rects.
+    /// Copies a `width × height` block from `(srcX, srcY)` to `(dstX, dstY)`
+    /// of the current framebuffer (CopyRect, RFC 6143 §7.7.2). Overlap-safe:
+    /// row/column direction is chosen so the copy has memmove semantics
+    /// without materializing a full source snapshot. Caller must have
+    /// bounds-validated both rects.
     /// Returns the number of destination pixels whose value changed.
     @discardableResult
     mutating func copyRegionTrackingChange(
@@ -162,25 +163,56 @@ extension RFBRawFramebuffer {
         guard copyWidth > 0, copyHeight > 0 else {
             return 0
         }
-        var snapshot = [RFBColor]()
-        snapshot.reserveCapacity(copyWidth * copyHeight)
-        for row in 0..<copyHeight {
-            let srcBase = (srcY + row) * width + srcX
-            snapshot.append(contentsOf: pixels[srcBase..<(srcBase + copyWidth)])
-        }
         var changed = 0
-        for row in 0..<copyHeight {
+
+        func copyRow(_ row: Int) {
+            let srcBase = (srcY + row) * width + srcX
             let dstBase = (dstY + row) * width + dstX
-            let snapBase = row * copyWidth
-            for column in 0..<copyWidth {
-                let index = dstBase + column
-                let color = snapshot[snapBase + column]
-                if pixels[index] != color {
-                    pixels[index] = color
-                    changed += 1
+            if dstY == srcY, dstX > srcX {
+                var column = copyWidth - 1
+                while true {
+                    let index = dstBase + column
+                    let color = pixels[srcBase + column]
+                    if pixels[index] != color {
+                        pixels[index] = color
+                        changed += 1
+                    }
+                    guard column > 0 else {
+                        break
+                    }
+                    column -= 1
+                }
+            } else {
+                var column = 0
+                while column < copyWidth {
+                    let index = dstBase + column
+                    let color = pixels[srcBase + column]
+                    if pixels[index] != color {
+                        pixels[index] = color
+                        changed += 1
+                    }
+                    column += 1
                 }
             }
         }
+
+        if dstY > srcY {
+            var row = copyHeight - 1
+            while true {
+                copyRow(row)
+                guard row > 0 else {
+                    break
+                }
+                row -= 1
+            }
+        } else {
+            var row = 0
+            while row < copyHeight {
+                copyRow(row)
+                row += 1
+            }
+        }
+
         return changed
     }
 }
