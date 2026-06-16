@@ -1604,3 +1604,10 @@ clock/CPU time by about 36% and CPU counters by about 37%. The artifact also
 records rejected `unsafeUninitializedCapacity` raw decode and helper-video
 access-unit encoding reserve experiments so they are not repeated without new
 profile evidence.
+The RFB client message encoder artifact is
+`2026-06-16-rfb-client-message-encoder-fixed-data-summary.md`; it records a
+measured input-lane hot-path improvement for Direct Key and trackpad pointer
+messages. The small fixed-size `KeyEvent` and `PointerEvent` encoders now fill
+fixed-length `Data` directly instead of allocating temporary byte arrays,
+reducing checksum-protected synthetic clock/CPU time by about 61% and CPU
+instructions by about 60% while preserving exact wire bytes.

@@ -202,9 +202,16 @@ public enum RFBClientMessageEncoder {
     }
 
     public static func keyEvent(keysym: UInt32, isDown: Bool) -> Data {
-        var bytes: [UInt8] = [4, isDown ? 1 : 0, 0, 0]
-        bytes.append(contentsOf: uint32Bytes(keysym))
-        return Data(bytes)
+        fixedLengthData(byteCount: 8) { bytes in
+            bytes[0] = 4
+            bytes[1] = isDown ? 1 : 0
+            bytes[2] = 0
+            bytes[3] = 0
+            bytes[4] = UInt8((keysym >> 24) & 0x000000ff)
+            bytes[5] = UInt8((keysym >> 16) & 0x000000ff)
+            bytes[6] = UInt8((keysym >> 8) & 0x000000ff)
+            bytes[7] = UInt8(keysym & 0x000000ff)
+        }
     }
 
     /// Encodes an RFB `PointerEvent` (RFC 6143 §7.5.5, message type 5).
@@ -223,10 +230,27 @@ public enum RFBClientMessageEncoder {
     /// transformation — caller-provided coordinates are NOT logged at this
     /// boundary (constitution §IV).
     public static func encodePointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) -> Data {
-        var bytes: [UInt8] = [5, buttonMask]
-        bytes.append(contentsOf: uint16Bytes(x))
-        bytes.append(contentsOf: uint16Bytes(y))
-        return Data(bytes)
+        fixedLengthData(byteCount: 6) { bytes in
+            bytes[0] = 5
+            bytes[1] = buttonMask
+            bytes[2] = UInt8((x >> 8) & 0x00ff)
+            bytes[3] = UInt8(x & 0x00ff)
+            bytes[4] = UInt8((y >> 8) & 0x00ff)
+            bytes[5] = UInt8(y & 0x00ff)
+        }
+    }
+
+    @inline(__always)
+    private static func fixedLengthData(
+        byteCount: Int,
+        _ fill: (UnsafeMutableBufferPointer<UInt8>) -> Void
+    ) -> Data {
+        var data = Data(count: byteCount)
+        data.withUnsafeMutableBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            fill(bytes)
+        }
+        return data
     }
 
     private static func uint16Bytes(_ value: UInt16) -> [UInt8] {
