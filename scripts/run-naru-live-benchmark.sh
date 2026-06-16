@@ -20,6 +20,7 @@ Modes:
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
   simulator-input-viewport-gate Run simulator Compose storm + viewport hot path gate.
+  simulator-input-viewport-gate-step-timeout-self-test Fast regression for simulator gate step timeout labels.
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
   helper-text-dev-app-setup Install dev helper app, set launchctl, request text insertion permission.
@@ -103,6 +104,7 @@ Launchctl variables used when present:
   NARU_SIMULATOR_PHONE_DESTINATION
   NARU_SIMULATOR_PAD_DESTINATION
   NARU_SIMULATOR_GATE_INCLUDE_IPAD=0|1
+  NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS
   NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS
   NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES
   NARU_HELPER_VIDEO_TOKEN
@@ -2597,15 +2599,42 @@ simulator_gate_benchmark_samples() {
   esac
 }
 
+simulator_gate_step_timeout_seconds() {
+  local value="${NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS:-600}"
+  case "$value" in
+    ''|*[!0-9]*|0)
+      printf '600'
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
+}
+
+simulator_gate_timeout_failure_code() {
+  local failure_code="$1"
+  case "$failure_code" in
+    *.failed)
+      printf '%s.timedOut' "${failure_code%.failed}"
+      ;;
+    *)
+      printf '%s.timedOut' "$failure_code"
+      ;;
+  esac
+}
+
 run_simulator_gate_step() {
   local step_label="$1"
   local failure_code="$2"
   shift 2
 
   local output_file
+  local timeout_seconds
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-${step_label}.XXXXXX")"
+  timeout_seconds="$(simulator_gate_step_timeout_seconds)"
 
-  if "$@" >"$output_file" 2>&1; then
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$timeout_seconds" "$@" >"$output_file" 2>&1; then
     rm -f "$output_file"
     printf '{"stepLabel":'
     json_string "$step_label"
@@ -2614,14 +2643,51 @@ run_simulator_gate_step() {
   fi
 
   local exit_code=$?
+  local timed_out=0
+  local safe_failure_code="$failure_code"
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    timed_out=1
+    safe_failure_code="$(simulator_gate_timeout_failure_code "$failure_code")"
+  fi
+
   printf '{"stepLabel":'
   json_string "$step_label"
   printf ',"status":"failed","safeFailureCode":'
-  json_string "$failure_code"
-  printf ',"exitCode":%d,"localOutputFilePath":' "$exit_code"
+  json_string "$safe_failure_code"
+  printf ',"exitCode":%d' "$exit_code"
+  if ((timed_out)); then
+    printf ',"timedOut":true,"timeoutSeconds":%s' "$timeout_seconds"
+  fi
+  printf ',"localOutputFilePath":'
   json_string "$output_file"
   printf '}'
   return 0
+}
+
+simulator_gate_step_timeout_self_test() {
+  local report_file
+  report_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-timeout-self-test.XXXXXX")"
+  NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS=1 \
+    run_simulator_gate_step \
+      timeout-step \
+      benchmarkStep.simulatorInputViewportGate.timeoutStep.failed \
+      bash -c 'sleep 3' \
+      >"$report_file"
+
+  if grep -q '"status":"failed"' "$report_file" \
+    && grep -q '"safeFailureCode":"benchmarkStep.simulatorInputViewportGate.timeoutStep.timedOut"' "$report_file" \
+    && grep -q '"timedOut":true' "$report_file" \
+    && grep -q '"timeoutSeconds":1' "$report_file"; then
+    rm -f "$report_file"
+    printf '{"schemaVersion":1,"mode":"simulator-input-viewport-gate-step-timeout-self-test","status":"passed"}\n'
+    return 0
+  fi
+
+  printf '{"schemaVersion":1,"mode":"simulator-input-viewport-gate-step-timeout-self-test","status":"failed","report":'
+  cat "$report_file"
+  printf '}\n'
+  rm -f "$report_file"
+  return 1
 }
 
 simulator_gate_step_passed() {
@@ -10092,6 +10158,10 @@ case "$mode" in
     ;;
   simulator-input-viewport-gate)
     simulator_input_viewport_gate
+    ;;
+  simulator-input-viewport-gate-step-timeout-self-test)
+    reject_extra_args
+    simulator_gate_step_timeout_self_test
     ;;
   physical-iphone-helper-video-gate)
     physical_iphone_helper_video_gate
