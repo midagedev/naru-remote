@@ -91,6 +91,12 @@ The Raw full-frame decoder now reads large pixel payloads as `Data` and decodes
 through `Data.withUnsafeBytes`, avoiding a whole-frame `Data` to `[UInt8]`
 copy. The 1920x1080 opt-in benchmark shows about 40% lower peak physical
 memory, 3% fewer CPU cycles, and 6% fewer retired instructions.
+Current RFB CopyRect scroll artifact:
+`artifacts/benchmarks/2026-06-16-rfb-copyrect-inplace-scroll-performance-summary.md`.
+The CopyRect decoder now handles overlapping terminal-like scroll updates with
+directional in-place copies instead of snapshotting the source rectangle. The
+1920x1080 opt-in benchmark shows about 74-75% lower clock/CPU time, about 77%
+fewer retired instructions, and about 27% lower peak physical memory.
 Current input/viewport transient lease artifact:
 `artifacts/benchmarks/2026-06-15-transient-interaction-lease-task-reuse-summary.md`.
 The MainActor transient frame-delivery lease now refreshes a single expiration

@@ -3876,3 +3876,58 @@ hostnames, credentials, helper tokens, profile fingerprints, device
 identifiers, raw connection payloads, Compose text, keysyms, pointer
 coordinates from a real session, clipboard contents, raw network errors, or
 raw Xcode logs.
+
+## D91 - Copy VNC CopyRect scroll regions in place
+
+**Decision**: Keep VNC CopyRect overlap semantics but remove the full source
+snapshot allocation from large terminal-like scroll updates. The decoder should
+choose row and column copy direction, giving `memmove`-style behavior directly
+inside the framebuffer pixel storage.
+
+**Rationale**:
+- CopyRect is the efficient VNC representation for terminal and AI CLI scroll
+  movement. Even when helper-video is the primary smooth visual candidate, VNC
+  remains the fallback/control path and should not spend avoidable local CPU or
+  memory on common scroll updates.
+- The previous implementation snapshotted the source region into a temporary
+  `[RFBColor]` array before writing the destination. This preserved overlap
+  safety but added another large allocation for nearly full-frame scrolls.
+- Directional copy preserves the existing snapshot-safe behavior without
+  materializing the source rectangle. The existing overlap regression still
+  proves that a same-row copy does not smear pixels.
+
+**Evidence**:
+- `swift test --filter RFBFramebufferDecoderTests` passes 21 focused mixed
+  encoding tests, including CopyRect overlap, out-of-bounds, zero-change, and
+  mixed Raw/CopyRect ordering coverage.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_SIM_BENCHMARK_WIDTH=1920 NARU_SIM_BENCHMARK_HEIGHT=1080 swift test
+  --filter RFBCopyRectBenchmarkTests/testOverlappingScrollCopyRectBenchmark`
+  compares the previous source-snapshot path with the in-place directional
+  copy path.
+- Baseline measured `0.291 s` clock time, `0.291 s` CPU time,
+  `936761.495 kC`, `5587536.805 kI`, and `30895.398 kB` peak physical memory.
+- Current measured `0.075 s` clock time, `0.074 s` CPU time,
+  `239633.414 kC`, `1303706.988 kI`, and `22569.050 kB` peak physical memory,
+  reducing clock/CPU by about 74-75%, retired instructions by about 77%, and
+  peak physical memory by about 27%.
+- See
+  `artifacts/benchmarks/2026-06-16-rfb-copyrect-inplace-scroll-performance-summary.md`.
+
+**Alternatives considered**:
+- Direction selection through existential `Sequence` values: rejected because
+  it reduced peak memory but left clock/CPU flat and increased retired
+  instructions. Explicit branch-local loops are measurably better.
+- Repeating the recently rejected staged-upload `Data(bytesNoCopy:)`,
+  H.264 sample-buffer range/block-buffer, pure viewport, and static helper
+  app-runner experiments: rejected for this slice because their prior
+  measurements were either noisy, slower, memory-regressive, or too small to
+  justify a PR.
+
+**Privacy rule**: CopyRect benchmarks may record only aggregate CPU/time and
+memory metrics, fixed synthetic dimensions, fixed sample counts, and fixed
+test names. They must not export screenshots, framebuffer pixels, target
+hostnames, credentials, helper tokens, profile fingerprints, device
+identifiers, raw connection payloads, Compose text, keysyms, pointer
+coordinates from a real session, clipboard contents, raw network errors, or
+raw Xcode logs.

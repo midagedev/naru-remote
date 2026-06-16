@@ -801,6 +801,14 @@ without unsafe report fields.
   rejected 32-bit packed-write variant is recorded to avoid repeating it.
   Covered by PiP renderer regressions and
   `PiPWatchSampleBufferFactoryBenchmarkTests`. **Done.**
+- [x] T031BC [US1] Remove the full source snapshot from VNC CopyRect
+  terminal-like scroll updates. CopyRect now chooses row/column direction and
+  copies in place with memmove-style overlap safety, preserving existing
+  CopyRect behavior while avoiding another near-full-frame `[RFBColor]`
+  allocation. The opt-in 1920x1080 scroll benchmark shows about 74-75% lower
+  clock/CPU time, about 77% fewer retired instructions, and about 27% lower
+  peak physical memory. Covered by mixed-encoding CopyRect regressions and
+  `RFBCopyRectBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
 - [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path.
