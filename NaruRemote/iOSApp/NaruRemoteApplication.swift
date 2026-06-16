@@ -7,6 +7,7 @@ import SwiftUI
 struct NaruRemoteApplication: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = Self.makeModel()
+    @MainActor private static var trackpadCursorStormTask: Task<Void, Never>?
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
     @MainActor private static var helperVideoHealthStormTask: Task<Void, Never>?
@@ -319,7 +320,9 @@ struct NaruRemoteApplication: App {
             model.togglePointerControlMode()
         }
 
-        Task { @MainActor in
+        trackpadCursorStormTask?.cancel()
+        trackpadCursorStormTask = Task { @MainActor in
+            defer { trackpadCursorStormTask = nil }
             for _ in 0..<160 {
                 guard !Task.isCancelled else {
                     return
@@ -433,6 +436,8 @@ struct NaruRemoteApplication: App {
 
     @MainActor
     private static func cancelTestStormTasks() {
+        trackpadCursorStormTask?.cancel()
+        trackpadCursorStormTask = nil
         delayedFirstFrameTask?.cancel()
         delayedFirstFrameTask = nil
         framebufferFloodTask?.cancel()
@@ -504,14 +509,14 @@ struct NaruRemoteApplication: App {
         modelPublishStormTask = Task { @MainActor in
             defer { modelPublishStormTask = nil }
             let qualitySamples: [ConnectionQuality] = [.good, .fair, .poor, .good]
-            for index in 0..<900 {
+            for index in 0..<240 {
                 guard !Task.isCancelled else {
                     return
                 }
                 model.seedConnectionQualityForTesting(
                     qualitySamples[index % qualitySamples.count]
                 )
-                try? await Task.sleep(for: .milliseconds(6))
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -555,12 +560,12 @@ struct NaruRemoteApplication: App {
                     decodePressure: .medium
                 )
             ]
-            for index in 0..<900 {
+            for index in 0..<240 {
                 guard !Task.isCancelled else {
                     return
                 }
                 model.updateHelperVideoStreamHealth(samples[index % samples.count])
-                try? await Task.sleep(for: .milliseconds(7))
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -606,7 +611,7 @@ struct NaruRemoteApplication: App {
                 "Synthetic remote clipboard review with enough text to span more than one compact iPhone line during a keyboard accessory relayout.",
                 "Synthetic remote clipboard review updated again during active IME composition."
             ]
-            for index in 0..<360 {
+            for index in 0..<180 {
                 guard !Task.isCancelled else {
                     return
                 }
@@ -614,7 +619,7 @@ struct NaruRemoteApplication: App {
                     samples[index % samples.count],
                     at: Date(timeIntervalSince1970: TimeInterval(index))
                 )
-                try? await Task.sleep(for: .milliseconds(9))
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }

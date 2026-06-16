@@ -454,7 +454,7 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-connecting-delayed-first-frame"
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
-        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "250"
+        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "1500"
         app.launch()
         return app
     }
