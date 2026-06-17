@@ -214,6 +214,7 @@ public struct NaruRemoteAppShell: View {
                             onTextChange: { model.updateComposeDraftText($0) },
                             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
                             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+                            onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
                             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
                             onHardwareKey: { keysym, modifiers, isDown in
                                 Task {
@@ -476,6 +477,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onTextChange: (String) -> Void
     var onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
     var onToggleDirectMode: () -> Void
+    var onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     var onTapDirectKey: (DirectKey) -> Void
     var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     var onComposeQuickKey: (ComposeQuickKey) -> Void
@@ -500,6 +502,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             showsCompactStatusText: state.showsCompactStatusText,
             showsComposeQuickKeys: state.showsComposeQuickKeys,
             onToggleDirectMode: onToggleDirectMode,
+            onSetDirectInputSurface: onSetDirectInputSurface,
             onTapDirectKey: onTapDirectKey,
             onHardwareKey: onHardwareKey,
             onComposeQuickKey: onComposeQuickKey,

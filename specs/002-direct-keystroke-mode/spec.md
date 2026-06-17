@@ -4,7 +4,7 @@
 **Created**: 2026-05-02
 **Status**: Draft
 **Product**: Naru Remote
-**Input**: Founder workflow signal — sustained AI-coding from iPhone over VNC requires terminal-grade per-keystroke input (Tab, Esc, Ctrl combos, arrows). PRODUCT_SPEC.md §6.3.6 names the mode; this feature spec replaces the §6.3.6 assumption that iOS's system keyboard would be reused. Founder explicitly chose Chrome Remote Desktop Android's pattern: a custom in-app soft keyboard with two pages (QWERTY + special keys), bottom-docked, with sticky modifiers — the iOS system keyboard's IME composition, autocorrect, predictive text, and missing terminal keys make it unsuitable as a raw-keystroke source.
+**Input**: Founder workflow signal — sustained AI-coding from iPhone over VNC requires terminal-grade per-keystroke input (Tab, Esc, Ctrl combos, arrows). PRODUCT_SPEC.md §6.3.6 names the mode; this feature spec replaces the §6.3.6 assumption that iOS's system keyboard would be the only Direct input path. Founder explicitly chose Chrome Remote Desktop Android's pattern as the default: a custom in-app soft keyboard with two pages (QWERTY + special keys), bottom-docked, with sticky modifiers. A later polish pass adds explicit Direct input surfaces for (a) native iOS ASCII keyboard feel and (b) hardware-keyboard-only use where software keyboards must stay out of the way.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -18,7 +18,7 @@ The founder is mid-flight or away from a desk and needs to keep working on a lon
 
 **Acceptance Scenarios**:
 
-1. **Given** the user is in an active VNC session with a focused remote terminal, **When** they tap the Direct Keystroke toggle on the Remote Input Dock, **Then** the iOS system keyboard is dismissed (if visible), the custom soft keyboard appears bottom-docked showing the QWERTY page, the dock shows a persistent "Direct mode" badge, and a one-time per-session warning explains "IME / autocorrect / dictation are bypassed in this mode."
+1. **Given** the user is in an active VNC session with a focused remote terminal, **When** they tap the Direct Keystroke toggle on the Remote Input Dock, **Then** the default custom Direct surface dismisses the iOS system keyboard (if visible), shows the custom soft keyboard bottom-docked on the QWERTY page, keeps the dock's persistent "Direct mode" badge visible, and shows a one-time per-session warning explaining that IME / autocorrect / dictation are bypassed by the default Direct surface.
 2. **Given** the custom keyboard is showing the QWERTY page, **When** the user taps a letter key, **Then** Naru sends a `KeyEvent` down message followed immediately by a `KeyEvent` up message for that letter's X11 keysym, and no local clipboard, compose buffer, or text accumulator is touched.
 3. **Given** the user taps the special-keys page toggle, **When** the page swaps, **Then** the QWERTY page is hidden and a special-keys page replaces it in the same dock area showing Tab, Esc, Ctrl, Alt, Cmd, Shift, Up/Down/Left/Right, F1–F12, Home, End, PgUp, PgDn, Insert, Delete; an inverse toggle returns to QWERTY without sending any keystroke.
 
@@ -56,6 +56,7 @@ When the user attaches a Bluetooth or Magic Keyboard to the iPhone or iPad while
 2. **Given** Direct mode is active with a hardware keyboard connected, **When** the user holds a hardware key, **Then** the iOS press cycle's auto-repeat is honored — Naru emits one `KeyEvent` down on the initial press and one `KeyEvent` up on release; no per-repeat extra `KeyEvent` is synthesized by Naru (the remote OS owns auto-repeat once `down` is held).
 3. **Given** Direct mode is active and a hardware keyboard is connected, **When** the user uses the on-screen Direct keyboard at the same time (e.g., one-handed scenario), **Then** both input sources coexist without the modifier sticky-state of one source corrupting the other.
 4. **Given** Direct mode is *off* (Compose mode), **When** a hardware key is pressed, **Then** Naru does **not** stream raw keystrokes to the remote — Compose & Send remains the path (constitution §I default).
+5. **Given** Direct mode is active and the user selects the hardware-keyboard-only surface, **When** a Bluetooth / Magic Keyboard is used, **Then** Naru keeps the raw hardware responder active while hiding both Naru's custom soft keyboard and the iOS system keyboard so the stream area is not obstructed.
 
 ---
 
@@ -96,13 +97,13 @@ Visual feedback for armed vs locked modifiers, double-tap window tuning, and rec
 - **Hardware key with no X11 keysym** (e.g., Globe / Dictation): Naru drops the event silently and surfaces no error — emitting "unknown" placeholder keysyms could corrupt remote state.
 - **Mode toggle during reconnect**: existing `ReconnectPolicy` window owns reconnect; mode toggle is allowed but no `KeyEvent` is sent until the session returns to `.active`.
 - **iPad-only — Stage Manager / multi-window**: the bottom-docked Direct keyboard is per-window; modifier state lives in `RemoteInputDock` and resets per-window per constitution §VI (graceful scaling, not a primary scenario).
-- **Localization**: QWERTY page is English-only; Korean / CJK / emoji input is explicitly **not** supported in Direct mode (Compose & Send is the IME path; constitution §I).
+- **Localization**: QWERTY and iOS-system Direct surfaces are ASCII-only; Korean / CJK / emoji input is explicitly **not** supported in Direct mode (Compose & Send is the IME path; constitution §I). The iOS-system surface drops non-ASCII committed text instead of emitting garbage keysyms.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: System MUST present a custom in-app soft keyboard when Direct Keystroke mode is active. The iOS system keyboard MUST be dismissed during Direct mode and MUST NOT contribute keystrokes to the wire.
+- **FR-001**: System MUST present the custom in-app soft keyboard as the default Direct Keystroke input surface. On that default surface, the iOS system keyboard MUST be dismissed and MUST NOT contribute keystrokes to the wire.
 - **FR-002**: System MUST provide two pages — a QWERTY page and a special-keys page — togglable from the keyboard view itself, and the page toggle MUST NOT emit any `KeyEvent`.
 - **FR-003**: User MUST be able to toggle between Compose & Send (default) and Direct Keystroke mode from the Remote Input Dock in one tap.
 - **FR-004**: System MUST emit one RFB `KeyEvent` (RFC 6143 §7.5.4, message type 4, 8 bytes) on key down and one on key up for every on-screen tap, with the X11 keysym corresponding to the key plus current sticky-modifier state.
@@ -118,10 +119,11 @@ Visual feedback for armed vs locked modifiers, double-tap window tuning, and rec
 - **FR-014**: System MUST reset the mode to Compose & Send on every fresh session start (per profile connect). Direct mode MUST NOT persist across disconnect / reconnect cycles or app launches.
 - **FR-015**: System MUST drop hardware keystrokes that have no X11 keysym mapping silently, without emitting a `KeyEvent` and without surfacing an error.
 - **FR-016**: System MUST treat every soft-key tap as **one-shot** — exactly one `KeyEvent` down + one `KeyEvent` up per tap. Press-and-hold on the on-screen keyboard MUST NOT synthesize repeated `KeyEvent`s. This unifies the on-screen and hardware paths (FR-006): both rely on the remote OS to own auto-repeat once `KeyEvent` down is held, and the remote only sees a held key when the user uses the hardware path. The trade-off — losing the long-press-to-repeat feel for `Backspace` and arrow keys on the on-screen keyboard — is accepted to keep the two emission paths byte-identical (SC-005) and to keep the local emitter simple and timing-independent.
+- **FR-017**: While Direct mode is active, the user MUST be able to choose among three input surfaces: default Naru custom keyboard, iOS system ASCII keyboard, and hardware-keyboard-only. The iOS system surface MUST map printable ASCII plus Return / Tab / Backspace into Direct key events and MUST drop non-ASCII committed text. The hardware-keyboard-only surface MUST keep `UIPress` capture active while hiding software keyboards.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
-- **IN-001 Local composition path**: **none** — Direct mode is the explicit constitution §I "MAY" exception (remote key events as the *primary* path is allowed because the user has opted in by toggling the mode). No compose buffer, no autocorrect, no predictive text. Local IME is bypassed by *not* using a `UITextInput`-conforming view.
+- **IN-001 Local composition path**: **none for multilingual composition** — Direct mode is the explicit constitution §I "MAY" exception (remote key events as the *primary* path is allowed because the user has opted in by toggling the mode). The default custom and hardware-keyboard-only surfaces bypass local IME by not using a `UITextInput`-conforming view. The optional iOS-system Direct surface uses `UIKeyInput` only as an ASCII committed-character source; non-ASCII committed text is dropped and Compose & Send remains the IME-friendly path.
 - **IN-002 Remote injection behavior**: per-key RFB `KeyEvent` (down / up pairs), 8 bytes per RFC 6143 §7.5.4, big-endian keysym, sent immediately on tap or hardware press / release. No batching, no debouncing.
 - **IN-003 Fallback behavior**: when the remote application rejects, drops focus, or the connection lapses (existing `RemoteSessionState` not `.active`), `KeyEvent`s are dropped silently. Direct mode does **not** keep a buffer; this is intentional — Compose & Send is the buffered path.
 - **IN-004 Clipboard impact**: **none**. Direct mode does not read or write local or remote clipboards.
@@ -143,9 +145,10 @@ Visual feedback for armed vs locked modifiers, double-tap window tuning, and rec
 
 ### Key Entities *(include if feature involves data)*
 
-- **DirectKeystrokeMode** — boolean state on `NaruRemoteAppModel` (or sub-model in `RemoteInputDock`) controlling the active input mode. Default `false`. Resets to `false` on every session start.
+- **DirectKeystrokeMode** — state on `NaruRemoteAppModel` controlling the active input mode, current custom keyboard page, selected Direct input surface, and one-time warning status. Default `isActive = false` and `inputSurface = customKeyboard`. Resets to defaults on every session start.
 - **StickyModifierState** — small struct tracking the current state of each modifier (Ctrl / Shift / Alt / Cmd) as one of `idle | armed | locked`. Single-source-of-truth for both the on-screen keyboard's visual state and the keysym emission path.
 - **KeyboardPage** — enum `qwerty | special` controlling which set of keys the custom keyboard renders. Defaults to `qwerty` on every Direct-mode entry.
+- **DirectKeystrokeInputSurface** — enum `customKeyboard | systemKeyboard | hardwareKeyboard` controlling which local Direct surface is rendered. Defaults to `customKeyboard`; the other two are explicit user opt-ins.
 - **KeysymMapping** — table mapping each on-screen key (and each `UIKey.keyCode` from hardware) to an X11 keysym. Shared by on-screen and hardware paths to prevent divergence.
 - **KeystrokeEmitter** — boundary that turns one logical key event (key, down/up, current modifier set) into one RFB `KeyEvent` on the wire. Capability protocol on the existing RFB boundary (peer to `RemoteClipboardTextClient`, `RFBPointerEventClient`).
 
@@ -161,6 +164,8 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 | Sticky modifier `Shift` double-tap within 400 ms → locked → 3 letters held → tap `Shift` → released | Unit | iPhone (simulator) | `swift test` for `StickyModifierState` transitions |
 | Mode toggle preserves Compose draft both directions | Unit (model) | iPhone (simulator) | `swift test` for `RemoteInputDock` model |
 | Direct mode entry dismisses iOS keyboard and shows custom keyboard | XCUITest | iPhone (simulator) | XCUITest screenshot diff |
+| iOS system Direct surface maps ASCII / Return / Tab and drops non-ASCII | Unit | iPhone (simulator) | `swift test --filter DirectKeystrokeModeTests` mapping assertions |
+| Hardware-keyboard-only surface hides software keyboards while preserving hardware responder | Unit + screenshot/manual | iPhone (simulator first, physical when available) | render-state/unit coverage plus screenshot or manual-device log |
 | One-time-per-session warning appears on first Direct entry, not on subsequent toggles | XCUITest | iPhone (simulator) | XCUITest assertion |
 | Hardware keyboard chord (`Ctrl-C`) over `UIKeyCommand` produces same wire bytes as on-screen `Ctrl`+`c` | Unit | iPhone (simulator) | `swift test` against shared `KeysymMapping` |
 | Persistent "Direct — IME off" badge visible on the dock when keyboard is collapsed (dock pinned via `.safeAreaInset(edge: .bottom)`) | XCUITest | iPhone (simulator) | XCUITest screenshot |

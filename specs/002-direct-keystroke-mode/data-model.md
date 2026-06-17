@@ -16,11 +16,13 @@ no SwiftUI / UIKit imports unless explicitly noted.
 public struct DirectKeystrokeMode: Sendable, Equatable, Codable {
     public var isActive: Bool
     public var page: KeyboardPage
+    public var inputSurface: DirectKeystrokeInputSurface
     public var hasShownEntryWarningThisSession: Bool
 
     public init(
         isActive: Bool = false,
         page: KeyboardPage = .qwerty,
+        inputSurface: DirectKeystrokeInputSurface = .customKeyboard,
         hasShownEntryWarningThisSession: Bool = false
     )
 }
@@ -29,6 +31,12 @@ public enum KeyboardPage: String, Sendable, Equatable, Codable {
     case qwerty
     case special
 }
+
+public enum DirectKeystrokeInputSurface: String, Sendable, Equatable, Codable, CaseIterable {
+    case customKeyboard
+    case systemKeyboard
+    case hardwareKeyboard
+}
 ```
 
 **Lifecycle**:
@@ -36,11 +44,14 @@ public enum KeyboardPage: String, Sendable, Equatable, Codable {
 - Default-constructed (`isActive = false`, `page = .qwerty`, no warning shown) on every fresh `connectSelectedProfile()` (FR-014). State is in-memory only — never persisted to `settings.json` or `profiles.json` (constitution §I default; the user opts in per session by design).
 - `isActive` flips on user toggle from `RemoteInputDockView`'s mode picker. Flipping `isActive: false → true` for the first time in a session sets `hasShownEntryWarningThisSession = true` and triggers the FR-009 confirmation dialog. Flipping again in the same session shows no dialog.
 - `page` defaults to `.qwerty` on every Direct mode entry (FR-006-adjacent — fresh entry = familiar layout); the user toggles to `.special` via an in-keyboard button.
+- `inputSurface` defaults to `.customKeyboard` so existing FR-001 behavior remains stable. `.systemKeyboard` shows UIKit's ASCII keyboard and maps committed printable ASCII plus Return / Tab / Backspace into Direct keys. `.hardwareKeyboard` hides software keyboards while keeping raw hardware `UIPress` capture active.
 - On `disconnect()`, profile change, or session end, the entire struct resets to defaults.
+- Legacy Codable payloads that do not contain `inputSurface` decode as `.customKeyboard`.
 
 **Invariants**:
 
 - `page` matters only when `isActive == true`. We don't enforce this — it's harmless to track the page across off cycles.
+- `inputSurface` is session-scoped and only meaningful when `isActive == true`. Switching the surface does not send a `KeyEvent`, mutate the compose draft, or reset sticky modifiers.
 - `hasShownEntryWarningThisSession` is reset to `false` on every disconnect; the warning is once-per-session, not once-per-app-install.
 
 ---
