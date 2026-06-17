@@ -1649,6 +1649,17 @@ iPhone) and ships as its own PR.
   state, keysyms, helper endpoints, pairing material, or physical device IDs.
   Owns: launchctl runner, self-test, research note, benchmark README, and live
   evidence. **Done.**
+- **T481** Raw full-frame decode buffer fill optimization: after simulator
+  benchmark evidence showed Raw first-paint decode still consumes visible CPU
+  time in the VNC fallback path, fill the destination `[RFBColor]` with
+  `Array(unsafeUninitializedCapacity:)` instead of append-based construction.
+  Preserve dirty-rectangle behavior, changed-pixel counting, and typed decoder
+  errors. Emit/export no host identity, credentials, ports, raw stdout/stderr,
+  raw TCP/RFB errors, raw OS errors, coordinates, dimensions, pixels, byte
+  counts, raw timings, stimulus command text, draft text, marked text, IME
+  state, keysyms, helper endpoints, pairing material, or physical device IDs.
+  Owns: Raw decoder hot path, decoder tests, benchmark README, and benchmark
+  artifact. **Done.**
 
 ## Cross-cutting (every increment)
 
