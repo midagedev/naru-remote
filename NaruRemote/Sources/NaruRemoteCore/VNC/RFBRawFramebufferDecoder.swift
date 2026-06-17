@@ -25,7 +25,7 @@ public struct RFBRawFramebuffer: Codable, Equatable, Sendable {
         self.pixels = Array(repeating: fill, count: self.width * self.height)
     }
 
-    init(
+    public init(
         width: Int,
         height: Int,
         pixels: [RFBColor],

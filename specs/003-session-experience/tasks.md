@@ -172,10 +172,15 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T023 [C] Inline Compose quick-key strip (Esc/Tab/⌃C/↑/↓) in `RemoteInputDockView`, dispatch via `model.sendComposeQuickKey`, draft untouched, gated on active session. `ComposeQuickKeyTests` (7) + `ComposeQuickKeyModelTests` (2). **Done.**
 - [x] T023a [C] Compose paste stabilization: macOS Command-V uses the documented VNC Mac `Alt_L` mapping, and the production app waits briefly after remote clipboard set before paste. **Done.**
 - [x] T024 [C][VISUAL] Quality chip and compact quick-key menu covered by the active-session UX-audit captures (`16-*` and `17-*`). **Done.**
+- [x] T025 [C][VISUAL] Compact live-session Compose now collapses to a 44pt
+  idle editor when empty/unfocused, expanding back to the 88pt editing surface
+  when focused or when a draft exists so remote screen space stays dominant
+  without destabilizing Korean/CJK IME transactions. Covered by
+  `RemoteInputDockRenderStateTests`. **Done.**
 
 ## Cross-cutting
-- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass.
-- [ ] T031 Update `ROADMAP.md` (new "Phase 11 — Session Experience" or extend Phase 5/6 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport.
+- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass. The screenshot harness now accepts `NARU_UX_AUDIT_OUTPUT_DIR` for worktree-local iPhone/iPad evidence.
+- [x] T031 Update `ROADMAP.md` (extend Phase 5 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport and compact live-session Dock behavior. **Done.**
 - [ ] T032 [Manual] Real Mac VNC trackpad + zoom-to-read on physical iPhone — BLOCKED (no device); record residual risk per constitution §III.
 - [ ] T033 [Manual] Physical iPhone Korean/CJK Compose IME retest — verify marked-text composition in the compact `UITextView` dock and record iOS version, keyboard, target app, and whether the sent remote paste matches the local draft exactly.
 - [x] T034 [Cross-cutting] Physical sustained interaction gate verdict: add

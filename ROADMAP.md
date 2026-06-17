@@ -265,6 +265,15 @@ Status: selected for MVP
 
 Status: pending physical device access
 
+- Session Experience baseline is implemented in simulator-backed code:
+  live sessions use a screen-first hero viewport, compact auto-hiding
+  session controls, direct-touch and trackpad pointer modes, local
+  pinch/zoomed-pan with no RFB messages, connection quality chips,
+  Compose quick keys, and a compact Remote Input Dock that collapses
+  empty live-session Compose so remote screen space remains dominant.
+- UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
+  iPhone/iPad light/dark layout evidence can be captured per worktree
+  instead of writing into a fixed checkout path.
 - iPad/iPhone IME manual check
 - Dictation and hardware keyboard check
 - Stage Manager, split view, rotation, and viewport usability check

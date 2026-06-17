@@ -3,6 +3,30 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class RemoteInputDockRenderStateTests: XCTestCase {
+    func testCompactComposeEditorCollapsesOnlyWhenIdleAndEmpty() {
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: ""
+            ),
+            RemoteInputDockView.compactComposeIdleMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: true,
+                text: ""
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: "입력"
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+    }
+
     func testMacSessionControlsOnlyShowForActiveSessions() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connectingSession = RemoteSession(profileID: profile.id, state: .connecting)

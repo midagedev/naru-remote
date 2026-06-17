@@ -11,6 +11,8 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
+    nonisolated static let compactComposeIdleMaxHeight: CGFloat = 44
+    nonisolated static let compactComposeExpandedMaxHeight: CGFloat = 88
     nonisolated static let composeSendFastSnapshotCount = 3
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
     nonisolated static let composeSendStabilizationSnapshotCount = 30
@@ -265,7 +267,7 @@ public struct RemoteInputDockView: View {
             .accessibilityIdentifier("naru.input.direct-toggle")
 
             composeTextEditor
-                .frame(minHeight: 40, maxHeight: 88)
+                .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 12)
                 .background(NaruColors.surfaceEditor)
@@ -297,6 +299,23 @@ public struct RemoteInputDockView: View {
             .help("Send composed text")
             .accessibilityIdentifier("naru.input.send")
         }
+    }
+
+    private var compactComposeEditorMaxHeight: CGFloat {
+        Self.compactComposeEditorMaxHeight(
+            isFocused: composeFieldFocused,
+            text: text
+        )
+    }
+
+    nonisolated static func compactComposeEditorMaxHeight(
+        isFocused: Bool,
+        text: String
+    ) -> CGFloat {
+        let hasDraft = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return isFocused || hasDraft
+            ? compactComposeExpandedMaxHeight
+            : compactComposeIdleMaxHeight
     }
 
     private var compactDirectHeader: some View {
