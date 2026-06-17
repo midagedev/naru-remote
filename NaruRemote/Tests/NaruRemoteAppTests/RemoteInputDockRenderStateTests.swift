@@ -3,6 +3,33 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class RemoteInputDockRenderStateTests: XCTestCase {
+    func testMacSessionControlsOnlyShowForActiveSessions() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connectingSession = RemoteSession(profileID: profile.id, state: .connecting)
+        let activeSession = RemoteSession(profileID: profile.id, state: .active)
+
+        XCTAssertFalse(
+            RemoteInputDockRenderState(
+                snapshot: NaruRemoteAppSnapshot(
+                    profiles: [profile],
+                    selectedProfileID: profile.id,
+                    session: connectingSession
+                ),
+                isLiveSession: true
+            ).showsMacSessionControls
+        )
+        XCTAssertTrue(
+            RemoteInputDockRenderState(
+                snapshot: NaruRemoteAppSnapshot(
+                    profiles: [profile],
+                    selectedProfileID: profile.id,
+                    session: activeSession
+                ),
+                isLiveSession: true
+            ).showsMacSessionControls
+        )
+    }
+
     func testInputDockRenderStateIgnoresStreamingTelemetryAndFramebufferNoise() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)

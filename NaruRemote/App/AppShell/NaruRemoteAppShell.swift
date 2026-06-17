@@ -225,6 +225,9 @@ public struct NaruRemoteAppShell: View {
                                     )
                                 }
                             },
+                            onMacSessionControl: { control in
+                                Task { await model.sendMacSessionControl(control) }
+                            },
                             onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
                             onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
                             onComposeFocusChange: { focused in
@@ -360,6 +363,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     var stickyModifierState: StickyModifierState
     var layoutStyle: RemoteInputDockLayoutStyle
     var showsCompactStatusText: Bool
+    var showsMacSessionControls: Bool
     var showsComposeQuickKeys: Bool
     var isComposeFieldFocused: Bool
 
@@ -375,6 +379,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         self.stickyModifierState = snapshot.stickyModifierState
         self.layoutStyle = isLiveSession ? .compactAccessory : .standard
         self.showsCompactStatusText = isLiveSession ? false : snapshot.latestInjectionAttempt != nil
+        self.showsMacSessionControls = snapshot.session?.state == .active
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
     }
@@ -401,6 +406,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
 
         guard lhs.stickyModifierState == rhs.stickyModifierState,
               lhs.layoutStyle == rhs.layoutStyle,
+              lhs.showsMacSessionControls == rhs.showsMacSessionControls,
               lhs.showsComposeQuickKeys == rhs.showsComposeQuickKeys
         else {
             return false
@@ -480,6 +486,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     var onTapDirectKey: (DirectKey) -> Void
     var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
+    var onMacSessionControl: (MacSessionControl) -> Void
     var onComposeQuickKey: (ComposeQuickKey) -> Void
     var onDismissDirectModeWarning: () -> Void
     var onComposeFocusChange: (Bool) -> Void
@@ -500,11 +507,13 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             stickyModifierState: state.stickyModifierState,
             layoutStyle: state.layoutStyle,
             showsCompactStatusText: state.showsCompactStatusText,
+            showsMacSessionControls: state.showsMacSessionControls,
             showsComposeQuickKeys: state.showsComposeQuickKeys,
             onToggleDirectMode: onToggleDirectMode,
             onSetDirectInputSurface: onSetDirectInputSurface,
             onTapDirectKey: onTapDirectKey,
             onHardwareKey: onHardwareKey,
+            onMacSessionControl: onMacSessionControl,
             onComposeQuickKey: onComposeQuickKey,
             onDismissDirectModeWarning: onDismissDirectModeWarning,
             onComposeFocusChange: onComposeFocusChange

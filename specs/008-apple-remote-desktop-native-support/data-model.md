@@ -62,3 +62,21 @@ Fields:
 Lifecycle: created when the user opens or confirms an action. The app may retain
 redacted action status, never action payload text, file paths, command text,
 screen content, hostnames, or endpoint values.
+
+## MacSessionControl
+
+Fixed VNC-compatible shortcut action for Apple-aware session navigation.
+
+Initial values:
+
+- `missionControl`: Control-Up Arrow
+- `appWindows`: Control-Down Arrow
+- `switchApplication`: Command-Tab
+- `showDesktop`: F11 default shortcut
+- `spaceLeft`: Control-Left Arrow
+- `spaceRight`: Control-Right Arrow
+
+Lifecycle: compile-time catalog value, rendered only for active sessions. It is
+not persisted, does not require helper pairing, and does not retain user input.
+Remote Macs with customized keyboard shortcuts may need a future per-profile
+remapping model.

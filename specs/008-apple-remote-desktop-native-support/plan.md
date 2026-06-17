@@ -55,9 +55,10 @@ Use a support-tier catalog:
 4. `unsupported`: private ARD administrator behavior that Naru will not claim
    without a public, licensed, and review-approved integration path.
 
-The app uses this catalog in profile setup, diagnostics, and future session
-action sheets. It keeps VNC as the baseline connection and keeps Helper Video as
-the product-owned high-performance visual path.
+The app uses this catalog in profile setup, diagnostics, future session action
+sheets, and VNC-compatible Mac session controls. It keeps VNC as the baseline
+connection and keeps Helper Video as the product-owned high-performance visual
+path.
 
 ### Alternatives Considered
 
@@ -76,10 +77,12 @@ flowchart LR
     B --> C["Apple Screen Sharing VNC Path"]
     B --> D["Optional Naru Helper Actions"]
     B --> E["Research-Only HPS Notice"]
+    B --> J["Mac Session Shortcut Controls"]
     C --> F["macOS Remote Management TCP 5900"]
     D --> G["Paired Naru Helper"]
     G --> H["Approved Mac Action"]
     E --> I["Helper Video Recommendation"]
+    J --> K["VNC KeyEvent Queue"]
 ```
 
 ## Verification Matrix
@@ -90,6 +93,7 @@ flowchart LR
 | US1 / FR-003 / FR-010 | Unit | Diagnostics fixture | Fixed labels only, no host/endpoint/payload fields | Agent |
 | US2 / FR-007 / FR-008 | Unit | XCTest fake helper catalog | Actions disabled unless capability and approval policy pass | Agent |
 | US3 / FR-004 / FR-005 / FR-006 | Unit | XCTest | High Performance screen sharing classified as research-only and routes to helper video | Agent |
+| US4 / FR-011 / FR-012 / FR-013 | Unit + app model | XCTest | Mac controls map to fixed shortcuts, render only for active sessions, and preserve Compose draft | Agent |
 | iPad graceful rendering | UI | iPad simulator screenshot | Same hints render without becoming primary gate | Agent |
 
 ## Project Structure
@@ -122,7 +126,9 @@ NaruHelper/Tests/NaruHelperTests/
 
 **Structure Decision**: Start with pure catalog/model code in
 `NaruRemoteCore/AppleRemoteDesktop` so tests can land before UI or helper
-action implementation. Helper actions remain separate from helper video.
+action implementation. Helper actions remain separate from helper video. Mac
+session controls live in the same core namespace because they are Apple-aware,
+but they use the existing VNC key-event queue and do not require helper pairing.
 
 ## Phase 0: Research
 
@@ -133,6 +139,7 @@ Research output is in [research.md](./research.md).
 - High Performance screen sharing requirements and why it is not a direct Naru
   transport yet.
 - Helper-backed ARD-class action subset.
+- VNC-compatible Mac session controls using documented macOS keyboard shortcuts.
 
 ## Phase 1: Design & Contracts
 

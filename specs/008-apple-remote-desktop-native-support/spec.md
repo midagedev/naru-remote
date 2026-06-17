@@ -103,6 +103,37 @@ protocol path exists.
    transport, **Then** Naru recommends helper video as the product-owned
    high-performance path and keeps VNC for control/fallback.
 
+---
+
+### User Story 4 - Use Mac-Native Session Controls From iPhone (Priority: P2)
+
+An iPhone user connected to their Mac expects the session controls they see in
+Apple-oriented remote desktop clients: Mission Control, front-app windows,
+app switching, desktop reveal, and Space navigation. Naru should expose these
+as compact session buttons without requiring Direct mode or a physical
+keyboard.
+
+**Why this priority**: These controls make a small iPhone screen practical for
+real Mac use. They do not require private Apple Remote Desktop protocols: they
+can ride the existing VNC `KeyEvent` path as documented macOS keyboard
+shortcuts.
+
+**Independent Test**: A pure model test maps each Mac session control to a
+fixed X11 keysym and modifier set, and an app render-state test shows the strip
+only for active sessions.
+
+**Acceptance Scenarios**:
+
+1. **Given** an active Mac VNC session, **When** the user taps Mission Control,
+   **Then** Naru emits Control-Up Arrow through the existing key-event queue.
+2. **Given** an active Mac VNC session, **When** the user taps App Windows,
+   Switch App, Desktop, Space Left, or Space Right, **Then** Naru emits only
+   the corresponding fixed keyboard shortcut and does not modify the Compose
+   draft or sticky Direct modifiers.
+3. **Given** no active session or the VNC wire is not ready, **When** the user
+   reaches the input dock, **Then** Mac session controls are hidden or their
+   emissions drop without logging unsafe payload data.
+
 ### Edge Cases
 
 - Remote Management is enabled but "VNC viewers may control screen" is not
@@ -116,6 +147,9 @@ protocol path exists.
   Bonjour sleep proxy or Wake-on-LAN-compatible network path.
 - A message, file, command, or status report contains private content; logs must
   remain fixed-label and redacted.
+- The remote Mac has customized Mission Control, Desktop, or Spaces keyboard
+  shortcuts; Naru's buttons follow Apple's defaults and may need future
+  per-profile remapping.
 
 ## Requirements *(mandatory)*
 
@@ -149,6 +183,14 @@ protocol path exists.
   status for ARD-class diagnostics; it must not export hostnames, endpoints,
   credentials, usernames, command text, file paths, message text, screen
   content, or raw timing series.
+- **FR-011**: System SHOULD expose Mac session controls for Mission Control,
+  front-app windows, app switching, desktop reveal, and Space navigation during
+  active sessions.
+- **FR-012**: Mac session controls MUST use the existing VNC `KeyEvent`
+  emission path with fixed keysym/modifier mappings and MUST NOT require the
+  optional helper.
+- **FR-013**: Mac session controls MUST NOT mutate Compose text, local
+  clipboard state, Direct-mode page, or Direct sticky modifier state.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -165,6 +207,8 @@ protocol path exists.
 - **IN-005**: User confirmation: all helper-backed management actions require
   explicit confirmation; shell command execution is deferred until a separate
   agent/command approval spec exists.
+- **IN-006**: Mac session controls are discrete shortcut emissions. They do not
+  replace Compose & Send and do not stream multilingual text.
 
 ### Tailnet / Connection Requirements
 
@@ -208,6 +252,8 @@ protocol path exists.
   or `powerAction`.
 - **ARDClassActionRequest**: A user-confirmed helper action request with fixed
   type, fixed approval state, and redacted result.
+- **MacSessionControl**: A fixed VNC-compatible shortcut action such as Mission
+  Control, App Windows, Switch App, Desktop, Space Left, or Space Right.
 
 ## Acceptance Test Matrix *(mandatory)*
 
@@ -217,6 +263,7 @@ protocol path exists.
 | Extra display suggestions use fixed ports `5901` and `5902` | XCTest model test | iPhone | `swift test --filter AppleRemoteDesktopSupportCatalogTests` |
 | Helper capability catalog hides unavailable ARD-class actions | XCTest model test | iPhone | `swift test --filter AppleRemoteDesktopSupportCatalogTests` |
 | High Performance screen sharing is classified as research-only | XCTest model test | iPhone | `swift test --filter AppleRemoteDesktopSupportCatalogTests` |
+| Mac session controls emit fixed keyboard shortcuts without Compose mutation | XCTest model test | iPhone | `swift test --filter 'MacSessionControlTests|MacSessionControlModelTests|RemoteInputDockRenderStateTests'` |
 | iPad profile editor renders the same Apple-aware hints without becoming the primary gate | XCUITest or screenshot review | iPad-graceful | Simulator screenshot artifact after UI implementation |
 
 ## Success Criteria *(mandatory)*
@@ -231,6 +278,8 @@ protocol path exists.
   public or licensed implementation path has benchmark evidence.
 - **SC-004**: Helper-backed ARD-class actions remain disabled unless the helper
   capability, profile policy, and user approval gate all pass.
+- **SC-005**: Mac session controls remain available without helper pairing and
+  use only fixed shortcut labels in code/tests.
 
 ## Assumptions
 
