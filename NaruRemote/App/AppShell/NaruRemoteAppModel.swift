@@ -478,6 +478,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public var selectedProfileID: ConnectionProfile.ID?
     @Published public private(set) var session: RemoteSession?
     @Published public private(set) var diagnosticRun: ConnectionDiagnosticRun?
+    @Published public private(set) var diagnosticExportRelayForTesting: String?
     /// Per-profile cache of the most recent diagnostic verdict
     /// (UX punch-list #109).  Memory-only — diagnostic results from
     /// yesterday do not reflect today's network state, so the dict
@@ -941,7 +942,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 host: profile.host,
                 port: UInt16(naruHelperVideoStreamDefaultPort),
                 profileFingerprint: pairingFingerprint,
-                pairingSecret: pairingSecret
+                pairingSecret: pairingSecret,
+                transportProtection: .authenticatedPrivateProfile
             )
             return try await client.startStream(requestBody, maxServerFrames: maxServerFrames)
         }
@@ -957,7 +959,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 host: profile.host,
                 port: UInt16(naruHelperVideoStreamDefaultPort),
                 profileFingerprint: pairingFingerprint,
-                pairingSecret: pairingSecret
+                pairingSecret: pairingSecret,
+                transportProtection: .authenticatedPrivateProfile
             )
             return client.streamEvents(requestBody)
         }
@@ -2117,7 +2120,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .revoked
         case .privateNetworkRequired:
             return .privateNetworkRequired
-        case .transportFailed:
+        case .transportFailed, .transportProtectionRequired:
             return .unreachable
         case .authFailed, .streamStalled, .decoderRejected, .fallbackToVNC:
             return .failed
@@ -3270,6 +3273,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             buildVersion: buildVersion ?? "test-device",
             now: Date()
         )
+        if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] == "1" {
+            diagnosticExportRelayForTesting = payload
+        }
         print("NARU_DIAGNOSTIC_EXPORT_BEGIN")
         print(payload)
         print("NARU_DIAGNOSTIC_EXPORT_END")
@@ -6211,6 +6217,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 utf8Support: utf8Support,
                 profile: profile,
                 helperState: helperState,
+                pasteCommand: pasteCommand,
                 now: now
             )
             return
@@ -6230,6 +6237,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 utf8Support: utf8Support,
                 profile: profile,
                 helperState: helperState,
+                pasteCommand: pasteCommand,
                 now: now
             )
             return
@@ -6599,6 +6607,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         utf8Support: RemoteClipboardUTF8Support,
         profile: ConnectionProfile,
         helperState: HelperTextBridgeProfileState,
+        pasteCommand: PasteCommand,
         now: Date
     ) {
         guard let configuration = profile.helperTextBridge,
@@ -6675,12 +6684,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 }
                 secret = loadedSecret
             } catch let error as HelperTextBridgeError {
-                await Self.finishStoredHelperFailure(
+                await Self.finishStoredHelperRouteBlocked(
                     self,
                     draft: draft,
                     attempt: attempt,
                     helperState: helperState,
                     failureCode: Self.helperFailureCode(from: error),
+                    vncPasteCommand: pasteCommand,
                     profileID: profileID,
                     draftID: draftID,
                     sessionID: sessionID,
@@ -6688,12 +6698,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
                 return
             } catch {
-                await Self.finishStoredHelperFailure(
+                await Self.finishStoredHelperRouteBlocked(
                     self,
                     draft: draft,
                     attempt: attempt,
                     helperState: helperState,
                     failureCode: .notConfigured,
+                    vncPasteCommand: pasteCommand,
                     profileID: profileID,
                     draftID: draftID,
                     sessionID: sessionID,
@@ -6708,6 +6719,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 pairingSecret: secret
             )
 
+            let readyState: HelperTextBridgeProfileState
             do {
                 let capability = try await client.capability(
                     profilePairingFingerprint: helperState.pairingFingerprint
@@ -6717,12 +6729,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                     capability: capability
                 )
                 guard capability.availability == .reachable else {
-                    await Self.finishStoredHelperFailure(
+                    await Self.finishStoredHelperRouteBlocked(
                         self,
                         draft: draft,
                         attempt: attempt,
                         helperState: capabilityState,
                         failureCode: Self.failureCode(for: capability.availability),
+                        vncPasteCommand: pasteCommand,
                         profileID: profileID,
                         draftID: draftID,
                         sessionID: sessionID,
@@ -6731,12 +6744,13 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
                 guard capabilityState.supportsNativeInsertWhenKnown else {
-                    await Self.finishStoredHelperFailure(
+                    await Self.finishStoredHelperRouteBlocked(
                         self,
                         draft: draft,
                         attempt: attempt,
                         helperState: capabilityState,
                         failureCode: .permissionMissing,
+                        vncPasteCommand: pasteCommand,
                         profileID: profileID,
                         draftID: draftID,
                         sessionID: sessionID,
@@ -6744,7 +6758,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     )
                     return
                 }
-                let readyState = Self.updatedHelperTextBridgeState(
+                readyState = Self.updatedHelperTextBridgeState(
                     capabilityState,
                     failureCode: .none
                 )
@@ -6753,7 +6767,23 @@ public final class NaruRemoteAppModel: ObservableObject {
                     state: readyState,
                     profileID: profileID
                 )
+            } catch {
+                await Self.finishStoredHelperRouteBlocked(
+                    self,
+                    draft: draft,
+                    attempt: attempt,
+                    helperState: helperState,
+                    failureCode: Self.helperFailureCode(from: error),
+                    vncPasteCommand: pasteCommand,
+                    profileID: profileID,
+                    draftID: draftID,
+                    sessionID: sessionID,
+                    now: now
+                )
+                return
+            }
 
+            do {
                 let result = try await client.insertText(draft.text, metadata: metadata)
                 let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
                 attempt.finishedAt = Date()
@@ -6789,7 +6819,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     self,
                     draft: draft,
                     attempt: attempt,
-                    helperState: helperState,
+                    helperState: readyState,
                     failureCode: Self.helperFailureCode(from: error),
                     profileID: profileID,
                     draftID: draftID,
@@ -6798,6 +6828,77 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
             }
         }
+    }
+
+    private static func finishStoredHelperRouteBlocked(
+        _ model: NaruRemoteAppModel?,
+        draft: ComposeDraft,
+        attempt: TextInjectionAttempt,
+        helperState: HelperTextBridgeProfileState,
+        failureCode: HelperTextBridgeFailureCode,
+        vncPasteCommand: PasteCommand,
+        profileID: ConnectionProfile.ID,
+        draftID: ComposeDraft.ID,
+        sessionID: RemoteSession.ID,
+        now: Date
+    ) async {
+        let payloadEncoding = attempt.payloadEncoding ?? TextInjectionPayloadEncoding.classify(draft.text)
+        let utf8Support = attempt.utf8ClipboardSupport ?? .unknown
+        guard let vncMessage = TextInjectionClipboardPolicy.unsupportedPayloadMessage(
+            payloadEncoding: payloadEncoding,
+            utf8Support: utf8Support
+        ) else {
+            await finishStoredHelperFailure(
+                model,
+                draft: draft,
+                attempt: attempt,
+                helperState: helperState,
+                failureCode: failureCode,
+                profileID: profileID,
+                draftID: draftID,
+                sessionID: sessionID,
+                now: now
+            )
+            return
+        }
+
+        let finishedAt = Date()
+        let message = helperUnavailableMessage(
+            vncMessage: vncMessage,
+            helperFailureCode: failureCode
+        )
+        var failedDraft = draft
+        failedDraft.markFailed(reason: message, at: finishedAt)
+        let failedAttempt = TextInjectionAttempt(
+            id: attempt.id,
+            draftID: draft.id,
+            sessionID: draft.sessionID,
+            path: .vncClipboardPaste,
+            pasteCommand: vncPasteCommand,
+            payloadEncoding: payloadEncoding,
+            clipboardTransferMode: TextClipboardTransferMode.selected(utf8Support: utf8Support),
+            utf8ClipboardSupport: utf8Support,
+            startedAt: attempt.startedAt,
+            finishedAt: finishedAt,
+            status: .failed,
+            clipboardSetStatus: .notAttempted,
+            pasteCommandStatus: .notAttempted,
+            remoteClipboardRestore: .unsupported,
+            safeMessage: message
+        )
+
+        await finishTextInjection(
+            model,
+            draft: failedDraft,
+            attempt: failedAttempt,
+            draftID: draftID,
+            sessionID: sessionID,
+            helperTextBridgeState: updatedHelperTextBridgeState(
+                helperState,
+                failureCode: failureCode
+            ),
+            helperProfileID: profileID
+        )
     }
 
     private static func finishStoredHelperFailure(

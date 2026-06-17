@@ -20,6 +20,11 @@ public enum BenchmarkHelperVideoIssueCode: String, Codable, Equatable, CaseItera
     case transportFailed = "helper-video-transport-failed"
     case captureSourceUnavailable = "helper-video-capture-source-unavailable"
     case captureTimedOut = "helper-video-capture-timed-out"
+    case captureNoOutputCallbacks = "helper-video-capture-no-output-callbacks"
+    case captureNonScreenCallbacks = "helper-video-capture-non-screen-callbacks"
+    case captureNonDisplayableFrames = "helper-video-capture-non-displayable-frames"
+    case captureMissingImageBuffer = "helper-video-capture-missing-image-buffer"
+    case captureInsufficientDisplayableFrames = "helper-video-capture-insufficient-displayable-frames"
     case captureFailed = "helper-video-capture-failed"
 }
 
@@ -319,7 +324,12 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
             .decodePressureHigh,
             .externalHelperUnavailable,
             .externalHelperTimedOut,
-            .transportFailed
+            .transportFailed,
+            .captureNoOutputCallbacks,
+            .captureNonScreenCallbacks,
+            .captureNonDisplayableFrames,
+            .captureMissingImageBuffer,
+            .captureInsufficientDisplayableFrames
         ]
         if issueCodes.contains(where: hardFailures.contains) {
             return .fail
@@ -385,6 +395,11 @@ public struct BenchmarkHelperVideoReport: Codable, Equatable, Sendable {
         }
         if issueCodes.contains(.captureSourceUnavailable)
             || issueCodes.contains(.captureTimedOut)
+            || issueCodes.contains(.captureNoOutputCallbacks)
+            || issueCodes.contains(.captureNonScreenCallbacks)
+            || issueCodes.contains(.captureNonDisplayableFrames)
+            || issueCodes.contains(.captureMissingImageBuffer)
+            || issueCodes.contains(.captureInsufficientDisplayableFrames)
             || issueCodes.contains(.captureFailed)
         {
             return .inspectHelperVideoCaptureSource

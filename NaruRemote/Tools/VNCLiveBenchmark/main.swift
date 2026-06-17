@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 import NaruRemoteCore
 import VNCLiveBenchmarkKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 private let toolName = "VNCLiveBenchmark"
 
@@ -326,8 +329,9 @@ enum VNCLiveBenchmark {
             client.disconnect()
         }
 
+        let firstFrameResult: RFBFramebufferUpdateResult
         do {
-            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+            firstFrameResult = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
         } catch {
             return BenchmarkTextKeystrokeProbeReport(
                 status: .failed,
@@ -342,6 +346,29 @@ enum VNCLiveBenchmark {
                 sendStatus: .notRun,
                 failureLabel: safeFailureLabel(for: error, phase: .textProbeFirstFrame)
             )
+        }
+
+        if observationTarget != nil {
+            do {
+                try await focusTextKeystrokeObservationTarget(
+                    client: client,
+                    framebuffer: firstFrameResult.framebuffer
+                )
+            } catch {
+                return BenchmarkTextKeystrokeProbeReport(
+                    status: .failed,
+                    payload: payload,
+                    networkConditionProfile: networkConditionProfile,
+                    payloadEncoding: transcoding.payloadEncoding,
+                    usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                    eventCountBucket: eventCountBucket,
+                    connectStatus: .passed,
+                    firstFrameStatus: .passed,
+                    transcodeStatus: .passed,
+                    sendStatus: .failed,
+                    failureLabel: safeFailureLabel(for: error, phase: .textProbeSend)
+                )
+            }
         }
 
         do {
@@ -494,6 +521,54 @@ enum VNCLiveBenchmark {
         }
 
         return TextKeystrokeObservationStart(target: target, failureLabel: nil)
+    }
+
+    private static func focusTextKeystrokeObservationTarget(
+        client: RFBNetworkClient,
+        framebuffer: RFBRawFramebuffer
+    ) async throws {
+        let point = textKeystrokeObservationTargetFocusPoint(framebuffer: framebuffer)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(40))
+        try await client.sendPointerEvent(buttonMask: 0x01, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(40))
+        try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(80))
+    }
+
+    private static func textKeystrokeObservationTargetFocusPoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterYFromBottom = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(
+            framebuffer.height - targetCenterYFromBottom,
+            upperBound: framebuffer.height
+        )
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func textKeystrokeObservationTargetScale(
+        framebuffer: RFBRawFramebuffer
+    ) -> Double {
+        #if canImport(AppKit)
+        guard let screenHeight = NSScreen.main?.frame.height,
+              screenHeight > 0
+        else {
+            return 1
+        }
+        let estimatedScale = Double(max(framebuffer.height, 1)) / screenHeight
+        return min(max(estimatedScale, 1), 4)
+        #else
+        return 1
+        #endif
+    }
+
+    private static func clampFramebufferCoordinate(_ value: Int, upperBound: Int) -> Int {
+        let safeUpperBound = max(upperBound - 1, 0)
+        return min(max(value, 0), min(safeUpperBound, Int(UInt16.max)))
     }
 
     private static func waitForTextKeystrokeObservationTargetReady(

@@ -702,7 +702,12 @@ without unsafe report fields.
   simulator benchmark stable after direct rendererless-host instantiation
   proved prone to hanging the test runner, and it makes future alternatives
   comparable before physical-device promotion. Covered by Core driver tests,
-  SwiftPM benchmark smoke, and iOS simulator opt-in benchmark evidence.
+  SwiftPM benchmark smoke, and iOS simulator opt-in benchmark evidence. Current
+  2026-06-15 refresh realigns the long-running worktree with `main`'s cached
+  `ViewportTransform` geometry baseline: the restored cache reduces the
+  50,000-sample hot-path benchmark from `46679.512 kI` to `40968.283 kI`
+  retired CPU instructions, and the file now matches `main`, so no new PR is
+  needed for this cache itself.
   **Done.**
 - [x] T031AQ [US1] Bound helper-video display-layer backpressure queries during
   delta bursts. After the renderer reports a backpressured delta, the app drops
@@ -809,9 +814,173 @@ without unsafe report fields.
   clock/CPU time, about 77% fewer retired instructions, and about 27% lower
   peak physical memory. Covered by mixed-encoding CopyRect regressions and
   `RFBCopyRectBenchmarkTests`. **Done.**
+- [x] T031AU [US2] Instrument ScreenCaptureKit no-frame timeout by callback
+  stage. The helper now classifies no output callbacks, non-screen callbacks,
+  non-displayable screen frames, missing image buffers, and insufficient
+  displayable image-buffer frames into fixed `streamStalled` reasons; benchmark
+  and app-bootstrap reports map them to privacy-safe issue labels. Current live
+  evidence reports Screen Recording/capability ready, synthetic helper-video
+  pass, true ScreenCaptureKit smoke/sustained/app bootstrap pass, physical
+  preflight ready, and live gate routing to
+  `run-physical-iphone-helper-video-gate`. **Done.**
+- [x] T031AV [US2] Add fixed physical device-class labels to
+  `physical-device-preflight` so T030 reruns can prove whether the configured
+  target and resolved physical device are `iPhone` or `iPad` without printing
+  device names or identifiers. The current safe preflight reports
+  `targetDeviceClass=iPhone` and `resolvedDeviceClass=iPhone`; device-id
+  resolution self-test now covers iPhone match, iPad rejection for the iPhone
+  gate, and iPad match when the target class is intentionally set to iPad. The
+  physical iPhone helper-video gate also forces its nested preflight to the
+  iPhone target class and blocks explicit non-iPhone class configuration with
+  `physical-iphone-target-class-required`. **Done.**
+- [x] T031AW [US2] Keep helper ScreenCaptureKit capture alive when the Mac
+  display is asleep. The helper now declares user activity, holds a
+  no-display-sleep assertion during capture, retries shareable content once
+  when the first snapshot has no displays, and accepts `SCFrameStatus.started`
+  only when an image buffer is present. Current evidence moves the Mac-side
+  helper live gate from `blockedByHelperScreenCapture` /
+  `helper-video-capture-non-displayable-frames` to screen-capture and app
+  bootstrap `pass`, leaving only `physical-iphone-device-unavailable`. **Done.**
+- [x] T031AX [US2] Make `physical-device-preflight` signing summaries
+  target-aware so iPad graceful smoke diagnostics no longer import stale iPhone
+  ids or recommend the iPhone helper-video promotion gate. The default iPhone
+  preflight still reports `physical-iphone-device-unavailable`, while
+  `NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad` now ignores the stale launchctl iPhone
+  id, auto-selects the connected iPad, reports `targetDeviceClass=iPad`,
+  `resolvedDeviceClass=iPad`, signing blockers, and
+  `rerun-physical-ipad-smoke` as the safe follow-up label. Added
+  `physical-signing-variant-probe` so the iPad signing boundary can be
+  rechecked with fixed redacted labels across `allowProvisioningUpdates`,
+  `localProfilesOnly`, and `allowUpdatesAndDeviceRegistration`; the current
+  iPad result shows all three variants failing, including local profiles only
+  with `hasNoProfiles=true`. The follow-up local profile inventory explains the
+  apparent mismatch and is now reproducible with
+  `physical-provisioning-profile-inventory`: scanned profiles are team-matching
+  wildcard development profiles, but `bundleExactMatchCount=0`,
+  `primaryBlockedGateLabel=ios-exact-provisioning-profile`, and explicitly
+  selecting the wildcard profile fails with fixed `hasSpecifierMismatch=true`.
+  The next useful action is exact app-bundle development profile
+  creation/download or Xcode account access for automatic signing, not another
+  device-id experiment. **Done.**
+- [x] T031AY [US1] Refresh the simulator input/viewport gate after folding the
+  focused Compose safe-area/layout fix back into the long-running
+  trackpad/helper-video worktree. Focused render-state/sync policy tests pass,
+  the iPhone simulator verifies profile-detail Korean Compose and real
+  trackpad viewport drag burst followed by Korean Compose, and
+  `simulator-input-viewport-gate` passes for iPhone and iPad simulators.
+  Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-simulator-input-viewport-gate-after-foldin-summary.md`.
+  This is simulator regression evidence only; T030 physical iPhone + Mac
+  verification remains open. **Done.**
+- [x] T031AZ [US2] Refresh the non-physical quickstart foundation slice and
+  remove two harness traps before broader physical reruns. The readiness check
+  now searches only bracketed clarification markers in spec/plan/research and
+  contracts, not the quickstart/tasks prose that documents the check. The
+  external helper process sustained synthetic stream test now uses a
+  frame-budget-aware startup timeout instead of a fixed `3s` client timeout.
+  Rerun evidence passed the non-physical helper-video foundation/app-model
+  slice with 234 executed tests, 7 skips, and 0 failures in
+  `artifacts/benchmarks/2026-06-17-quickstart-nonphysical-foundation-refresh-summary.md`.
+  The full quickstart item remains open because physical/live permission and
+  signing gates are still environment-bound. **Done.**
+- [x] T031BA [US1] Recheck the helper-native text insertion observed gate so
+  Compose delivery failures are separated from iOS editor responsiveness. The
+  observed-probe and live-gate summary self-tests pass, but the initial real
+  `unicode-hangul` observed probe reported `permissionMissing`,
+  `insertStatus=failed`, and `observationStatus=no-input` with fixed setup
+  actions to grant helper text Accessibility/value-insert permission and
+  relaunch the helper. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-helper-text-observed-permission-gate-summary.md`.
+  **Done.**
+- [x] T031BA1 [US1] Refresh helper-native text insertion after stable helper
+  app setup and helper text permission watch. The helper text live gate now
+  reports `readyForPhysicalComposeGate`, and observed native insertion passes
+  for `ascii`, `latin1`, and `unicode-hangul` with `strategyUsed=nativeInsert`,
+  `observationStatus=matched`, and `safeFailureCode=none`. Evidence recorded
+  in `artifacts/benchmarks/2026-06-17-helper-text-observed-ready-summary.md`.
+  **Done.**
+- [x] T031BB [US1] Recheck the VNC KeyEvent fallback observed-delivery path
+  before relying on decomposed composed text as an alternative to helper-native
+  insertion. The observed probe now sends a privacy-safe pointer focus prelude
+  before key events, but both `ascii` and `unicode-hangul` payloads still pass
+  connect/first-frame/transcode/send and fail observation with `no-input`.
+  Because ASCII also fails, the current blocker is not Hangul Unicode keysym
+  transcoding alone. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-text-keystroke-observed-no-input-summary.md`.
+  **Done.**
+- [x] T031BC [US2] Map the current implementation evidence back to
+  `PRODUCT_QUALITY_TARGETS.md` so release-gate status is explicit before more
+  long-running experiments. The current checkpoint records helper-video
+  ScreenCaptureKit/app bootstrap ready for physical promotion, helper-native
+  text insertion ready for physical Compose promotion, VNC still below the
+  10fps product gate at about `1.98` content FPS, request/response cadence
+  below target at about `6.87` content FPS, ContinuousUpdates unsupported for
+  the current Mac Screen Sharing target, and physical iPhone promotion blocked
+  by Xcode account / exact app development provisioning. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-product-quality-target-status.md`. **Done.**
+- [x] T031BD [US2] Test whether cached wildcard development profiles can be
+  safely promoted into the command-line signing path before asking for more
+  physical iPhone reruns. A direct copy into the standard profile directory was
+  not durable, `profiles -i -F` reported the cached profile as not compatible
+  with macOS, inventory still reported `standardProfileCount=0` and
+  `exactDevelopmentProfileCount=0`, and physical signing variants still failed.
+  The current blocker remains Xcode account access or an exact app development
+  profile for the app bundle. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-physical-profile-install-attempt-summary.md`.
+  **Done.**
+- [x] T031BE [US2] Narrow the physical provisioning inventory setup action for
+  wildcard-only profile states so it asks for
+  `install-exact-profile-to-standard-provisioning-directory` instead of the
+  ambiguous generic profile install action. The self-test now fails if the
+  generic label returns, and the current live inventory reports exact-profile
+  install beside `create-exact-ios-development-profile`. This prevents cached
+  wildcard profile copy/install from being repeated as a plausible next step.
+  The same exact-profile vocabulary now flows through
+  `physical-device-preflight`, `physical-signing-variant-probe`, and
+  `physical-iphone-helper-video-gate` profile-missing setup labels, covered by
+  the signing/profile/live-gate/readiness self-tests.
+  **Done.**
+- [x] T031BF [US2] Switch the active quality loop to simulator-only after the
+  physical iPhone was removed, and harden `simulator-input-viewport-gate` with
+  per-step timeouts, progress output, fixed `.timedOut` labels, and watchdog
+  child cleanup. Current simulator evidence passes the gate self-test, the
+  iPhone simulator gate, and the iPhone+iPad simulator gate without claiming
+  physical-device promotion. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-simulator-only-timeout-hardened-gate-summary.md`.
+  **Done.**
+- [x] T031BG [US2] Add a nonphysical quickstart gate for simulator-only
+  continuation work so available quickstart checks can be run as one repeatable
+  unit without retrying physical-device setup. The new gate reports
+  `physicalDevicePolicy=excluded`, passes its self-test, passes the fast
+  non-simulator real run, and passes the default run including the actual
+  iPhone+iPad simulator input/viewport gate. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-nonphysical-quickstart-gate-summary.md`.
+  **Done.**
+- [x] T031BH [US2] Record helper-video wire codec split-decode benchmark
+  evidence for the client receive path. The opt-in SwiftPM benchmark compares
+  the historical full-frame access-unit decode against decoding from already
+  split JSON/header/payload frames. With `262144` byte access-unit payloads,
+  `200` samples, and `5` iterations, split decode reduced wall clock by about
+  `47.7%`, CPU time by about `44.8%`, CPU cycles by about `41.8%`, and retired
+  instructions by about `32.3%`. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-helper-video-wire-codec-split-decode-benchmark-summary.md`.
+  **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
-- [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
-  helper sender/listener is connected to the iOS decode path.
+  Latest 2026-06-17 reconnected-iPhone preflight resolves the target as a
+  connected iPhone, so the current blocker is not USB/device discovery. The
+  gate still stops before install because command-line Xcode reports
+  `xcode-account-missing`, `ios-provisioning-profile-missing`, and no exact app
+  development profile; wildcard development profiles are present but not a
+  passing signal for this app bundle. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-physical-iphone-reconnected-signing-gate-summary.md`.
+- [x] T031 [US2] Run a true live helper-video access-unit benchmark after the
+  helper sender/listener is connected to the iOS decode path. Current
+  2026-06-14 evidence reports `helper-video-live-gate` as
+  `readyForPhysicalIPhoneGate`, with sustained ScreenCaptureKit helper-video
+  passing and the 30-frame app bootstrap path passing through helper TCP,
+  app-model bootstrap, and the H.264 sample-buffer factory. The follow-on
+  physical iPhone gate timed out with fixed `physical-ios-device-locked`
+  labels, so T030 remains open.
 
 ---
 
@@ -820,7 +989,14 @@ without unsafe report fields.
 - [ ] TXXX Run all checks listed in `quickstart.md`.
 - [x] TXXX Update `research.md` if Apple API, permission, codec, or helper
   transport findings change.
-- [ ] TXXX Security/privacy review for helper video capture, transport,
-  diagnostics, benchmark reports, and logs.
-- [ ] TXXX Record residual manual-device risks if physical iPhone/Mac
-  verification cannot be completed in the current environment.
+- [x] TXXX Security/privacy review for helper video capture, transport,
+  diagnostics, benchmark reports, and logs. Evidence recorded in
+  `artifacts/benchmarks/2026-06-17-helper-video-security-privacy-review-summary.md`;
+  the review also fixed a selected-suite synthetic H.264 benchmark timeout
+  flake by applying frame-budget-aware local probe timeouts. **Done.**
+- [x] TXXX Record residual manual-device risks if physical iPhone/Mac
+  verification cannot be completed in the current environment. Current
+  2026-06-17 evidence records the iPhone as connected but physical promotion
+  blocked by Xcode account / exact development provisioning profile setup in
+  `artifacts/benchmarks/2026-06-17-physical-iphone-residual-risk-summary.md`.
+  **Done.**

@@ -3371,7 +3371,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
                     maxServerFrames: maxServerFrames
                 )
             },
-            helperVideoRendererFactory: { helperRenderer }
+            helperVideoRendererFactory: { helperRenderer },
+            thermalStateProvider: { .nominal },
+            lowPowerModeProvider: { false }
         )
 
         await model.connectSelectedProfile()

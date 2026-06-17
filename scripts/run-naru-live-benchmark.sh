@@ -19,7 +19,10 @@ Modes:
   helper-screen-app-bootstrap-benchmark ScreenCaptureKit app sustained decode smoke.
   helper-video-live-gate Screen Recording watch + true helper-video gate chain.
   helper-video-live-gate-self-test Fast regression for helper-video live gate labels.
+  nonphysical-quickstart-gate Run quickstart checks that do not require physical devices.
+  nonphysical-quickstart-gate-self-test Fast regression for nonphysical quickstart labels.
   simulator-input-viewport-gate Run simulator Compose storm + viewport hot path gate.
+  simulator-input-viewport-gate-self-test Fast regression for simulator gate pass exit/status.
   simulator-input-viewport-gate-step-timeout-self-test Fast regression for simulator gate step timeout labels.
   physical-iphone-helper-video-gate Run the opt-in physical iPhone sustained UI/input gate.
   physical-iphone-helper-video-gate-self-test Fast regression for physical iPhone gate labels.
@@ -57,6 +60,10 @@ Modes:
   bounded-vnc-tight-cursor-stability Repeat Tight cursor candidate VNC sweep.
   bounded-vnc-tight-cursor-depth-sweep Long Tight cursor depth 1/2/3 sweep.
   physical-device-preflight Safe physical iPhone build/signing readiness labels.
+  physical-signing-variant-probe Compare physical iOS signing/provisioning xcodebuild variants.
+  physical-signing-variant-probe-self-test Fast regression for signing variant probe labels.
+  physical-provisioning-profile-inventory Safe local iOS provisioning profile inventory labels.
+  physical-provisioning-profile-inventory-self-test Fast regression for profile inventory labels.
   physical-ipad-device-preflight Safe physical iPad build/signing readiness labels.
   physical-ipad-device-preflight-self-test Fast regression for physical iPad signing labels.
   physical-ipad-launch-smoke Install/launch the app on a connected iPad and verify it stays running.
@@ -86,7 +93,7 @@ Launchctl variables used when present:
   NARU_PHYSICAL_IPAD_LAUNCH_OBSERVE_SECONDS
   NARU_PHYSICAL_IPAD_STATE_MARKER_FILENAME
   NARU_PHYSICAL_IOS_PROVISIONING_PROFILE_PATH
-  NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone
+  NARU_PHYSICAL_IOS_DEVICE_CLASS=iphone|ipad
   NARU_XCODE_DEVELOPMENT_TEAM
   NARU_PHYSICAL_E2E_HOST
   NARU_PHYSICAL_E2E_PORT
@@ -2549,8 +2556,10 @@ import_simulator_gate_env() {
   import_env NARU_SIMULATOR_PHONE_DESTINATION optional
   import_env NARU_SIMULATOR_PAD_DESTINATION optional
   import_env NARU_SIMULATOR_GATE_INCLUDE_IPAD optional
+  import_env NARU_SIMULATOR_GATE_INCLUDE_IPAD_FULL_STORM optional
   import_env NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS optional
   import_env NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES optional
+  import_env NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS optional
 }
 
 simulator_phone_destination() {
@@ -2571,6 +2580,20 @@ simulator_gate_include_ipad() {
       ;;
     *)
       return 0
+      ;;
+  esac
+}
+
+simulator_gate_include_ipad_full_storm() {
+  case "${NARU_SIMULATOR_GATE_INCLUDE_IPAD_FULL_STORM:-0}" in
+    1|true|TRUE|yes|YES)
+      return 0
+      ;;
+    0|false|FALSE|no|NO)
+      return 1
+      ;;
+    *)
+      return 1
       ;;
   esac
 }
@@ -2695,6 +2718,55 @@ simulator_gate_step_passed() {
   grep -q '"status":"passed"' "$step_file"
 }
 
+run_simulator_compose_viewport_ui_test() {
+  local destination="$1"
+  local test_case="$2"
+
+  local destination_name=""
+  if [[ "$destination" == *"name="* ]]; then
+    destination_name="${destination#*name=}"
+    destination_name="${destination_name%%,*}"
+  fi
+
+  local attempt
+  for attempt in 1 2; do
+    local output_file
+    output_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-${test_case}-attempt-${attempt}.XXXXXX")"
+
+    if xcodebuild \
+      -project NaruRemote.xcodeproj \
+      -scheme NaruRemote \
+      -destination "$destination" \
+      -only-testing:"NaruRemoteUITests/ComposeInputResponsivenessUITests/$test_case" \
+      test \
+      >"$output_file" 2>&1
+    then
+      cat "$output_file"
+      rm -f "$output_file"
+      return 0
+    fi
+
+    local exit_code=$?
+    cat "$output_file"
+    if ((attempt == 1)) &&
+      ([[ "$exit_code" == "139" ]] ||
+        grep -Eq 'Early unexpected exit|operation never finished bootstrapping|Test crashed with signal kill while preparing to run tests|Application failed preflight checks|BSErrorCodeDescription=Busy|Failed to send signal 19|DTXMessage|Segmentation fault: 11' "$output_file")
+    then
+      rm -f "$output_file"
+      printf 'simulator-input-viewport-gate: %s hit Xcode UI-test bootstrap failure; retrying once\n' "$test_case" >&2
+      if [[ -n "$destination_name" ]]; then
+        xcrun simctl terminate "$destination_name" com.naruremote.uitests.xctrunner >/dev/null 2>&1 || true
+        xcrun simctl terminate "$destination_name" com.naruremote.app >/dev/null 2>&1 || true
+      fi
+      sleep 8
+      continue
+    fi
+
+    rm -f "$output_file"
+    return "$exit_code"
+  done
+}
+
 simulator_input_viewport_gate() {
   reject_extra_args
   import_simulator_gate_env
@@ -2710,11 +2782,17 @@ simulator_input_viewport_gate() {
   benchmark_samples="$(simulator_gate_benchmark_samples)"
 
   local unit_file
-  local phone_compose_file
+  local phone_compose_basic_file
+  local phone_compose_full_storm_file
+  local phone_trackpad_compose_file
   local phone_benchmark_file
-  local pad_compose_file=""
+  local pad_compose_basic_file=""
+  local pad_compose_full_storm_file=""
+  local pad_trackpad_compose_file=""
   unit_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-unit.XXXXXX")"
-  phone_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-compose.XXXXXX")"
+  phone_compose_basic_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-compose-basic.XXXXXX")"
+  phone_compose_full_storm_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-compose-full-storm.XXXXXX")"
+  phone_trackpad_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-trackpad-compose.XXXXXX")"
   phone_benchmark_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-phone-benchmark.XXXXXX")"
 
   run_simulator_gate_step \
@@ -2724,15 +2802,28 @@ simulator_input_viewport_gate() {
     >"$unit_file"
 
   run_simulator_gate_step \
-    iphone-compose-storm-ui-tests \
-    benchmarkStep.simulatorInputViewportGate.iPhoneComposeStormUITests.failed \
-    xcodebuild \
-      -project NaruRemote.xcodeproj \
-      -scheme NaruRemote \
-      -destination "$phone_destination" \
-      -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests \
-      test \
-    >"$phone_compose_file"
+    iphone-compose-basic-ui-test \
+    benchmarkStep.simulatorInputViewportGate.iPhoneComposeBasicUITest.failed \
+    run_simulator_compose_viewport_ui_test \
+      "$phone_destination" \
+      testComposeEditorAcceptsSecondKoreanSyllableAfterFirstInput \
+    >"$phone_compose_basic_file"
+
+  run_simulator_gate_step \
+    iphone-compose-full-interaction-storm-ui-test \
+    benchmarkStep.simulatorInputViewportGate.iPhoneComposeFullInteractionStormUITest.failed \
+    run_simulator_compose_viewport_ui_test \
+      "$phone_destination" \
+      testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm \
+    >"$phone_compose_full_storm_file"
+
+  run_simulator_gate_step \
+    iphone-trackpad-viewport-compose-ui-test \
+    benchmarkStep.simulatorInputViewportGate.iPhoneTrackpadViewportComposeUITest.failed \
+    run_simulator_compose_viewport_ui_test \
+      "$phone_destination" \
+      testTrackpadViewportGestureBurstThenComposeAcceptsKoreanUnderStreamPressure \
+    >"$phone_trackpad_compose_file"
 
   run_simulator_gate_step \
     iphone-viewport-hotpath-benchmark \
@@ -2746,26 +2837,53 @@ simulator_input_viewport_gate() {
         -scheme NaruRemote \
         -destination "$phone_destination" \
         -only-testing:NaruRemoteBenchmarkTests/HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark \
-        -only-testing:NaruRemoteBenchmarkTests/MetalFramebufferHotCursorOverlayBenchmarkTests/testFallbackHotCursorOverlayUpdateBenchmark \
-        -only-testing:NaruRemoteBenchmarkTests/MetalFramebufferHotCursorOverlayBenchmarkTests/testZoomedViewportTransformWithFallbackHotCursorBenchmark \
         test \
     >"$phone_benchmark_file"
 
-  local step_files=("$unit_file" "$phone_compose_file" "$phone_benchmark_file")
+  local step_files=(
+    "$unit_file"
+    "$phone_compose_basic_file"
+    "$phone_compose_full_storm_file"
+    "$phone_trackpad_compose_file"
+    "$phone_benchmark_file"
+  )
   local device_coverage=("iphone-simulator")
   if simulator_gate_include_ipad; then
-    pad_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-pad-compose.XXXXXX")"
+    pad_compose_basic_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-pad-compose-basic.XXXXXX")"
+    pad_trackpad_compose_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-pad-trackpad-compose.XXXXXX")"
     run_simulator_gate_step \
-      ipad-compose-storm-ui-tests \
-      benchmarkStep.simulatorInputViewportGate.iPadComposeStormUITests.failed \
-      xcodebuild \
-        -project NaruRemote.xcodeproj \
-        -scheme NaruRemote \
-        -destination "$pad_destination" \
-        -only-testing:NaruRemoteUITests/ComposeInputResponsivenessUITests \
-        test \
-      >"$pad_compose_file"
-    step_files+=("$pad_compose_file")
+      ipad-compose-basic-ui-test \
+      benchmarkStep.simulatorInputViewportGate.iPadComposeBasicUITest.failed \
+      run_simulator_compose_viewport_ui_test \
+        "$pad_destination" \
+        testComposeEditorAcceptsSecondKoreanSyllableAfterFirstInput \
+      >"$pad_compose_basic_file"
+
+    if simulator_gate_include_ipad_full_storm; then
+      pad_compose_full_storm_file="$(mktemp "${TMPDIR:-/tmp}/naru-simulator-gate-pad-compose-full-storm.XXXXXX")"
+      run_simulator_gate_step \
+        ipad-compose-full-interaction-storm-ui-test \
+        benchmarkStep.simulatorInputViewportGate.iPadComposeFullInteractionStormUITest.failed \
+        run_simulator_compose_viewport_ui_test \
+          "$pad_destination" \
+          testFocusedActiveSessionComposeAcceptsKoreanDuringFullInteractionStorm \
+        >"$pad_compose_full_storm_file"
+    fi
+
+    run_simulator_gate_step \
+      ipad-trackpad-viewport-compose-ui-test \
+      benchmarkStep.simulatorInputViewportGate.iPadTrackpadViewportComposeUITest.failed \
+      run_simulator_compose_viewport_ui_test \
+        "$pad_destination" \
+        testTrackpadViewportGestureBurstThenComposeAcceptsKoreanUnderStreamPressure \
+      >"$pad_trackpad_compose_file"
+    step_files+=(
+      "$pad_compose_basic_file"
+      "$pad_trackpad_compose_file"
+    )
+    if [[ -n "$pad_compose_full_storm_file" ]]; then
+      step_files+=("$pad_compose_full_storm_file")
+    fi
     device_coverage+=("ipad-simulator")
   fi
 
@@ -2797,6 +2915,7 @@ simulator_input_viewport_gate() {
   printf '    "korean-cjk-compose-freeze-regression",\n'
   printf '    "viewport-hotpath-simulator-benchmark",\n'
   printf '    "viewport-pressure-diagnostic-regression",\n'
+  printf '    "trackpad-viewport-gesture-ui-regression",\n'
   printf '    "iphone-and-ipad-simulator-local-iteration-gate"\n'
   printf '  ],\n'
   printf '  "steps": [\n'
@@ -2817,6 +2936,387 @@ simulator_input_viewport_gate() {
   if [[ "$overall_status" != "passed" ]]; then
     return 1
   fi
+  return 0
+}
+
+simulator_input_viewport_gate_self_test() {
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"simulator-input-viewport-gate-self-test","status":"skipped","safeFailureCode":"benchmarkStep.simulatorInputViewportGateSelfTest.jqUnavailable"}\n'
+    return 0
+  fi
+
+  local tmpdir
+  local stub_dir
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-simulator-gate-self-test.XXXXXX")"
+  stub_dir="$tmpdir/bin"
+  mkdir -p "$stub_dir"
+
+  cat >"$stub_dir/swift" <<'SH'
+#!/usr/bin/env bash
+printf 'stub swift'
+for arg in "$@"; do
+  printf ' %s' "$arg"
+done
+printf '\n'
+exit 0
+SH
+  cat >"$stub_dir/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+printf 'stub xcodebuild'
+for arg in "$@"; do
+  printf ' %s' "$arg"
+done
+printf '\n'
+exit 0
+SH
+  cat >"$stub_dir/xcrun" <<'SH'
+#!/usr/bin/env bash
+printf 'stub xcrun'
+for arg in "$@"; do
+  printf ' %s' "$arg"
+done
+printf '\n'
+exit 0
+SH
+  chmod +x "$stub_dir/swift" "$stub_dir/xcodebuild" "$stub_dir/xcrun"
+
+  local checked_cases=()
+  local overall_status="passed"
+  local failed_case=""
+  local failed_exit_code=0
+  local failed_stdout=""
+  local failed_stderr=""
+  local case_spec
+  for case_spec in \
+    "iphone-only 0 0 5" \
+    "ipad-default 1 0 7" \
+    "ipad-full-storm 1 1 8"
+  do
+    local case_label
+    local include_ipad
+    local include_full_storm
+    local expected_step_count
+    read -r case_label include_ipad include_full_storm expected_step_count <<<"$case_spec"
+
+    local output_file
+    local stderr_file
+    output_file="$tmpdir/${case_label}.json"
+    stderr_file="$tmpdir/${case_label}.stderr"
+
+    local runner_status=0
+    if PATH="$stub_dir:$PATH" \
+      NARU_SIMULATOR_GATE_INCLUDE_IPAD="$include_ipad" \
+      NARU_SIMULATOR_GATE_INCLUDE_IPAD_FULL_STORM="$include_full_storm" \
+      NARU_SIMULATOR_GATE_BENCHMARK_ITERATIONS=1 \
+      NARU_SIMULATOR_GATE_BENCHMARK_SAMPLES=1 \
+      bash "$repo_root/scripts/run-naru-live-benchmark.sh" simulator-input-viewport-gate \
+        >"$output_file" 2>"$stderr_file"
+    then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+
+    if [[ "$runner_status" != "0" ]] ||
+      ! jq -e --argjson expected_step_count "$expected_step_count" '
+        .status == "passed" and
+        (.steps | length) == $expected_step_count and
+        all(.steps[]; .status == "passed")
+      ' "$output_file" >/dev/null
+    then
+      overall_status="failed"
+      failed_case="$case_label"
+      failed_exit_code="$runner_status"
+      failed_stdout="$(sed -n '1,80p' "$output_file" 2>/dev/null || true)"
+      failed_stderr="$(sed -n '1,80p' "$stderr_file" 2>/dev/null || true)"
+      break
+    fi
+
+    checked_cases+=("$case_label")
+  done
+
+  if [[ "$overall_status" == "passed" ]]; then
+    rm -rf "$tmpdir"
+    printf '{"schemaVersion":1,"mode":"simulator-input-viewport-gate-self-test","status":"passed","checkedCases":'
+    json_string_array "${checked_cases[@]}"
+    printf ',"policyLabels":["passed-simulator-gate-exits-zero","stubbed-swift-and-xcodebuild-no-simulator-required"]}\n'
+    return 0
+  fi
+
+  rm -rf "$tmpdir"
+  printf '{"schemaVersion":1,"mode":"simulator-input-viewport-gate-self-test","status":"failed","safeFailureCode":"benchmarkStep.simulatorInputViewportGateSelfTest.failed","failedCase":'
+  json_string "$failed_case"
+  printf ',"runnerExitCode":%d,"stdoutSnippet":' "$failed_exit_code"
+  json_string "$failed_stdout"
+  printf ',"stderrSnippet":'
+  json_string "$failed_stderr"
+  printf '}\n'
+  return 1
+}
+
+nonphysical_quickstart_step_timeout_seconds() {
+  local value="${NARU_NONPHYSICAL_QUICKSTART_STEP_TIMEOUT_SECONDS:-900}"
+  case "$value" in
+    ''|*[!0-9]*|0)
+      printf '900'
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
+}
+
+nonphysical_quickstart_include_simulator_gate() {
+  case "${NARU_NONPHYSICAL_QUICKSTART_INCLUDE_SIMULATOR_GATE:-1}" in
+    1|true|TRUE|yes|YES)
+      return 0
+      ;;
+    0|false|FALSE|no|NO)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+nonphysical_quickstart_spec_clarification_scan() {
+  local status
+  set +e
+  rg -n "\[NEEDS CLARIFICATION\]" \
+    specs/007-host-helper-video-stream/spec.md \
+    specs/007-host-helper-video-stream/plan.md \
+    specs/007-host-helper-video-stream/research.md \
+    specs/007-host-helper-video-stream/contracts
+  status=$?
+  set -e
+
+  case "$status" in
+    0)
+      return 1
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      return "$status"
+      ;;
+  esac
+}
+
+run_nonphysical_quickstart_step() {
+  local step_label="$1"
+  local failure_code="$2"
+  shift 2
+
+  local output_file
+  local timeout_seconds
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-${step_label}.XXXXXX")"
+  timeout_seconds="$(nonphysical_quickstart_step_timeout_seconds)"
+
+  printf 'nonphysical-quickstart-gate: %s started\n' "$step_label" >&2
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout "$timeout_seconds" "$@" >"$output_file" 2>&1; then
+    rm -f "$output_file"
+    printf 'nonphysical-quickstart-gate: %s passed\n' "$step_label" >&2
+    printf '{"stepLabel":'
+    json_string "$step_label"
+    printf ',"status":"passed"}'
+    return 0
+  fi
+
+  local exit_code=$?
+  local effective_failure_code="$failure_code"
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    effective_failure_code="${failure_code}.timedOut"
+    printf 'nonphysical-quickstart-gate: %s timed out\n' "$step_label" >&2
+  else
+    printf 'nonphysical-quickstart-gate: %s failed\n' "$step_label" >&2
+  fi
+
+  printf '{"stepLabel":'
+  json_string "$step_label"
+  printf ',"status":"failed","safeFailureCode":'
+  json_string "$effective_failure_code"
+  printf ',"exitCode":%d,"timeoutSeconds":%s,"localOutputFilePath":' "$exit_code" "$timeout_seconds"
+  json_string "$output_file"
+  printf '}'
+  return 0
+}
+
+nonphysical_quickstart_gate_step_passed() {
+  local step_file="$1"
+  grep -q '"status":"passed"' "$step_file"
+}
+
+nonphysical_quickstart_gate() {
+  reject_extra_args
+  cd "$repo_root"
+
+  local spec_file
+  local foundation_file
+  local input_file
+  local simulator_self_test_file
+  local simulator_gate_file=""
+  spec_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-spec.XXXXXX")"
+  foundation_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-foundation.XXXXXX")"
+  input_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-input.XXXXXX")"
+  simulator_self_test_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-simulator-self-test.XXXXXX")"
+
+  run_nonphysical_quickstart_step \
+    spec-clarification-scan \
+    benchmarkStep.nonphysicalQuickstart.specClarificationScan.failed \
+    nonphysical_quickstart_spec_clarification_scan \
+    >"$spec_file"
+
+  run_nonphysical_quickstart_step \
+    helper-video-foundation-tests \
+    benchmarkStep.nonphysicalQuickstart.helperVideoFoundationTests.failed \
+    swift test --filter 'HelperVideoFakeTransportTests|BenchmarkHelperVideoReportTests|BenchmarkVisualTransportComparisonReportTests|BenchmarkVisualTransportSelectionTests|ConnectionProfileTests' \
+    >"$foundation_file"
+
+  run_nonphysical_quickstart_step \
+    input-viewport-unit-tests \
+    benchmarkStep.nonphysicalQuickstart.inputViewportUnitTests.failed \
+    swift test --filter 'RemoteInputDockRenderStateTests|RemoteInputDockSyncPolicyTests|SessionFrameStoreTests|SessionFrameDeliveryPriorityModelTests|SessionViewportViewGeometryTests|TrackpadModeModelTests|PointerGestureResolverTests|ViewportGestureRedrawThrottleTests|ViewportRedrawDiagnosticsTests|DiagnosticExportTests|ViewportInputHotPathDriverTests|ComposeInputSessionIsolationTests' \
+    >"$input_file"
+
+  run_nonphysical_quickstart_step \
+    simulator-input-viewport-gate-self-test \
+    benchmarkStep.nonphysicalQuickstart.simulatorInputViewportGateSelfTest.failed \
+    bash "$repo_root/scripts/run-naru-live-benchmark.sh" simulator-input-viewport-gate-self-test \
+    >"$simulator_self_test_file"
+
+  local step_files=(
+    "$spec_file"
+    "$foundation_file"
+    "$input_file"
+    "$simulator_self_test_file"
+  )
+
+  local policy_labels=(
+    "no-physical-device-required"
+    "quickstart-nonphysical-foundation"
+    "helper-video-foundation-regression"
+    "input-viewport-regression"
+    "simulator-gate-policy-regression"
+  )
+
+  if nonphysical_quickstart_include_simulator_gate; then
+    simulator_gate_file="$(mktemp "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-simulator-gate.XXXXXX")"
+    run_nonphysical_quickstart_step \
+      simulator-input-viewport-gate \
+      benchmarkStep.nonphysicalQuickstart.simulatorInputViewportGate.failed \
+      bash "$repo_root/scripts/run-naru-live-benchmark.sh" simulator-input-viewport-gate \
+      >"$simulator_gate_file"
+    step_files+=("$simulator_gate_file")
+    policy_labels+=("iphone-ipad-simulator-compose-viewport-regression")
+  fi
+
+  local overall_status="passed"
+  local step_file
+  for step_file in "${step_files[@]}"; do
+    if ! nonphysical_quickstart_gate_step_passed "$step_file"; then
+      overall_status="failed"
+    fi
+  done
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "nonphysical-quickstart-gate",\n'
+  printf '  "targetLabel": "nonphysical-quickstart-v1",\n'
+  printf '  "status": "%s",\n' "$overall_status"
+  printf '  "physicalDevicePolicy": "excluded",\n'
+  printf '  "policyLabels": '
+  json_string_array "${policy_labels[@]}"
+  printf ',\n'
+  printf '  "steps": [\n'
+  local first=1
+  for step_file in "${step_files[@]}"; do
+    if ((first)); then
+      first=0
+    else
+      printf ',\n'
+    fi
+    printf '    '
+    cat "$step_file"
+  done
+  printf '\n  ]\n'
+  printf '}\n'
+
+  rm -f "${step_files[@]}"
+  if [[ "$overall_status" != "passed" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+nonphysical_quickstart_gate_self_test() {
+  reject_extra_args
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"nonphysical-quickstart-gate-self-test","status":"skipped","safeFailureCode":"benchmarkStep.nonphysicalQuickstartSelfTest.jqUnavailable"}\n'
+    return 0
+  fi
+
+  local tmpdir
+  local stub_dir
+  local output_file
+  local stderr_file
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-nonphysical-quickstart-self-test.XXXXXX")"
+  stub_dir="$tmpdir/bin"
+  output_file="$tmpdir/output.json"
+  stderr_file="$tmpdir/stderr.log"
+  mkdir -p "$stub_dir"
+
+  cat >"$stub_dir/swift" <<'SH'
+#!/usr/bin/env bash
+printf 'stub swift'
+for arg in "$@"; do
+  printf ' %s' "$arg"
+done
+printf '\n'
+exit 0
+SH
+  chmod +x "$stub_dir/swift"
+
+  local runner_status=0
+  if PATH="$stub_dir:$PATH" \
+    NARU_NONPHYSICAL_QUICKSTART_INCLUDE_SIMULATOR_GATE=0 \
+    NARU_NONPHYSICAL_QUICKSTART_STEP_TIMEOUT_SECONDS=30 \
+    bash "$repo_root/scripts/run-naru-live-benchmark.sh" nonphysical-quickstart-gate \
+      >"$output_file" 2>"$stderr_file"
+  then
+    runner_status=0
+  else
+    runner_status=$?
+  fi
+
+  if [[ "$runner_status" == "0" ]] &&
+    jq -e '
+      .mode == "nonphysical-quickstart-gate" and
+      .status == "passed" and
+      .physicalDevicePolicy == "excluded" and
+      (.steps | length) == 4 and
+      all(.steps[]; .status == "passed") and
+      (.policyLabels | index("no-physical-device-required") != null)
+    ' "$output_file" >/dev/null
+  then
+    rm -rf "$tmpdir"
+    printf '{"schemaVersion":1,"mode":"nonphysical-quickstart-gate-self-test","status":"passed","checkedCases":["simulator-gate-skipped","stubbed-swift"],"policyLabels":["no-physical-device-required","quickstart-nonphysical-json-shape"]}\n'
+    return 0
+  fi
+
+  local stdout_snippet
+  local stderr_snippet
+  stdout_snippet="$(sed -n '1,80p' "$output_file" 2>/dev/null || true)"
+  stderr_snippet="$(sed -n '1,80p' "$stderr_file" 2>/dev/null || true)"
+  rm -rf "$tmpdir"
+  printf '{"schemaVersion":1,"mode":"nonphysical-quickstart-gate-self-test","status":"failed","safeFailureCode":"benchmarkStep.nonphysicalQuickstartSelfTest.failed","runnerExitCode":%d,"stdoutSnippet":' "$runner_status"
+  json_string "$stdout_snippet"
+  printf ',"stderrSnippet":'
+  json_string "$stderr_snippet"
+  printf '}\n'
+  return 1
 }
 
 append_unique() {
@@ -2841,7 +3341,11 @@ print_physical_signing_setup_summary() {
 
   local diagnostic_labels=("$@")
   local primary_blocked_gate_label="none"
-  local recommended_primary_action="run-physical-iphone-helper-video-gate"
+  local ready_action="run-physical-iphone-helper-video-gate"
+  if [[ "$(physical_ios_target_device_type)" == "iPad" ]]; then
+    ready_action="run-physical-ipad-smoke"
+  fi
+  local recommended_primary_action="$ready_action"
   local readiness_state="ready"
   local action_sequence=()
 
@@ -2927,7 +3431,7 @@ print_physical_signing_setup_summary() {
       append_unique action_sequence "rerun-physical-device-preflight"
       ;;
     none)
-      append_unique action_sequence "run-physical-iphone-helper-video-gate"
+      append_unique action_sequence "$ready_action"
       ;;
   esac
 
@@ -3023,6 +3527,48 @@ physical_signing_setup_summary_self_test() {
   rm -rf "$tmpdir"
 }
 
+physical_ios_target_device_type() {
+  case "${NARU_PHYSICAL_IOS_DEVICE_CLASS:-iphone}" in
+    iphone|iPhone|IPHONE)
+      printf 'iPhone'
+      ;;
+    ipad|iPad|IPAD)
+      printf 'iPad'
+      ;;
+    *)
+      printf 'invalid'
+      ;;
+  esac
+}
+
+physical_ios_target_device_slug() {
+  case "$(physical_ios_target_device_type)" in
+    iPhone)
+      printf 'iphone'
+      ;;
+    iPad)
+      printf 'ipad'
+      ;;
+    *)
+      printf 'ios-device'
+      ;;
+  esac
+}
+
+physical_ios_target_device_display_name() {
+  case "$(physical_ios_target_device_type)" in
+    iPhone)
+      printf 'iPhone'
+      ;;
+    iPad)
+      printf 'iPad'
+      ;;
+    *)
+      printf 'iOS device'
+      ;;
+  esac
+}
+
 physical_iphone_ids_from_devicectl() {
   if ! command -v xcrun >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
     return 1
@@ -3030,9 +3576,12 @@ physical_iphone_ids_from_devicectl() {
 
   local output_file
   local status=1
+  local target_type
+  target_type="$(physical_ios_target_device_type)"
+  [[ "$target_type" != "invalid" ]] || return 1
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
   if xcrun devicectl list devices \
-    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --filter "hardwareProperties.deviceType == '$target_type'" \
     --json-output "$output_file" >/dev/null 2>&1; then
     jq -r '
       .result.devices[]?
@@ -3053,9 +3602,15 @@ physical_unavailable_iphone_count_from_devicectl() {
   fi
 
   local output_file
+  local target_type
+  target_type="$(physical_ios_target_device_type)"
+  if [[ "$target_type" == "invalid" ]]; then
+    printf '0'
+    return
+  fi
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
   if xcrun devicectl list devices \
-    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --filter "hardwareProperties.deviceType == '$target_type'" \
     --json-output "$output_file" >/dev/null 2>&1; then
     jq -r '
       [
@@ -3081,9 +3636,12 @@ physical_unavailable_iphone_id_is_known() {
 
   local output_file
   local match_count="0"
+  local target_type
+  target_type="$(physical_ios_target_device_type)"
+  [[ "$target_type" != "invalid" ]] || return 1
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
   if xcrun devicectl list devices \
-    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --filter "hardwareProperties.deviceType == '$target_type'" \
     --json-output "$output_file" >/dev/null 2>&1; then
     match_count="$(
       jq -r --arg device_id "$device_id" '
@@ -3107,10 +3665,13 @@ physical_unavailable_iphone_id_is_known() {
 
 physical_ios_safe_device_class_label() {
   case "$1" in
-    iPhone|iphone|IPHONE)
+    iPhone|iPad)
+      printf '%s' "$1"
+      ;;
+    iphone|IPHONE)
       printf 'iPhone'
       ;;
-    iPad|ipad|IPAD)
+    ipad|IPAD)
       printf 'iPad'
       ;;
     *)
@@ -3227,14 +3788,14 @@ physical_preflight_classify_device_interaction_state() {
 
   if [[ "$unlocked_since_boot_status" == "false" ]]; then
     append_unique issue_codes "physical-ios-device-locked"
-    append_unique setup_actions "unlock-physical-iphone"
+    append_unique setup_actions "$(physical_ios_unlock_setup_action)"
     append_unique signing_diagnostic_labels "physical-ios-device-locked"
   fi
   if [[ "$backlight_state" != "unknown" &&
         "$backlight_state" != "unavailable" &&
         "$backlight_state" != "activeOn" ]]; then
     append_unique issue_codes "physical-ios-device-screen-inactive"
-    append_unique setup_actions "unlock-physical-iphone"
+    append_unique setup_actions "$(physical_ios_unlock_setup_action)"
     append_unique signing_diagnostic_labels "physical-ios-device-screen-inactive"
   fi
 }
@@ -3244,6 +3805,9 @@ physical_iphone_ids_from_xctrace() {
     return 1
   fi
 
+  local target_display_name
+  target_display_name="$(physical_ios_target_device_display_name)"
+  [[ "$target_display_name" != "iOS device" ]] || return 1
   xcrun xctrace list devices 2>/dev/null |
     awk '
       /^== Devices ==/{in_devices=1; next}
@@ -3251,7 +3815,7 @@ physical_iphone_ids_from_xctrace() {
       /^== Simulators ==/{in_devices=0}
       in_devices
     ' |
-    grep -i 'iPhone' |
+    grep -i "$target_display_name" |
     sed -n 's/.*(\([0-9][0-9.]*\)) (\([0-9A-Fa-f-]\{24,\}\)).*/\2/p'
 }
 
@@ -3270,9 +3834,12 @@ physical_iphone_xcodebuild_id_from_devicectl_identifier() {
 
   local output_file
   local resolved_id=""
+  local target_type
+  target_type="$(physical_ios_target_device_type)"
+  [[ "$target_type" != "invalid" ]] || return 1
   output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-devices.XXXXXX")"
   if xcrun devicectl list devices \
-    --filter "hardwareProperties.deviceType == 'iPhone'" \
+    --filter "hardwareProperties.deviceType == '$target_type'" \
     --json-output "$output_file" >/dev/null 2>&1; then
     resolved_id="$(
       jq -r --arg requested_id "$requested_id" '
@@ -3324,22 +3891,7 @@ discover_physical_ios_device_id() {
 }
 
 physical_ios_device_id_is_iphone() {
-  local device_id="$1"
-  local detected_type
-  local detected_id
-  local ids
-
-  detected_type="$(physical_ios_device_type_for_id "$device_id" || true)"
-  if [[ -n "$detected_type" && "$detected_type" != "unknown" ]]; then
-    [[ "$detected_type" == "iPhone" ]]
-    return
-  fi
-
-  ids="$(physical_iphone_ids || true)"
-  while IFS= read -r detected_id; do
-    [[ "$detected_id" == "$device_id" ]] && return 0
-  done <<< "$ids"
-  return 1
+  physical_ios_device_id_matches_target_type "$1"
 }
 
 physical_iphone_device_count() {
@@ -3553,6 +4105,67 @@ physical_ios_device_id_is_ipad() {
   return 1
 }
 
+physical_ios_target_issue_code() {
+  local suffix="$1"
+  printf 'physical-%s-device-%s' "$(physical_ios_target_device_slug)" "$suffix"
+}
+
+physical_ios_connect_setup_action() {
+  case "$(physical_ios_target_device_type)" in
+    iPad)
+      printf 'connect-and-trust-physical-ipad'
+      ;;
+    *)
+      printf 'connect-and-trust-physical-iphone'
+      ;;
+  esac
+}
+
+physical_ios_unlock_setup_action() {
+  case "$(physical_ios_target_device_type)" in
+    iPad)
+      printf 'unlock-physical-ipad'
+      ;;
+    *)
+      printf 'unlock-physical-iphone'
+      ;;
+  esac
+}
+
+physical_ios_set_target_id_setup_action() {
+  case "$(physical_ios_target_device_type)" in
+    iPad)
+      printf 'set-physical-ios-device-id-to-ipad'
+      ;;
+    *)
+      printf 'set-physical-ios-device-id-to-iphone'
+      ;;
+  esac
+}
+
+physical_ios_device_id_matches_target_type() {
+  local device_id="$1"
+  local detected_type
+  local detected_id
+  local ids
+  local target_type
+
+  target_type="$(physical_ios_target_device_type)"
+  [[ -n "$device_id" && "$target_type" != "invalid" ]] || return 1
+
+  detected_type="$(physical_ios_device_type_for_id "$device_id" || true)"
+  if [[ -n "$detected_type" && "$detected_type" != "unknown" ]]; then
+    [[ "$detected_type" == "$target_type" ]]
+    return
+  fi
+
+  ids="$(physical_iphone_ids || true)"
+  while IFS= read -r detected_id; do
+    [[ "$detected_id" == "$device_id" ]] && return 0
+  done <<< "$ids"
+  return 1
+}
+
 apple_development_team_ids() {
   if ! command -v security >/dev/null 2>&1; then
     return 1
@@ -3729,6 +4342,1003 @@ physical_team_inference_self_test() {
   rm -rf "$profile_tmpdir"
 
   printf '{"schemaVersion":1,"mode":"physical-team-inference-self-test","status":"passed"}\n'
+}
+
+physical_signing_variant_probe_bool() {
+  local output_file="$1"
+  local pattern="$2"
+  local grep_flags="${3:-}"
+  if [[ "$grep_flags" == "ignore-case" ]]; then
+    if grep -qi -- "$pattern" "$output_file"; then
+      printf 'true'
+    else
+      printf 'false'
+    fi
+    return
+  fi
+
+  if grep -q -- "$pattern" "$output_file"; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+physical_signing_variant_probe_variant() {
+  local variant_label="$1"
+  local device_id="$2"
+  local development_team="$3"
+  shift 3
+
+  local output_file
+  local variant_build_status="passed"
+  local has_no_accounts
+  local has_no_profiles
+  local has_requires_development_team
+  local has_device_locked
+  local has_provisioning_updates_hint
+  local has_device_registration_hint
+  local args=(
+    xcodebuild
+    -project NaruRemote.xcodeproj
+    -scheme NaruRemote
+    -destination "platform=iOS,id=$device_id"
+    build
+  )
+  if [[ -n "$development_team" ]]; then
+    args+=(DEVELOPMENT_TEAM="$development_team" CODE_SIGN_STYLE=Automatic)
+  fi
+  args+=("$@")
+
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-signing-variant.XXXXXX")"
+  if ! "${args[@]}" >"$output_file" 2>&1; then
+    variant_build_status="failed"
+  fi
+
+  has_no_accounts="$(physical_signing_variant_probe_bool "$output_file" "No Accounts")"
+  has_no_profiles="$(physical_signing_variant_probe_bool "$output_file" "No profiles for")"
+  has_requires_development_team="$(physical_signing_variant_probe_bool "$output_file" "requires a development team")"
+  has_device_locked="$(physical_signing_variant_probe_bool "$output_file" "locked" "ignore-case")"
+  has_provisioning_updates_hint="$(physical_signing_variant_probe_bool "$output_file" "-allowProvisioningUpdates")"
+  has_device_registration_hint="$(physical_signing_variant_probe_bool "$output_file" "-allowProvisioningDeviceRegistration")"
+
+  [[ "$variant_build_status" == "passed" ]] && PHYSICAL_SIGNING_VARIANT_ANY_BUILD_PASSED=1
+  [[ "$has_no_accounts" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_NO_ACCOUNTS=1
+  [[ "$has_no_profiles" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_NO_PROFILES=1
+  [[ "$has_requires_development_team" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_REQUIRES_DEVELOPMENT_TEAM=1
+  [[ "$has_device_locked" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_LOCKED=1
+  [[ "$has_provisioning_updates_hint" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_PROVISIONING_UPDATES_HINT=1
+  [[ "$has_device_registration_hint" == "true" ]] && PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_REGISTRATION_HINT=1
+
+  printf '{'
+  printf '"label":'
+  json_string "$variant_label"
+  printf ',"status":'
+  json_string "$variant_build_status"
+  printf ',"hasNoAccounts":%s' "$has_no_accounts"
+  printf ',"hasNoProfiles":%s' "$has_no_profiles"
+  printf ',"hasRequiresDevelopmentTeam":%s' "$has_requires_development_team"
+  printf ',"hasDeviceLocked":%s' "$has_device_locked"
+  printf ',"hasProvisioningUpdatesHint":%s' "$has_provisioning_updates_hint"
+  printf ',"hasDeviceRegistrationHint":%s' "$has_device_registration_hint"
+  printf '}'
+
+  rm -f "$output_file"
+}
+
+physical_signing_variant_probe() {
+  reject_extra_args
+  import_physical_device_env
+  cd "$repo_root"
+
+  local issue_codes=()
+  local setup_actions=()
+  local signing_diagnostic_labels=()
+  local variant_files=()
+  local device_count
+  local unavailable_device_count
+  local device_id
+  local device_status
+  local device_selection_source
+  local device_id_resolution_status
+  local resolved_device_class="unknown"
+  local target_device_class
+  local signing_identity_status
+  local development_team_status
+  local build_check_status="skipped"
+  local xcode_account_status="unknown"
+  local provisioning_profile_status="unknown"
+  local variant_file
+  local variant_index
+
+  PHYSICAL_SIGNING_VARIANT_ANY_BUILD_PASSED=0
+  PHYSICAL_SIGNING_VARIANT_ANY_NO_ACCOUNTS=0
+  PHYSICAL_SIGNING_VARIANT_ANY_NO_PROFILES=0
+  PHYSICAL_SIGNING_VARIANT_ANY_REQUIRES_DEVELOPMENT_TEAM=0
+  PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_LOCKED=0
+  PHYSICAL_SIGNING_VARIANT_ANY_PROVISIONING_UPDATES_HINT=0
+  PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_REGISTRATION_HINT=0
+
+  target_device_class="$(physical_ios_target_device_display_name)"
+  device_count="$(physical_iphone_device_count)"
+  unavailable_device_count="$(physical_unavailable_iphone_count_from_devicectl)"
+  discover_physical_ios_device_id >/dev/null
+  device_id="$PHYSICAL_DISCOVERED_IOS_DEVICE_ID"
+  device_id_resolution_status="$PHYSICAL_DEVICE_ID_RESOLUTION_STATUS"
+  if [[ -n "$device_id" ]]; then
+    resolved_device_class="$(physical_ios_device_type_for_id "$device_id" || true)"
+    resolved_device_class="$(physical_ios_safe_device_class_label "$resolved_device_class")"
+    if [[ "$resolved_device_class" == "unknown" ]] && physical_ios_device_id_matches_target_type "$device_id"; then
+      resolved_device_class="$target_device_class"
+    fi
+  fi
+  if [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
+    device_selection_source="environment"
+  elif [[ -n "$device_id" ]]; then
+    device_selection_source="auto"
+  else
+    device_selection_source="none"
+  fi
+
+  if [[ "$(physical_ios_target_device_type)" == "invalid" ]]; then
+    device_status="invalidTargetClass"
+    append_unique issue_codes "physical-ios-device-class-invalid"
+    append_unique setup_actions "set-physical-ios-device-class"
+  elif [[ -z "$device_id" && "$unavailable_device_count" != "0" ]]; then
+    device_status="unavailable"
+    append_unique issue_codes "$(physical_ios_target_issue_code "unavailable")"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]] && physical_unavailable_iphone_id_is_known "$device_id"; then
+    device_status="unavailable"
+    append_unique issue_codes "$(physical_ios_target_issue_code "unavailable")"
+    append_unique setup_actions "unlock-connect-and-enable-developer-mode"
+  elif [[ -z "$device_id" ]]; then
+    device_status="missing"
+    append_unique issue_codes "$(physical_ios_target_issue_code "missing")"
+    append_unique setup_actions "$(physical_ios_connect_setup_action)"
+  elif [[ -n "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]] && ! physical_ios_device_id_matches_target_type "$device_id"; then
+    device_status="wrongDeviceType"
+    append_unique issue_codes "$(physical_ios_target_issue_code "required")"
+    append_unique setup_actions "$(physical_ios_set_target_id_setup_action)"
+  elif [[ "$device_count" != "1" && -z "${NARU_PHYSICAL_IOS_DEVICE_ID:-}" ]]; then
+    device_status="multiple"
+    append_unique issue_codes "$(physical_ios_target_issue_code "ambiguous")"
+    append_unique setup_actions "set-physical-ios-device-id"
+  else
+    device_status="connected"
+  fi
+
+  if security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
+    signing_identity_status="available"
+  else
+    signing_identity_status="missing"
+    append_unique issue_codes "ios-development-certificate-missing"
+    append_unique setup_actions "install-ios-development-certificate"
+    append_unique signing_diagnostic_labels "apple-development-certificate-missing"
+  fi
+
+  PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+  resolve_physical_development_team
+  development_team_status="$PHYSICAL_DEVELOPMENT_TEAM_STATUS"
+  case "$development_team_status" in
+    environment)
+      append_unique signing_diagnostic_labels "development-team-supplied-by-environment"
+      ;;
+    inferred)
+      append_unique signing_diagnostic_labels "development-team-inferred-from-local-certificate"
+      ;;
+    ambiguous)
+      append_unique issue_codes "ios-development-team-ambiguous"
+      append_unique setup_actions "set-xcode-development-team"
+      append_unique signing_diagnostic_labels "development-team-ambiguous"
+      ;;
+    *)
+      append_unique issue_codes "ios-development-team-missing"
+      append_unique setup_actions "set-xcode-development-team"
+      append_unique signing_diagnostic_labels "development-team-not-supplied"
+      ;;
+  esac
+
+  if [[ "$device_status" == "connected" &&
+        "$signing_identity_status" == "available" &&
+        ( "$development_team_status" == "environment" || "$development_team_status" == "inferred" ) ]]; then
+    variant_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-signing-variant-object.XXXXXX")"
+    physical_signing_variant_probe_variant \
+      "projectSettings" \
+      "$device_id" \
+      "" >"$variant_file"
+    variant_files+=("$variant_file")
+
+    variant_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-signing-variant-object.XXXXXX")"
+    physical_signing_variant_probe_variant \
+      "allowProvisioningUpdates" \
+      "$device_id" \
+      "$NARU_XCODE_DEVELOPMENT_TEAM" \
+      -allowProvisioningUpdates >"$variant_file"
+    variant_files+=("$variant_file")
+
+    variant_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-signing-variant-object.XXXXXX")"
+    physical_signing_variant_probe_variant \
+      "localProfilesOnly" \
+      "$device_id" \
+      "$NARU_XCODE_DEVELOPMENT_TEAM" >"$variant_file"
+    variant_files+=("$variant_file")
+
+    variant_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-signing-variant-object.XXXXXX")"
+    physical_signing_variant_probe_variant \
+      "allowUpdatesAndDeviceRegistration" \
+      "$device_id" \
+      "$NARU_XCODE_DEVELOPMENT_TEAM" \
+      -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration >"$variant_file"
+    variant_files+=("$variant_file")
+
+    if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_BUILD_PASSED" == "1" ]]; then
+      build_check_status="passed"
+      xcode_account_status="available"
+      provisioning_profile_status="available"
+      append_unique signing_diagnostic_labels "physical-signing-ready-in-at-least-one-variant"
+    else
+      build_check_status="failed"
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_NO_ACCOUNTS" == "1" ]]; then
+        xcode_account_status="missing"
+        append_unique issue_codes "xcode-account-missing"
+        append_unique setup_actions "add-xcode-account"
+        append_unique setup_actions "open-xcode-account-settings"
+        append_unique setup_actions "sign-in-to-xcode-account-for-development-team"
+        append_unique setup_actions "rerun-physical-device-preflight"
+        append_unique signing_diagnostic_labels "xcode-account-unavailable-to-xcodebuild"
+      fi
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_NO_PROFILES" == "1" ]]; then
+        provisioning_profile_status="missing"
+        append_unique issue_codes "ios-provisioning-profile-missing"
+        append_unique setup_actions "create-exact-ios-development-profile"
+        append_unique setup_actions "install-exact-profile-to-standard-provisioning-directory"
+        append_unique setup_actions "enable-automatic-signing-or-create-exact-development-profile"
+        append_unique setup_actions "rerun-physical-device-preflight"
+        if [[ "$xcode_account_status" == "missing" ]]; then
+          append_unique signing_diagnostic_labels "provisioning-cannot-be-validated-until-xcode-account-is-available"
+        else
+          append_unique signing_diagnostic_labels "account-available-but-profile-missing"
+        fi
+      fi
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_REQUIRES_DEVELOPMENT_TEAM" == "1" ]]; then
+        append_unique issue_codes "ios-development-team-missing"
+        append_unique setup_actions "set-xcode-development-team"
+        append_unique signing_diagnostic_labels "xcodebuild-requires-development-team"
+      fi
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_LOCKED" == "1" ]]; then
+        append_unique issue_codes "physical-ios-device-locked"
+        append_unique setup_actions "$(physical_ios_unlock_setup_action)"
+        append_unique signing_diagnostic_labels "physical-ios-device-locked"
+      fi
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_PROVISIONING_UPDATES_HINT" == "1" ]]; then
+        append_unique signing_diagnostic_labels "xcodebuild-mentioned-allow-provisioning-updates"
+      fi
+      if [[ "$PHYSICAL_SIGNING_VARIANT_ANY_DEVICE_REGISTRATION_HINT" == "1" ]]; then
+        append_unique signing_diagnostic_labels "xcodebuild-mentioned-device-registration"
+      fi
+      if ((${#issue_codes[@]} == 0)); then
+        append_unique issue_codes "physical-ios-build-failed"
+        append_unique setup_actions "inspect-xcode-physical-build"
+        append_unique signing_diagnostic_labels "xcodebuild-failed-without-known-signing-label"
+      fi
+    fi
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-signing-variant-probe",\n'
+  printf '  "targetDeviceClass": "%s",\n' "$target_device_class"
+  printf '  "resolvedDeviceClass": "%s",\n' "$resolved_device_class"
+  printf '  "deviceDiscoveryStatus": "%s",\n' "$device_status"
+  printf '  "deviceSelectionSource": "%s",\n' "$device_selection_source"
+  printf '  "deviceIDResolutionStatus": "%s",\n' "$device_id_resolution_status"
+  printf '  "codeSigningIdentityStatus": "%s",\n' "$signing_identity_status"
+  printf '  "developmentTeamStatus": "%s",\n' "$development_team_status"
+  printf '  "xcodeAccountStatus": "%s",\n' "$xcode_account_status"
+  printf '  "provisioningProfileStatus": "%s",\n' "$provisioning_profile_status"
+  printf '  "buildCheckStatus": "%s",\n' "$build_check_status"
+  printf '  "variants": ['
+  for variant_index in "${!variant_files[@]}"; do
+    if ((variant_index > 0)); then
+      printf ', '
+    fi
+    cat "${variant_files[$variant_index]}"
+  done
+  printf '],\n'
+  printf '  "signingSetupSummary": '
+  print_physical_signing_setup_summary \
+    "$device_status" \
+    "$signing_identity_status" \
+    "$development_team_status" \
+    "$xcode_account_status" \
+    "$provisioning_profile_status" \
+    "$build_check_status" \
+    "${signing_diagnostic_labels[@]}"
+  printf ',\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "privacyNotes": '
+  json_string_array \
+    "raw-xcodebuild-output-redacted" \
+    "device-identifiers-redacted" \
+    "development-team-redacted"
+  printf '\n}\n'
+
+  rm -f "${variant_files[@]-}"
+}
+
+physical_signing_variant_probe_self_test() {
+  reject_extra_args
+
+  local saved_device_id="${NARU_PHYSICAL_IOS_DEVICE_ID:-}"
+  local saved_device_class="${NARU_PHYSICAL_IOS_DEVICE_CLASS:-}"
+  local saved_development_team="${NARU_XCODE_DEVELOPMENT_TEAM:-}"
+  local output
+  local failure_code=""
+
+  export NARU_PHYSICAL_IOS_DEVICE_CLASS="ipad"
+  export NARU_XCODE_DEVELOPMENT_TEAM="TEAM123456"
+  unset NARU_PHYSICAL_IOS_DEVICE_ID
+
+  security() {
+    printf '  1) ABCDEF "Apple Development: Example (TEAM123456)"\n'
+  }
+  physical_iphone_ids() {
+    printf 'IPAD-UDID\n'
+  }
+  physical_unavailable_iphone_count_from_devicectl() {
+    printf '0'
+  }
+  physical_unavailable_iphone_id_is_known() {
+    return 1
+  }
+  physical_ios_device_type_for_id() {
+    case "$1" in
+      IPAD-UDID) printf 'iPad' ;;
+      *) return 1 ;;
+    esac
+  }
+  xcodebuild() {
+    case "$*" in
+      *DEVELOPMENT_TEAM*)
+        ;;
+      *)
+        printf 'Build with project signing settings succeeded.\n'
+        return 0
+        ;;
+    esac
+    case "$*" in
+      *allowProvisioningDeviceRegistration*)
+        printf 'No Accounts\n'
+        printf 'No profiles for\n'
+        printf 'Pass -allowProvisioningUpdates and -allowProvisioningDeviceRegistration to xcodebuild.\n'
+        return 65
+        ;;
+      *allowProvisioningUpdates*)
+        printf 'No Accounts\n'
+        printf 'No profiles for\n'
+        printf 'Pass -allowProvisioningUpdates to xcodebuild.\n'
+        return 65
+        ;;
+      *)
+        printf 'No profiles for\n'
+        printf 'Pass -allowProvisioningUpdates to xcodebuild.\n'
+        return 65
+        ;;
+    esac
+  }
+  launchctl_env() {
+    return 1
+  }
+
+  output="$(physical_signing_variant_probe)"
+
+  if ! grep -q '"mode": "physical-signing-variant-probe"' <<<"$output"; then
+    failure_code="mode"
+  elif ! grep -q '"targetDeviceClass": "iPad"' <<<"$output"; then
+    failure_code="targetDeviceClass"
+  elif ! grep -q '"deviceSelectionSource": "auto"' <<<"$output"; then
+    failure_code="deviceSelectionSource"
+  elif ! grep -q '"buildCheckStatus": "passed"' <<<"$output"; then
+    failure_code="buildCheckStatus"
+  elif ! grep -q '"label":"projectSettings"' <<<"$output"; then
+    failure_code="projectSettingsVariant"
+  elif ! grep -q '"xcodeAccountStatus": "available"' <<<"$output"; then
+    failure_code="xcodeAccountStatus"
+  elif ! grep -q '"provisioningProfileStatus": "available"' <<<"$output"; then
+    failure_code="provisioningStatus"
+  elif ! grep -q '"label":"allowProvisioningUpdates"' <<<"$output"; then
+    failure_code="allowProvisioningUpdatesVariant"
+  elif ! grep -q '"label":"localProfilesOnly"' <<<"$output"; then
+    failure_code="localProfilesOnlyVariant"
+  elif ! grep -q '"label":"allowUpdatesAndDeviceRegistration"' <<<"$output"; then
+    failure_code="deviceRegistrationVariant"
+  elif ! grep -q '"hasNoAccounts":true' <<<"$output"; then
+    failure_code="noAccountsFlag"
+  elif ! grep -q '"hasNoProfiles":true' <<<"$output"; then
+    failure_code="noProfilesFlag"
+  elif ! grep -q '"hasDeviceRegistrationHint":true' <<<"$output"; then
+    failure_code="deviceRegistrationHintFlag"
+  elif grep -q '"xcode-account-missing"' <<<"$output"; then
+    failure_code="xcodeAccountIssue"
+  elif ! grep -q '"run-physical-ipad-smoke"' <<<"$output"; then
+    failure_code="ipadReadyAction"
+  elif grep -q 'IPAD-UDID\|TEAM123456' <<<"$output"; then
+    failure_code="privacyRedaction"
+  fi
+
+  if [[ -n "$saved_device_id" ]]; then
+    export NARU_PHYSICAL_IOS_DEVICE_ID="$saved_device_id"
+  else
+    unset NARU_PHYSICAL_IOS_DEVICE_ID
+  fi
+  if [[ -n "$saved_device_class" ]]; then
+    export NARU_PHYSICAL_IOS_DEVICE_CLASS="$saved_device_class"
+  else
+    unset NARU_PHYSICAL_IOS_DEVICE_CLASS
+  fi
+  if [[ -n "$saved_development_team" ]]; then
+    export NARU_XCODE_DEVELOPMENT_TEAM="$saved_development_team"
+  else
+    unset NARU_XCODE_DEVELOPMENT_TEAM
+  fi
+
+  if [[ -n "$failure_code" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-signing-variant-probe-self-test","status":"failed","safeFailureCode":'
+    json_string "$failure_code"
+    printf '}\n'
+    return 1
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-signing-variant-probe-self-test","status":"passed"}\n'
+}
+
+physical_provisioning_profile_match_kind() {
+  local application_identifier="$1"
+  local team_id="$2"
+  local bundle_id="$3"
+  local expected_identifier
+  local profile_bundle_pattern
+  local wildcard_prefix
+
+  if [[ -z "$application_identifier" || -z "$team_id" || -z "$bundle_id" ]]; then
+    printf 'none'
+    return
+  fi
+
+  expected_identifier="$team_id.$bundle_id"
+  if [[ "$application_identifier" == "$expected_identifier" ]]; then
+    printf 'exact'
+    return
+  fi
+
+  profile_bundle_pattern="${application_identifier#"$team_id."}"
+  if [[ "$profile_bundle_pattern" == "$application_identifier" ]]; then
+    printf 'none'
+    return
+  fi
+  if [[ "$profile_bundle_pattern" != *"*" ]]; then
+    printf 'none'
+    return
+  fi
+
+  wildcard_prefix="${profile_bundle_pattern%\*}"
+  if [[ "$profile_bundle_pattern" == "*" || "$bundle_id" == "$wildcard_prefix"* ]]; then
+    printf 'wildcard'
+  else
+    printf 'none'
+  fi
+}
+
+physical_provisioning_profile_inventory_tool_failure() {
+  local missing_tools=("$@")
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-provisioning-profile-inventory",\n'
+  printf '  "status": "failed",\n'
+  printf '  "inventoryStatus": "skipped",\n'
+  printf '  "missingToolLabels": '
+  json_string_array "${missing_tools[@]}"
+  printf ',\n'
+  printf '  "issueCodes": '
+  json_string_array "provisioning-profile-inventory-tool-unavailable"
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  json_string_array "install-xcode-command-line-tools"
+  printf ',\n'
+  printf '  "privacyNotes": '
+  json_string_array \
+    "profile-identifiers-redacted" \
+    "development-team-redacted" \
+    "bundle-identifier-redacted" \
+    "device-identifiers-redacted"
+  printf '\n}\n'
+}
+
+physical_provisioning_profile_inventory() {
+  reject_extra_args
+  import_env NARU_XCODE_DEVELOPMENT_TEAM optional
+  cd "$repo_root"
+
+  local missing_tools=()
+  command -v jq >/dev/null 2>&1 || missing_tools+=("jq")
+  command -v plutil >/dev/null 2>&1 || missing_tools+=("plutil")
+  command -v security >/dev/null 2>&1 || missing_tools+=("security")
+  command -v xcodebuild >/dev/null 2>&1 || missing_tools+=("xcodebuild")
+  if ((${#missing_tools[@]})); then
+    physical_provisioning_profile_inventory_tool_failure "${missing_tools[@]}"
+    return 1
+  fi
+
+  local tmpdir
+  local settings_file
+  local profiles_file
+  local standard_dir
+  local user_data_dir
+  local derived_data_dir
+  local project_settings_status="passed"
+  local project_bundle_id=""
+  local project_team_id=""
+  local effective_team_id=""
+  local project_bundle_id_status="missing"
+  local project_team_status="missing"
+  local effective_team_source="none"
+  local standard_profile_directory_status="missing"
+  local user_data_profile_directory_status="missing"
+  local derived_data_profile_directory_status="missing"
+  local profile_count=0
+  local valid_profile_count=0
+  local standard_profile_count=0
+  local user_data_profile_count=0
+  local derived_data_profile_count=0
+  local team_match_count=0
+  local bundle_exact_match_count=0
+  local bundle_wildcard_match_count=0
+  local exact_development_profile_count=0
+  local wildcard_development_profile_count=0
+  local development_profile_count=0
+  local team_bundle_development_match_count=0
+  local provisioned_device_profile_count=0
+  local issue_codes=()
+  local setup_actions=()
+  local diagnostic_labels=()
+  local action_sequence=()
+  local readiness_state="profileCandidatePresent"
+  local primary_blocked_gate_label="none"
+  local recommended_primary_action="rerun-physical-signing-variant-probe"
+  local profile_path
+
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-profile-inventory.XXXXXX")"
+  settings_file="$tmpdir/build-settings.json"
+  profiles_file="$tmpdir/profiles.txt"
+  : >"$profiles_file"
+
+  standard_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+  user_data_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+  derived_data_dir="$HOME/Library/Developer/Xcode/DerivedData"
+
+  if [[ -d "$standard_dir" ]]; then
+    standard_profile_directory_status="present"
+    find "$standard_dir" -type f -name '*.mobileprovision' -print >>"$profiles_file" 2>/dev/null || true
+  else
+    append_unique diagnostic_labels "standard-profile-directory-missing"
+  fi
+  if [[ -d "$user_data_dir" ]]; then
+    user_data_profile_directory_status="present"
+    find "$user_data_dir" -type f -name '*.mobileprovision' -print >>"$profiles_file" 2>/dev/null || true
+  fi
+  if [[ -d "$derived_data_dir" ]]; then
+    derived_data_profile_directory_status="present"
+    find "$derived_data_dir" -type f -name '*.mobileprovision' -print >>"$profiles_file" 2>/dev/null || true
+  fi
+
+  if ! xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -showBuildSettings -json >"$settings_file" 2>/dev/null; then
+    project_settings_status="failed"
+    append_unique issue_codes "xcode-build-settings-unavailable"
+    append_unique setup_actions "inspect-xcode-build-settings"
+    append_unique diagnostic_labels "xcode-build-settings-unavailable"
+  else
+    project_bundle_id="$(
+      jq -r '
+        [.[].buildSettings.PRODUCT_BUNDLE_IDENTIFIER // ""
+          | select(length > 0 and (endswith(".xctrunner") | not))][0] // ""
+      ' "$settings_file"
+    )"
+    project_team_id="$(
+      jq -r '
+        [.[].buildSettings.DEVELOPMENT_TEAM // ""
+          | select(length > 0)][0] // ""
+      ' "$settings_file"
+    )"
+  fi
+
+  if [[ -n "$project_bundle_id" ]]; then
+    project_bundle_id_status="present"
+  else
+    append_unique issue_codes "ios-bundle-id-missing"
+    append_unique setup_actions "inspect-xcode-build-settings"
+    append_unique diagnostic_labels "project-bundle-id-missing"
+  fi
+
+  if [[ -n "$project_team_id" ]]; then
+    effective_team_id="$project_team_id"
+    project_team_status="present"
+    effective_team_source="project"
+  elif [[ -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+    effective_team_id="$NARU_XCODE_DEVELOPMENT_TEAM"
+    project_team_status="environment"
+    effective_team_source="environment"
+    append_unique diagnostic_labels "development-team-supplied-by-environment"
+  else
+    PHYSICAL_DEVELOPMENT_TEAM_STATUS="missing"
+    resolve_physical_development_team
+    project_team_status="$PHYSICAL_DEVELOPMENT_TEAM_STATUS"
+    if [[ "$project_team_status" == "inferred" && -n "${NARU_XCODE_DEVELOPMENT_TEAM:-}" ]]; then
+      effective_team_id="$NARU_XCODE_DEVELOPMENT_TEAM"
+      effective_team_source="inferred"
+      append_unique diagnostic_labels "development-team-inferred-from-local-certificate"
+    elif [[ "$project_team_status" == "ambiguous" ]]; then
+      append_unique issue_codes "ios-development-team-ambiguous"
+      append_unique setup_actions "set-xcode-development-team"
+      append_unique diagnostic_labels "development-team-ambiguous"
+    else
+      append_unique issue_codes "ios-development-team-missing"
+      append_unique setup_actions "set-xcode-development-team"
+      append_unique diagnostic_labels "development-team-missing"
+    fi
+  fi
+
+  while IFS= read -r profile_path; do
+    [[ -n "$profile_path" ]] || continue
+    ((profile_count += 1))
+    if [[ "$profile_path" == "$standard_dir/"* ]]; then
+      ((standard_profile_count += 1))
+    elif [[ "$profile_path" == "$user_data_dir/"* ]]; then
+      ((user_data_profile_count += 1))
+    elif [[ "$profile_path" == "$derived_data_dir/"* ]]; then
+      ((derived_data_profile_count += 1))
+    fi
+
+    local profile_plist
+    local profile_team_id
+    local profile_application_identifier
+    local profile_get_task_allow
+    local provisioned_device_count
+    local team_matches=0
+    local is_development_profile=0
+    local match_kind
+
+    profile_plist="$tmpdir/profile-$profile_count.plist"
+    if ! security cms -D -i "$profile_path" >"$profile_plist" 2>/dev/null; then
+      append_unique diagnostic_labels "profile-decode-failed"
+      continue
+    fi
+
+    ((valid_profile_count += 1))
+    profile_team_id="$(plutil -extract TeamIdentifier.0 raw -o - "$profile_plist" 2>/dev/null || true)"
+    profile_application_identifier="$(plutil -extract Entitlements.application-identifier raw -o - "$profile_plist" 2>/dev/null || true)"
+    profile_get_task_allow="$(plutil -extract Entitlements.get-task-allow raw -o - "$profile_plist" 2>/dev/null || true)"
+    provisioned_device_count="$(
+      plutil -extract ProvisionedDevices json -o - "$profile_plist" 2>/dev/null |
+        jq -r 'if type == "array" then length else 0 end' 2>/dev/null || printf '0'
+    )"
+
+    if [[ -n "$effective_team_id" && "$profile_team_id" == "$effective_team_id" ]]; then
+      team_matches=1
+      ((team_match_count += 1))
+    fi
+    case "$profile_get_task_allow" in
+      true|1|YES|yes)
+        is_development_profile=1
+        ((development_profile_count += 1))
+        ;;
+    esac
+    if [[ "$provisioned_device_count" =~ ^[0-9]+$ && "$provisioned_device_count" != "0" ]]; then
+      ((provisioned_device_profile_count += 1))
+    fi
+
+    match_kind="$(physical_provisioning_profile_match_kind \
+      "$profile_application_identifier" \
+      "$effective_team_id" \
+      "$project_bundle_id")"
+    if [[ "$team_matches" == "1" && "$match_kind" == "exact" ]]; then
+      ((bundle_exact_match_count += 1))
+      if [[ "$is_development_profile" == "1" ]]; then
+        ((exact_development_profile_count += 1))
+        ((team_bundle_development_match_count += 1))
+      fi
+    elif [[ "$team_matches" == "1" && "$match_kind" == "wildcard" ]]; then
+      ((bundle_wildcard_match_count += 1))
+      if [[ "$is_development_profile" == "1" ]]; then
+        ((wildcard_development_profile_count += 1))
+        ((team_bundle_development_match_count += 1))
+      fi
+    fi
+  done <"$profiles_file"
+
+  if ((profile_count == 0)); then
+    append_unique diagnostic_labels "no-local-provisioning-profiles-found"
+  fi
+  if ((valid_profile_count == 0)); then
+    append_unique diagnostic_labels "no-decodable-local-provisioning-profiles"
+  fi
+  if ((standard_profile_count == 0)); then
+    append_unique diagnostic_labels "standard-profile-count-zero"
+  fi
+  if ((user_data_profile_count > 0)); then
+    append_unique diagnostic_labels "xcode-userdata-profiles-present"
+  fi
+  if ((derived_data_profile_count > 0)); then
+    append_unique diagnostic_labels "xcode-deriveddata-profiles-present"
+  fi
+  if ((exact_development_profile_count == 0)); then
+    append_unique diagnostic_labels "exact-app-development-profile-missing"
+  else
+    append_unique diagnostic_labels "exact-app-development-profile-present"
+  fi
+  if ((wildcard_development_profile_count > 0)); then
+    append_unique diagnostic_labels "wildcard-development-profile-present"
+  fi
+
+  if [[ "$project_settings_status" == "failed" ]]; then
+    readiness_state="blocked"
+    primary_blocked_gate_label="xcode-build-settings"
+    recommended_primary_action="inspect-xcode-build-settings"
+  elif [[ "$project_bundle_id_status" == "missing" ]]; then
+    readiness_state="blocked"
+    primary_blocked_gate_label="ios-bundle-id"
+    recommended_primary_action="inspect-xcode-build-settings"
+  elif [[ -z "$effective_team_id" ]]; then
+    readiness_state="blocked"
+    primary_blocked_gate_label="ios-development-team"
+    recommended_primary_action="set-xcode-development-team"
+  elif ((exact_development_profile_count > 0)); then
+    readiness_state="profileCandidatePresent"
+    primary_blocked_gate_label="none"
+    recommended_primary_action="rerun-physical-signing-variant-probe"
+    append_unique action_sequence "rerun-physical-signing-variant-probe"
+  elif ((wildcard_development_profile_count > 0)); then
+    readiness_state="profileCandidatePresent"
+    primary_blocked_gate_label="none"
+    recommended_primary_action="rerun-physical-signing-variant-probe"
+    append_unique action_sequence "rerun-physical-signing-variant-probe"
+  elif ((valid_profile_count > 0)); then
+    readiness_state="blocked"
+    primary_blocked_gate_label="ios-app-provisioning-profile"
+    recommended_primary_action="create-exact-ios-development-profile"
+    append_unique issue_codes "ios-app-provisioning-profile-missing"
+    append_unique setup_actions "create-exact-ios-development-profile"
+  else
+    readiness_state="blocked"
+    primary_blocked_gate_label="ios-provisioning-profile"
+    recommended_primary_action="create-exact-ios-development-profile"
+    append_unique issue_codes "ios-provisioning-profile-missing"
+    append_unique setup_actions "create-exact-ios-development-profile"
+  fi
+
+  if [[ "$readiness_state" == "blocked" ]]; then
+    append_unique action_sequence "$recommended_primary_action"
+    if [[ "$recommended_primary_action" != "install-exact-profile-to-standard-provisioning-directory" ]]; then
+      append_unique action_sequence "install-exact-profile-to-standard-provisioning-directory"
+    fi
+    append_unique action_sequence "rerun-physical-provisioning-profile-inventory"
+    append_unique action_sequence "rerun-physical-signing-variant-probe"
+  fi
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "mode": "physical-provisioning-profile-inventory",\n'
+  printf '  "status": "completed",\n'
+  printf '  "projectBuildSettingsStatus": "%s",\n' "$project_settings_status"
+  printf '  "projectBundleIDStatus": "%s",\n' "$project_bundle_id_status"
+  printf '  "projectTeamStatus": "%s",\n' "$project_team_status"
+  printf '  "effectiveTeamSource": "%s",\n' "$effective_team_source"
+  printf '  "profileDirectoryStatus": {'
+  printf '"standard": "%s", ' "$standard_profile_directory_status"
+  printf '"userData": "%s", ' "$user_data_profile_directory_status"
+  printf '"derivedData": "%s"' "$derived_data_profile_directory_status"
+  printf '},\n'
+  printf '  "profileCount": %d,\n' "$profile_count"
+  printf '  "validProfileCount": %d,\n' "$valid_profile_count"
+  printf '  "standardProfileCount": %d,\n' "$standard_profile_count"
+  printf '  "userDataProfileCount": %d,\n' "$user_data_profile_count"
+  printf '  "derivedDataProfileCount": %d,\n' "$derived_data_profile_count"
+  printf '  "teamMatchCount": %d,\n' "$team_match_count"
+  printf '  "bundleExactMatchCount": %d,\n' "$bundle_exact_match_count"
+  printf '  "bundleWildcardMatchCount": %d,\n' "$bundle_wildcard_match_count"
+  printf '  "exactDevelopmentProfileCount": %d,\n' "$exact_development_profile_count"
+  printf '  "wildcardDevelopmentProfileCount": %d,\n' "$wildcard_development_profile_count"
+  printf '  "developmentProfileCount": %d,\n' "$development_profile_count"
+  printf '  "teamBundleDevelopmentMatchCount": %d,\n' "$team_bundle_development_match_count"
+  printf '  "provisionedDeviceProfileCount": %d,\n' "$provisioned_device_profile_count"
+  printf '  "matchingProfileSummary": {'
+  printf '"readinessState": '
+  json_string "$readiness_state"
+  printf ', "primaryBlockedGateLabel": '
+  json_string "$primary_blocked_gate_label"
+  printf ', "recommendedPrimaryAction": '
+  json_string "$recommended_primary_action"
+  printf ', "exactDevelopmentProfileStatus": '
+  if ((exact_development_profile_count > 0)); then
+    json_string "present"
+  else
+    json_string "missing"
+  fi
+  printf ', "wildcardDevelopmentProfileStatus": '
+  if ((wildcard_development_profile_count > 0)); then
+    json_string "present"
+  else
+    json_string "missing"
+  fi
+  printf ', "operatorActionSequence": '
+  json_string_array "${action_sequence[@]}"
+  printf ', "diagnosticLabels": '
+  json_string_array "${diagnostic_labels[@]}"
+  printf '},\n'
+  printf '  "issueCodes": '
+  if ((${#issue_codes[@]})); then
+    json_string_array "${issue_codes[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "setupActionLabels": '
+  if ((${#setup_actions[@]})); then
+    json_string_array "${setup_actions[@]}"
+  else
+    json_string_array
+  fi
+  printf ',\n'
+  printf '  "privacyNotes": '
+  json_string_array \
+    "profile-identifiers-redacted" \
+    "development-team-redacted" \
+    "bundle-identifier-redacted" \
+    "device-identifiers-redacted" \
+    "raw-profile-plists-redacted"
+  printf '\n}\n'
+
+  rm -rf "$tmpdir"
+}
+
+physical_provisioning_profile_inventory_self_test() {
+  reject_extra_args
+
+  if ! command -v jq >/dev/null 2>&1 || ! command -v plutil >/dev/null 2>&1; then
+    printf '{"schemaVersion":1,"mode":"physical-provisioning-profile-inventory-self-test","status":"skipped","issueCodes":["tool-unavailable"]}\n'
+    return 0
+  fi
+
+  local tmpdir
+  local saved_home="${HOME:-}"
+  local saved_development_team="${NARU_XCODE_DEVELOPMENT_TEAM:-}"
+  local output
+  local failure_code=""
+
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/naru-profile-inventory-self-test.XXXXXX")"
+  export HOME="$tmpdir/home"
+  unset NARU_XCODE_DEVELOPMENT_TEAM
+  mkdir -p "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+  mkdir -p "$HOME/Library/Developer/Xcode/DerivedData/Derived/Build"
+  printf 'wildcard\n' >"$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/wildcard.mobileprovision"
+  printf 'invalid\n' >"$HOME/Library/Developer/Xcode/DerivedData/Derived/Build/invalid.mobileprovision"
+
+  xcodebuild() {
+    case "$*" in
+      *"-showBuildSettings -json"*)
+        printf '[{"buildSettings":{"PRODUCT_BUNDLE_IDENTIFIER":"example.app","DEVELOPMENT_TEAM":"TESTTEAM","CODE_SIGN_STYLE":"Automatic"}}]\n'
+        return 0
+        ;;
+    esac
+    return 1
+  }
+  security() {
+    if [[ "${1:-}" != "cms" ]]; then
+      return 1
+    fi
+    local input_file=""
+    while (($#)); do
+      case "$1" in
+        -i)
+          shift
+          input_file="${1:-}"
+          ;;
+      esac
+      shift || true
+    done
+    if [[ "$(tr -d '\n' <"$input_file" 2>/dev/null || true)" != "wildcard" ]]; then
+      return 1
+    fi
+    cat <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>TeamIdentifier</key>
+  <array>
+    <string>TESTTEAM</string>
+  </array>
+  <key>Entitlements</key>
+  <dict>
+    <key>application-identifier</key>
+    <string>TESTTEAM.example.*</string>
+    <key>get-task-allow</key>
+    <true/>
+  </dict>
+  <key>ProvisionedDevices</key>
+  <array>
+    <string>DEVICE-REDACTED</string>
+  </array>
+</dict>
+</plist>
+PLIST
+  }
+
+  output="$(physical_provisioning_profile_inventory)"
+
+  if ! grep -q '"mode": "physical-provisioning-profile-inventory"' <<<"$output"; then
+    failure_code="mode"
+  elif ! grep -q '"projectBundleIDStatus": "present"' <<<"$output"; then
+    failure_code="bundleStatus"
+  elif ! grep -q '"projectTeamStatus": "present"' <<<"$output"; then
+    failure_code="teamStatus"
+  elif ! grep -q '"profileCount": 2' <<<"$output"; then
+    failure_code="profileCount"
+  elif ! grep -q '"validProfileCount": 1' <<<"$output"; then
+    failure_code="validProfileCount"
+  elif ! grep -q '"bundleExactMatchCount": 0' <<<"$output"; then
+    failure_code="exactCount"
+  elif ! grep -q '"bundleWildcardMatchCount": 1' <<<"$output"; then
+    failure_code="wildcardCount"
+  elif ! grep -q '"readinessState": "profileCandidatePresent"' <<<"$output"; then
+    failure_code="readiness"
+  elif ! grep -q '"primaryBlockedGateLabel": "none"' <<<"$output"; then
+    failure_code="primaryGate"
+  elif ! grep -q '"recommendedPrimaryAction": "rerun-physical-signing-variant-probe"' <<<"$output"; then
+    failure_code="recommendedAction"
+  elif grep -q '"ios-exact-provisioning-profile-missing"' <<<"$output"; then
+    failure_code="issueCode"
+  elif grep -q '"install-exact-profile-to-standard-provisioning-directory"' <<<"$output"; then
+    failure_code="exactInstallAction"
+  elif grep -q '"install-profile-to-standard-provisioning-directory"' <<<"$output"; then
+    failure_code="ambiguousInstallAction"
+  elif grep -q 'TESTTEAM\|example.app\|DEVICE-REDACTED\|wildcard.mobileprovision' <<<"$output"; then
+    failure_code="privacyRedaction"
+  fi
+
+  if [[ -n "$saved_home" ]]; then
+    export HOME="$saved_home"
+  fi
+  if [[ -n "$saved_development_team" ]]; then
+    export NARU_XCODE_DEVELOPMENT_TEAM="$saved_development_team"
+  else
+    unset NARU_XCODE_DEVELOPMENT_TEAM
+  fi
+  rm -rf "$tmpdir"
+
+  if [[ -n "$failure_code" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-provisioning-profile-inventory-self-test","status":"failed","safeFailureCode":'
+    json_string "$failure_code"
+    printf '}\n'
+    return 1
+  fi
+
+  printf '{"schemaVersion":1,"mode":"physical-provisioning-profile-inventory-self-test","status":"passed"}\n'
 }
 
 physical_provisioning_doctor_python() {
@@ -4669,7 +6279,7 @@ physical_preflight() {
       fi
       if grep -qi "locked" "$output_file"; then
         append_unique issue_codes "physical-ios-device-locked"
-        append_unique setup_actions "unlock-physical-iphone"
+        append_unique setup_actions "$(physical_ios_unlock_setup_action)"
         append_unique signing_diagnostic_labels "physical-ios-device-locked"
       fi
       if ((${#issue_codes[@]} == 0)); then
@@ -10156,8 +11766,18 @@ case "$mode" in
     reject_extra_args
     helper_video_live_gate_self_test
     ;;
+  nonphysical-quickstart-gate)
+    nonphysical_quickstart_gate
+    ;;
+  nonphysical-quickstart-gate-self-test)
+    nonphysical_quickstart_gate_self_test
+    ;;
   simulator-input-viewport-gate)
     simulator_input_viewport_gate
+    ;;
+  simulator-input-viewport-gate-self-test)
+    reject_extra_args
+    simulator_input_viewport_gate_self_test
     ;;
   simulator-input-viewport-gate-step-timeout-self-test)
     reject_extra_args
@@ -10392,6 +12012,18 @@ case "$mode" in
     ;;
   physical-device-preflight)
     physical_preflight
+    ;;
+  physical-signing-variant-probe)
+    physical_signing_variant_probe
+    ;;
+  physical-signing-variant-probe-self-test)
+    physical_signing_variant_probe_self_test
+    ;;
+  physical-provisioning-profile-inventory)
+    physical_provisioning_profile_inventory
+    ;;
+  physical-provisioning-profile-inventory-self-test)
+    physical_provisioning_profile_inventory_self_test
     ;;
   physical-ipad-device-preflight)
     physical_ipad_preflight

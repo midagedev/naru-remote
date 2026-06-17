@@ -34,6 +34,25 @@ final class HelperVideoTests: XCTestCase {
             HelperVideoFailureCode.privateNetworkRequired.rawValue,
             "helperVideo.privateNetworkRequired"
         )
+        XCTAssertEqual(
+            HelperVideoFailureCode.transportProtectionRequired.rawValue,
+            "helperVideo.transportProtectionRequired"
+        )
+    }
+
+    func testHelperVideoTransportProtectionRequiresEncryptedOrExplicitlyProtectedFrames() {
+        XCTAssertEqual(HelperVideoTransportProtection.encrypted.rawValue, "encrypted")
+        XCTAssertEqual(
+            HelperVideoTransportProtection.authenticatedPrivateProfile.rawValue,
+            "authenticatedPrivateProfile"
+        )
+        XCTAssertEqual(HelperVideoTransportProtection.unprotected.rawValue, "unprotected")
+
+        XCTAssertTrue(HelperVideoTransportProtection.encrypted.allowsEncodedFramePayloads)
+        XCTAssertTrue(
+            HelperVideoTransportProtection.authenticatedPrivateProfile.allowsEncodedFramePayloads
+        )
+        XCTAssertFalse(HelperVideoTransportProtection.unprotected.allowsEncodedFramePayloads)
     }
 
     func testProfileStateDefaultsToNoHelperVideoConfigured() throws {
@@ -120,6 +139,7 @@ final class HelperVideoTests: XCTestCase {
             + HelperVideoQualityBucket.allCases.map(\.rawValue)
             + HelperVideoFrameRateBucket.allCases.map(\.rawValue)
             + HelperVideoColorMode.allCases.map(\.rawValue)
+            + HelperVideoTransportProtection.allCases.map(\.rawValue)
             + HelperVideoStreamState.allCases.map(\.rawValue)
             + HelperVideoStartupBand.allCases.map(\.rawValue)
             + HelperVideoSustainedUpdateBand.allCases.map(\.rawValue)

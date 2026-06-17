@@ -161,6 +161,32 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testFocusedPreConnectionInputDockKeepsStandardLayout() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: false
+            ).layoutStyle,
+            .standard
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: true
+            ).layoutStyle,
+            .standard,
+            "Pre-connection Compose focus must not flip the dock into live compact layout; the safe-area inset is attached outside the scrollable detail content instead."
+        )
+    }
+
     func testFocusedInputDockRenderStateDefersSendStatusChangesUntilFocusLeaves() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)

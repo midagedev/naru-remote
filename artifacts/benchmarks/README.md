@@ -200,6 +200,170 @@ holds a short display-wake assertion and retries shareable-content discovery
 once before the existing window fallback. The live gate evidence moves the
 helper path from screen-capture blocker labels to the physical iPhone handoff,
 but it does not claim product Green, live iPhone FPS, or traffic improvement.
+Current NAR-5 receive-path and traffic triage artifact:
+`artifacts/benchmarks/2026-06-13-nar-5-vnc-receive-path-traffic-triage.md`.
+That review closes the current VNC investigation as a product decision:
+VNC remains the control/input/fallback visual baseline, request pipeline depth
+stays at 1, ContinuousUpdates is treated as unsupported for the current Mac
+Screen Sharing target, and helper-video is the smooth visual-primary candidate
+pending the physical iPhone gate.
+Current helper-video live/physical handoff artifact:
+`artifacts/benchmarks/2026-06-14-helper-video-live-and-physical-gate-summary.md`.
+That run verifies the current Mac-side ScreenCaptureKit helper-video path is
+`readyForPhysicalIPhoneGate`, with sustained screen capture and 30-frame
+app-bootstrap decode passing. The follow-on physical iPhone gate targeted the
+iPhone path, not the connected iPad, and failed with fixed
+`physical-iphone-helper-video-gate-timed-out` /
+`physical-ios-device-locked` labels. Do not rerun VNC receive-path or helper
+live readiness experiments for this promotion path unless code or environment
+changes; the next useful action is unlocking/keeping-awake the physical iPhone
+and rerunning `physical-iphone-helper-video-gate`.
+Current helper-video display-wake artifact:
+`artifacts/benchmarks/2026-06-15-helper-video-display-wake-readiness-summary.md`.
+That run diagnoses a repeat `helper-video-capture-non-displayable-frames`
+failure as a sleeping-display capture-source condition: ScreenCaptureKit saw no
+display and only idle window callbacks until user activity woke the display. The
+refreshed helper app now holds a display-wake assertion during capture and the
+Mac-side helper gate returns to screen-capture/app-bootstrap pass, leaving only
+the physical iPhone unavailable gate. This is helper readiness evidence, not a
+physical iPhone Green claim.
+Current simulator input/viewport refresh artifact:
+`artifacts/benchmarks/2026-06-15-simulator-input-viewport-gate-refresh-summary.md`.
+That run verifies the fast iPhone+iPad simulator gate after the latest helper
+readiness work: focused unit slice, iPhone Compose, iPhone full interaction
+storm, iPhone trackpad viewport Compose, viewport hot-path benchmark, iPad
+Compose, iPad full interaction storm, and iPad trackpad viewport Compose all
+pass. It also records the current physical preflight blocker as
+`physical-iphone-device-unavailable`. The runner now ignores stale non-iPad ids
+when `NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad`, so iPad preflight auto-selects the
+connected iPad, reaches the iPad build/signing boundary, and recommends
+`rerun-physical-ipad-smoke` instead of the iPhone helper gate. The companion
+`physical-signing-variant-probe` shows all three iPad signing variants still
+fail, including local-profiles-only with `hasNoProfiles=true`; this keeps the
+next operator step on Xcode account/profile setup rather than more device-id
+experiments. This is regression/diagnostic evidence only, not a physical Green
+or PR-worthy performance gain by itself.
+Current viewport transform cache hot-path artifact:
+`artifacts/benchmarks/2026-06-15-viewport-transform-cache-hotpath-summary.md`.
+That run temporarily compared uncached versus cached `ViewportTransform`
+geometry in the current long-running worktree and confirmed the cached shape
+already present on `main`: 50,000 synthetic helper-video viewport/input samples
+retired about 12% fewer CPU instructions and cycles after the cache was
+restored. No new PR is needed from this worktree because the file now matches
+`main`; use this only to avoid repeating the same cache experiment.
+Current physical provisioning inventory artifact:
+`artifacts/benchmarks/2026-06-15-physical-provisioning-profile-inventory-summary.md`.
+Use `scripts/run-naru-live-benchmark.sh physical-provisioning-profile-inventory`
+to reproduce the local profile inventory before repeating physical-device
+experiments. That triage explains why an operator may see local profiles while
+`physical-signing-variant-probe` still reports profile/account blockers: the
+standard CLI profile directory is missing, the scanned profiles are only
+wildcard development profiles, and there is no exact app-bundle development
+profile. The reusable command reports
+`primaryBlockedGateLabel=ios-exact-provisioning-profile`,
+`exactDevelopmentProfileStatus=missing`, and
+`wildcardDevelopmentProfileStatus=present`. A wildcard specifier probe fails
+with fixed `hasSpecifierMismatch=true`, so the next action is Xcode account
+access for automatic profile creation or installing an exact development
+profile, not more device-id or helper-video experiments.
+Current helper-video security/privacy review artifact:
+`artifacts/benchmarks/2026-06-17-helper-video-security-privacy-review-summary.md`.
+That review covers helper-video capture, authenticated helper transport,
+diagnostic export, benchmark reports, physical runner summaries, and runner
+redaction self-tests. The verified slice passed 139 Swift privacy/report tests
+and the helper-video/physical signing self-test chain. It also fixed a
+selected-suite synthetic H.264 benchmark timeout flake by applying
+frame-budget-aware local probe timeouts. This closes the cross-cutting
+security/privacy review item, but it is not physical iPhone Green evidence and
+does not replace T030 physical iPhone + Mac manual verification.
+Current physical iPhone residual-risk refresh:
+`artifacts/benchmarks/2026-06-17-physical-iphone-residual-risk-summary.md`.
+Current reconnected-iPhone signing gate artifact:
+`artifacts/benchmarks/2026-06-17-physical-iphone-reconnected-signing-gate-summary.md`.
+That run confirms the iPhone target currently resolves to a connected iPhone,
+but physical promotion is blocked before app installation by fixed
+`xcode-account-missing`, `ios-provisioning-profile-missing`, and
+`ios-exact-provisioning-profile-missing` labels. The provisioning inventory
+still finds no exact app development profile and only wildcard development
+profiles in non-standard Xcode cache locations. Do not repeat device-id,
+iPad-target, VNC receive-path, or helper-video readiness experiments for this
+blocker; the next useful action is Xcode account access for automatic signing
+or installing an exact app development profile, then rerunning
+`physical-device-preflight`.
+Current simulator input/viewport fold-in artifact:
+`artifacts/benchmarks/2026-06-17-simulator-input-viewport-gate-after-foldin-summary.md`.
+That refresh verifies the long-running worktree after folding the focused
+Compose safe-area/layout fix back into the simulator trackpad branch. Focused
+unit tests pass, the iPhone UI tests cover both profile-detail Korean Compose
+and a real trackpad viewport drag burst followed by Korean Compose, and the
+full `simulator-input-viewport-gate` passes for iPhone and iPad simulators.
+This is local regression evidence only, not a physical iPhone Green claim; use
+it to avoid repeating the simulator Compose/trackpad gate unless code changes
+touch input dock layout, viewport gesture handling, frame pacing, or the test
+storm hooks.
+Current quickstart non-physical foundation refresh:
+`artifacts/benchmarks/2026-06-17-quickstart-nonphysical-foundation-refresh-summary.md`.
+That run fixes the readiness command so it checks bracketed clarification
+markers only in the authoritative spec/plan/research/contracts files, not the
+quickstart/tasks prose that documents the check. It also stabilizes the
+external helper process sustained synthetic stream test by giving the
+test-only client a frame-budget-aware startup timeout. The rerun passed the
+non-physical helper-video foundation/app-model slice with `234` executed tests,
+`7` skips, and `0` failures. This does not close the full quickstart item
+because physical/live permission and signing gates remain environment-bound.
+Prior helper text observed permission gate:
+`artifacts/benchmarks/2026-06-17-helper-text-observed-permission-gate-summary.md`.
+The helper text observed-probe self-test and live-gate summary self-test pass,
+but the earlier real `unicode-hangul` observed probe reported
+`capabilityAvailability=permissionMissing`, `insertStatus=failed`,
+`observationStatus=no-input`, and fixed setup actions to grant helper text
+Accessibility/value-insert permission and relaunch the helper.
+Current helper text observed ready artifact:
+`artifacts/benchmarks/2026-06-17-helper-text-observed-ready-summary.md`.
+After stable helper app setup and a short permission watch, helper text
+capability reports native insert ready. The observed probe passes for `ascii`,
+`latin1`, and `unicode-hangul`, all with `status=observed-inserted`,
+`strategyUsed=nativeInsert`, `observationStatus=matched`, and
+`safeFailureCode=none`. The helper text live gate now reports
+`overallGateState=readyForPhysicalComposeGate`, so the next input evidence is
+physical iPhone Compose native insertion once app signing/provisioning allows
+the device gate to run.
+Current text-keystroke observed fallback artifact:
+`artifacts/benchmarks/2026-06-17-text-keystroke-observed-no-input-summary.md`.
+The observed VNC KeyEvent probe now sends a privacy-safe pointer focus prelude
+before key events, but both `ascii` and `unicode-hangul` payloads still report
+`connectStatus=passed`, `firstFrameStatus=passed`, `sendStatus=passed`, and
+`observationStatus=no-input`. Because ASCII also fails to appear in the
+controlled target, the current blocker is not Hangul Unicode keysym
+transcoding alone; treat helper-native insertion as the preferred Compose
+delivery path once helper text permissions are granted, and do not claim VNC
+keystroke fallback works until observed insertion passes.
+Current product quality target status artifact:
+`artifacts/benchmarks/2026-06-17-product-quality-target-status.md`.
+That checkpoint maps `PRODUCT_QUALITY_TARGETS.md` release gates to current
+evidence: helper-video ScreenCaptureKit/app bootstrap is ready for physical
+promotion, helper-native text insertion is ready for physical Compose
+promotion, VNC remains below the 10fps visual product gate at about
+`1.98` content FPS, request/response cadence reaches about `6.87` content FPS
+but still fails, ContinuousUpdates remains unsupported for the current Mac
+Screen Sharing target, and physical iPhone promotion is blocked by
+Xcode account / exact development provisioning. Use it as the current
+do-not-repeat checklist before rerunning live gates.
+Current physical profile install attempt artifact:
+`artifacts/benchmarks/2026-06-17-physical-profile-install-attempt-summary.md`.
+That run tests the tempting workaround of making cached wildcard development
+profiles visible to command-line `xcodebuild`. Direct copy into the standard
+profile directory was not durable, `profiles -i -F` reported the cached profile
+as not compatible with macOS, inventory still reported
+`standardProfileCount=0` and `exactDevelopmentProfileCount=0`, and signing
+variants still failed. The inventory runner now uses the exact-profile-specific
+action `install-exact-profile-to-standard-provisioning-directory` so cached
+wildcard profile copy/install is not mistaken for the required fix. The same
+exact-profile setup labels now flow through preflight, signing variant, physical
+iPhone helper-video gate, helper-video live gate, and remote-desktop readiness
+summaries. Do not repeat cached wildcard profile copy/install experiments for
+the current blocker; the useful path remains Xcode account access for automatic
+signing or an exact app development profile.
 Current best-effort pointer input artifact:
 `artifacts/benchmarks/2026-06-07-best-effort-pointer-move-summary.md`.
 That pass removes a remaining input-path blocking point by routing only single
@@ -377,10 +541,11 @@ Current helper text permission watch artifact:
 `artifacts/benchmarks/2026-06-08-helper-text-permission-watch-summary.md`.
 The launchctl runner now has `helper-text-capability`,
 `request-helper-text-permission`, and `helper-text-permission-watch` modes.
-The current stable helper app bundle reports missing Accessibility and Unicode
-post-event permissions, so Compose native insertion is blocked by
-`helper-text-permission-missing` until the helper app is granted Accessibility
-or Input Monitoring permission and relaunched.
+The older permission-gated run reported missing Accessibility and Unicode
+post-event permissions. The current 2026-06-17 refresh supersedes that setup
+state: helper text permission watch now reports `granted`, and
+`helper-text-live-gate` reports `readyForPhysicalComposeGate` in
+`artifacts/benchmarks/2026-06-17-helper-text-observed-ready-summary.md`.
 Current helper text native gate artifact:
 `artifacts/benchmarks/2026-06-08-helper-text-native-gate-summary.md`.
 The app route gate now treats known missing `nativeInsert` capability as
@@ -706,6 +871,14 @@ evidence verifies the marker hook and container path. Current physical iPad
 evidence verifies install/launch/running, but marker verification remains
 blocked because the non-interactive CLI signing path sees no matching local
 provisioning profile for a fresh physical app build.
+build investigation. Current preflight output also includes fixed
+`targetDeviceClass` and `resolvedDeviceClass` labels, so iPad/iPhone target
+confusion should be resolved from the JSON before repeating broader inventory
+or live helper-video experiments. The `physical-iphone-helper-video-gate` mode
+itself keeps this stricter than generic preflight: explicit non-iPhone target
+class configuration is reported as `physical-iphone-target-class-required`
+instead of allowing an iPad sustained run to satisfy the iPhone-first product
+gate.
 
 Current bounded VNC profile sweep artifact:
 `artifacts/benchmarks/2026-06-07-bounded-vnc-profile-sweep-summary.md`.
@@ -1520,10 +1693,9 @@ transition routes to `rerun-helper-readiness-sweep` and
 The helper text permission watch artifact is
 `2026-06-08-helper-text-permission-watch-summary.md`; it adds a bounded polling
 mode for the human-in-the-loop Accessibility/Input Monitoring grant needed by
-Compose native text insertion. The current stable helper app bundle still
-reports `permissionMissing` for `nativeInsert`, while the self-test proves a
-granted transition routes to `rerun-helper-readiness-sweep` and
-`retry-compose-native-insert-on-physical-device`.
+Compose native text insertion. The 2026-06-17 helper text refresh now records a
+granted transition and observed native insertion for `ascii`, `latin1`, and
+`unicode-hangul`; see `2026-06-17-helper-text-observed-ready-summary.md`.
 The helper text native gate artifact is
 `2026-06-08-helper-text-native-gate-summary.md`; it connects the permission
 watch result back into app routing so known missing native insert capability
@@ -1624,3 +1796,23 @@ runner reliability fix after `simulator-input-viewport-gate` reproduced an
 unbounded iPhone Compose UI-test wait. Each simulator gate step is now bounded
 by `NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS` (default 600s) and reports a
 fixed `*.timedOut` label instead of silently blocking long-running work.
+The simulator-only timeout-hardened gate artifact is
+`2026-06-17-simulator-only-timeout-hardened-gate-summary.md`; it records the
+handoff away from physical-device testing, the hourly GitHub issue roadmap
+automation id, and the bounded simulator input/viewport gate behavior. The
+runner now emits per-step progress, `.timedOut` safe failure labels, and
+terminates watchdog child processes so stalled simulator/xcodebuild steps do
+not require manual interruption.
+The nonphysical quickstart gate artifact is
+`2026-06-17-nonphysical-quickstart-gate-summary.md`; it adds a single
+simulator-only continuation command that chains the spec clarification scan,
+helper-video foundation regression slice, input/viewport unit slice, simulator
+gate self-test, and actual iPhone+iPad simulator input/viewport gate while
+explicitly excluding physical-device promotion.
+The helper-video wire codec split-decode artifact is
+`2026-06-17-helper-video-wire-codec-split-decode-benchmark-summary.md`; it
+records a local SwiftPM benchmark where decoding access units from already
+split JSON/header/payload frames reduced decode wall clock by about `47.7%`,
+CPU time by about `44.8%`, CPU cycles by about `41.8%`, and retired
+instructions by about `32.3%` versus the historical full-frame decode path for
+`262144` byte access-unit payloads.

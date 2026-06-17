@@ -359,8 +359,8 @@ local TCP harness.
 
 **Decision**: Add `NaruHelper --video-listen` as an explicit, opt-in CLI
 entrypoint that starts the authenticated helper-video TCP server with required
-pairing token and profile fingerprint inputs, a default private-network
-helper-video port, and an explicit finite source choice:
+env-indirected pairing token and profile fingerprint inputs, a default
+private-network helper-video port, and an explicit finite source choice:
 `screen-capturekit` or `synthetic-encoded`.
 
 **Rationale**:
@@ -370,9 +370,11 @@ helper-video port, and an explicit finite source choice:
 - Keeping source choice explicit prevents a synthetic benchmark source from
   being mistaken for a live desktop capture and makes ScreenCaptureKit
   permission failures easier to isolate.
-- Supporting `--token-env` and `--profile-fingerprint-env` gives local and
-  future packaged launch flows an argv-safe path while preserving direct
-  arguments for deterministic tests and short local smoke runs.
+- Requiring `--token-env` and `--profile-fingerprint-env` gives local,
+  automated, and future packaged launch flows one argv-safe path. Direct
+  `--token` and `--profile-fingerprint` values are rejected because process
+  arguments can leak through shell history, process listings, crash reports, and
+  automation logs.
 - The first CLI entrypoint remains finite per `startStream` request so startup,
   authentication, payload framing, permission state, and safe failure behavior
   can be reviewed before adding long-lived adaptive cadence, backpressure, and
@@ -3931,3 +3933,594 @@ hostnames, credentials, helper tokens, profile fingerprints, device
 identifiers, raw connection payloads, Compose text, keysyms, pointer
 coordinates from a real session, clipboard contents, raw network errors, or
 raw Xcode logs.
+## D78 - Make physical helper-video post-run evidence first-class
+
+**Decision**: `physical-iphone-helper-video-gate` now treats post-run diagnostic
+export and physical PiP enter/exit evidence as first-class promotion outputs.
+The iOS app exposes the rendered safe diagnostic collection JSON through a
+test-only accessibility relay when `NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY=1`,
+and the physical UI test re-emits that payload between the existing
+`NARU_DIAGNOSTIC_EXPORT_BEGIN` / `NARU_DIAGNOSTIC_EXPORT_END` markers from the
+test process. The same UI test taps PiP Watch on device, observes a fixed
+enter label, exits by disconnecting the completed session, and emits a
+`NARU_PHYSICAL_PIP_EVIDENCE_*` JSON block with fixed status/action labels.
+
+**Rationale**:
+- A prior physical helper-video soak passed xcodebuild but the runner reported
+  `diagnosticExportSummary.status=missing`, which left the privacy diagnostic
+  acceptance criterion unproven.
+- App-process stdout is not reliable enough as the only export channel for a
+  physical xcodebuild run. The relay still uses `makeDiagnosticExport()` and is
+  enabled only for tests, so the diagnostic schema and privacy boundary remain
+  unchanged.
+- PiP Watch is an iPhone-class requirement. The physical gate must either
+  exercise enter/exit on device or return a fixed blocker label, not leave PiP
+  as an out-of-band manual note.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh`
+- `scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate-self-test`
+  now covers captured diagnostic summary, captured PiP evidence summary, empty
+  issue/action arrays on a passing report, and fixed
+  `physical-diagnostic-export-missing` / `physical-pip-evidence-missing`
+  labels when xcodebuild passes without post-run evidence.
+- `swift test --filter
+  NaruRemoteAppModelTests/testModelStartsPiPWatchWhenActiveFrameExists`
+  passes.
+- Simulator compile/skip check:
+  `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination
+  'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2'
+  -only-testing:NaruRemoteUITests/PhysicalDeviceConnectE2EUITests/testPhysicalDeviceSustainedCandidateGate
+  test` builds the UI test bundle and skips the physical-only test without
+  failures when no physical E2E profile is injected.
+
+**Privacy rule**: The diagnostic relay and PiP evidence may expose only the
+existing safe diagnostic collection JSON plus fixed PiP status, issue, setup,
+and policy labels. They must not expose endpoints, credentials, host names,
+device identifiers, helper paths, raw xcodebuild logs, frame pixels,
+screenshots, byte counts, exact timings, Compose text, marked text, keysyms,
+pointer coordinates, or clipboard payloads.
+
+## D79 - Preserve ScreenCaptureKit app-bootstrap capture stall reasons
+
+**Decision**: When true ScreenCaptureKit capture still stalls after Screen
+Recording permission and helper capability are both available, benchmark output
+must keep the blocker at the capture-source boundary instead of collapsing it
+to helper transport or generic app-bootstrap failure. The helper capture source
+now tries application-inclusive display capture first, falls back to the
+existing safe on-screen window target when no display target is usable, accepts
+buffered idle frames as usable startup frames, and gives the external
+ScreenCaptureKit probe enough timeout budget to receive a typed
+`streamStalled` reason. The app-side helper-video runner preserves the fixed
+stall reason in its benchmark outcome so `helper-screen-app-bootstrap-benchmark`
+can emit fixed `helper-video-app-bootstrap-capture-*` labels when capture
+source problems remain.
+
+**Rationale**:
+- Local live evidence showed the helper app bundle had Screen Recording
+  `granted` and capture source `available`, while the external ScreenCaptureKit
+  probe still stalled before producing displayable access units. Reporting this
+  as `helper-video-external-helper-timed-out` or
+  `helper-video-app-bootstrap-stream-stalled` pointed at the wrong boundary.
+- `SCContentFilter(display:excludingWindows:)` with an empty exclusion list can
+  start without delivering useful buffers in some ScreenCaptureKit
+  configurations. The display path now uses
+  `SCContentFilter(display:including:exceptingWindows:)` with the
+  ScreenCaptureKit shareable application list, while the privacy-safe window
+  fallback remains available only when display capture is not usable.
+- App bootstrap uses the same helper stall frame as the probe path. Carrying
+  the stall reason through `HelperVideoStreamSessionOutcome` keeps app-model
+  diagnostics specific without exporting raw OS errors, selected window names,
+  titles, dimensions, pixels, or frame payloads.
+
+**Evidence**:
+- `swift test --filter
+  'BenchmarkHelperVideoReportTests|BenchmarkVisualTransportComparisonReportTests|NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitPolicyScalesReadabilityAndUsesLowLatencyContinuousQueue|NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitWindowFallbackPolicy|NaruHelperVideoStreamNetworkServiceTests/testNetworkClientReceivesSafeStallWhenScreenCaptureTimesOutBeforeFrames|NaruHelperVideoListenRuntimeTests/testScreenCaptureKitTimeoutBudgetScalesWithSustainedFrameLimit'`
+  passes.
+- `swift test --filter
+  'HelperVideoStreamSessionRunnerTests|HelperVideoAppRunnerBenchmarkTests/testNetworkBackedScreenCaptureKitHelperVideoBootstrapThroughAppModelSmoke|BenchmarkHelperVideoReportTests/testSustainedExternalHelperFrameBudgetClampsAndScalesTimeouts'`
+  passes selected runner tests; the opt-in benchmark remains skipped unless
+  `NARU_RUN_SIM_BENCHMARKS=1` is set.
+- `scripts/run-naru-live-benchmark.sh helper-dev-app-setup` reports install
+  `passed`, helper app bundle capability `available`, capture source
+  `available`, and Screen Recording `granted`.
+- `scripts/run-naru-live-benchmark.sh helper-screen-probe` and
+  `scripts/run-naru-live-benchmark.sh helper-sustained-screen-probe` now report
+  fixed capture-source blocker `helper-video-capture-timed-out` with
+  `recommendedAction=inspect-helper-video-capture-source`, while external
+  synthetic and sustained synthetic helper-video probes still pass.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  now reports `helper-video-app-bootstrap-capture-timed-out` instead of the
+  generic `helper-video-app-bootstrap-stream-stalled`.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` reports
+  `overallGateState=blockedByHelperScreenCapture`,
+  `recommendedPrimaryAction=inspect-helper-video-capture-source`, synthetic
+  helper-video `pass`, sustained synthetic helper-video `pass`, true
+  ScreenCaptureKit probes `fail` with `helper-video-capture-timed-out`, and
+  app bootstrap `failed` with
+  `helper-video-app-bootstrap-capture-timed-out`.
+
+**Privacy rule**: The new source preference and app-bootstrap outcome may emit
+only fixed issue/action labels and existing safe aggregate helper-video fields.
+They must not expose helper executable paths, endpoints, credentials, host
+names, selected app/window names, titles, dimensions, coordinates, raw
+ScreenCaptureKit errors, pixels, frame payloads, byte counts, exact timings,
+physical device identifiers, Compose text, keysyms, pointer coordinates, or
+clipboard payloads.
+
+## D80 - Instrument ScreenCaptureKit no-frame timeout by callback stage
+
+**Decision**: Preserve the existing safe `streamStalled` contract, but split
+ScreenCaptureKit no-frame timeout into fixed callback-stage labels before the
+helper stream falls back to VNC. The helper now distinguishes:
+
+- no `SCStreamOutput` callbacks before timeout
+- callbacks for non-screen output
+- screen callbacks that are not displayable
+- displayable screen callbacks with no image buffer
+- displayable image-buffer callbacks that do not satisfy the requested frame
+  budget
+- generic capture failure
+
+The app and benchmark reports map these to fixed issue labels such as
+`helper-video-capture-no-output-callbacks`,
+`helper-video-capture-non-screen-callbacks`,
+`helper-video-capture-non-displayable-frames`,
+`helper-video-capture-missing-image-buffer`, and
+`helper-video-capture-insufficient-displayable-frames`. App bootstrap maps the
+same helper stall reasons to `helper-video-app-bootstrap-capture-*` labels.
+
+**Rationale**:
+- After [NAR-41](/NAR/issues/NAR-41), Screen Recording permission and helper
+  capability could be `available`, while the true ScreenCaptureKit helper path
+  still reported only `helper-video-capture-timed-out`. That label no longer
+  identified whether the helper was receiving no callbacks, ignored callbacks,
+  non-image sample buffers, or too few usable buffers.
+- The diagnostic must stay inside the existing privacy envelope. Fixed labels
+  identify the callback boundary without exposing callback counts, raw
+  `SCFrameStatus` values, selected app/window names, titles, dimensions,
+  coordinates, pixels, frame payloads, byte counts, raw OS errors, helper
+  paths, endpoints, credentials, physical device IDs, or exact timings.
+- Continuous foreground helper-video streams are unbounded by design, so they
+  now wait for a first displayable image buffer with the same safe timeout
+  classification before switching into the indefinite stream wait.
+
+**Evidence**:
+- `swift test --filter
+  'NaruHelperVideoStreamFramePipelineTests|BenchmarkHelperVideoReportTests|BenchmarkVisualTransportComparisonReportTests'`
+  passes with 38 selected tests.
+- `scripts/run-naru-live-benchmark.sh helper-dev-app-setup` reports install
+  `passed`, app-bundle helper identity, Screen Recording `granted`, and capture
+  source `available`.
+- `scripts/run-naru-live-benchmark.sh helper-screen-probe` reports
+  `helper-video-capture-missing-image-buffer`,
+  `recommendedAction=inspect-helper-video-capture-source`, and `verdict=fail`.
+- `scripts/run-naru-live-benchmark.sh helper-sustained-screen-probe` reports
+  the same `helper-video-capture-missing-image-buffer` blocker for the sustained
+  ScreenCaptureKit path.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  reports `helper-video-app-bootstrap-capture-missing-image-buffer`.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` reports
+  `overallGateState=blockedByHelperScreenCapture`,
+  `recommendedPrimaryAction=inspect-helper-video-capture-source`, synthetic and
+  sustained synthetic helper-video `pass`, physical iPhone preflight `ready`,
+  and true ScreenCaptureKit smoke/sustained/app-bootstrap blocked by the fixed
+  missing-image-buffer labels above.
+
+**Remaining action**: A follow-up capture-source fix should inspect why the
+helper app receives ScreenCaptureKit screen callbacks with no image buffer in
+this environment, without exporting raw ScreenCaptureKit metadata or frame
+content.
+
+## D81 - Keep ScreenCaptureKit display capture ahead of window fallback
+
+**Decision**: ScreenCaptureKit helper-video target selection now keeps
+application-inclusive display capture as the primary path and uses the safe
+on-screen window target only as a fallback. The callback-stage diagnostics from
+D80 stay in place, but target ordering no longer chooses a foreground window
+when a usable display and shareable application list are available.
+
+**Rationale**:
+- D80 narrowed the stalled true ScreenCaptureKit path to fixed
+  `helper-video-capture-missing-image-buffer` labels. Restoring display-first
+  selection moved the same helper app and permission state from missing image
+  buffers to healthy H.264 access units.
+- Display-first selection matches the intended full-screen helper-video source
+  for the physical iPhone gate while still preserving a fallback for
+  environments where ScreenCaptureKit exposes windows but no usable displays.
+- The change does not broaden diagnostics. Reports continue to emit only fixed
+  status, issue, action, transport, readiness, and safety labels.
+
+**Evidence**:
+- `swift test --filter
+  'NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitFrameStatusPolicyOnlyRequiresImageBuffersForCompleteFrames|NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitStartedOrIdleCallbacksDoNotBecomeMissingImageBufferFailures|NaruHelperVideoStreamFramePipelineTests|NaruHelperVideoStreamNetworkServiceTests|BenchmarkHelperVideoReportTests|BenchmarkVisualTransportComparisonReportTests|HelperVideoStreamSessionRunnerTests'`
+  passes with 66 selected tests.
+- `scripts/run-naru-live-benchmark.sh helper-dev-app-setup` reports install
+  `passed`, helper app bundle capability `available`, capture source
+  `available`, and Screen Recording `granted`.
+- `scripts/run-naru-live-benchmark.sh helper-screen-probe` and
+  `scripts/run-naru-live-benchmark.sh helper-sustained-screen-probe` both
+  report `verdict=pass`, `streamState=healthy`, no issue codes, and
+  `recommendedAction=run-physical-iphone-helper-video-gate`.
+- `scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark`
+  reports `status=passed` with no issue codes.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` reports
+  `overallGateState=readyForPhysicalIPhoneGate`, true ScreenCaptureKit smoke
+  and sustained verdicts `pass`, app bootstrap `passed`, no helper-video issue
+  codes, physical iPhone preflight `ready`, and
+  `recommendedPrimaryAction=run-physical-iphone-helper-video-gate`.
+
+**Privacy rule**: Live verification and benchmark output may continue to expose
+only fixed labels and existing safe aggregate helper-video fields. They must
+not expose helper executable paths, endpoints, credentials, host names, selected
+app/window names, titles, dimensions, coordinates, raw ScreenCaptureKit errors,
+pixels, frame payloads, byte counts, exact timings, physical device
+identifiers, Compose text, keysyms, pointer coordinates, or clipboard payloads.
+
+## D82 - Wake and hold the display during helper ScreenCaptureKit capture
+
+**Decision**: The helper ScreenCaptureKit access-unit source acquires a
+user-activity / no-display-sleep assertion while capturing and retries
+`SCShareableContent` once when the first snapshot reports no displays.
+
+**Rationale**:
+- A live gate can regress to fixed
+  `helper-video-capture-non-displayable-frames` labels even with Screen
+  Recording granted when macOS exposes windows but no display to
+  ScreenCaptureKit. In that state, window fallback can produce only idle
+  callbacks without image buffers.
+- A local display wake moved shareable display availability from zero to one
+  and changed the helper-video live gate from
+  `blockedByHelperScreenCapture` to `blockedByPhysicalIPhoneGate`.
+- The helper must not rely on an operator running `caffeinate` manually before
+  a private-network remote session. The wake assertion belongs to the
+  capture-source lifetime and should release when capture ends.
+- `SCFrameStatus.started` is accepted only when an image buffer is present.
+  This keeps no-buffer `started` / `idle` callbacks classified as
+  non-displayable while allowing buffered startup frames into the encoder path.
+
+**Evidence**:
+- `swift test --filter
+  'NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitFrameStatusPolicyAcceptsStartedFramesOnlyWhenBuffered|NaruHelperVideoEncoderPrototypeTests/testScreenCaptureKitStartedOrIdleCallbacksDoNotBecomeMissingImageBufferFailures|BenchmarkHelperVideoReportTests|BenchmarkVisualTransportComparisonReportTests'`
+  passes.
+- `swift test --filter
+  'HelperVideo|BenchmarkHelperVideo|BenchmarkVisualTransport|ComposeInput|Viewport|PointerGesture|RFBRawFramebufferDecoder'`
+  passes on rerun with 330 selected tests and 5 skipped.
+- `NARU_HELPER_SCREEN_RECORDING_SETTINGS_OPEN=skip
+  scripts/run-naru-live-benchmark.sh helper-dev-app-setup` reports install
+  `passed` and launchctl env `set`.
+- `scripts/run-naru-live-benchmark.sh helper-video-live-gate` reports true
+  ScreenCaptureKit screen and sustained screen verdicts `pass`, app bootstrap
+  `passed`, and remaining blocker `physical-iphone-device-unavailable`.
+- See
+  `artifacts/benchmarks/2026-06-15-helper-video-display-wake-readiness-summary.md`.
+
+**Privacy rule**: The wake assertion and retry logic do not add exported
+diagnostics. Display availability may be discussed only through fixed labels
+and coarse gate states; artifacts must not expose display identifiers, display
+names, window names, titles, dimensions, coordinates, raw ScreenCaptureKit
+metadata, pixels, frame payloads, byte counts, raw OS errors, helper paths,
+endpoints, credentials, device identifiers, or exact timings.
+
+## D83 - Keep physical preflight next actions target-aware
+
+**Decision**: `physical-device-preflight` should derive device-blocker labels,
+device-id import behavior, and follow-up actions from the requested physical
+device class. iPhone-ready summaries keep
+`run-physical-iphone-helper-video-gate`. iPad-target summaries use
+`physical-ipad-device`, `set-physical-ios-device-id-to-ipad`, and
+`run-physical-ipad-smoke` / `rerun-physical-ipad-smoke` labels instead of
+pointing to the iPhone helper-video gate. When
+`NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad`, stale iPhone ids already present in the
+process or launchctl environment are ignored so iPad auto-discovery can run.
+Use `physical-signing-variant-probe` when the target device is reachable but
+Xcode signing remains blocked; it compares the fixed
+`allowProvisioningUpdates`, `localProfilesOnly`, and
+`allowUpdatesAndDeviceRegistration` variants while redacting raw xcodebuild
+output, team identifiers, and device identifiers.
+
+**Rationale**:
+- The product target remains iPhone-first, but iPad graceful smoke is a
+  separate secondary requirement. An iPad preflight should not claim or request
+  the iPhone helper-video promotion gate.
+- Current launchctl state can select a physical iPhone id even when the user is
+  trying to inspect an attached iPad. Target-aware labels make that mismatch
+  visible through fixed safe fields instead of forcing another device inventory
+  experiment.
+- The change preserves the existing iPhone action sequence while preventing a
+  connected iPad build/signing blocker from recommending the wrong next gate.
+
+**Evidence**:
+- `bash -n scripts/run-naru-live-benchmark.sh` passes.
+- `scripts/run-naru-live-benchmark.sh physical-signing-setup-summary-self-test`
+  now covers default iPhone account/profile/ready summaries plus iPad
+  wrong-device, account-blocked, and ready summaries.
+- `scripts/run-naru-live-benchmark.sh physical-device-id-resolution-self-test`
+  now covers importing a launchctl iPhone id for the default iPhone target,
+  ignoring that same stale id for the iPad target, and auto-selecting the iPad
+  id afterward.
+- Default `scripts/run-naru-live-benchmark.sh physical-device-preflight` still
+  reports the iPhone target as `physical-iphone-device-unavailable`.
+- `NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad
+  scripts/run-naru-live-benchmark.sh physical-device-preflight` now ignores the
+  stale launchctl-selected iPhone id, reports `targetDeviceClass=iPad`,
+  `resolvedDeviceClass=iPad`, `deviceSelectionSource=auto`,
+  `deviceIDResolutionStatus=auto`, `deviceDiscoveryStatus=connected`, and
+  signing blockers whose operator sequence ends at
+  `rerun-physical-ipad-smoke`.
+- `scripts/run-naru-live-benchmark.sh physical-signing-variant-probe-self-test`
+  passes and checks variant labels plus privacy redaction.
+- `NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad
+  scripts/run-naru-live-benchmark.sh physical-signing-variant-probe` reports
+  the connected iPad target and failed signing variants:
+  `allowProvisioningUpdates` has `hasNoAccounts=true` and
+  `hasNoProfiles=true`, `localProfilesOnly` has `hasNoProfiles=true`, and
+  `allowUpdatesAndDeviceRegistration` has `hasNoAccounts=true`,
+  `hasNoProfiles=true`, and `hasDeviceRegistrationHint=true`. Therefore the
+  current blocker is Xcode account/profile availability to the CLI path, not a
+  stale physical device selection experiment.
+
+**Privacy rule**: Physical preflight summaries may expose only fixed target
+class labels, fixed status/action/issue labels, and safe signing readiness
+labels. They must not expose device names, device identifiers, serial numbers,
+hostnames, endpoints, credentials, raw xcodebuild logs, provisioning profile
+contents, team identifiers, screenshots, pixels, byte counts, or exact timing
+series.
+
+## D84 - Treat ViewportTransform geometry caching as already merged hot-path baseline
+
+**Decision**: Keep the cached `ViewportTransform` geometry shape from `main` as
+the current viewport/input hot-path baseline. The long-running worktree was
+behind `main` for this file; after realignment,
+`NaruRemote/Sources/NaruRemoteCore/SessionViewer/ViewportTransform.swift`
+matches `main`. Do not open a new PR from this worktree for the cache itself.
+
+**Rationale**:
+- The helper-video viewport/input hot path repeatedly maps between view and
+  framebuffer geometry during pan, pinch, and zoomed trackpad cursor-follow.
+  Recomputing fit scale, display scale, content size, and content origin on
+  each access is avoidable.
+- The already-merged cached shape keeps public accessors stable while storing
+  private resolved geometry fields, and `panned(by:)` reuses the cached
+  fit/display/content values when only pan changes.
+- Repeating another PR for the same cache would create churn without a new
+  product improvement. Future viewport PRs should target gesture long-frame
+  ratio, helper-video overlay cursor freshness, or physical hand-feel.
+
+**Evidence**:
+- Reverted-only-current-file baseline:
+  `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_INPUT_BENCHMARK_SAMPLES=50000 swift test --filter
+  HelperVideoViewportInputHotPathBenchmarkTests/testPureViewportInputHotPathThroughputBenchmark`
+  reported `46679.512 kI` CPU instructions, `11323.383 kC` CPU cycles, and
+  `0.003319 s` clock time for 50,000 synthetic samples.
+- Restored cached `main` shape with the same command reported `40968.283 kI`
+  CPU instructions, `9870.136 kC` CPU cycles, and `0.002884 s` clock time.
+- `swift test --filter
+  'ViewportInputHotPathDriverTests|PointerGestureResolverTests|ViewportTransformTests'`
+  passes 38 selected geometry/gesture tests.
+- `git diff --exit-code main --
+  NaruRemote/Sources/NaruRemoteCore/SessionViewer/ViewportTransform.swift`
+  exits clean after realignment.
+- See
+  `artifacts/benchmarks/2026-06-15-viewport-transform-cache-hotpath-summary.md`.
+
+**Privacy rule**: This benchmark may record only aggregate local CPU/time
+metrics and fixed test names. It must not export hostnames, endpoints,
+credentials, helper paths, device identifiers, raw VNC payloads, framebuffer
+pixels, screenshots, coordinates, byte counts, Compose text, clipboard
+contents, or per-frame timing series.
+
+## D85 - Distinguish wildcard local profiles from exact app provisioning
+
+**Decision**: Treat local wildcard development profiles as insufficient evidence
+for the physical device gate when `physical-signing-variant-probe` reports
+profile/account blockers. The physical gate needs either an exact development
+profile for the app bundle or CLI access to the Xcode account so automatic
+signing can create/download one.
+
+**Rationale**:
+- The iPad target-aware preflight now proves device selection independently of
+  signing. Repeating device-id experiments after `targetDeviceClass=iPad` and
+  `resolvedDeviceClass=iPad` are both present does not move the product gate.
+- A developer may reasonably say "a profile exists" because Xcode cache
+  locations contain profiles. The CLI build can still fail when those profiles
+  are wildcard-only, not installed in the standard provisioning profile
+  directory, or do not satisfy the current app bundle.
+- A wildcard profile explicitly passed through
+  `PROVISIONING_PROFILE_SPECIFIER` failed for both the full scheme and app
+  target with a fixed specifier-mismatch label. That points to exact
+  app-profile/account setup, not helper-video or VNC code.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh physical-provisioning-profile-inventory`
+  reproduces the local profile inventory with fixed labels only.
+- The standard `MobileDevice/Provisioning Profiles` directory was missing.
+- Broader local scan found seven valid development profiles: one under
+  Xcode UserData and six under DerivedData.
+- All seven profiles matched the configured team and had provisioned devices,
+  but `bundleExactMatchCount=0` and `bundleWildcardMatchCount=7`.
+- The development-specific split is `exactDevelopmentProfileCount=0` and
+  `wildcardDevelopmentProfileCount=7`.
+- The reusable summary reports `readinessState=blocked`,
+  `primaryBlockedGateLabel=ios-exact-provisioning-profile`,
+  `exactDevelopmentProfileStatus=missing`, and
+  `wildcardDevelopmentProfileStatus=present`.
+- A manual specifier probe against the matching wildcard profile failed for
+  both `scheme` and `app-target` variants with `hasSpecifierMismatch=true`,
+  while `hasNoProfiles=false`, `hasNoAccounts=false`, and
+  `hasRequiresDevelopmentTeam=false`.
+- See
+  `artifacts/benchmarks/2026-06-15-physical-provisioning-profile-inventory-summary.md`.
+
+**Privacy rule**: Profile inventory may emit only fixed labels and aggregate
+counts. It must not expose profile names, profile UUIDs, team identifiers,
+bundle identifiers, device identifiers, certificate names, provisioning profile
+contents, raw xcodebuild logs, hostnames, endpoints, credentials, screenshots,
+pixels, byte counts, Compose text, clipboard contents, or exact timings.
+
+## D86 - Keep profile install actions exact-profile specific
+
+**Decision**: When profile inventory sees wildcard development profiles but no
+exact app development profile, report the setup action as
+`install-exact-profile-to-standard-provisioning-directory` rather than the
+ambiguous `install-profile-to-standard-provisioning-directory`.
+
+**Rationale**:
+- The current machine has cached wildcard profiles, but cached wildcard
+  copy/install attempts do not unblock command-line physical signing.
+- A broad "install profile" action makes it too easy to repeat the wrong
+  experiment by copying the same wildcard profiles into the standard directory.
+- The product gate needs either CLI Xcode account access for automatic signing
+  or an exact app development profile for the current app bundle.
+
+**Evidence**:
+- Directly copying a cached wildcard `.mobileprovision` into the standard
+  directory was not durable and the inventory still reported
+  `standardProfileCount=0`.
+- `profiles -i -F` against the cached profile reported the fixed local failure
+  shape equivalent to `provisioning-profile-not-compatible-with-macos`.
+- `scripts/run-naru-live-benchmark.sh physical-provisioning-profile-inventory`
+  now reports `setupActionLabels=["create-exact-ios-development-profile",
+  "install-exact-profile-to-standard-provisioning-directory"]` for the current
+  wildcard-only state.
+- `physical-device-preflight`, `physical-signing-variant-probe`, and
+  `physical-iphone-helper-video-gate` profile-missing setup labels now use the
+  same exact-profile vocabulary:
+  `create-exact-ios-development-profile`,
+  `install-exact-profile-to-standard-provisioning-directory`, and
+  `enable-automatic-signing-or-create-exact-development-profile`.
+- `scripts/run-naru-live-benchmark.sh
+  physical-provisioning-profile-inventory-self-test` passes and fails if the
+  ambiguous install action returns.
+- `scripts/run-naru-live-benchmark.sh physical-signing-setup-summary-self-test`,
+  `physical-signing-variant-probe-self-test`,
+  `helper-video-live-gate-self-test`,
+  `remote-desktop-readiness-summary-self-test`, and
+  `physical-iphone-helper-video-gate-self-test` pass after the label alignment.
+- See
+  `artifacts/benchmarks/2026-06-17-physical-profile-install-attempt-summary.md`.
+
+**Privacy rule**: This decision may expose only fixed issue/action labels and
+aggregate profile counts. It must not expose profile names, profile UUIDs, team
+identifiers, bundle identifiers, device identifiers, certificate names,
+provisioning profile contents, raw xcodebuild logs, hostnames, endpoints,
+credentials, screenshots, pixels, byte counts, Compose text, clipboard
+contents, or exact timings.
+
+## D87 - Keep the active loop simulator-only after physical-device removal
+
+**Decision**: Until the operator explicitly re-enables physical devices, use
+simulators, fake servers, and local benchmarks as the active quality loop. Bound
+each simulator input/viewport gate step independently and report fixed
+`.timedOut` labels rather than relying on manual interruption when a simulator
+or xcodebuild step stalls.
+
+**Rationale**:
+- Physical-device setup currently depends on local device availability,
+  unlocking, signing, and exact app provisioning state. Once the device is
+  removed, retrying those gates creates repeated setup noise instead of product
+  evidence.
+- Simulator gates are still valuable for Compose freeze, trackpad viewport, and
+  hot-path regression coverage, but they must fail with bounded safe labels so
+  long-running work can continue unattended.
+- Cleaning up watchdog child processes matters because a completed wrapped
+  command can otherwise wait for the watchdog sleep and make self-tests look
+  stalled even when the actual command already exited.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh
+  simulator-input-viewport-gate-self-test` passes and covers iPhone-only,
+  iPad-default, and iPad-full-storm stubbed gate shapes.
+- `NARU_SIMULATOR_GATE_INCLUDE_IPAD=0
+  NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS=180
+  scripts/run-naru-live-benchmark.sh simulator-input-viewport-gate` passes for
+  iPhone simulator coverage.
+- `NARU_SIMULATOR_GATE_INCLUDE_IPAD=1
+  NARU_SIMULATOR_GATE_INCLUDE_IPAD_FULL_STORM=0
+  NARU_SIMULATOR_GATE_STEP_TIMEOUT_SECONDS=300
+  scripts/run-naru-live-benchmark.sh simulator-input-viewport-gate` passes for
+  iPhone+iPad simulator coverage.
+- See
+  `artifacts/benchmarks/2026-06-17-simulator-only-timeout-hardened-gate-summary.md`.
+
+**Privacy rule**: Simulator-only gate summaries may expose fixed test names,
+fixed safe labels, aggregate benchmark settings, and pass/fail status. They
+must not expose device identifiers, signing identifiers, hostnames, endpoints,
+credentials, raw xcodebuild logs, screenshots, pixels, coordinates, Compose
+text, clipboard contents, byte payloads, or per-frame timing series.
+
+## D88 - Use one nonphysical quickstart gate for simulator-only continuation
+
+**Decision**: Treat `nonphysical-quickstart-gate` as the first command for
+simulator-only continuation work. It chains the clarification scan,
+helper-video foundation regression slice, input/viewport unit slice, simulator
+gate self-test, and actual simulator input/viewport gate while explicitly
+excluding physical-device evidence.
+
+**Rationale**:
+- The full quickstart intentionally contains physical iPhone, live VNC, helper
+  permission, and signing/provisioning checks. When no physical device is in the
+  loop, running those commands repeats known setup blockers rather than moving
+  the product forward.
+- The simulator-only loop still needs a larger unit than isolated tests, because
+  Compose freeze, trackpad viewport, helper-video foundation, and diagnostic
+  policy regressions can otherwise drift independently.
+- A single JSON gate with `physicalDevicePolicy=excluded` prevents accidental
+  Green claims while making the available regression evidence easy to rerun.
+
+**Evidence**:
+- `scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate-self-test`
+  passes with stubbed Swift and simulator-gate-skipped coverage.
+- `NARU_NONPHYSICAL_QUICKSTART_INCLUDE_SIMULATOR_GATE=0
+  NARU_NONPHYSICAL_QUICKSTART_STEP_TIMEOUT_SECONDS=300
+  scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate` passes the
+  real package-level nonphysical slice.
+- `NARU_NONPHYSICAL_QUICKSTART_STEP_TIMEOUT_SECONDS=360
+  scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate` passes the
+  default real gate including the actual iPhone+iPad simulator input/viewport
+  gate.
+- See
+  `artifacts/benchmarks/2026-06-17-nonphysical-quickstart-gate-summary.md`.
+
+**Privacy rule**: Nonphysical quickstart reports may expose fixed step labels,
+policy labels, pass/fail status, timeout bounds, and failed-step local temporary
+output paths. They must not expose hostnames, endpoints, credentials, signing
+identifiers, raw xcodebuild logs, device identifiers, screenshots, pixels,
+coordinates, composed text, clipboard contents, payload bytes, or exact frame
+timing series.
+
+## D89 - Decode helper-video access units from split wire frames
+
+**Decision**: The client receive path should decode helper-video access units
+from the already split JSON frame, binary length header, and binary payload
+instead of rebuilding one combined frame before decode.
+
+**Rationale**:
+- Helper-video is the visual-primary candidate, so per-access-unit CPU and
+  wall-time overhead matters even when actual H.264 decoding is hardware-backed.
+- The network client already receives JSON and binary payload segments
+  separately. Concatenating them recreates a large `Data` allocation just to
+  immediately split the frame again in the codec.
+- Keeping the codec split-frame API covered by tests preserves the same length
+  validation and payload privacy boundary while removing avoidable copy work.
+
+**Evidence**:
+- `HelperVideoFakeTransportTests/testCodecDecodesAccessUnitFromSplitJSONAndBinaryFrames`
+  covers the split-frame decode API.
+- `NARU_RUN_SIM_BENCHMARKS=1 NARU_SIM_BENCHMARK_ITERATIONS=5
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=200
+  NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144 swift test
+  --filter HelperVideoWireCodecBenchmarkTests` passed.
+- The benchmark measured split decode at about `47.7%` lower wall clock,
+  `44.8%` lower CPU time, `41.8%` lower CPU cycles, and `32.3%` lower retired
+  instructions versus full-frame access-unit decode for the same payload size.
+- See
+  `artifacts/benchmarks/2026-06-17-helper-video-wire-codec-split-decode-benchmark-summary.md`.
+
+**Privacy rule**: Wire codec benchmark summaries may expose fixed benchmark
+names, aggregate timing/CPU metrics, payload-size labels, sample counts, and
+iteration counts. They must not expose hostnames, endpoints, credentials,
+signing identifiers, device identifiers, raw helper payload bytes, H.264 frame
+contents, screenshots, pixels, coordinates, composed text, clipboard contents,
+or exact per-frame timing series.

@@ -4,6 +4,21 @@ import CryptoKit
 public let naruHelperVideoStreamSchemaVersion = 1
 public let naruHelperVideoStreamDefaultPort = 5975
 
+public enum HelperVideoTransportProtection: String, Codable, Equatable, CaseIterable, Sendable {
+    case encrypted
+    case authenticatedPrivateProfile
+    case unprotected
+
+    public var allowsEncodedFramePayloads: Bool {
+        switch self {
+        case .encrypted, .authenticatedPrivateProfile:
+            return true
+        case .unprotected:
+            return false
+        }
+    }
+}
+
 public enum HelperVideoMessageType: String, Codable, Equatable, CaseIterable, Sendable {
     case capabilityRequest
     case startStream
@@ -36,6 +51,11 @@ public enum HelperVideoStreamStallReason: String, Codable, Equatable, CaseIterab
     case encoderUnavailable
     case screenCaptureSourceUnavailable
     case screenCaptureTimedOut
+    case screenCaptureNoOutputCallbacks
+    case screenCaptureNonScreenCallbacks
+    case screenCaptureNonDisplayableFrames
+    case screenCaptureMissingImageBuffer
+    case screenCaptureInsufficientDisplayableFrames
     case screenCaptureFailed
     case transportBackpressure
     case unknown

@@ -204,6 +204,44 @@ final class NaruHelperVideoStreamFramePipelineTests: XCTestCase {
         try assertSafeJSONPayload(in: frames[1])
     }
 
+    func testFrameStreamEmitsSafeStallWithScreenCaptureCallbackStageReason() async throws {
+        let cases: [
+            (
+                error: NaruHelperVideoScreenCaptureKitAccessUnitSourceError,
+                reason: HelperVideoStreamStallReason
+            )
+        ] = [
+            (.captureNoOutputCallbacks, .screenCaptureNoOutputCallbacks),
+            (.captureNonScreenOutputCallbacks, .screenCaptureNonScreenCallbacks),
+            (.captureNonDisplayableScreenFrames, .screenCaptureNonDisplayableFrames),
+            (.capturedFrameMissingImageBuffer, .screenCaptureMissingImageBuffer),
+            (.captureInsufficientDisplayableFrames, .screenCaptureInsufficientDisplayableFrames)
+        ]
+
+        for testCase in cases {
+            let request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
+            let pipeline = makePipeline(
+                accessUnitSource: FailingStreamAccessUnitSource(error: testCase.error)
+            )
+
+            let frames = try await collectFrames(
+                from: try pipeline.frameStream(
+                    forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+                )
+            )
+
+            XCTAssertEqual(frames.count, 2)
+            let stall = try HelperVideoWireCodec.decodeFrame(
+                HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
+                from: frames[1]
+            ).envelope
+            XCTAssertEqual(stall.body.reason, testCase.reason)
+            XCTAssertEqual(stall.body.health.state, .stalled)
+            XCTAssertTrue(stall.body.health.shouldUseVNCVisualFallback)
+            try assertSafeJSONPayload(in: frames[1])
+        }
+    }
+
     func testFrameStreamEmitsSafeStallWhenScreenCaptureFailureHappensBeforeFirstAccessUnit() async throws {
         let request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
         let pipeline = makePipeline(

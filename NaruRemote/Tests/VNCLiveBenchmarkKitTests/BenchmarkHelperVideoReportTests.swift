@@ -46,6 +46,13 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
             32
         )
         XCTAssertGreaterThan(
+            BenchmarkHelperVideoProbeTiming.clientTimeout(
+                forExternalHelperFrameCount: BenchmarkHelperVideoProbeTiming.externalHelperSmokeFrameCount
+            ),
+            3.0,
+            "ScreenCaptureKit smoke probes must wait long enough for the helper to emit a typed capture-source stall instead of collapsing to a transport timeout."
+        )
+        XCTAssertGreaterThan(
             BenchmarkHelperVideoProbeTiming.startStreamTimeout(
                 forExternalHelperFrameCount: 30
             ),
@@ -262,6 +269,44 @@ final class BenchmarkHelperVideoReportTests: XCTestCase {
         XCTAssertEqual(report.readinessState, .sustainedDegraded)
         XCTAssertEqual(report.recommendedAction, .inspectHelperVideoCaptureSource)
         XCTAssertTrue(report.issueCodes.contains(.captureSourceUnavailable))
+    }
+
+    func testCaptureCallbackStageIssuesUseFixedSafeLabels() throws {
+        let cases: [(BenchmarkHelperVideoIssueCode, String)] = [
+            (.captureNoOutputCallbacks, "helper-video-capture-no-output-callbacks"),
+            (.captureNonScreenCallbacks, "helper-video-capture-non-screen-callbacks"),
+            (.captureNonDisplayableFrames, "helper-video-capture-non-displayable-frames"),
+            (.captureMissingImageBuffer, "helper-video-capture-missing-image-buffer"),
+            (
+                .captureInsufficientDisplayableFrames,
+                "helper-video-capture-insufficient-displayable-frames"
+            )
+        ]
+
+        for (issueCode, safeLabel) in cases {
+            let report = BenchmarkHelperVideoReport(
+                streamState: .stalled,
+                startupBand: .fast,
+                sustainedUpdateBand: .stalled,
+                decodePressure: .low,
+                fallbackCountBucket: .one,
+                issueCodes: [issueCode]
+            )
+            let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
+
+            XCTAssertEqual(report.verdict, .fail)
+            XCTAssertEqual(report.readinessState, .sustainedDegraded)
+            XCTAssertEqual(report.recommendedAction, .inspectHelperVideoCaptureSource)
+            XCTAssertTrue(report.issueCodes.contains(issueCode))
+            XCTAssertTrue(json.contains(safeLabel), json)
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("screencapturekit"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("callbackCount"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("displayid"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("width"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("height"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("raw"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
+        }
     }
 
     func testHelperVideoReportFixtureOmitsUnsafeFieldsAndPayloadSentinels() throws {

@@ -273,14 +273,29 @@ public struct NaruRemoteAppShell: View {
             // fallback gated on `dockBadgeIsVisible == false`.
             .background(NaruColors.canvas)
             .overlay(alignment: .topLeading) {
-                if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
-                   snapshot.session?.hasReceivedFrame == true {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("First frame received")
-                        .accessibilityIdentifier("naru.test.session.firstFrameReceived")
-                        .allowsHitTesting(false)
+                ZStack(alignment: .topLeading) {
+                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
+                       snapshot.session?.hasReceivedFrame == true {
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("First frame received")
+                            .accessibilityIdentifier("naru.test.session.firstFrameReceived")
+                            .allowsHitTesting(false)
+                    }
+
+                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] == "1",
+                       let payload = model.diagnosticExportRelayForTesting {
+                        Text("Diagnostic export captured")
+                            .font(.caption2)
+                            .frame(width: 1, height: 1)
+                            .clipped()
+                            .opacity(0.01)
+                            .accessibilityIdentifier("naru.test.diagnosticExportRelay")
+                            .accessibilityLabel("Diagnostic export captured")
+                            .accessibilityValue(payload)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
