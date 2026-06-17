@@ -42,6 +42,7 @@ public struct RemoteInputDockView: View {
     /// its own keyboard, so the focus signal is only meaningful for
     /// the Compose path.
     @State private var composeFieldFocused: Bool = false
+    @State private var compactComposeEditorRequested: Bool = false
 
     private let initialText: String
     private let statusText: String
@@ -162,6 +163,7 @@ public struct RemoteInputDockView: View {
             if isDirect {
                 flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
                 composeFieldFocused = false
+                compactComposeEditorRequested = false
                 onComposeFocusChange(false)
             }
         }
@@ -290,56 +292,110 @@ public struct RemoteInputDockView: View {
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
 
-            composeTextEditor
-                .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .background(NaruColors.surfaceEditor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(NaruColors.hairline, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-                .simultaneousGesture(TapGesture().onEnded {
-                    focusComposeEditor()
-                })
-                .composeEditorShellAccessibility()
+            if showsCompactComposeEditor {
+                composeTextEditor
+                    .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .background(NaruColors.surfaceEditor)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(NaruColors.hairline, lineWidth: 1)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .simultaneousGesture(TapGesture().onEnded {
+                        focusComposeEditor()
+                    })
+                    .composeEditorShellAccessibility()
 
-            if showsComposeQuickKeys {
-                quickKeyMenu
-            }
+                if showsComposeQuickKeys {
+                    quickKeyMenu
+                }
 
-            Button {
-                sendCurrentComposeText()
-            } label: {
-                Label("Send", systemImage: "paperplane.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 44, height: 40)
+                Button {
+                    sendCurrentComposeText()
+                } label: {
+                    Label("Send", systemImage: "paperplane.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 44, height: 40)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isComposeSendDisabled)
+                .help("Send composed text")
+                .accessibilityIdentifier("naru.input.send")
+            } else {
+                compactComposeRevealButton
+
+                if showsComposeQuickKeys {
+                    quickKeyMenu
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isComposeSendDisabled)
-            .help("Send composed text")
-            .accessibilityIdentifier("naru.input.send")
         }
+    }
+
+    private var showsCompactComposeEditor: Bool {
+        Self.shouldShowCompactComposeEditor(
+            isFocused: composeFieldFocused,
+            text: text,
+            expansionRequested: compactComposeEditorRequested
+        )
     }
 
     private var compactComposeEditorMaxHeight: CGFloat {
         Self.compactComposeEditorMaxHeight(
             isFocused: composeFieldFocused,
-            text: text
+            text: text,
+            expansionRequested: compactComposeEditorRequested
         )
+    }
+
+    nonisolated static func shouldShowCompactComposeEditor(
+        isFocused: Bool,
+        text: String,
+        expansionRequested: Bool
+    ) -> Bool {
+        let hasDraft = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return isFocused || hasDraft || expansionRequested
     }
 
     nonisolated static func compactComposeEditorMaxHeight(
         isFocused: Bool,
-        text: String
+        text: String,
+        expansionRequested: Bool = false
     ) -> CGFloat {
-        let hasDraft = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return isFocused || hasDraft
+        Self.shouldShowCompactComposeEditor(
+            isFocused: isFocused,
+            text: text,
+            expansionRequested: expansionRequested
+        )
             ? compactComposeExpandedMaxHeight
             : compactComposeIdleMaxHeight
+    }
+
+    private var compactComposeRevealButton: some View {
+        Button {
+            compactComposeEditorRequested = true
+            Task { @MainActor in
+                await Task.yield()
+                focusComposeEditor()
+            }
+        } label: {
+            Label("Compose", systemImage: "text.cursor")
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 40)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .background(NaruColors.surfaceEditor)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(NaruColors.hairline, lineWidth: 1)
+        )
+        .accessibilityIdentifier("naru.input.compose-reveal")
     }
 
     private var compactDirectHeader: some View {
@@ -667,7 +723,11 @@ public struct RemoteInputDockView: View {
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
         if !focused {
-            flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
+            let currentText = currentComposeTextSnapshot()
+            flushComposeTextToModelIfNeeded(currentText, force: true)
+            if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                compactComposeEditorRequested = false
+            }
         }
     }
 

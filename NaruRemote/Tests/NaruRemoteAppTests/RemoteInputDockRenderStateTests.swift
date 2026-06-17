@@ -4,6 +4,34 @@ import NaruRemoteCore
 
 final class RemoteInputDockRenderStateTests: XCTestCase {
     func testCompactComposeEditorCollapsesOnlyWhenIdleAndEmpty() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "",
+                expansionRequested: false
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "",
+                expansionRequested: true
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: true,
+                text: "",
+                expansionRequested: false
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "입력",
+                expansionRequested: false
+            )
+        )
         XCTAssertEqual(
             RemoteInputDockView.compactComposeEditorMaxHeight(
                 isFocused: false,
@@ -22,6 +50,14 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             RemoteInputDockView.compactComposeEditorMaxHeight(
                 isFocused: false,
                 text: "입력"
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: "",
+                expansionRequested: true
             ),
             RemoteInputDockView.compactComposeExpandedMaxHeight
         )

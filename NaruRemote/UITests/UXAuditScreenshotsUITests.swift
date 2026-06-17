@@ -426,16 +426,22 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Remote Desktop.
         let app = launchAppWithFixture(.sessionActiveWidescreen, mode: mode)
 
-        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 8)
+        let composeReveal = waitForCompactComposeReveal(in: app, timeout: 8)
         XCTAssertTrue(
-            compactEditor.exists,
-            "Active-session compact compose field must be reachable"
+            composeReveal.exists,
+            "Active-session compact compose affordance must be reachable"
         )
 
         sleep(3)
 
         try saveScreen(named: "16-session-active-widescreen-\(deviceTag)-\(mode.suffix).png")
 
+        composeReveal.tap()
+        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 4)
+        XCTAssertTrue(
+            compactEditor.exists,
+            "Active-session compact compose field must expand from the affordance"
+        )
         compactEditor.tap()
 
         let keyboard = app.keyboards.firstMatch
@@ -451,8 +457,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let app = launchAppWithFixture(.sessionActiveTrackpadCursor, mode: mode)
 
         XCTAssertTrue(
-            waitForRemoteInputEditor(in: app, timeout: 8).exists,
-            "Active-session compact compose field must be reachable"
+            waitForCompactComposeReveal(in: app, timeout: 8).exists,
+            "Active-session compact compose affordance must be reachable"
         )
 
         sleep(3)
@@ -845,6 +851,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let textField = app.textFields["Remote input text"]
         _ = textField.waitForExistence(timeout: 1)
         return textField
+    }
+
+    private func waitForCompactComposeReveal(
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement {
+        let button = app.buttons["naru.input.compose-reveal"]
+        if button.waitForExistence(timeout: timeout) {
+            return button
+        }
+
+        let anyElement = app.descendants(matching: .any)["naru.input.compose-reveal"]
+        _ = anyElement.waitForExistence(timeout: 1)
+        return anyElement
     }
 
     // MARK: - Helpers — saving

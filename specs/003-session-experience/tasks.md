@@ -172,11 +172,13 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T023 [C] Inline Compose quick-key strip (Esc/Tab/⌃C/↑/↓) in `RemoteInputDockView`, dispatch via `model.sendComposeQuickKey`, draft untouched, gated on active session. `ComposeQuickKeyTests` (7) + `ComposeQuickKeyModelTests` (2). **Done.**
 - [x] T023a [C] Compose paste stabilization: macOS Command-V uses the documented VNC Mac `Alt_L` mapping, and the production app waits briefly after remote clipboard set before paste. **Done.**
 - [x] T024 [C][VISUAL] Quality chip and compact quick-key menu covered by the active-session UX-audit captures (`16-*` and `17-*`). **Done.**
-- [x] T025 [C][VISUAL] Compact live-session Compose now collapses to a 44pt
-  idle editor when empty/unfocused, expanding back to the 88pt editing surface
-  when focused or when a draft exists so remote screen space stays dominant
-  without destabilizing Korean/CJK IME transactions. Covered by
-  `RemoteInputDockRenderStateTests`. **Done.**
+- [x] T025 [C][VISUAL] Compact live-session Compose now hides the empty,
+  unfocused editor behind a 40pt Compose affordance, expanding back to the
+  88pt editing surface when tapped, focused, or when a draft exists so remote
+  screen space stays dominant without destabilizing Korean/CJK IME
+  transactions. Covered by `RemoteInputDockRenderStateTests` and the
+  active-session UX-audit flow; MCP fallback evidence lives in
+  `artifacts/screenshots/ux-audit-compact-idle/`. **Done.**
 
 ## Cross-cutting
 - [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass. The screenshot harness now accepts `NARU_UX_AUDIT_OUTPUT_DIR` for worktree-local iPhone/iPad evidence.

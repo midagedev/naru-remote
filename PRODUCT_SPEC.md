@@ -293,9 +293,10 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
   기존 RFB pointer event lane으로 보낸다. Pinch zoom, zoomed pan, PiP focus
   crop은 로컬 transform이며 원격 입력을 발생시키지 않는다.
 - active session의 Remote Input Dock은 compact accessory로 내려가며, 빈
-  Compose 상태에서는 얕게 접혀 원격 화면 공간을 우선한다. Compose에 focus가
-  있거나 draft가 있으면 편집 높이를 다시 넓혀 iOS IME, dictation, Korean/CJK
-  marked text 안정성을 유지한다.
+  Compose 상태에서는 TextEditor를 숨기고 40pt Compose affordance만 남겨 원격
+  화면 공간을 우선한다. 사용자가 affordance를 탭하거나 Compose에 focus/draft가
+  생기면 편집 표면을 다시 넓혀 iOS IME, dictation, Korean/CJK marked text
+  안정성을 유지한다.
 - Compose mode에서도 Esc, Tab, Ctrl-C, 위/아래 화살표 quick keys를 제공해
   다국어 문장을 작성하던 사용자가 Direct mode로 전환하지 않고 terminal/AI
   CLI에 필요한 discrete control key를 보낼 수 있다.
