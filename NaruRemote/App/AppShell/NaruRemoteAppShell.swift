@@ -1,7 +1,14 @@
 import NaruRemoteCore
 import SwiftUI
+#if os(iOS) && canImport(UIKit)
+import UIKit
+#endif
 
 public struct NaruRemoteAppShell: View {
+    #if os(iOS) && canImport(UIKit)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
     @StateObject private var model: NaruRemoteAppModel
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
     @State private var showsProfileEditor = false
@@ -68,6 +75,25 @@ public struct NaruRemoteAppShell: View {
         default:
             return false
         }
+    }
+
+    private var compactWindowWidth: CGFloat? {
+        #if os(iOS) && canImport(UIKit)
+        guard horizontalSizeClass == .compact else {
+            return nil
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else {
+                continue
+            }
+            if let window = windowScene.windows.first(where: \.isKeyWindow) ?? windowScene.windows.first {
+                return max(1, window.bounds.width)
+            }
+        }
+        return nil
+        #else
+        return nil
+        #endif
     }
 
     /// The session viewport with all model wiring.  Extracted so the
@@ -174,6 +200,7 @@ public struct NaruRemoteAppShell: View {
                                     }
                                 )
                             }
+                            .frame(width: compactWindowWidth, alignment: .top)
                         }
                     }
                 }
@@ -248,6 +275,7 @@ public struct NaruRemoteAppShell: View {
                         )
                         .equatable()
                     }
+                    .frame(width: compactWindowWidth, alignment: .center)
                 }
             }
             .onChange(of: currentSessionID) { _, newSessionID in

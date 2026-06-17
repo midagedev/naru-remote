@@ -28,9 +28,11 @@ How to drive a fresh UX audit:
      test
    ```
 
-4. New screenshots land under
-   `artifacts/screenshots/ux-audit/` (path is hard-coded in
-   `UXAuditScreenshotsUITests.outputDirectory`).
+4. New screenshots land under the source checkout's
+   `artifacts/screenshots/ux-audit/` by default. This is derived from
+   `UXAuditScreenshotsUITests.swift`, so isolated worktrees write into their
+   own `artifacts/` tree instead of the main checkout. A configured Xcode test
+   environment can still set `NARU_UX_AUDIT_OUTPUT_DIR` to redirect output.
 
 5. Downsample to ~1500px before vision review so each PNG fits in a
    single Read tool image:
@@ -85,6 +87,7 @@ is unchanged.
 ## Outputs
 
 - `artifacts/screenshots/ux-audit/<state-tag>-<device>-<orientation>-<mode>.png`
+  or the directory named by `NARU_UX_AUDIT_OUTPUT_DIR`
 - `PUNCH_LIST.md` (this directory) — the running record of findings.
 - The XCUITest also attaches each PNG to the `.xcresult` bundle so
   attachments survive on CI even if the local working tree is

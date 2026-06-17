@@ -668,30 +668,32 @@ public struct SessionViewportView: View {
         VStack(alignment: .leading, spacing: 8) {
             titleStack
 
-            HStack(spacing: 8) {
-                checksButton(iconOnly: true)
-                if showsConnectButton {
-                    connectButton
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    checksButton(iconOnly: true)
+                    if showsConnectButton {
+                        connectButton
+                    }
+                    if showsDisconnectButton {
+                        disconnectButton
+                    }
+                    streamPowerModeButton
+                    if showsStreamEncodingModeButton {
+                        streamEncodingModeButton
+                    }
+                    if showsStartupPreflightModeButton {
+                        startupPreflightModeButton
+                    }
+                    if showsStartupGlanceScaleModeButton {
+                        startupGlanceScaleModeButton
+                    }
+                    pointerModeButton
+                    pipWatchButton(iconOnly: true)
+                    qualityChip
+                    statusBadge
                 }
-                if showsDisconnectButton {
-                    disconnectButton
-                }
-                streamPowerModeButton
-                if showsStreamEncodingModeButton {
-                    streamEncodingModeButton
-                }
-                if showsStartupPreflightModeButton {
-                    startupPreflightModeButton
-                }
-                if showsStartupGlanceScaleModeButton {
-                    startupGlanceScaleModeButton
-                }
-                pointerModeButton
-                pipWatchButton(iconOnly: true)
-                Spacer(minLength: 4)
-                qualityChip
-                statusBadge
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
