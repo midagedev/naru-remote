@@ -128,6 +128,13 @@ PR grouping suggestion: each `Phase` below is a natural PR boundary. Phase 2 + 3
 - [ ] T033 [US3] Wire `model.handleHardwareKey(_:isDown:)` on `NaruRemoteAppModel` calling `KeystrokeEmitter.emitHardware(...)` (NOT `.emit(...)`) so sticky state is not consumed by hardware presses. Cross-source coexistence test in `DirectKeystrokeModeTests.swift`.
 - [ ] T034 [US3] Mount `HardwareKeyboardHandler` in the session view tree only while `directKeystrokeMode.isActive == true`. When Direct mode toggles off, view tears down and resigns first responder so Compose mode's iOS keyboard returns. Tested via `RemoteInputDockToggleTests.swift` (new).
 
+### Polish Follow-up: Direct Input Surfaces (2026-06-17)
+
+- [x] T035 [US3] Add `DirectKeystrokeInputSurface` to `DirectKeystrokeMode` with a Codable legacy fallback to `.customKeyboard`. Verified by `DirectKeystrokeModeTests.testDirectKeystrokeModeDecodesLegacyPayloadWithCustomKeyboardSurface`.
+- [x] T036 [US3] Add `NaruRemoteAppModel.setDirectKeystrokeInputSurface(_:)` and preserve the selected surface across Direct page changes, entry-warning dismissal, and Direct off/on bounces in the same session. Verified by `DirectKeystrokeModeTests` surface preservation cases.
+- [x] T037 [US3] Add `DirectKeystrokeSystemKeyboardView` as an App-side `UIKeyInput` bridge that maps iOS keyboard committed ASCII text into Direct keys without touching Compose or clipboard state.
+- [x] T038 [US3] Update `RemoteInputDockView` with Direct input surfaces: default Naru custom keyboard, iOS system ASCII keyboard, and hardware-keyboard-only. Verified by `swift test --filter DirectKeystrokeModeTests`.
+
 **Checkpoint**: US-3 acceptance scenarios 1–4 pass. SC-005 byte-identity proven by T030. Hardware path only fires while Direct mode is on (FR-007).
 
 ---

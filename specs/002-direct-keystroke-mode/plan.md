@@ -74,7 +74,7 @@ Mirror the existing capability-protocol pattern in `RFBClientBoundary.swift` rat
 
 4. **`StickyModifierState`** (new file `Sources/NaruRemoteCore/RemoteInputDock/StickyModifierState.swift`) — value type tracking each of Ctrl / Shift / Alt / Cmd as one of `idle | armed | locked`. Pure state machine: `tap(_ modifier:)` transitions, `consume()` releases armed state after a non-modifier key, `clear()` for FR-013, equality + Codable for unit tests.
 
-5. **`DirectKeystrokeMode`** — `Bool` flag on a new sub-model `RemoteInputDockState` (or extending the existing dock state). Defaults to `false` and resets on every connect (FR-014).
+5. **`DirectKeystrokeMode`** — value state on the existing dock/app model: `isActive`, custom-keyboard `page`, selected `inputSurface`, and warning status. Defaults to Compose with `.customKeyboard` selected and resets on every connect (FR-014). Legacy decodes without `inputSurface` fall back to `.customKeyboard`.
 
 6. **`KeystrokeEmitter`** — boundary that turns a logical key event (key + down/up + active modifier set) into the actual sequence of `RFBKeyEventClient.sendKeyEvent` calls. For a tap on `c` with `Ctrl` armed it emits four `KeyEvent`s in order: `Ctrl down → c down → c up → Ctrl up`. Lives in `Sources/NaruRemoteCore/RemoteInputDock/KeystrokeEmitter.swift`. Holds an injected `RFBKeyEventClient` (capability protocol injection so production and tests share the path).
 
@@ -82,9 +82,11 @@ Mirror the existing capability-protocol pattern in `RFBClientBoundary.swift` rat
 
 7. **`DirectKeystrokeKeyboardView`** (new file `App/Features/RemoteInputDock/DirectKeystrokeKeyboardView.swift`) — SwiftUI view with two pages (QWERTY, Special). Bottom-docked via the existing dock geometry. Each key is a `Button` whose action calls a `model.tapDirectKey(_:)` method on `NaruRemoteAppModel`. Modifier keys and the page-toggle button render distinct visual states (idle / armed / locked / pressed). "Clear modifiers" affordance lives on the special-keys page (FR-013).
 
-8. **Hardware keyboard handler** — extension on the session view (likely in `MetalFramebufferView` or a sibling representable) overriding `var canBecomeFirstResponder: Bool { true }` and `keyCommands: [UIKeyCommand]?` for *navigation* keys, plus the lower-level `pressesBegan(_:with:)` / `pressesEnded(_:with:)` for arbitrary character + modifier combinations. Each press is forwarded to the same `model.tapDirectKey(_:)` entry the on-screen path uses (so SC-005 holds).
+8. **Hardware keyboard handler** — `DirectKeystrokeResponderView`, a non-`UITextInput` first responder overriding `pressesBegan(_:with:)` / `pressesEnded(_:with:)` for arbitrary character + modifier combinations. It is active on the default custom surface and the hardware-keyboard-only surface. The hardware-only surface renders no software keyboard so Bluetooth / Magic Keyboard use does not obstruct the stream area.
 
 9. **Mode toggle + badge + warning** — added to `RemoteInputDockView`. Toggle is a `Picker(.segmented)` between Compose & Direct. Badge is a small `Label("Direct mode", systemImage: "keyboard")` pinned to the dock header. One-time-per-session warning is a `confirmationDialog(...)` with a "Got it" action that flips a session-scoped `hasShownDirectModeWarning` flag on the model.
+
+10. **Direct input surface picker** — added inside Direct mode. `.customKeyboard` keeps FR-001 and remains the default; `.systemKeyboard` mounts `DirectKeystrokeSystemKeyboardView`, a transparent `UIKeyInput` bridge that maps printable ASCII plus Return / Tab / Backspace into Direct key events and drops non-ASCII committed text; `.hardwareKeyboard` mounts only the raw `UIPress` responder.
 
 **Boundary preserved:**
 
@@ -95,7 +97,7 @@ Mirror the existing capability-protocol pattern in `RFBClientBoundary.swift` rat
 
 | Alternative | Why Rejected |
 | --- | --- |
-| Use a hidden `UITextField` to capture iOS keystrokes and translate to keysyms | iOS keyboard runs IME composition + autocorrect + predictive text — none of which can produce a clean per-keystroke RFB stream. Tab / Esc / Ctrl / arrows are absent. Mode-confusion (same keyboard for IME and raw) breaks the user's mental model. Locked out by `feedback_direct_keystroke_uses_custom_keyboard` memory. |
+| Use a hidden `UITextField` as the only Direct input path | iOS keyboard runs IME composition + autocorrect + predictive text and lacks Tab / Esc / Ctrl / arrows. It remains unsuitable as the default raw-keystroke source. A later explicit `.systemKeyboard` surface is narrower: ASCII committed text only, autocorrection disabled, non-ASCII dropped, and custom / hardware surfaces remain available. |
 | Render the custom keyboard as an `inputAccessoryView` on top of iOS keyboard | Same iOS-keyboard problems, plus the accessory bar is real-estate-starved on iPhone. |
 | Floating / repositionable keyboard | Explicit Non-Goal in `spec.md`; deferred to keep v1 small. |
 | Synthesize key auto-repeat on press-and-hold (Chrome Remote Android) | Locked to one-shot only by FR-016; rationale in spec — keeps the on-screen and hardware paths byte-identical (SC-005), avoids a local repeat clock the remote does not match. |
@@ -107,6 +109,7 @@ Mirror the existing capability-protocol pattern in `RFBClientBoundary.swift` rat
 ```mermaid
 flowchart LR
     A["On-screen Custom Keyboard<br/>(SwiftUI, NaruRemoteApp)"] --> M["NaruRemoteAppModel.tapDirectKey()"]
+    I["iOS System ASCII Keyboard<br/>(UIKeyInput bridge)"] --> M
     H["Hardware Keyboard<br/>(UIKey via UIKeyCommand /<br/>pressesBegan/Ended)"] --> M
     M --> S["StickyModifierState<br/>(Core)"]
     S --> M

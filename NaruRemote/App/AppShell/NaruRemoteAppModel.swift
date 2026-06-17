@@ -5722,6 +5722,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         directKeystrokeMode = DirectKeystrokeMode(
             isActive: newActive,
             page: .qwerty,
+            inputSurface: directKeystrokeMode.inputSurface,
             hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
         )
         if !newActive {
@@ -5740,6 +5741,24 @@ public final class NaruRemoteAppModel: ObservableObject {
         directKeystrokeMode = DirectKeystrokeMode(
             isActive: directKeystrokeMode.isActive,
             page: page,
+            inputSurface: directKeystrokeMode.inputSurface,
+            hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
+        )
+    }
+
+    /// Switch which local input surface Direct mode uses. The
+    /// default `.customKeyboard` preserves FR-001; `.systemKeyboard`
+    /// and `.hardwareKeyboard` are explicit opt-ins for native iOS
+    /// typing feel and Bluetooth-keyboard screen-space recovery.
+    public func setDirectKeystrokeInputSurface(_ inputSurface: DirectKeystrokeInputSurface) {
+        guard directKeystrokeMode.inputSurface != inputSurface else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        directKeystrokeMode = DirectKeystrokeMode(
+            isActive: directKeystrokeMode.isActive,
+            page: directKeystrokeMode.page,
+            inputSurface: inputSurface,
             hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
         )
     }
@@ -5753,6 +5772,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         directKeystrokeMode = DirectKeystrokeMode(
             isActive: directKeystrokeMode.isActive,
             page: directKeystrokeMode.page,
+            inputSurface: directKeystrokeMode.inputSurface,
             hasShownEntryWarningThisSession: true
         )
     }

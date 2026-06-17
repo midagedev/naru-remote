@@ -54,6 +54,7 @@ public struct RemoteInputDockView: View {
     private let showsComposeQuickKeys: Bool
     private let onToggleDirectMode: () -> Void
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
+    private let onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     private let onComposeQuickKey: (ComposeQuickKey) -> Void
@@ -74,6 +75,7 @@ public struct RemoteInputDockView: View {
         showsComposeQuickKeys: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
+        onSetDirectInputSurface: @escaping (DirectKeystrokeInputSurface) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
         onComposeQuickKey: @escaping (ComposeQuickKey) -> Void = { _ in },
@@ -96,6 +98,7 @@ public struct RemoteInputDockView: View {
         self.showsComposeQuickKeys = showsComposeQuickKeys
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
+        self.onSetDirectInputSurface = onSetDirectInputSurface
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
         self.onComposeQuickKey = onComposeQuickKey
@@ -461,12 +464,46 @@ public struct RemoteInputDockView: View {
     }
 
     /// Direct-mode body: hides the Compose TextEditor + Send and
-    /// shows the custom soft keyboard.  The
-    /// `DirectKeystrokeResponderView` lives in the tree (zero-size)
-    /// to keep firstResponder so the iOS system keyboard stays
-    /// hidden — FR-001 / R-3.
+    /// switches among the available Direct input surfaces. The
+    /// default `.customKeyboard` surface preserves FR-001; the
+    /// `.systemKeyboard` and `.hardwareKeyboard` surfaces are
+    /// explicit opt-ins for native iOS typing and screen-space
+    /// recovery with Bluetooth keyboards.
     @ViewBuilder
     private var directKeyboard: some View {
+        VStack(spacing: 8) {
+            directInputSurfacePicker
+
+            switch directKeystrokeMode.inputSurface {
+            case .customKeyboard:
+                customDirectKeyboard
+            case .systemKeyboard:
+                systemDirectKeyboard
+            case .hardwareKeyboard:
+                hardwareDirectKeyboard
+            }
+        }
+    }
+
+    private var directInputSurfacePicker: some View {
+        Picker(
+            "Direct input surface",
+            selection: Binding<DirectKeystrokeInputSurface>(
+                get: { directKeystrokeMode.inputSurface },
+                set: { onSetDirectInputSurface($0) }
+            )
+        ) {
+            Text("Naru").tag(DirectKeystrokeInputSurface.customKeyboard)
+            Text("iOS").tag(DirectKeystrokeInputSurface.systemKeyboard)
+            Text("HW").tag(DirectKeystrokeInputSurface.hardwareKeyboard)
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .accessibilityIdentifier("naru.direct.input-surface-picker")
+    }
+
+    @ViewBuilder
+    private var customDirectKeyboard: some View {
         VStack(spacing: 8) {
             #if canImport(UIKit)
             DirectKeystrokeResponderView(
@@ -482,6 +519,55 @@ public struct RemoteInputDockView: View {
                 stickyModifierState: stickyModifierState,
                 onTapKey: onTapDirectKey
             )
+        }
+    }
+
+    @ViewBuilder
+    private var systemDirectKeyboard: some View {
+        #if canImport(UIKit)
+        DirectKeystrokeSystemKeyboardView(
+            isActive: true,
+            onTextInput: { insertedText in
+                for key in Self.directKeys(fromSystemKeyboardText: insertedText) {
+                    onTapDirectKey(key)
+                }
+            },
+            onBackspace: {
+                onTapDirectKey(.named(.backspace))
+            }
+        )
+        .frame(width: 1, height: 1)
+        .accessibilityHidden(true)
+        #else
+        customDirectKeyboard
+        #endif
+    }
+
+    @ViewBuilder
+    private var hardwareDirectKeyboard: some View {
+        #if canImport(UIKit)
+        DirectKeystrokeResponderView(
+            isActive: true,
+            onHardwareKey: onHardwareKey
+        )
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+        #endif
+    }
+
+    nonisolated static func directKeys(fromSystemKeyboardText text: String) -> [DirectKey] {
+        text.compactMap { character in
+            switch character {
+            case "\n", "\r":
+                return .named(.return)
+            case "\t":
+                return .named(.tab)
+            default:
+                guard KeysymMapping.keysym(for: character) != nil else {
+                    return nil
+                }
+                return .character(character)
+            }
         }
     }
 
