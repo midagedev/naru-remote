@@ -30,6 +30,21 @@ Expected coverage:
 - High Performance screen sharing is classified as `researchOnly` and routes to
   Naru Helper Video.
 
+## Mac Session Controls Gate
+
+After Mac-native session controls land:
+
+```bash
+swift test --filter 'MacSessionControlTests|MacSessionControlModelTests|RemoteInputDockRenderStateTests'
+```
+
+Expected coverage:
+
+- Mission Control, App Windows, Switch App, Desktop, and Space controls map to
+  fixed keysyms and modifiers.
+- Controls render only for active sessions.
+- Control taps do not mutate Compose text or Direct sticky modifier state.
+
 ## Simulator UI Gate
 
 After profile UI lands:

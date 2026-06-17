@@ -5971,6 +5971,30 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Send a Mac-aware session control through the normal VNC
+    /// `KeyEvent` path. These controls are documented macOS keyboard
+    /// shortcuts, not private ARD commands, so they preserve the
+    /// existing VNC-only fallback surface and do not touch Compose
+    /// draft state or Direct-mode sticky modifiers.
+    public func sendMacSessionControl(_ control: MacSessionControl) async {
+        guard let emitter = keystrokeEmitter else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        let emission = control.emission
+        enqueueKeyEventEmission(
+            emitter: emitter,
+            streamID: activeFrameStreamID,
+            sessionID: session?.id,
+            profileID: selectedProfileID
+        ) {
+            try await emitter.emit(
+                keysym: emission.keysym,
+                modifiers: emission.modifiers
+            )
+        }
+    }
+
     private func enqueueKeyEventEmission(
         emitter: KeystrokeEmitter,
         streamID: UUID?,

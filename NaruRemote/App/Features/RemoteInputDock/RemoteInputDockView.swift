@@ -47,6 +47,7 @@ public struct RemoteInputDockView: View {
     private let stickyModifierState: StickyModifierState
     private let layoutStyle: RemoteInputDockLayoutStyle
     private let showsCompactStatusText: Bool
+    private let showsMacSessionControls: Bool
     /// When `true`, the Compose-mode inline quick-key strip
     /// (Esc / Tab / ⌃C / arrows) is shown.  Gated on an active session
     /// (spec 003 FR-013) — with no live wire there is nothing to send
@@ -57,6 +58,7 @@ public struct RemoteInputDockView: View {
     private let onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
+    private let onMacSessionControl: (MacSessionControl) -> Void
     private let onComposeQuickKey: (ComposeQuickKey) -> Void
     private let onDismissDirectModeWarning: () -> Void
     private let onComposeFocusChange: (Bool) -> Void
@@ -72,12 +74,14 @@ public struct RemoteInputDockView: View {
         stickyModifierState: StickyModifierState = StickyModifierState(),
         layoutStyle: RemoteInputDockLayoutStyle = .standard,
         showsCompactStatusText: Bool = false,
+        showsMacSessionControls: Bool = false,
         showsComposeQuickKeys: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onSetDirectInputSurface: @escaping (DirectKeystrokeInputSurface) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
+        onMacSessionControl: @escaping (MacSessionControl) -> Void = { _ in },
         onComposeQuickKey: @escaping (ComposeQuickKey) -> Void = { _ in },
         onDismissDirectModeWarning: @escaping () -> Void = {},
         onComposeFocusChange: @escaping (Bool) -> Void = { _ in }
@@ -95,12 +99,14 @@ public struct RemoteInputDockView: View {
         self.stickyModifierState = stickyModifierState
         self.layoutStyle = layoutStyle
         self.showsCompactStatusText = showsCompactStatusText
+        self.showsMacSessionControls = showsMacSessionControls
         self.showsComposeQuickKeys = showsComposeQuickKeys
         self.onToggleDirectMode = onToggleDirectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onSetDirectInputSurface = onSetDirectInputSurface
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
+        self.onMacSessionControl = onMacSessionControl
         self.onComposeQuickKey = onComposeQuickKey
         self.onDismissDirectModeWarning = onDismissDirectModeWarning
         self.onComposeFocusChange = onComposeFocusChange
@@ -195,6 +201,9 @@ public struct RemoteInputDockView: View {
             if directKeystrokeMode.isActive {
                 directKeyboard
             } else {
+                if showsMacSessionControls {
+                    macSessionControlStrip
+                }
                 if showsComposeQuickKeys {
                     composeQuickKeyStrip
                 }
@@ -221,6 +230,9 @@ public struct RemoteInputDockView: View {
                 compactDirectHeader
                 directKeyboard
             } else {
+                if showsMacSessionControls {
+                    macSessionControlStrip
+                }
                 compactComposeRow
                 if let compactStatusText {
                     compactStatusLine(compactStatusText)
@@ -382,6 +394,41 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.mode-picker")
     }
 
+    /// Mac-aware session controls similar to the buttons users
+    /// expect in Apple-oriented remote desktop clients. They emit
+    /// documented macOS keyboard shortcuts over the existing VNC
+    /// `KeyEvent` path; no Compose text is changed.
+    private var macSessionControlStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(MacSessionControl.allCases, id: \.self) { control in
+                    Button {
+                        onMacSessionControl(control)
+                    } label: {
+                        Label(control.label, systemImage: control.systemImageName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                            .frame(minHeight: 38)
+                            .padding(.horizontal, 12)
+                            .background(NaruColors.surfaceKey)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(NaruColors.hairline, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
+                    .accessibilityLabel(control.accessibilityLabel)
+                    .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityIdentifier("naru.input.mac-controls")
+    }
+
     /// Inline terminal-control strip shown above the Compose editor
     /// while a session is active (spec 003 US5 / FR-013).  Lets a
     /// multilingual-composing user fire Esc / Tab / ⌃C / arrows once
@@ -473,6 +520,9 @@ public struct RemoteInputDockView: View {
     private var directKeyboard: some View {
         VStack(spacing: 8) {
             directInputSurfacePicker
+            if showsMacSessionControls {
+                macSessionControlStrip
+            }
 
             switch directKeystrokeMode.inputSurface {
             case .customKeyboard:

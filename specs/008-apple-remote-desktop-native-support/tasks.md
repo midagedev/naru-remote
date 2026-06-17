@@ -136,6 +136,39 @@ smooth visual transport to helper video until direct support is legitimate.
 
 ---
 
+## Phase 6: User Story 4 - Mac-Native Session Controls (Priority: P2)
+
+**Goal**: Active Mac sessions expose compact Mission Control, app/window,
+desktop, and Spaces buttons backed by documented keyboard shortcuts.
+
+**Independent Test**:
+`swift test --filter 'MacSessionControlTests|MacSessionControlModelTests|RemoteInputDockRenderStateTests'`
+
+### Tests First
+
+- [x] T021 [P] [US4] Add `MacSessionControlTests` covering fixed keysym and
+  modifier mappings in `NaruRemote/Tests/NaruRemoteCoreTests/`. **Done.**
+- [x] T022 [P] [US4] Add app model and render-state tests covering session
+  gating and Compose draft preservation in
+  `NaruRemote/Tests/NaruRemoteAppTests/`. **Done.**
+
+### Implementation
+
+- [x] T023 [US4] Implement `MacSessionControl` in
+  `NaruRemote/Sources/NaruRemoteCore/AppleRemoteDesktop/` as VNC-compatible
+  shortcut emissions. **Done.**
+- [x] T024 [US4] Add `NaruRemoteAppModel.sendMacSessionControl(_:)` using the
+  existing key-event dispatcher without touching Compose or Direct sticky
+  state. **Done.**
+- [x] T025 [US4] Render an active-session Mac control strip in
+  `NaruRemote/App/Features/RemoteInputDock/RemoteInputDockView.swift` and wire
+  it through `NaruRemote/App/AppShell/NaruRemoteAppShell.swift`. **Done.**
+
+**Checkpoint**: US4 works without helper pairing and preserves existing input
+paths.
+
+---
+
 ## Phase N: Polish & Cross-Cutting
 
 - [ ] TXXX Run all checks listed in `quickstart.md`.

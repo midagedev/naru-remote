@@ -114,3 +114,33 @@ approval spec.
 - https://support.apple.com/guide/remote-desktop/apd37d6089c/mac
 - https://support.apple.com/guide/remote-desktop/apd47b33625/mac
 - https://support.apple.com/guide/remote-desktop/apd91b63ef0/mac
+
+## D5 - Mac session controls should use documented keyboard shortcuts first
+
+**Decision**: Naru should expose small Mac-aware session buttons for Mission
+Control, App Windows, Switch App, Show Desktop, and Space navigation by sending
+documented macOS keyboard shortcuts through the existing VNC `KeyEvent` path.
+This is VNC-compatible behavior, not private ARD administrator behavior.
+
+**Rationale**:
+- Apple documents Control-Up Arrow for Mission Control, Control-Down Arrow for
+  front-app windows, Command-Tab for app switching, F11 for desktop reveal,
+  and Control-Left/Right Arrow for Spaces navigation.
+- These controls solve a real iPhone ergonomics gap without requiring the user
+  to enter Direct mode or attach a hardware keyboard.
+- The shortcuts can be customized on the remote Mac, so the first milestone
+  should clearly model Apple's defaults and leave remapping to a later spec.
+
+**Alternatives considered**:
+- Implement Mission Control through helper UI scripting: rejected for this
+  milestone because it adds Accessibility permission and trust-boundary weight.
+- Hide Mac controls until a full ARD implementation exists: rejected because
+  the documented shortcut path gives immediate value over VNC.
+- Make the buttons always visible: rejected because inactive sessions cannot
+  deliver key events and dead controls make diagnostics harder.
+
+**Source links**:
+- https://support.apple.com/en-us/102650
+- https://support.apple.com/guide/mac-help/see-all-your-open-windows-on-mac-mchlb7beb9af/mac
+- https://support.apple.com/guide/mac-help/work-in-multiple-spaces-mh14112/mac
+- https://support.apple.com/guide/mac-help/work-with-app-windows-mchlp2469/mac
