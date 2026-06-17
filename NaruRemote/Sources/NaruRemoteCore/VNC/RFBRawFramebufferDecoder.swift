@@ -776,30 +776,33 @@ extension RFBPixelFormat {
         bytesPerPixel: Int,
         pixelCount: Int
     ) -> [RFBColor] {
-        var decodedPixels: [RFBColor] = []
-        decodedPixels.reserveCapacity(pixelCount)
+        guard pixelCount > 0 else {
+            return []
+        }
 
         if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixel) {
-            var offset = 0
-            for _ in 0..<pixelCount {
-                decodedPixels.append(
-                    RFBColor(
+            return Array(unsafeUninitializedCapacity: pixelCount) { decodedPixels, initializedCount in
+                var offset = 0
+                for index in 0..<pixelCount {
+                    decodedPixels[index] = RFBColor(
                         red: bytes[offset + offsets.red],
                         green: bytes[offset + offsets.green],
                         blue: bytes[offset + offsets.blue]
                     )
-                )
-                offset += bytesPerPixel
+                    offset += bytesPerPixel
+                }
+                initializedCount = pixelCount
             }
-            return decodedPixels
         }
 
-        var offset = 0
-        for _ in 0..<pixelCount {
-            decodedPixels.append(decodeColor(bytes, at: offset))
-            offset += bytesPerPixel
+        return Array(unsafeUninitializedCapacity: pixelCount) { decodedPixels, initializedCount in
+            var offset = 0
+            for index in 0..<pixelCount {
+                decodedPixels[index] = decodeColor(bytes, at: offset)
+                offset += bytesPerPixel
+            }
+            initializedCount = pixelCount
         }
-        return decodedPixels
     }
 
     func decodeColorsAndCountNonBlack(
@@ -821,35 +824,41 @@ extension RFBPixelFormat {
         bytesPerPixel: Int,
         pixelCount: Int
     ) -> (pixels: [RFBColor], nonBlackCount: Int) {
-        var decodedPixels: [RFBColor] = []
-        decodedPixels.reserveCapacity(pixelCount)
+        guard pixelCount > 0 else {
+            return ([], 0)
+        }
+
         var nonBlackCount = 0
 
         if let offsets = directEightBitChannelOffsets(pixelByteCount: bytesPerPixel) {
-            var offset = 0
-            for _ in 0..<pixelCount {
-                let color = RFBColor(
-                    red: bytes[offset + offsets.red],
-                    green: bytes[offset + offsets.green],
-                    blue: bytes[offset + offsets.blue]
-                )
-                if color != Self.blackColor {
-                    nonBlackCount += 1
+            let decodedPixels = Array(unsafeUninitializedCapacity: pixelCount) { decodedPixels, initializedCount in
+                var offset = 0
+                for index in 0..<pixelCount {
+                    let red = bytes[offset + offsets.red]
+                    let green = bytes[offset + offsets.green]
+                    let blue = bytes[offset + offsets.blue]
+                    if red != 0 || green != 0 || blue != 0 {
+                        nonBlackCount += 1
+                    }
+                    decodedPixels[index] = RFBColor(red: red, green: green, blue: blue)
+                    offset += bytesPerPixel
                 }
-                decodedPixels.append(color)
-                offset += bytesPerPixel
+                initializedCount = pixelCount
             }
             return (decodedPixels, nonBlackCount)
         }
 
-        var offset = 0
-        for _ in 0..<pixelCount {
-            let color = decodeColor(bytes, at: offset)
-            if color != Self.blackColor {
-                nonBlackCount += 1
+        let decodedPixels = Array(unsafeUninitializedCapacity: pixelCount) { decodedPixels, initializedCount in
+            var offset = 0
+            for index in 0..<pixelCount {
+                let color = decodeColor(bytes, at: offset)
+                if color != Self.blackColor {
+                    nonBlackCount += 1
+                }
+                decodedPixels[index] = color
+                offset += bytesPerPixel
             }
-            decodedPixels.append(color)
-            offset += bytesPerPixel
+            initializedCount = pixelCount
         }
         return (decodedPixels, nonBlackCount)
     }

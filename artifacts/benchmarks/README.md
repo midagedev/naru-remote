@@ -91,6 +91,13 @@ The Raw full-frame decoder now reads large pixel payloads as `Data` and decodes
 through `Data.withUnsafeBytes`, avoiding a whole-frame `Data` to `[UInt8]`
 copy. The 1920x1080 opt-in benchmark shows about 40% lower peak physical
 memory, 3% fewer CPU cycles, and 6% fewer retired instructions.
+Current RFB Raw uninitialized buffer decode artifact:
+`artifacts/benchmarks/2026-06-18-rfb-raw-uninitialized-buffer-decode-summary.md`.
+The Raw full-frame decoder now fills its destination `[RFBColor]` through
+`Array(unsafeUninitializedCapacity:)` instead of appending each pixel after
+reserve-capacity setup. The 1920x1080 opt-in benchmark shows about 15% lower
+clock time, 14% lower CPU time, 11% fewer CPU cycles, and 8% fewer retired instructions, with
+peak physical memory essentially flat.
 Current RFB CopyRect scroll artifact:
 `artifacts/benchmarks/2026-06-16-rfb-copyrect-inplace-scroll-performance-summary.md`.
 The CopyRect decoder now handles overlapping terminal-like scroll updates with
