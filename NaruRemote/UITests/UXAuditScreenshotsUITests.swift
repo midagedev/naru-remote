@@ -8,9 +8,9 @@ import UIKit
 /// visual quality — those happen in vision review.  Only sanity
 /// assertions that the screenshots wrote out non-empty.
 ///
-/// Output directory is hard-coded to the repo's `artifacts/` tree to
-/// match `DirectKeystrokeKeyboardScreenshotsUITests` and friends.
-/// TODO: parameterise once the screenshot loop is unified.
+/// Output directory defaults to this checkout's `artifacts/` tree so isolated
+/// worktrees do not write screenshots into the main repo checkout. A configured
+/// test environment can still override it with `NARU_UX_AUDIT_OUTPUT_DIR`.
 ///
 /// One test method per state-group, no shared mutable state, so the
 /// run order is irrelevant and any single state can be exercised in
@@ -18,7 +18,23 @@ import UIKit
 @MainActor
 final class UXAuditScreenshotsUITests: XCTestCase {
 
-    private let outputDirectory = "/Users/hckim/repo/naru-remote/artifacts/screenshots/ux-audit"
+    private let outputDirectory = UXAuditScreenshotsUITests.defaultOutputDirectory()
+
+    private static func defaultOutputDirectory() -> String {
+        if let override = ProcessInfo.processInfo.environment["NARU_UX_AUDIT_OUTPUT_DIR"],
+           !override.isEmpty {
+            return override
+        }
+
+        let testSource = URL(fileURLWithPath: #filePath)
+        let checkoutRoot = testSource
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return checkoutRoot
+            .appendingPathComponent("artifacts/screenshots/ux-audit", isDirectory: true)
+            .path
+    }
 
     override func setUp() {
         super.setUp()
