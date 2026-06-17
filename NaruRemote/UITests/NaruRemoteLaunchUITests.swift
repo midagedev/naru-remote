@@ -20,11 +20,12 @@ final class NaruRemoteLaunchUITests: XCTestCase {
     func testRemoteInputDockMovesAboveKeyboardWhileComposing() {
         XCUIDevice.shared.orientation = .landscapeLeft
 
-        let app = launchAppWithProfileStore(seedProfiles: [
-            SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
-        ])
-
-        openFirstConnectionCardIfPresent(app: app)
+        let app = launchAppWithProfileStore(
+            launchEnvironment: [
+                "NARU_TEST_SKIP_PROFILE_STORE_LOAD": "1",
+                "NARU_TEST_FIXTURE_SNAPSHOT": "session-active-widescreen"
+            ]
+        )
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
@@ -37,6 +38,27 @@ final class NaruRemoteLaunchUITests: XCTestCase {
         let verticalGap = keyboard.frame.minY - editor.frame.maxY
         XCTAssertGreaterThanOrEqual(verticalGap, 0)
         XCTAssertLessThan(verticalGap, 96)
+    }
+
+    func testSelectedProfileWithoutSessionHidesRemoteInputDock() {
+        XCUIDevice.shared.orientation = .portrait
+
+        let app = launchAppWithProfileStore(
+            seedProfiles: [
+                SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+            ],
+            launchEnvironment: [
+                "NARU_TEST_START_PROFILE_DETAIL": "1",
+                "NARU_TEST_SKIP_SETTINGS_STORE_LOAD": "1"
+            ]
+        )
+
+        XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["naru.session.connect"].waitForExistence(timeout: 4))
+        XCTAssertFalse(
+            app.staticTexts["Remote Input Dock"].exists,
+            "The Compose/Direct dock should not cover diagnostics before a session exists."
+        )
     }
 
     func testAddProfileOpensProfileEditor() {

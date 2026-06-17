@@ -123,6 +123,7 @@ public struct NaruRemoteAppShell: View {
         // dismissal flag.
         let isEmptyHome = snapshot.profiles.isEmpty
         let currentSessionID = snapshot.session?.id
+        let showsRemoteInputDock = snapshot.session != nil
         let usesLiveSessionLayout = isLiveSession
             && (!composeFieldFocused || liveSessionLayoutSessionID == currentSessionID)
         let showsConnectionGrid = !isEmptyHome
@@ -212,7 +213,7 @@ public struct NaruRemoteAppShell: View {
                 // the user has added a computer is exactly the
                 // pre-announcement of capabilities the empty-home CTA
                 // is meant to remove.
-                if !isEmptyHome && !showsConnectionGrid {
+                if !isEmptyHome && !showsConnectionGrid && showsRemoteInputDock {
                     let accessoryChrome = RemoteInputAccessoryChromeState(
                         snapshot: snapshot,
                         incomingClipboardReview: model.pendingIncomingClipboard,
