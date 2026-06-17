@@ -19,6 +19,10 @@ public struct RemoteInputDockView: View {
     nonisolated static let composeSendStabilizationDelayNanoseconds: UInt64 = 16_000_000
     nonisolated static let composeTextPropagationDebounceNanoseconds: UInt64 = 120_000_000
 
+    #if os(iOS) && canImport(UIKit)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
     @State private var text: String
     @State private var lastAppliedInitialText: String
     @State private var lastPropagatedComposeText: String
@@ -123,6 +127,7 @@ public struct RemoteInputDockView: View {
                 compactAccessoryBody
             }
         }
+        .frame(maxWidth: compactWindowWidth, alignment: .center)
         .onChange(of: initialText) { _, newValue in
             guard shouldApplyExternalComposeText(newValue) else {
                 return
@@ -170,6 +175,25 @@ public struct RemoteInputDockView: View {
             mode: directKeystrokeMode,
             onDismiss: onDismissDirectModeWarning
         )
+    }
+
+    private var compactWindowWidth: CGFloat? {
+        #if os(iOS) && canImport(UIKit)
+        guard horizontalSizeClass == .compact else {
+            return nil
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else {
+                continue
+            }
+            if let window = windowScene.windows.first(where: \.isKeyWindow) ?? windowScene.windows.first {
+                return max(1, window.bounds.width)
+            }
+        }
+        return nil
+        #else
+        return nil
+        #endif
     }
 
     private var standardBody: some View {
