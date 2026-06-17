@@ -78,6 +78,13 @@ iPhone/iPad simulator에서 Korean/CJK Compose freeze 회귀와 viewport hot pat
 반복 기준이며, Green 승격 근거로는 manual/physical 또는 live benchmark 증거를
 추가한다.
 
+Recurring automation runs MUST NOT start physical iPhone or iPad tests unless a
+human explicitly asks for that run. Hourly issue triage, roadmap maintenance,
+and agent follow-up loops should use simulator UI tests, fake RFB fixtures,
+local benchmark/self-test modes, screenshot audits, and documentation evidence.
+When a quality gate still needs physical-device proof, the automation records
+that as residual risk and a next action instead of attempting the device run.
+
 ## 3. 품질 단계
 
 | 단계 | 의미 | 제품 판단 |
