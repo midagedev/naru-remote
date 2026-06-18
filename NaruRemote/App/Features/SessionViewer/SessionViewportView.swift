@@ -677,18 +677,10 @@ public struct SessionViewportView: View {
                     if showsDisconnectButton {
                         disconnectButton
                     }
-                    streamPowerModeButton
-                    if showsStreamEncodingModeButton {
-                        streamEncodingModeButton
+                    if showsPointerModeButton {
+                        pointerModeButton
                     }
-                    if showsStartupPreflightModeButton {
-                        startupPreflightModeButton
-                    }
-                    if showsStartupGlanceScaleModeButton {
-                        startupGlanceScaleModeButton
-                    }
-                    pointerModeButton
-                    pipWatchButton(iconOnly: true)
+                    sessionToolsMenu(iconOnly: true)
                     qualityChip
                     statusBadge
                 }
@@ -811,6 +803,81 @@ public struct SessionViewportView: View {
         pointerControlMode.isTrackpad
             ? "Trackpad mode — tap to switch to direct touch"
             : "Direct touch — tap to switch to trackpad"
+    }
+
+    private var showsPointerModeButton: Bool {
+        session?.state == .active
+    }
+
+    /// Secondary session commands stay one tap away without widening the
+    /// compact iPhone action row. Pre-connect profile detail keeps Checks,
+    /// Connect, status, and stream quality primary while stream experiments and
+    /// PiP stay discoverable here.
+    private func sessionToolsMenu(iconOnly: Bool) -> some View {
+        Menu {
+            Button {
+                onToggleStreamPowerMode?()
+            } label: {
+                Label(
+                    streamPowerModeLabelText,
+                    systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
+                )
+            }
+            .disabled(onToggleStreamPowerMode == nil)
+            .accessibilityIdentifier("naru.session.tools.streamPowerMode")
+
+            if showsStreamEncodingModeButton {
+                Button {
+                    onToggleStreamEncodingMode?()
+                } label: {
+                    Label(streamEncodingModeLabelText, systemImage: "slider.horizontal.3")
+                }
+                .disabled(onToggleStreamEncodingMode == nil)
+                .accessibilityIdentifier("naru.session.tools.streamEncodingMode")
+            }
+
+            if showsStartupPreflightModeButton {
+                Button {
+                    onToggleStartupPreflightMode?()
+                } label: {
+                    Label(startupPreflightModeLabelText, systemImage: "speedometer")
+                }
+                .disabled(onToggleStartupPreflightMode == nil)
+                .accessibilityIdentifier("naru.session.tools.startupPreflightMode")
+            }
+
+            if showsStartupGlanceScaleModeButton {
+                Button {
+                    onToggleStartupGlanceScaleMode?()
+                } label: {
+                    Label(startupGlanceScaleModeLabelText, systemImage: "viewfinder")
+                }
+                .disabled(onToggleStartupGlanceScaleMode == nil)
+                .accessibilityIdentifier("naru.session.tools.startupGlanceScaleMode")
+            }
+
+            Button {
+                onStartPiPWatch?()
+            } label: {
+                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
+            }
+            .disabled(!canStartPiPWatch)
+            .accessibilityIdentifier("naru.session.tools.pipWatch")
+        } label: {
+            if iconOnly {
+                Label("Session tools", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 34)
+            } else {
+                Label("Session tools", systemImage: "ellipsis.circle")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .buttonStyle(.bordered)
+        .help("Session tools")
+        .accessibilityLabel("Session tools")
+        .accessibilityIdentifier("naru.session.tools.menu")
     }
 
     @ViewBuilder
