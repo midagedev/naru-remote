@@ -572,18 +572,8 @@ public struct SessionViewportView: View {
             if showsDisconnectButton {
                 disconnectButton
             }
-            streamPowerModeButton
-            if showsStreamEncodingModeButton {
-                streamEncodingModeButton
-            }
-            if showsStartupPreflightModeButton {
-                startupPreflightModeButton
-            }
-            if showsStartupGlanceScaleModeButton {
-                startupGlanceScaleModeButton
-            }
             pointerModeButton
-            pipWatchButton(iconOnly: true)
+            immersiveSessionToolsMenu
         }
         .padding(6)
         .background(.ultraThinMaterial)
@@ -594,6 +584,76 @@ public struct SessionViewportView: View {
         )
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
         .accessibilityIdentifier("naru.session.controlBar")
+    }
+
+    /// Secondary live-session commands stay one tap away without widening the
+    /// transient immersive overlay. The always-visible bar keeps only session
+    /// state, disconnect, and pointer mode so the remote screen remains the
+    /// dominant target while controls are revealed.
+    private var immersiveSessionToolsMenu: some View {
+        Menu {
+            Button {
+                onRunChecks?()
+            } label: {
+                Label("Checks", systemImage: "checklist")
+            }
+            .disabled(onRunChecks == nil)
+            .accessibilityIdentifier("naru.session.tools.checks")
+
+            Button {
+                onToggleStreamPowerMode?()
+            } label: {
+                Label(streamPowerModeLabelText, systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf")
+            }
+            .disabled(onToggleStreamPowerMode == nil)
+            .accessibilityIdentifier("naru.session.tools.streamPowerMode")
+
+            if showsStreamEncodingModeButton {
+                Button {
+                    onToggleStreamEncodingMode?()
+                } label: {
+                    Label(streamEncodingModeLabelText, systemImage: "slider.horizontal.3")
+                }
+                .disabled(onToggleStreamEncodingMode == nil)
+                .accessibilityIdentifier("naru.session.tools.streamEncodingMode")
+            }
+
+            if showsStartupPreflightModeButton {
+                Button {
+                    onToggleStartupPreflightMode?()
+                } label: {
+                    Label(startupPreflightModeLabelText, systemImage: "speedometer")
+                }
+                .disabled(onToggleStartupPreflightMode == nil)
+                .accessibilityIdentifier("naru.session.tools.startupPreflightMode")
+            }
+
+            if showsStartupGlanceScaleModeButton {
+                Button {
+                    onToggleStartupGlanceScaleMode?()
+                } label: {
+                    Label(startupGlanceScaleModeLabelText, systemImage: "viewfinder")
+                }
+                .disabled(onToggleStartupGlanceScaleMode == nil)
+                .accessibilityIdentifier("naru.session.tools.startupGlanceScaleMode")
+            }
+
+            Button {
+                onStartPiPWatch?()
+            } label: {
+                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
+            }
+            .disabled(!canStartPiPWatch)
+            .accessibilityIdentifier("naru.session.tools.pipWatch")
+        } label: {
+            Label("Session tools", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
+                .frame(width: 38, height: 34)
+        }
+        .buttonStyle(.bordered)
+        .help("Session tools")
+        .accessibilityLabel("Session tools")
+        .accessibilityIdentifier("naru.session.tools.menu")
     }
 
     private var controlRevealHandle: some View {

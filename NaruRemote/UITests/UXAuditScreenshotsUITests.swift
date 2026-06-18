@@ -435,6 +435,15 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             composeReveal.exists,
             "Active-session compact compose affordance must be reachable"
         )
+        revealSessionControlsIfNeeded(app: app)
+        XCTAssertTrue(
+            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
+            "Active-session immersive controls must collapse secondary commands into a tools menu"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.checks"].exists,
+            "Active-session immersive controls must not keep Checks as a permanent primary button"
+        )
         XCTAssertTrue(
             app.buttons["naru.input.mac-controls.menu"].waitForExistence(timeout: 4),
             "Active-session compact dock must keep Mac controls reachable from a menu"
@@ -903,6 +912,17 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let anyElement = app.descendants(matching: .any)["naru.input.compose-reveal"]
         _ = anyElement.waitForExistence(timeout: 1)
         return anyElement
+    }
+
+    private func revealSessionControlsIfNeeded(app: XCUIApplication) {
+        if app.buttons["naru.session.tools.menu"].exists {
+            return
+        }
+
+        let reveal = app.buttons["naru.session.controls.reveal"]
+        if reveal.waitForExistence(timeout: 4) {
+            reveal.tap()
+        }
     }
 
     // MARK: - Helpers — saving

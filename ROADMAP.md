@@ -273,7 +273,9 @@ Status: pending physical device access
   empty live-session Compose with a 40pt reveal affordance so remote
   screen space remains dominant. Compact live sessions now also collapse
   Mission/App Windows/Switch App Mac controls into a one-tap accessory menu
-  instead of permanently reserving a full control strip.
+  instead of permanently reserving a full control strip, and the immersive
+  top bar keeps only status, Disconnect, and pointer mode primary while
+  secondary commands move into a one-tap Session tools menu.
 - UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
   iPhone/iPad light/dark layout evidence can be captured per worktree
   instead of writing into a fixed checkout path.
