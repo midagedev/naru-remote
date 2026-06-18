@@ -356,6 +356,9 @@ private struct StimulusOptions {
     var titledAnimationWindow: Bool
     var visualFreshnessSidecarPath: String?
     var placeAtTopLeft: Bool
+    var screenIndex: Int?
+    var originXWasSpecified: Bool
+    var originYWasSpecified: Bool
 
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
@@ -370,8 +373,19 @@ private struct StimulusOptions {
             visualFreshnessSidecarPath: ProcessInfo.processInfo.environment[
                 BenchmarkVisualFreshnessSidecar.environmentKey
             ],
-            placeAtTopLeft: false
+            placeAtTopLeft: false,
+            screenIndex: environmentInteger(BenchmarkStreamShapeStimulusEnvironment.screenIndexKey),
+            originXWasSpecified: false,
+            originYWasSpecified: false
         )
+        if let originX = environmentDouble(BenchmarkStreamShapeStimulusEnvironment.originXKey) {
+            options.origin.x = originX
+            options.originXWasSpecified = true
+        }
+        if let originY = environmentDouble(BenchmarkStreamShapeStimulusEnvironment.originYKey) {
+            options.origin.y = originY
+            options.originYWasSpecified = true
+        }
         var index = arguments.startIndex
 
         while index < arguments.endIndex {
@@ -389,6 +403,11 @@ private struct StimulusOptions {
             case "--top-left":
                 options.placeAtTopLeft = true
                 index = arguments.index(after: index)
+            case "--screen-index":
+                if let value = value(after: index, in: arguments).flatMap(Int.init), value >= 0 {
+                    options.screenIndex = value
+                }
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--text-probe-payload":
                 if let value = value(after: index, in: arguments),
                    let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) {
@@ -424,11 +443,13 @@ private struct StimulusOptions {
             case "--x":
                 if let value = value(after: index, in: arguments).flatMap(Double.init) {
                     options.origin.x = value
+                    options.originXWasSpecified = true
                 }
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--y":
                 if let value = value(after: index, in: arguments).flatMap(Double.init) {
                     options.origin.y = value
+                    options.originYWasSpecified = true
                 }
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             default:
@@ -443,14 +464,26 @@ private struct StimulusOptions {
             options.size.width = max(options.size.width, 360)
             options.size.height = max(options.size.height, 140)
         }
-        if options.placeAtTopLeft, let screenFrame = NSScreen.main?.visibleFrame {
-            options.origin.x = screenFrame.minX + 72
-            options.origin.y = max(
-                screenFrame.minY,
-                screenFrame.maxY - options.size.height - 72
-            )
+        if options.placeAtTopLeft, let screenFrame = selectedScreenFrame(index: options.screenIndex) {
+            if !options.originXWasSpecified {
+                options.origin.x = screenFrame.minX + 72
+            }
+            if !options.originYWasSpecified {
+                options.origin.y = max(
+                    screenFrame.minY,
+                    screenFrame.maxY - options.size.height - 72
+                )
+            }
         }
         return options
+    }
+
+    private static func selectedScreenFrame(index: Int?) -> NSRect? {
+        let screens = NSScreen.screens
+        if let index, screens.indices.contains(index) {
+            return screens[index].visibleFrame
+        }
+        return NSScreen.main?.visibleFrame ?? screens.first?.visibleFrame
     }
 
     private static func environmentDuration() -> TimeInterval? {
@@ -465,6 +498,21 @@ private struct StimulusOptions {
             return nil
         }
         return TimeInterval(value).flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    private static func environmentInteger(_ key: String) -> Int? {
+        guard let value = ProcessInfo.processInfo.environment[key] else {
+            return nil
+        }
+        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0 >= 0 ? $0 : nil }
+    }
+
+    private static func environmentDouble(_ key: String) -> Double? {
+        guard let value = ProcessInfo.processInfo.environment[key] else {
+            return nil
+        }
+        return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func value(after index: ArraySlice<String>.Index, in arguments: ArraySlice<String>) -> String? {

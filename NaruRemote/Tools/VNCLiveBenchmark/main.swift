@@ -1033,6 +1033,12 @@ enum VNCLiveBenchmark {
                 environment[key] = value
             }
         }
+        for key in BenchmarkStreamShapeStimulusEnvironment.allowedPlacementEnvironmentKeys {
+            if let value = parent[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                environment[key] = value
+            }
+        }
         return environment
     }
 
@@ -4905,7 +4911,7 @@ private func printUsage() {
       NARU_LIVE_MAC_PASSWORD   redacted from output; optional when --ask-password is used
       NARU_LIVE_MAC_PORT       optional, defaults to 5900
       NARU_LIVE_STIMULUS_COMMAND
-                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, and NARU_LIVE_STIMULUS_TRANSPORT_MODE.
+                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, NARU_LIVE_STIMULUS_TRANSPORT_MODE, and optional NARU_LIVE_STIMULUS_SCREEN_INDEX/X/Y placement hints.
 
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.

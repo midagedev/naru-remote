@@ -90,6 +90,9 @@ Launchctl variables used when present:
   NARU_LIVE_MAC_PORT
   NARU_LIVE_MAC_PASSWORD
   NARU_LIVE_STIMULUS_COMMAND
+  NARU_LIVE_STIMULUS_SCREEN_INDEX
+  NARU_LIVE_STIMULUS_X
+  NARU_LIVE_STIMULUS_Y
   NARU_PHYSICAL_IOS_DEVICE_ID
   NARU_PHYSICAL_IPAD_DEVICE_ID
   NARU_PHYSICAL_IPAD_APP_PATH
@@ -214,6 +217,9 @@ import_live_env() {
   import_env NARU_LIVE_MAC_PASSWORD required
   import_env NARU_LIVE_MAC_PORT optional
   import_env NARU_LIVE_STIMULUS_COMMAND optional
+  import_env NARU_LIVE_STIMULUS_SCREEN_INDEX optional
+  import_env NARU_LIVE_STIMULUS_X optional
+  import_env NARU_LIVE_STIMULUS_Y optional
 }
 
 import_optional_live_env() {
@@ -221,6 +227,9 @@ import_optional_live_env() {
   import_env NARU_LIVE_MAC_PASSWORD optional
   import_env NARU_LIVE_MAC_PORT optional
   import_env NARU_LIVE_STIMULUS_COMMAND optional
+  import_env NARU_LIVE_STIMULUS_SCREEN_INDEX optional
+  import_env NARU_LIVE_STIMULUS_X optional
+  import_env NARU_LIVE_STIMULUS_Y optional
 }
 
 import_physical_device_env() {
