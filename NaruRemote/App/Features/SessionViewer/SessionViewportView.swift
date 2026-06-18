@@ -565,15 +565,16 @@ public struct SessionViewportView: View {
 
             Spacer(minLength: 8)
 
-            checksButton(iconOnly: true)
             if showsConnectButton {
                 connectButton
             }
             if showsDisconnectButton {
                 disconnectButton
             }
-            pointerModeButton
-            immersiveSessionToolsMenu
+            if showsPointerModeButton {
+                pointerModeButton
+            }
+            sessionToolsMenu(includesChecks: true, iconOnly: true)
         }
         .padding(6)
         .background(.ultraThinMaterial)
@@ -586,24 +587,29 @@ public struct SessionViewportView: View {
         .accessibilityIdentifier("naru.session.controlBar")
     }
 
-    /// Secondary live-session commands stay one tap away without widening the
-    /// transient immersive overlay. The always-visible bar keeps only session
-    /// state, disconnect, and pointer mode so the remote screen remains the
-    /// dominant target while controls are revealed.
-    private var immersiveSessionToolsMenu: some View {
+    /// Secondary session commands stay one tap away without widening the
+    /// visible chrome. Active immersive sessions keep only state, disconnect,
+    /// and pointer mode primary; pre-connect detail screens keep Connect and
+    /// Checks primary while stream experiments stay discoverable in this menu.
+    private func sessionToolsMenu(includesChecks: Bool, iconOnly: Bool) -> some View {
         Menu {
-            Button {
-                onRunChecks?()
-            } label: {
-                Label("Checks", systemImage: "checklist")
+            if includesChecks {
+                Button {
+                    onRunChecks?()
+                } label: {
+                    Label("Checks", systemImage: "checklist")
+                }
+                .disabled(onRunChecks == nil)
+                .accessibilityIdentifier("naru.session.tools.checks")
             }
-            .disabled(onRunChecks == nil)
-            .accessibilityIdentifier("naru.session.tools.checks")
 
             Button {
                 onToggleStreamPowerMode?()
             } label: {
-                Label(streamPowerModeLabelText, systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf")
+                Label(
+                    streamPowerModeLabelText,
+                    systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
+                )
             }
             .disabled(onToggleStreamPowerMode == nil)
             .accessibilityIdentifier("naru.session.tools.streamPowerMode")
@@ -646,9 +652,15 @@ public struct SessionViewportView: View {
             .disabled(!canStartPiPWatch)
             .accessibilityIdentifier("naru.session.tools.pipWatch")
         } label: {
-            Label("Session tools", systemImage: "ellipsis.circle")
-                .labelStyle(.iconOnly)
-                .frame(width: 38, height: 34)
+            if iconOnly {
+                Label("Session tools", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 34)
+            } else {
+                Label("Session tools", systemImage: "ellipsis.circle")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .buttonStyle(.bordered)
         .help("Session tools")
@@ -699,18 +711,10 @@ public struct SessionViewportView: View {
                 if showsDisconnectButton {
                     disconnectButton
                 }
-                streamPowerModeButton
-                if showsStreamEncodingModeButton {
-                    streamEncodingModeButton
+                if showsPointerModeButton {
+                    pointerModeButton
                 }
-                if showsStartupPreflightModeButton {
-                    startupPreflightModeButton
-                }
-                if showsStartupGlanceScaleModeButton {
-                    startupGlanceScaleModeButton
-                }
-                pointerModeButton
-                pipWatchButton(iconOnly: false)
+                sessionToolsMenu(includesChecks: false, iconOnly: false)
                 qualityChip
                 statusBadge
             }
@@ -737,18 +741,10 @@ public struct SessionViewportView: View {
                     if showsDisconnectButton {
                         disconnectButton
                     }
-                    streamPowerModeButton
-                    if showsStreamEncodingModeButton {
-                        streamEncodingModeButton
+                    if showsPointerModeButton {
+                        pointerModeButton
                     }
-                    if showsStartupPreflightModeButton {
-                        startupPreflightModeButton
-                    }
-                    if showsStartupGlanceScaleModeButton {
-                        startupGlanceScaleModeButton
-                    }
-                    pointerModeButton
-                    pipWatchButton(iconOnly: true)
+                    sessionToolsMenu(includesChecks: false, iconOnly: true)
                     qualityChip
                     statusBadge
                 }
@@ -824,25 +820,6 @@ public struct SessionViewportView: View {
         .accessibilityIdentifier("naru.session.disconnect")
     }
 
-    @ViewBuilder
-    private func pipWatchButton(iconOnly: Bool) -> some View {
-        Button {
-            onStartPiPWatch?()
-        } label: {
-            if iconOnly {
-                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
-                    .labelStyle(.iconOnly)
-            } else {
-                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
-            }
-        }
-        .buttonStyle(.bordered)
-        .disabled(!canStartPiPWatch)
-        .help(pipWatchButtonHelp)
-        .accessibilityLabel("PiP Watch")
-        .accessibilityIdentifier("naru.session.pipWatch")
-    }
-
     /// Control-bar toggle between direct-touch and trackpad pointer
     /// modes (spec 003 US3 / T015).  Only meaningful while a session is
     /// active — disabled otherwise so it never reads as a live control on
@@ -873,23 +850,8 @@ public struct SessionViewportView: View {
             : "Direct touch — tap to switch to trackpad"
     }
 
-    @ViewBuilder
-    private var streamPowerModeButton: some View {
-        Button {
-            onToggleStreamPowerMode?()
-        } label: {
-            Label(
-                streamPowerModeLabelText,
-                systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.bordered)
-        .tint(streamPowerMode == .powerSaver ? .green : .accentColor)
-        .disabled(onToggleStreamPowerMode == nil)
-        .help(streamPowerModeLabelText)
-        .accessibilityLabel(streamPowerModeLabelText)
-        .accessibilityIdentifier("naru.session.streamPowerMode")
+    private var showsPointerModeButton: Bool {
+        session?.state == .active
     }
 
     private var streamPowerModeLabelText: String {
@@ -900,25 +862,6 @@ public struct SessionViewportView: View {
 
     private var showsStreamEncodingModeButton: Bool {
         session?.state != .active
-    }
-
-    @ViewBuilder
-    private var streamEncodingModeButton: some View {
-        Button {
-            onToggleStreamEncodingMode?()
-        } label: {
-            Label(
-                streamEncodingModeLabelText,
-                systemImage: "slider.horizontal.3"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.bordered)
-        .tint(streamEncodingMode == .standard ? .accentColor : .cyan)
-        .disabled(onToggleStreamEncodingMode == nil)
-        .help(streamEncodingModeLabelText)
-        .accessibilityLabel(streamEncodingModeLabelText)
-        .accessibilityIdentifier("naru.session.streamEncodingMode")
     }
 
     private var streamEncodingModeLabelText: String {
@@ -944,25 +887,6 @@ public struct SessionViewportView: View {
         session?.state != .active
     }
 
-    @ViewBuilder
-    private var startupPreflightModeButton: some View {
-        Button {
-            onToggleStartupPreflightMode?()
-        } label: {
-            Label(
-                startupPreflightModeLabelText,
-                systemImage: "speedometer"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.bordered)
-        .tint(startupPreflightMode == .oneHiddenFrame ? .orange : .accentColor)
-        .disabled(onToggleStartupPreflightMode == nil)
-        .help(startupPreflightModeLabelText)
-        .accessibilityLabel(startupPreflightModeLabelText)
-        .accessibilityIdentifier("naru.session.startupPreflightMode")
-    }
-
     private var startupPreflightModeLabelText: String {
         startupPreflightMode == .oneHiddenFrame
             ? "Startup warm-up enabled — tap to disable"
@@ -971,25 +895,6 @@ public struct SessionViewportView: View {
 
     private var showsStartupGlanceScaleModeButton: Bool {
         session?.state != .active && canUseStartupGlanceScaleMode
-    }
-
-    @ViewBuilder
-    private var startupGlanceScaleModeButton: some View {
-        Button {
-            onToggleStartupGlanceScaleMode?()
-        } label: {
-            Label(
-                startupGlanceScaleModeLabelText,
-                systemImage: "viewfinder"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.bordered)
-        .tint(startupGlanceScaleMode == .standard045 ? .accentColor : .orange)
-        .disabled(onToggleStartupGlanceScaleMode == nil)
-        .help(startupGlanceScaleModeLabelText)
-        .accessibilityLabel(startupGlanceScaleModeLabelText)
-        .accessibilityIdentifier("naru.session.startupGlanceScaleMode")
     }
 
     private var startupGlanceScaleModeLabelText: String {
@@ -2126,14 +2031,6 @@ public struct SessionViewportView: View {
         case .connecting, .authenticating, .degraded, .failed, .closed:
             return true
         }
-    }
-
-    private var pipWatchButtonHelp: String {
-        if isPiPWatchAvailable, onStartPiPWatch == nil {
-            return "PiP renderer pending"
-        }
-
-        return pipWatchStatusText
     }
 
     private var viewportText: String {

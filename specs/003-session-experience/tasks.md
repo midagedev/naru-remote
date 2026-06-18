@@ -176,6 +176,12 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   keeping status, Disconnect, and pointer-mode toggle as primary controls.
   Covered by active-session UX-audit assertions and focused iPhone simulator
   build verification. **Done.**
+- [x] T015bn [B] Profile-detail chrome correction: keep pre-connect iPhone
+  actions focused on Checks, Connect, and status while moving stream tuning,
+  startup experiments, and PiP Watch into the same one-tap `Session tools`
+  menu; hide the disabled pointer-mode toggle until a session is active.
+  Covered by profile-detail UX-audit assertions, focused app tests, and
+  iPhone simulator build verification. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

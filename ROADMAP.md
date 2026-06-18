@@ -275,7 +275,10 @@ Status: pending physical device access
   Mission/App Windows/Switch App Mac controls into a one-tap accessory menu
   instead of permanently reserving a full control strip, and the immersive
   top bar keeps only status, Disconnect, and pointer mode primary while
-  secondary commands move into a one-tap Session tools menu.
+  secondary commands move into a one-tap Session tools menu. Profile detail
+  chrome follows the same rule: Checks, Connect, and status stay primary;
+  stream tuning, startup experiments, PiP Watch, and inactive pointer controls
+  no longer crowd the iPhone action row.
 - UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
   iPhone/iPad light/dark layout evidence can be captured per worktree
   instead of writing into a fixed checkout path.
