@@ -5672,7 +5672,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let streamID = activeFrameStreamID
         let sessionID = session.id
         let profileID = selectedProfileID
-        if case .dragChanged(_, _) = gesture,
+        if Self.isBestEffortCursorFollowGesture(gesture),
            let command = outcome.commandBatch.singleButtonlessPointerMove {
             enqueueCoalescedPointerMove(
                 command,
@@ -5695,6 +5695,16 @@ public final class NaruRemoteAppModel: ObservableObject {
             profileID: profileID
         )
         return result
+    }
+
+    private static func isBestEffortCursorFollowGesture(_ gesture: PointerGesture) -> Bool {
+        if case .dragChanged = gesture {
+            return true
+        }
+        if case .hoverMoved = gesture {
+            return true
+        }
+        return false
     }
 
     // MARK: - Direct Keystroke Streaming Mode

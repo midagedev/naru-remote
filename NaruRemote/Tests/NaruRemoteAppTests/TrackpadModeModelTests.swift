@@ -234,6 +234,38 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(connector.recordedPointerEvents.first?.y, 60)
     }
 
+    func testTrackpadHardwareHoverBypassesStalledReliablePointerQueue() async throws {
+        let connector = TrackpadPointerCapturingConnector(
+            width: 200,
+            height: 100,
+            pointerEventDelays: [.seconds(10)]
+        )
+        let model = try makeModel(
+            connector: connector,
+            outboundInputEventTimeout: .milliseconds(250)
+        )
+        try await connect(model)
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 20, y: 20),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .hoverMoved(viewPoint: CGPoint(x: 150, y: 70)),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        try await waitForPointerEvents(connector, count: 1, timeout: 0.16)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.mask, RFBPointerCommand.released)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.x, 150)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.y, 70)
+        XCTAssertEqual(model.trackpadCursor.position.x, 150, accuracy: 1e-6)
+        XCTAssertEqual(model.trackpadCursor.position.y, 70, accuracy: 1e-6)
+    }
+
     func testTrackpadDragUsesZoomedTransformAndReturnsAttachedAutoPan() async throws {
         let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
         let model = try makeModel(connector: connector)

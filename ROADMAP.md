@@ -239,8 +239,11 @@ lookup primitives
   the diagnostic safe-detail catalog is unaffected by drag dispatch.
   The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
   intentionally does NOT install the drag recognizer.
-- Pointer follow-ups deferred to a later phase: hardware-trackpad
-  parity, hover/cursor preview for hardware pointer devices on iPad
+- Basic iPad hardware pointer hover now feeds trackpad-mode cursor-follow:
+  hovering over the Metal viewport maps through the shared `ViewportTransform`
+  and sends a buttonless pointer move on the best-effort cursor lane. Advanced
+  hardware-trackpad parity (pointer lock, custom pointer regions, modifier-aware
+  gestures) remains deferred.
 - Current boundary does not yet restore remote clipboard contents, emit
   keyboard events beyond the existing paste shim, support multi-button
   pointer or scroll, or verify saved credentials against real VNC

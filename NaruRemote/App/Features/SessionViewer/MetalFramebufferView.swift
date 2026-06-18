@@ -856,6 +856,12 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         dragRecognizer.cancelsTouchesInView = false
         dragRecognizer.delegate = self
 
+        let hoverRecognizer = UIHoverGestureRecognizer(
+            target: self,
+            action: #selector(handleHoverGesture(_:))
+        )
+        hoverRecognizer.cancelsTouchesInView = false
+
         addGestureRecognizer(tapRecognizer)
         addGestureRecognizer(doubleTapRecognizer)
         addGestureRecognizer(secondaryTapRecognizer)
@@ -863,6 +869,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(dragRecognizer)
+        addGestureRecognizer(hoverRecognizer)
         isUserInteractionEnabled = true
     }
 
@@ -1136,6 +1143,23 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             dispatchTrackpadGesture(.secondaryTap(viewPoint: point))
         } else {
             rightClickHandler?(point, bounds.size)
+        }
+    }
+
+    /// Hardware trackpad/mouse hover in trackpad mode. This follows
+    /// the iPadOS indirect-input path and maps the current pointer
+    /// location to the remote framebuffer immediately; touch drags keep
+    /// the existing relative trackpad semantics.
+    @MainActor
+    @objc private func handleHoverGesture(_ recognizer: UIHoverGestureRecognizer) {
+        guard pointerControlMode.isTrackpad else {
+            return
+        }
+        switch recognizer.state {
+        case .began, .changed:
+            dispatchTrackpadGesture(.hoverMoved(viewPoint: recognizer.location(in: self)))
+        default:
+            break
         }
     }
 
@@ -1949,6 +1973,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case let .tap(viewPoint),
              let .secondaryTap(viewPoint),
              let .longPress(viewPoint),
+             let .hoverMoved(viewPoint),
              let .dragBegan(viewPoint),
              let .dragChanged(viewPoint, _),
              let .dragEnded(viewPoint):

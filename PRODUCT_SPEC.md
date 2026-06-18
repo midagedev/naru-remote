@@ -290,8 +290,10 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
   aspect-fit이 세로 공간을 낭비할 때는 로컬 crop-to-fill baseline을 사용한다.
 - 세션 조작은 direct-touch와 trackpad pointer mode를 모두 지원한다. Trackpad
   mode는 원격 cursor를 상대 이동으로 조작하고 tap/right-tap/drag/scroll을
-  기존 RFB pointer event lane으로 보낸다. Pinch zoom, zoomed pan, PiP focus
-  crop은 로컬 transform이며 원격 입력을 발생시키지 않는다.
+  기존 RFB pointer event lane으로 보낸다. iPad hardware trackpad/mouse hover는
+  trackpad mode에서 현재 hover 지점을 같은 viewport transform으로 원격
+  framebuffer 좌표에 매핑해 buttonless pointer move로 보낸다. Pinch zoom,
+  zoomed pan, PiP focus crop은 로컬 transform이며 원격 입력을 발생시키지 않는다.
 - active session의 Remote Input Dock은 compact accessory로 내려가며, 빈
   Compose 상태에서는 TextEditor를 숨기고 40pt Compose affordance만 남겨 원격
   화면 공간을 우선한다. 사용자가 affordance를 탭하거나 Compose에 focus/draft가

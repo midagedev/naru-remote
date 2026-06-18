@@ -182,6 +182,11 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   menu; hide the disabled pointer-mode toggle until a session is active.
   Covered by profile-detail UX-audit assertions, focused app tests, and
   iPhone simulator build verification. **Done.**
+- [x] T015bo [B] iPad hardware pointer follow-up: route
+  `UIHoverGestureRecognizer` samples from the Metal viewport into trackpad-mode
+  cursor-follow, mapping the hover point through `ViewportTransform` and using
+  the same latest-value/best-effort pointer lane as touch trackpad moves.
+  Covered by `PointerGestureResolverTests` and `TrackpadModeModelTests`. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
