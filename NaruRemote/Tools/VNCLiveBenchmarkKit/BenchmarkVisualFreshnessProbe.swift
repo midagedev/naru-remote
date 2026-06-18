@@ -161,14 +161,12 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         for cellIndex in 0..<markerCellCount {
             let sampleX = x + cellIndex * cellSize + cellSize / 2
             let sampleY = y + cellSize / 2
-            let nibble = cellIndex < sentinelNibbles.count
-                ? nearestPaletteIndexAtPoint(in: framebuffer, x: sampleX, y: sampleY)
-                : nearestPaletteIndex(
-                    in: framebuffer,
-                    x: sampleX,
-                    y: sampleY,
-                    radius: min(max(cellSize / 8, 1), 3)
-                )
+            let nibble = nearestPaletteIndex(
+                in: framebuffer,
+                x: sampleX,
+                y: sampleY,
+                radius: min(max(cellSize / 8, 1), 3)
+            )
             guard let nibble else {
                 return nil
             }
@@ -187,17 +185,6 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         return sequenceNibbles.reduce(0) { partial, nibble in
             (partial << 4) | nibble
         }
-    }
-
-    private static func nearestPaletteIndexAtPoint(
-        in framebuffer: RFBRawFramebuffer,
-        x: Int,
-        y: Int
-    ) -> Int? {
-        guard let color = framebuffer[x, y] else {
-            return nil
-        }
-        return nearestPaletteIndex(for: color)
     }
 
     private static func nearestPaletteIndex(

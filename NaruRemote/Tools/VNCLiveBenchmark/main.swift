@@ -361,8 +361,8 @@ enum VNCLiveBenchmark {
             )
         }
         let baselineSequence = baselineObservation.sequence
-        let outsidePoint = controlledObservationTargetOutsidePoint(framebuffer: firstFrameResult.framebuffer)
-        let point = controlledObservationTargetCenterPoint(framebuffer: firstFrameResult.framebuffer)
+        let outsidePoint = controlledTopLeftObservationTargetOutsidePoint(framebuffer: firstFrameResult.framebuffer)
+        let point = controlledTopLeftObservationTargetCenterPoint(framebuffer: firstFrameResult.framebuffer)
         do {
             try await client.sendPointerEvent(buttonMask: 0x00, x: outsidePoint.x, y: outsidePoint.y)
             try await Task.sleep(for: .milliseconds(40))
@@ -742,6 +742,7 @@ enum VNCLiveBenchmark {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = [
             "--hover-probe",
+            "--top-left",
             "--visual-freshness-sidecar",
             sidecarURL.path,
             "--duration",
@@ -820,6 +821,28 @@ enum VNCLiveBenchmark {
             framebuffer.height - targetCenterYFromBottom,
             upperBound: framebuffer.height
         )
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledTopLeftObservationTargetCenterPoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterY = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(targetCenterY, upperBound: framebuffer.height)
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledTopLeftObservationTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterY = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX - Int(300.0 * scale), upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(targetCenterY, upperBound: framebuffer.height)
         return (UInt16(x), UInt16(y))
     }
 

@@ -39,6 +39,30 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
     }
 
+    func testMarkerDecodeToleratesNoisySentinelCenterPixel() throws {
+        let sequence = 0x0000_00A7
+        var framebuffer = RFBRawFramebuffer(
+            width: 420,
+            height: 180,
+            fill: RFBColor(red: 12, green: 12, blue: 12)
+        )
+        drawMarker(
+            sequence: sequence,
+            x: 36,
+            y: 48,
+            cellSize: 20,
+            framebuffer: &framebuffer
+        )
+        replacePixel(
+            x: 36 + 10,
+            y: 48 + 10,
+            color: RFBColor(red: 12, green: 12, blue: 12),
+            framebuffer: &framebuffer
+        )
+
+        XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
+    }
+
     func testMarkerDecodeReturnsNilForLargeFrameWithoutMarker() throws {
         let framebuffer = RFBRawFramebuffer(
             width: 1_920,
@@ -96,6 +120,21 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
                 }
             }
         }
+        framebuffer = RFBRawFramebuffer(
+            width: framebuffer.width,
+            height: framebuffer.height,
+            pixels: pixels
+        )
+    }
+
+    private func replacePixel(
+        x: Int,
+        y: Int,
+        color: RFBColor,
+        framebuffer: inout RFBRawFramebuffer
+    ) {
+        var pixels = framebuffer.pixels
+        pixels[y * framebuffer.width + x] = color
         framebuffer = RFBRawFramebuffer(
             width: framebuffer.width,
             height: framebuffer.height,

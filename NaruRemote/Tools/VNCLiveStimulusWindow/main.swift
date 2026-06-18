@@ -568,10 +568,42 @@ private final class HoverProbeView: NSView {
         let cellSize = CGFloat(BenchmarkVisualFreshnessMarker.markerPointCellSize)
         let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
         let markerWidth = CGFloat(BenchmarkVisualFreshnessMarker.markerCellCount) * cellSize
-        let origin = NSPoint(
-            x: max(18, bounds.midX - markerWidth / 2),
-            y: max(18, bounds.height - cellSize - 24)
-        )
+        let inset: CGFloat = 12
+        let anchors = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: max(inset, bounds.width - markerWidth - inset), y: inset),
+            NSPoint(x: inset, y: max(inset, bounds.height - cellSize - inset)),
+            NSPoint(
+                x: max(inset, bounds.width - markerWidth - inset),
+                y: max(inset, bounds.height - cellSize - inset)
+            ),
+            NSPoint(x: max(inset, bounds.midX - markerWidth / 2), y: inset),
+            NSPoint(
+                x: max(inset, bounds.midX - markerWidth / 2),
+                y: max(inset, bounds.height - cellSize - inset)
+            )
+        ]
+        var drawnOrigins = Set<String>()
+        for origin in anchors {
+            let clampedOrigin = NSPoint(
+                x: min(max(origin.x, inset), max(inset, bounds.width - markerWidth - inset)),
+                y: min(max(origin.y, inset), max(inset, bounds.height - cellSize - inset))
+            )
+            let key = "\(Int(clampedOrigin.x.rounded())):\(Int(clampedOrigin.y.rounded()))"
+            guard drawnOrigins.insert(key).inserted else {
+                continue
+            }
+            drawVisualFreshnessMarker(at: clampedOrigin, cellSize: cellSize, nibbles: nibbles)
+        }
+
+        drawVisualFreshnessTimestampLabel()
+    }
+
+    private func drawVisualFreshnessMarker(
+        at origin: NSPoint,
+        cellSize: CGFloat,
+        nibbles: [Int]
+    ) {
         for (index, nibble) in nibbles.enumerated() {
             let color = BenchmarkVisualFreshnessMarker.palette[nibble]
             NSColor(
@@ -587,6 +619,21 @@ private final class HoverProbeView: NSView {
                 height: cellSize
             )).fill()
         }
+    }
+
+    private func drawVisualFreshnessTimestampLabel() {
+        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
+        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
+        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
+        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(
+            in: NSRect(x: 18, y: 48, width: 284, height: 28),
+            withAttributes: attributes
+        )
     }
 }
 
