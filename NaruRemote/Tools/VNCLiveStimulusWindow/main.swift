@@ -39,7 +39,7 @@ enum VNCLiveStimulusWindow {
             defer: false
         )
         window.title = options.titledAnimationWindow ? "Naru Video Probe" : ""
-        window.level = isVisualFreshnessProbe ? .statusBar : (options.titledAnimationWindow ? .normal : .floating)
+        window.level = options.titledAnimationWindow ? .normal : .floating
         window.backgroundColor = .black
         window.isOpaque = true
         window.ignoresMouseEvents = isVisualFreshnessProbe || !options.titledAnimationWindow
@@ -76,7 +76,7 @@ enum VNCLiveStimulusWindow {
             defer: false
         )
         window.title = "Naru Hover Probe"
-        window.level = .statusBar
+        window.level = .floating
         window.backgroundColor = .black
         window.isOpaque = true
         window.acceptsMouseMovedEvents = true

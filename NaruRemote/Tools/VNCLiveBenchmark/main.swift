@@ -1336,6 +1336,7 @@ enum VNCLiveBenchmark {
             maxSamples: maxSamples,
             durationLimit: durationLimit,
             idleTimeout: idleTimeout,
+            firstFrameTimeout: timeout,
             warmupSeconds: stimulusWarmupSeconds,
             frameInterval: stimulusFrameInterval
         )
@@ -1983,6 +1984,7 @@ enum VNCLiveBenchmark {
         maxSamples: Int,
         durationLimit: TimeInterval?,
         idleTimeout: TimeInterval,
+        firstFrameTimeout: TimeInterval,
         warmupSeconds: TimeInterval,
         frameInterval: TimeInterval
     ) -> StreamShapeStimulusStart {
@@ -2011,6 +2013,7 @@ enum VNCLiveBenchmark {
                         maxSamples: maxSamples,
                         durationLimit: durationLimit,
                         idleTimeout: idleTimeout,
+                        firstFrameTimeout: firstFrameTimeout,
                         warmupSeconds: warmupSeconds
                     )
                 ),
@@ -2043,6 +2046,7 @@ enum VNCLiveBenchmark {
         maxSamples: Int,
         durationLimit: TimeInterval?,
         idleTimeout: TimeInterval,
+        firstFrameTimeout: TimeInterval,
         warmupSeconds: TimeInterval
     ) -> TimeInterval {
         let streamDuration: TimeInterval
@@ -2051,7 +2055,7 @@ enum VNCLiveBenchmark {
         } else {
             streamDuration = Double(max(maxSamples, 1)) * max(idleTimeout, 0.001)
         }
-        return max(streamDuration + warmupSeconds + idleTimeout + 1, 1)
+        return max(streamDuration + warmupSeconds + max(firstFrameTimeout, 0) + idleTimeout + 1, 1)
     }
 
     private static func streamShapeSample(

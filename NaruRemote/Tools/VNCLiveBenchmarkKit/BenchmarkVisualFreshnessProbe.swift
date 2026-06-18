@@ -126,16 +126,17 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         let leftBandWidth = min(fullWidth, 1_800)
         let rightBandMinX = max(0, fullWidth - 1_800)
         let bottomBandMinY = max(0, fullHeight - 1_200)
-        var bands: [SearchBand] = [
-            SearchBand(minX: 0, minY: 0, maxX: leftBandWidth, maxY: topBandHeight),
-            SearchBand(minX: rightBandMinX, minY: 0, maxX: fullWidth, maxY: topBandHeight),
-            SearchBand(minX: 0, minY: bottomBandMinY, maxX: leftBandWidth, maxY: fullHeight),
-            SearchBand(minX: rightBandMinX, minY: bottomBandMinY, maxX: fullWidth, maxY: fullHeight)
-        ]
+        var bands: [SearchBand] = []
 
         if fullWidth <= 1_800 || fullHeight <= 1_200 {
             bands.append(SearchBand(minX: 0, minY: 0, maxX: fullWidth, maxY: fullHeight))
         } else {
+            bands.append(SearchBand(minX: 0, minY: 0, maxX: fullWidth, maxY: topBandHeight))
+            bands.append(SearchBand(minX: 0, minY: bottomBandMinY, maxX: fullWidth, maxY: fullHeight))
+            if topBandHeight < bottomBandMinY {
+                bands.append(SearchBand(minX: 0, minY: topBandHeight, maxX: leftBandWidth, maxY: bottomBandMinY))
+                bands.append(SearchBand(minX: rightBandMinX, minY: topBandHeight, maxX: fullWidth, maxY: bottomBandMinY))
+            }
             let centerMinX = max(0, (fullWidth / 2) - 900)
             let centerMaxX = min(fullWidth, centerMinX + 1_800)
             let centerMinY = max(0, (fullHeight / 2) - 600)

@@ -39,6 +39,24 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
     }
 
+    func testMarkerDecodeScansWideTopBandForCompositeFramebuffers() throws {
+        let sequence = 0x0000_0BEE
+        var framebuffer = RFBRawFramebuffer(
+            width: 5_600,
+            height: 1_800,
+            fill: RFBColor(red: 19, green: 20, blue: 21)
+        )
+        drawMarker(
+            sequence: sequence,
+            x: 2_440,
+            y: 88,
+            cellSize: 40,
+            framebuffer: &framebuffer
+        )
+
+        XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
+    }
+
     func testMarkerDecodeToleratesNoisySentinelCenterPixel() throws {
         let sequence = 0x0000_00A7
         var framebuffer = RFBRawFramebuffer(

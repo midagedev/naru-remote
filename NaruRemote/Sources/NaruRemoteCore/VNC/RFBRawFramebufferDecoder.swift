@@ -235,6 +235,81 @@ public struct RFBFrameDamageRect: Codable, Equatable, Sendable {
     }
 }
 
+extension RFBRawFramebuffer {
+    @discardableResult
+    mutating func fillRasterRunTrackingChange(
+        originX: Int,
+        originY: Int,
+        tileWidth: Int,
+        tileHeight: Int,
+        startRaster: Int,
+        runLength: Int,
+        color: RFBColor
+    ) -> (rectangle: RFBFrameDamageRect?, changedPixelCount: Int) {
+        let tilePixelCount = tileWidth * tileHeight
+        guard tileWidth > 0,
+              tileHeight > 0,
+              runLength > 0,
+              startRaster >= 0,
+              startRaster <= tilePixelCount - runLength
+        else {
+            return (nil, 0)
+        }
+
+        var raster = startRaster
+        var remaining = runLength
+        var changed = 0
+        var minX: Int?
+        var minY: Int?
+        var maxX: Int?
+        var maxY: Int?
+
+        while remaining > 0 {
+            let localY = raster / tileWidth
+            let localX = raster - localY * tileWidth
+            let rowRun = min(remaining, tileWidth - localX)
+            let absoluteY = originY + localY
+            let rowStartX = originX + localX
+            let rowEndX = rowStartX + rowRun
+
+            if absoluteY >= 0, absoluteY < height, rowStartX < width, rowEndX > 0 {
+                let clampedStartX = max(rowStartX, 0)
+                let clampedEndX = min(rowEndX, width)
+                let base = absoluteY * width
+                var x = clampedStartX
+                while x < clampedEndX {
+                    let index = base + x
+                    if pixels[index] != color {
+                        pixels[index] = color
+                        changed += 1
+                        minX = min(minX ?? x, x)
+                        minY = min(minY ?? absoluteY, absoluteY)
+                        maxX = max(maxX ?? x, x)
+                        maxY = max(maxY ?? absoluteY, absoluteY)
+                    }
+                    x += 1
+                }
+            }
+
+            raster += rowRun
+            remaining -= rowRun
+        }
+
+        guard let minX, let minY, let maxX, let maxY else {
+            return (nil, 0)
+        }
+        return (
+            RFBFrameDamageRect(
+                x: minX,
+                y: minY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1
+            ),
+            changed
+        )
+    }
+}
+
 public struct RFBServerCursor: Codable, Equatable, Sendable {
     public let width: Int
     public let height: Int
