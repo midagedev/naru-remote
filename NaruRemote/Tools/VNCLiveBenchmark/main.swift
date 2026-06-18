@@ -921,6 +921,7 @@ enum VNCLiveBenchmark {
         var samples: [BenchmarkStreamShapeSample] = []
         var firstFrameMilliseconds: Int?
         var firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
+        var firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation?
         var firstTimeoutMilliseconds: Int?
         var elapsedMilliseconds: Int?
         var failureLabel: String?
@@ -929,6 +930,7 @@ enum VNCLiveBenchmark {
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
         var adaptiveClientPressurePacingSamples = 0
         var viewportInteractionPacingSamples = 0
+        let visualFreshnessProbe = BenchmarkVisualFreshnessProbe.fromEnvironment()
         defer {
             pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
             client.disconnect()
@@ -1024,6 +1026,11 @@ enum VNCLiveBenchmark {
                 initialRequestRegion: firstFrameRequestRegion
             )
             firstFrameReceiveTiming = firstFrame?.timing
+            if let firstFrame {
+                firstFrameVisualFreshnessObservation = visualFreshnessProbe?.observe(
+                    framebuffer: firstFrame.framebuffer
+                )
+            }
             firstFrameMilliseconds = milliseconds(since: firstFrameStartedAt)
         } catch {
             failureLabel = safeFailureLabel(for: error, phase: .streamFirstFrame)
@@ -1118,7 +1125,8 @@ enum VNCLiveBenchmark {
                 }
                 let sample = streamShapeSample(
                     from: frame,
-                    durationMilliseconds: milliseconds(since: startedAt)
+                    durationMilliseconds: milliseconds(since: startedAt),
+                    visualFreshnessProbe: visualFreshnessProbe
                 )
                 samples.append(sample)
                 clientPressureState.record(
@@ -1180,6 +1188,7 @@ enum VNCLiveBenchmark {
             attemptedSamples: attemptedSamples,
             firstFrameMilliseconds: firstFrameMilliseconds,
             firstFrameReceiveTiming: firstFrameReceiveTiming,
+            firstFrameVisualFreshnessObservation: firstFrameVisualFreshnessObservation,
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
@@ -1245,6 +1254,9 @@ enum VNCLiveBenchmark {
             orderOrdinal: orderOrdinal,
             firstFrameMilliseconds: probe.firstFrameMilliseconds,
             firstFrameReceiveTiming: probe.firstFrameReceiveTiming,
+            firstFrameVisualFreshnessSequence: probe.firstFrameVisualFreshnessObservation?.sequence,
+            firstFrameVisualFreshnessMilliseconds: probe.firstFrameVisualFreshnessObservation?
+                .freshnessMilliseconds,
             summary: probe.summary
         )
     }
@@ -1690,7 +1702,8 @@ enum VNCLiveBenchmark {
 
     private static func streamShapeSample(
         from frame: RFBFramePumpFrame,
-        durationMilliseconds: Int
+        durationMilliseconds: Int,
+        visualFreshnessProbe: BenchmarkVisualFreshnessProbe? = nil
     ) -> BenchmarkStreamShapeSample {
         let framebufferArea = max(frame.framebuffer.width * frame.framebuffer.height, 1)
         let dirtyArea = frame.dirtyRectangles.reduce(0) { total, rect in
@@ -1706,6 +1719,7 @@ enum VNCLiveBenchmark {
             shouldUpload: kind == .contentUpdate
         )
         let hasZRLEMeasurement = frame.encodingMix.zrleRectangles > 0
+        let visualFreshnessObservation = visualFreshnessProbe?.observe(framebuffer: frame.framebuffer)
 
         return BenchmarkStreamShapeSample(
             kind: kind,
@@ -1722,7 +1736,9 @@ enum VNCLiveBenchmark {
             clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds,
             zrleInflateMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleInflateMilliseconds : nil,
             zrleTileApplyMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleTileApplyMilliseconds : nil,
-            actualEncodingMix: frame.encodingMix
+            actualEncodingMix: frame.encodingMix,
+            visualFreshnessSequence: visualFreshnessObservation?.sequence,
+            visualFreshnessMilliseconds: visualFreshnessObservation?.freshnessMilliseconds
         )
     }
 
@@ -2980,7 +2996,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 68
+        self.schemaVersion = 69
         self.target = "configured-redacted"
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
@@ -3065,6 +3081,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
             "zrle decode phase timing metrics emit aggregate millisecond summaries only",
             "stream-shape stimulus reports emit only fixed mode labels, warmup seconds, and configured cadence; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
+            "visual freshness probes emit decoded sequence ids and aggregate millisecond summaries only; sidecar timestamps and live pixels are not emitted",
             "profile-order metrics emit only fixed iteration/order ordinals and aggregate per-profile summaries",
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
             "stream-shape request-pipeline depth emits only a clamped integer and no outstanding-request coordinates, bytes, pixels, or payloads",
@@ -3191,6 +3208,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
     let firstFrameRequestAreaPermille: Int?
     let firstFrameMilliseconds: Int?
     let firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
+    let firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation?
     let summary: BenchmarkStreamShapeSummary
 
     init(profileReport: BenchmarkStreamShapeProfileReport) {
@@ -3199,6 +3217,12 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         self.firstFrameRequestAreaPermille = profileReport.firstFrameRequestAreaPermille
         self.firstFrameMilliseconds = profileReport.firstFrameMilliseconds
         self.firstFrameReceiveTiming = profileReport.firstFrameReceiveTiming
+        self.firstFrameVisualFreshnessObservation = profileReport.firstFrameVisualFreshnessSequence.map {
+            BenchmarkVisualFreshnessObservation(
+                sequence: $0,
+                freshnessMilliseconds: profileReport.firstFrameVisualFreshnessMilliseconds
+            )
+        }
         self.summary = profileReport.summary
     }
 
@@ -3210,6 +3234,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         attemptedSamples: Int? = nil,
         firstFrameMilliseconds: Int?,
         firstFrameReceiveTiming: RFBFramebufferUpdateTiming? = nil,
+        firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation? = nil,
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
@@ -3226,6 +3251,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         self.firstFrameRequestAreaPermille = firstFrameRequestAreaPermille.map { min(max($0, 0), 1_000) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.firstFrameReceiveTiming = firstFrameReceiveTiming
+        self.firstFrameVisualFreshnessObservation = firstFrameVisualFreshnessObservation
         self.summary = BenchmarkStreamShapeSummary(
             requestedSamples: requestedSamples,
             attemptedSamples: attemptedSamples,
@@ -4315,7 +4341,7 @@ private func printUsage() {
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles; remote-desktop-10fps runs the fixed 0.25 visible-glance local-low-latency-rgb565 VNC gate against request-response and ContinuousUpdates under iphone-remote-desktop-10fps-v1. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v68 reports network-condition, request-pipeline depth, viewport request-region area, first-frame request mode, visible-glance scale permille, synthetic first-frame visual-audit coverage permille, first-frame request-area permille, first-frame receive timing, first-frame payload-read traffic pressure, sustained first-byte/payload-read traffic pressure, request/server cadence diagnosis, transport cadence diagnosis, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                            Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles; remote-desktop-10fps runs the fixed 0.25 visible-glance local-low-latency-rgb565 VNC gate against request-response and ContinuousUpdates under iphone-remote-desktop-10fps-v1. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v69 reports network-condition, request-pipeline depth, viewport request-region area, first-frame request mode, visible-glance scale permille, synthetic first-frame visual-audit coverage permille, first-frame request-area permille, first-frame receive timing, first-frame visual freshness, first-frame payload-read traffic pressure, sustained visual freshness, sustained first-byte/payload-read traffic pressure, request/server cadence diagnosis, transport cadence diagnosis, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS

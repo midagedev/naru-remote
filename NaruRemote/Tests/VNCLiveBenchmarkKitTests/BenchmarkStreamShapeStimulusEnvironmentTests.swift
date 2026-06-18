@@ -11,6 +11,7 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
                 "NARU_LIVE_MAC_PASSWORD": "secret",
                 "NARU_LIVE_MAC_PORT": "5900",
                 "NARU_LIVE_STIMULUS_COMMAND": "secret command",
+                "NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE": "/tmp/naru-freshness.jsonl",
                 "UNRELATED_SECRET": "secret"
             ],
             durationSeconds: "7.25",
@@ -25,6 +26,7 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"], "0.0833")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_PROFILE_LABEL"], "local-low-latency")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_TRANSPORT_MODE"], "request-response")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE"], "/tmp/naru-freshness.jsonl")
         XCTAssertNil(environment["NARU_LIVE_MAC_HOST"])
         XCTAssertNil(environment["NARU_LIVE_MAC_PASSWORD"])
         XCTAssertNil(environment["NARU_LIVE_MAC_PORT"])

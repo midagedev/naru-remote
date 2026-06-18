@@ -35,7 +35,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     clientProcessingMilliseconds: 5,
                     zrleInflateMilliseconds: 3,
                     zrleTileApplyMilliseconds: 7,
-                    actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1)
+                    actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1),
+                    visualFreshnessSequence: 12,
+                    visualFreshnessMilliseconds: 92
                 ),
                 BenchmarkStreamShapeSample(
                     kind: .emptyUpdate,
@@ -47,7 +49,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     networkReadMilliseconds: 47,
                     firstByteWaitMilliseconds: 40,
                     clientProcessingMilliseconds: 1,
-                    actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1)
+                    actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1),
+                    visualFreshnessSequence: 13,
+                    visualFreshnessMilliseconds: 148
                 )
             ],
             elapsedMilliseconds: 100,
@@ -85,6 +89,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
         XCTAssertEqual(try XCTUnwrap(summary.zrleInflateLatency).averageMilliseconds, 3)
         XCTAssertEqual(try XCTUnwrap(summary.zrleTileApplyLatency).p95Milliseconds, 7)
+        XCTAssertEqual(summary.visualFreshnessSampleCount, 2)
+        XCTAssertEqual(try XCTUnwrap(summary.visualFreshnessLatency).averageMilliseconds, 120)
+        XCTAssertEqual(try XCTUnwrap(summary.visualFreshnessLatency).p95Milliseconds, 148)
         XCTAssertEqual(summary.phaseBudget.sampleCount, 2)
         XCTAssertEqual(summary.phaseBudget.networkReadSharePermille, 838)
         XCTAssertEqual(summary.phaseBudget.firstByteWaitSharePermille, 866)

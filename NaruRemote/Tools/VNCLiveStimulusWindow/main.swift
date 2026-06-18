@@ -28,6 +28,7 @@ enum VNCLiveStimulusWindow {
     private static func runAnimation(options: StimulusOptions, app: NSApplication) {
         app.setActivationPolicy(options.titledAnimationWindow ? .regular : .accessory)
         let view = StimulusView(frame: NSRect(origin: .zero, size: options.size))
+        view.configureVisualFreshnessSidecar(path: options.visualFreshnessSidecarPath)
         let window = NSWindow(
             contentRect: NSRect(origin: options.origin, size: options.size),
             styleMask: options.titledAnimationWindow ? [.titled] : [.borderless],
@@ -131,6 +132,7 @@ private final class StimulusController: NSObject {
     }
 
     func start() {
+        view.recordCurrentVisualFreshnessFrame()
         frameTimer = Timer.scheduledTimer(
             timeInterval: frameInterval,
             target: self,
@@ -278,6 +280,8 @@ private struct StimulusOptions {
     var textProbePayload: BenchmarkTextKeystrokeProbePayload
     var resultFilePath: String?
     var titledAnimationWindow: Bool
+    var visualFreshnessSidecarPath: String?
+    var placeAtTopLeft: Bool
 
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
@@ -288,7 +292,11 @@ private struct StimulusOptions {
             origin: NSPoint(x: 72, y: 72),
             textProbePayload: .unicodeHangul,
             resultFilePath: nil,
-            titledAnimationWindow: false
+            titledAnimationWindow: false,
+            visualFreshnessSidecarPath: ProcessInfo.processInfo.environment[
+                BenchmarkVisualFreshnessSidecar.environmentKey
+            ],
+            placeAtTopLeft: false
         )
         var index = arguments.startIndex
 
@@ -301,6 +309,9 @@ private struct StimulusOptions {
             case "--titled-animation-window":
                 options.titledAnimationWindow = true
                 index = arguments.index(after: index)
+            case "--top-left":
+                options.placeAtTopLeft = true
+                index = arguments.index(after: index)
             case "--text-probe-payload":
                 if let value = value(after: index, in: arguments),
                    let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) {
@@ -309,6 +320,9 @@ private struct StimulusOptions {
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--result-file":
                 options.resultFilePath = value(after: index, in: arguments)
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
+            case "--visual-freshness-sidecar":
+                options.visualFreshnessSidecarPath = value(after: index, in: arguments)
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--duration":
                 if let value = value(after: index, in: arguments).flatMap(TimeInterval.init), value > 0 {
@@ -352,6 +366,13 @@ private struct StimulusOptions {
             options.size.width = max(options.size.width, 360)
             options.size.height = max(options.size.height, 140)
         }
+        if options.placeAtTopLeft, let screenFrame = NSScreen.main?.visibleFrame {
+            options.origin.x = screenFrame.minX + 72
+            options.origin.y = max(
+                screenFrame.minY,
+                screenFrame.maxY - options.size.height - 72
+            )
+        }
         return options
     }
 
@@ -385,11 +406,31 @@ private enum StimulusMode {
 
 private final class StimulusView: NSView {
     private var frameIndex = 0
+    private var visualFreshnessSidecarPath: String?
 
     override var isFlipped: Bool { true }
 
+    func configureVisualFreshnessSidecar(path: String?) {
+        visualFreshnessSidecarPath = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if visualFreshnessSidecarPath?.isEmpty == true {
+            visualFreshnessSidecarPath = nil
+        }
+    }
+
+    func recordCurrentVisualFreshnessFrame() {
+        guard let visualFreshnessSidecarPath else {
+            return
+        }
+        BenchmarkVisualFreshnessSidecar.append(
+            sequence: frameIndex,
+            to: visualFreshnessSidecarPath
+        )
+        needsDisplay = true
+    }
+
     func advance() {
         frameIndex += 1
+        recordCurrentVisualFreshnessFrame()
         needsDisplay = true
     }
 
@@ -423,5 +464,45 @@ private final class StimulusView: NSView {
                 height: markerSize
             )
         ).fill()
+
+        drawVisualFreshnessOverlayIfNeeded()
+    }
+
+    private func drawVisualFreshnessOverlayIfNeeded() {
+        guard visualFreshnessSidecarPath != nil else {
+            return
+        }
+
+        let cellSize = CGFloat(BenchmarkVisualFreshnessMarker.markerPointCellSize)
+        let origin = NSPoint(x: 12, y: 12)
+        let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
+        for (index, nibble) in nibbles.enumerated() {
+            let color = BenchmarkVisualFreshnessMarker.palette[nibble]
+            NSColor(
+                calibratedRed: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
+                alpha: 1
+            ).setFill()
+            NSBezierPath(rect: NSRect(
+                x: origin.x + CGFloat(index) * cellSize,
+                y: origin.y,
+                width: cellSize,
+                height: cellSize
+            )).fill()
+        }
+
+        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
+        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
+        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
+        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(
+            in: NSRect(x: 18, y: 48, width: 284, height: 28),
+            withAttributes: attributes
+        )
     }
 }

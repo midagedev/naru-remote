@@ -31,6 +31,10 @@ public enum BenchmarkStreamShapeStimulusEnvironment {
         environment[frameIntervalKey] = frameIntervalSeconds
         environment[profileLabelKey] = profileLabel
         environment[transportModeKey] = transportMode
+        if let visualFreshnessFile = parent[BenchmarkVisualFreshnessSidecar.environmentKey],
+           !visualFreshnessFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            environment[BenchmarkVisualFreshnessSidecar.environmentKey] = visualFreshnessFile
+        }
         return environment
     }
 }

@@ -43,6 +43,7 @@ Modes:
   remote-desktop-10fps-profile-cadence-sweep Compare 10fps VNC profiles for first-byte/server cadence.
   remote-desktop-10fps-server-cadence-probe Compare network/request-region startup axes for server cadence.
   remote-desktop-10fps-transport-cadence-drilldown Compare request-response vs ContinuousUpdates under the 10fps VNC gate.
+  remote-desktop-visual-freshness-probe Local timestamp/marker stimulus + VNC visual freshness latency probe.
   remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   remote-desktop-readiness-summary-self-test Fast regression for readiness gate summary labels.
   viewport-interaction-trace Compare VNC off/app viewport-interaction live traces.
@@ -346,6 +347,68 @@ run_benchmark_with_extra() {
     args+=("${extra_args[@]}")
   fi
   run_benchmark "${args[@]}"
+}
+
+run_remote_desktop_visual_freshness_probe() {
+  swift build --quiet --product VNCLiveBenchmark
+  swift build --quiet --product VNCLiveStimulusWindow
+
+  local sidecar_file
+  sidecar_file="$(mktemp "${TMPDIR:-/tmp}/naru-visual-freshness-sidecar.XXXXXX")"
+  export NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE="$sidecar_file"
+  if [[ -z "${NARU_LIVE_STIMULUS_COMMAND:-}" ]]; then
+    export NARU_LIVE_STIMULUS_COMMAND="\"$repo_root/.build/debug/VNCLiveStimulusWindow\" --titled-animation-window --top-left"
+  fi
+
+  local args=(
+    --attempts 1
+    --network-condition none
+    --visual-transport vnc
+    --stream-shape-frame-interval 0
+    --stream-shape-idle-frame-interval 0.05
+    --stream-shape-empty-backoff app
+    --stream-shape-power-mode normal
+    --stream-shape-client-pressure off
+    --stream-shape-viewport-interaction off
+    --stream-shape-stimulus external-command
+    --stream-shape-stimulus-warmup-seconds 0.25
+    --stream-shape-stimulus-frame-interval 0.0833333333
+    --stream-shape-preflight-frames 0
+    --stream-shape-practical-target iphone-remote-desktop-10fps-v1
+    --stream-shape-transport request-response
+    --stream-shape-request-pipeline-depth 1
+    --stream-shape-request-region full
+    --stream-shape-first-frame-request full
+    --stream-shape-profiles local-low-latency-rgb565
+    --stream-shape-profile-order fixed
+    --stream-shape-profile-iterations 1
+    --first-frame-profiles none
+    --full-refresh-samples 0
+    --continuous-update-samples 0
+    --stream-shape-samples 0
+    --stream-shape-duration-seconds 8
+    --timeout 30
+    --idle-timeout 5
+    --json
+  )
+
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/naru-visual-freshness-output.XXXXXX")"
+  RUN_WITH_WALL_TIMEOUT_EXPIRED=0
+  if run_with_wall_timeout 75 run_benchmark_with_extra "${args[@]}" >"$output_file" 2>/dev/null && [[ -s "$output_file" ]]; then
+    cat "$output_file"
+    rm -f "$sidecar_file" "$output_file"
+    return
+  fi
+
+  printf '{"schemaVersion":1,"mode":"remote-desktop-visual-freshness-probe","status":"failed","safeFailureCode":'
+  if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
+    json_string "benchmarkStep.visualFreshnessProbe.timedOut"
+  else
+    json_string "benchmarkStep.visualFreshnessProbe.failed"
+  fi
+  printf '}\n'
+  rm -f "$sidecar_file" "$output_file"
 }
 
 run_with_wall_timeout() {
@@ -11901,6 +11964,11 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_remote_desktop_10fps_transport_cadence_drilldown
+    ;;
+  remote-desktop-visual-freshness-probe)
+    import_live_env
+    cd "$repo_root"
+    run_remote_desktop_visual_freshness_probe
     ;;
   remote-desktop-10fps-readiness)
     remote_desktop_10fps_readiness
