@@ -435,6 +435,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             composeReveal.exists,
             "Active-session compact compose affordance must be reachable"
         )
+        XCTAssertTrue(
+            app.buttons["naru.input.mac-controls.menu"].waitForExistence(timeout: 4),
+            "Active-session compact dock must keep Mac controls reachable from a menu"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.input.mac-controls"].exists,
+            "Active-session compact dock must not permanently reserve height for the Mac controls strip"
+        )
 
         sleep(3)
 

@@ -258,9 +258,6 @@ public struct RemoteInputDockView: View {
                 compactDirectHeader
                 directKeyboard
             } else {
-                if showsMacSessionControls {
-                    macSessionControlStrip
-                }
                 compactComposeRow
                 if let compactStatusText {
                     compactStatusLine(compactStatusText)
@@ -291,6 +288,10 @@ public struct RemoteInputDockView: View {
             .background(NaruColors.surfaceMuted)
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
+
+            if showsMacSessionControls {
+                compactMacControlMenu
+            }
 
             if showsCompactComposeEditor {
                 composeTextEditor
@@ -407,6 +408,10 @@ public struct RemoteInputDockView: View {
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("naru.input.compose-toggle")
+
+            if showsMacSessionControls {
+                compactMacControlMenu
+            }
 
             Spacer()
 
@@ -528,6 +533,30 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.mac-controls")
     }
 
+    /// Compact live sessions keep the remote screen dominant: Mac window
+    /// controls remain one tap away, but collapse from a permanent strip into
+    /// a menu inside the accessory row.
+    private var compactMacControlMenu: some View {
+        Menu {
+            ForEach(MacSessionControl.allCases, id: \.self) { control in
+                Button {
+                    onMacSessionControl(control)
+                } label: {
+                    Label(control.label, systemImage: control.systemImageName)
+                }
+                .accessibilityLabel(control.accessibilityLabel)
+                .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
+            }
+        } label: {
+            Label("Mac controls", systemImage: "rectangle.3.group")
+                .labelStyle(.iconOnly)
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Mac controls")
+        .accessibilityIdentifier("naru.input.mac-controls.menu")
+    }
+
     /// Inline terminal-control strip shown above the Compose editor
     /// while a session is active (spec 003 US5 / FR-013).  Lets a
     /// multilingual-composing user fire Esc / Tab / ⌃C / arrows once
@@ -619,7 +648,10 @@ public struct RemoteInputDockView: View {
     private var directKeyboard: some View {
         VStack(spacing: 8) {
             directInputSurfacePicker
-            if showsMacSessionControls {
+            if Self.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: showsMacSessionControls,
+                layoutStyle: layoutStyle
+            ) {
                 macSessionControlStrip
             }
 
@@ -1161,6 +1193,13 @@ public struct RemoteInputDockView: View {
     ) -> Bool {
         let trimmed = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         return hasStatus && !trimmed.isEmpty
+    }
+
+    nonisolated static func shouldShowPersistentMacControlStrip(
+        showsMacSessionControls: Bool,
+        layoutStyle: RemoteInputDockLayoutStyle
+    ) -> Bool {
+        showsMacSessionControls && layoutStyle != .compactAccessory
     }
 
     nonisolated static func resolvedCompactStatusText(

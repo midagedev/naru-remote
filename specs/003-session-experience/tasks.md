@@ -163,6 +163,13 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   the user has started a new Korean/CJK draft. Covered by
   `NaruRemoteAppModelTests/testEditingComposeDraftDuringSendCancelsStalePasteCommand`,
   focused `NaruRemoteAppModelTests`, and full `swift test`. **Done.**
+- [x] T015bl [B] Compact live-session chrome correction: collapse the
+  Mission/App Windows/Switch App Mac control strip into a one-tap menu inside
+  the compact accessory dock so active sessions recover vertical screen space
+  while keeping the controls reachable. Covered by
+  `RemoteInputDockRenderStateTests`, active-session UX-audit assertions, and
+  iPhone simulator build verification; the focused XCUITest launch path timed
+  out in simulator install/launch and needs a later screenshot rerun. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

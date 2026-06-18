@@ -90,6 +90,28 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testCompactAccessoryCollapsesPersistentMacControlStrip() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: true,
+                layoutStyle: .compactAccessory
+            ),
+            "Live compact dock should keep Mac controls reachable without reserving a permanent strip."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: true,
+                layoutStyle: .standard
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: false,
+                layoutStyle: .standard
+            )
+        )
+    }
+
     func testInputDockRenderStateIgnoresStreamingTelemetryAndFramebufferNoise() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)

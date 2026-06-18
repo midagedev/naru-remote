@@ -271,7 +271,9 @@ Status: pending physical device access
   pinch/zoomed-pan with no RFB messages, connection quality chips,
   Compose quick keys, and a compact Remote Input Dock that replaces
   empty live-session Compose with a 40pt reveal affordance so remote
-  screen space remains dominant.
+  screen space remains dominant. Compact live sessions now also collapse
+  Mission/App Windows/Switch App Mac controls into a one-tap accessory menu
+  instead of permanently reserving a full control strip.
 - UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
   iPhone/iPad light/dark layout evidence can be captured per worktree
   instead of writing into a fixed checkout path.
