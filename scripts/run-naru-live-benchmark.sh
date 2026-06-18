@@ -35,6 +35,7 @@ Modes:
   helper-text-observed-probe-self-test Fast regression for helper text observed probe labels.
   text-keystroke-probe    Live VNC KeyEvent probe; override payload after --.
   text-keystroke-observed-probe Live VNC KeyEvent probe with controlled local text target.
+  pointer-hover-observed-probe Live VNC PointerEvent hover probe with controlled local target.
   short-live-comparison    Short constrained-cellular VNC + synthetic helper-video run.
   glance-scale-sweep       Short 0.45/0.35/0.25 startup glance candidate sweep.
   glance-025-duration-probe Duration-only 0.25 startup glance local RGB565 probe.
@@ -11892,6 +11893,7 @@ case "$mode" in
     reject_extra_flag --environment-preflight
     reject_extra_flag --helper-video-probe-only
     reject_extra_flag --text-keystroke-observed-probe-only
+    reject_extra_flag --pointer-hover-observed-probe-only
     reject_extra_flag --visual-transport
     reject_extra_flag --helper-video-probe
     import_live_env
@@ -11906,6 +11908,7 @@ case "$mode" in
     reject_extra_flag --helper-video-probe-only
     reject_extra_flag --text-keystroke-probe-only
     reject_extra_flag --text-keystroke-observed-probe-only
+    reject_extra_flag --pointer-hover-observed-probe-only
     reject_extra_flag --visual-transport
     reject_extra_flag --helper-video-probe
     import_live_env
@@ -11915,6 +11918,22 @@ case "$mode" in
     run_benchmark_with_extra \
       --text-keystroke-observed-probe-only \
       --text-keystroke-probe-payload unicode-hangul \
+      --json
+    ;;
+  pointer-hover-observed-probe)
+    reject_extra_flag --environment-preflight
+    reject_extra_flag --helper-video-probe-only
+    reject_extra_flag --text-keystroke-probe-only
+    reject_extra_flag --text-keystroke-observed-probe-only
+    reject_extra_flag --pointer-hover-observed-probe-only
+    reject_extra_flag --visual-transport
+    reject_extra_flag --helper-video-probe
+    import_live_env
+    cd "$repo_root"
+    swift build --quiet --product VNCLiveStimulusWindow
+    export NARU_POINTER_HOVER_OBSERVATION_TARGET_EXECUTABLE="$repo_root/.build/debug/VNCLiveStimulusWindow"
+    run_benchmark_with_extra \
+      --pointer-hover-observed-probe-only \
       --json
     ;;
   short-live-comparison)

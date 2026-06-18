@@ -79,6 +79,13 @@ final class BenchmarkFailureLabelTests: XCTestCase {
             ),
             "stream-stimulus-connection-failed"
         )
+        XCTAssertEqual(
+            BenchmarkFailureLabel.safeLabel(
+                for: RFBNetworkClientError.writeTimedOut,
+                phase: .pointerHoverSend
+            ),
+            "pointer-hover-send-write-timeout"
+        )
     }
 }
 
