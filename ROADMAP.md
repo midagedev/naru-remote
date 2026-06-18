@@ -275,6 +275,9 @@ Status: pending physical device access
 - UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
   iPhone/iPad light/dark layout evidence can be captured per worktree
   instead of writing into a fixed checkout path.
+- iPad screenshot automation now includes active-session widescreen,
+  keyboard-expanded Compose, and trackpad cursor states across portrait and
+  landscape, aligning Phase 5 with the iPad graceful-scaling target.
 - iPad/iPhone IME manual check
 - Dictation and hardware keyboard check
 - Stage Manager, split view, rotation, and viewport usability check

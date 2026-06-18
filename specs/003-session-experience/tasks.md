@@ -181,7 +181,12 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   `artifacts/screenshots/ux-audit-compact-idle/`. **Done.**
 
 ## Cross-cutting
-- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass. The screenshot harness now accepts `NARU_UX_AUDIT_OUTPUT_DIR` for worktree-local iPhone/iPad evidence.
+- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark +
+  keyboard captures refreshed for this PR. The iPad audit loop now also covers
+  active widescreen, keyboard-expanded Compose, and trackpad cursor states in
+  portrait/landscape light/dark. Full UX-audit set still pending a broader pass.
+  The screenshot harness accepts `NARU_UX_AUDIT_OUTPUT_DIR` for worktree-local
+  iPhone/iPad evidence.
 - [x] T031 Update `ROADMAP.md` (extend Phase 5 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport and compact live-session Dock behavior. **Done.**
 - [ ] T032 [Manual] Real Mac VNC trackpad + zoom-to-read on physical iPhone — BLOCKED (no device); record residual risk per constitution §III.
 - [ ] T033 [Manual] Physical iPhone Korean/CJK Compose IME retest — verify marked-text composition in the compact `UITextView` dock and record iOS version, keyboard, target app, and whether the sent remote paste matches the local draft exactly.

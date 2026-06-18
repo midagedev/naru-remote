@@ -415,7 +415,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSessionActiveTrackpadCursor(mode: .dark, deviceTag: "iphone")
     }
 
-    private func runSessionActiveWidescreen(mode: ColorMode, deviceTag: String) throws {
+    private func runSessionActiveWidescreen(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
         // Screen-first hero viewport (spec 003 FR-001): an `.active`
         // session carrying a real 16:9 framebuffer.  Confirms the remote
         // screen renders at the server's true aspect ratio and — once the
@@ -451,9 +455,17 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
 
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
     }
 
-    private func runSessionActiveTrackpadCursor(mode: ColorMode, deviceTag: String) throws {
+    private func runSessionActiveTrackpadCursor(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
         let app = launchAppWithFixture(.sessionActiveTrackpadCursor, mode: mode)
 
         XCTAssertTrue(
@@ -464,6 +476,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         sleep(3)
 
         try saveScreen(named: "18-session-active-trackpad-cursor-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
     }
 
     // MARK: - iPhone — sidebar with multiple profiles
@@ -612,6 +628,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                     try saveScreen(named: "08-direct-qwerty-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
+
+                // States 16/17 — active session and keyboard-expanded Compose
+                try runSessionActiveWidescreen(
+                    mode: mode,
+                    deviceTag: "ipad-\(orientationTag)",
+                    terminateAfterCapture: true
+                )
+
+                // State 18 — active trackpad cursor surface
+                try runSessionActiveTrackpadCursor(
+                    mode: mode,
+                    deviceTag: "ipad-\(orientationTag)",
+                    terminateAfterCapture: true
+                )
             }
         }
     }
