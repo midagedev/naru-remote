@@ -11934,6 +11934,7 @@ case "$mode" in
     export NARU_POINTER_HOVER_OBSERVATION_TARGET_EXECUTABLE="$repo_root/.build/debug/VNCLiveStimulusWindow"
     run_benchmark_with_extra \
       --pointer-hover-observed-probe-only \
+      --timeout 15 \
       --json
     ;;
   short-live-comparison)

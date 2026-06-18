@@ -267,7 +267,10 @@ enum VNCLiveBenchmark {
         timeout: TimeInterval,
         observationTimeout: TimeInterval
     ) async -> BenchmarkPointerHoverProbeReport {
-        let start = startPointerHoverObservationTarget(observationTimeout: observationTimeout)
+        let start = startPointerHoverObservationTarget(
+            connectionTimeout: timeout,
+            observationTimeout: observationTimeout
+        )
         guard start.failureLabel == nil, let target = start.target else {
             return BenchmarkPointerHoverProbeReport(
                 status: .failed,
@@ -722,6 +725,7 @@ enum VNCLiveBenchmark {
     }
 
     private static func startPointerHoverObservationTarget(
+        connectionTimeout: TimeInterval,
         observationTimeout: TimeInterval
     ) -> PointerHoverObservationStart {
         guard
@@ -740,13 +744,18 @@ enum VNCLiveBenchmark {
             .appendingPathComponent("naru-pointer-hover-observation-\(UUID().uuidString).jsonl")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
+        let readinessTimeout = min(max(observationTimeout, 0.25), 2.0)
+        let targetDuration = connectionTimeout * 2.0
+            + readinessTimeout
+            + observationTimeout
+            + 3.0
         process.arguments = [
             "--hover-probe",
             "--top-left",
             "--visual-freshness-sidecar",
             sidecarURL.path,
             "--duration",
-            formatSeconds(max(observationTimeout + 2.0, 1.0))
+            formatSeconds(max(targetDuration, 1.0))
         ]
         process.environment = minimalObservationTargetEnvironment()
         let nullOutput = FileHandle(forWritingAtPath: "/dev/null")

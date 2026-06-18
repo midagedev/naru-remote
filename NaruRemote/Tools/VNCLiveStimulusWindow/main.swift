@@ -39,18 +39,18 @@ enum VNCLiveStimulusWindow {
             defer: false
         )
         window.title = options.titledAnimationWindow ? "Naru Video Probe" : ""
-        window.level = isVisualFreshnessProbe ? .floating : (options.titledAnimationWindow ? .normal : .floating)
+        window.level = isVisualFreshnessProbe ? .statusBar : (options.titledAnimationWindow ? .normal : .floating)
         window.backgroundColor = .black
         window.isOpaque = true
         window.ignoresMouseEvents = isVisualFreshnessProbe || !options.titledAnimationWindow
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.contentView = view
-        if options.titledAnimationWindow {
+        if options.titledAnimationWindow || isVisualFreshnessProbe {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
             app.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
-        if options.titledAnimationWindow {
+        if options.titledAnimationWindow || isVisualFreshnessProbe {
             window.orderFrontRegardless()
         }
 
@@ -76,7 +76,7 @@ enum VNCLiveStimulusWindow {
             defer: false
         )
         window.title = "Naru Hover Probe"
-        window.level = .floating
+        window.level = .statusBar
         window.backgroundColor = .black
         window.isOpaque = true
         window.acceptsMouseMovedEvents = true
