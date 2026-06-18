@@ -44,6 +44,7 @@ Modes:
   remote-desktop-10fps-server-cadence-probe Compare network/request-region startup axes for server cadence.
   remote-desktop-10fps-transport-cadence-drilldown Compare request-response vs ContinuousUpdates under the 10fps VNC gate.
   remote-desktop-visual-freshness-probe Local timestamp/marker stimulus + VNC visual freshness latency probe.
+  remote-desktop-timestamp-latency-probe Local timestamp marker + VNC observed latency probe.
   remote-desktop-10fps-readiness 10fps VNC gate + helper-video readiness dashboard.
   remote-desktop-readiness-summary-self-test Fast regression for readiness gate summary labels.
   viewport-interaction-trace Compare VNC off/app viewport-interaction live traces.
@@ -350,6 +351,7 @@ run_benchmark_with_extra() {
 }
 
 run_remote_desktop_visual_freshness_probe() {
+  local report_mode="${1:-remote-desktop-visual-freshness-probe}"
   swift build --quiet --product VNCLiveBenchmark
   swift build --quiet --product VNCLiveStimulusWindow
 
@@ -404,7 +406,9 @@ run_remote_desktop_visual_freshness_probe() {
     return
   fi
 
-  printf '{"schemaVersion":1,"mode":"remote-desktop-visual-freshness-probe","status":"failed","safeFailureCode":'
+  printf '{"schemaVersion":1,"mode":'
+  json_string "$report_mode"
+  printf ',"status":"failed","safeFailureCode":'
   if [[ "$RUN_WITH_WALL_TIMEOUT_EXPIRED" == "1" ]]; then
     json_string "benchmarkStep.visualFreshnessProbe.timedOut"
   else
@@ -11975,6 +11979,11 @@ case "$mode" in
     import_live_env
     cd "$repo_root"
     run_remote_desktop_visual_freshness_probe
+    ;;
+  remote-desktop-timestamp-latency-probe)
+    import_live_env
+    cd "$repo_root"
+    run_remote_desktop_visual_freshness_probe remote-desktop-timestamp-latency-probe
     ;;
   remote-desktop-10fps-readiness)
     remote_desktop_10fps_readiness

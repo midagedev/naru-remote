@@ -1117,6 +1117,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let zrleTileApplyLatency: BenchmarkLatencySummary?
     public let visualFreshnessLatency: BenchmarkLatencySummary?
     public let visualFreshnessSampleCount: Int
+    public let timestampLatency: BenchmarkLatencySummary?
+    public let timestampLatencySampleCount: Int
     public let tailLatency: BenchmarkStreamShapeTailSummary
     public let phaseBudget: BenchmarkStreamShapePhaseBudgetSummary
     public let rendererUploadSampleCount: Int
@@ -1167,6 +1169,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case zrleTileApplyLatency
         case visualFreshnessLatency
         case visualFreshnessSampleCount
+        case timestampLatency
+        case timestampLatencySampleCount
         case tailLatency
         case phaseBudget
         case rendererUploadSampleCount
@@ -1272,6 +1276,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let visualFreshnessSamples = samples.compactMap(\.visualFreshnessMilliseconds)
         self.visualFreshnessLatency = BenchmarkLatencySummary(visualFreshnessSamples)
         self.visualFreshnessSampleCount = visualFreshnessSamples.count
+        self.timestampLatency = self.visualFreshnessLatency
+        self.timestampLatencySampleCount = self.visualFreshnessSampleCount
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
         self.phaseBudget = BenchmarkStreamShapePhaseBudgetSummary(
             samples: samples,
@@ -1425,6 +1431,15 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         )
         self.visualFreshnessSampleCount = max(
             try container.decodeIfPresent(Int.self, forKey: .visualFreshnessSampleCount) ?? 0,
+            0
+        )
+        self.timestampLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .timestampLatency
+        ) ?? visualFreshnessLatency
+        self.timestampLatencySampleCount = max(
+            try container.decodeIfPresent(Int.self, forKey: .timestampLatencySampleCount)
+                ?? visualFreshnessSampleCount,
             0
         )
         self.tailLatency = try container.decode(BenchmarkStreamShapeTailSummary.self, forKey: .tailLatency)
@@ -1776,6 +1791,8 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         try container.encodeIfPresent(zrleTileApplyLatency, forKey: .zrleTileApplyLatency)
         try container.encodeIfPresent(visualFreshnessLatency, forKey: .visualFreshnessLatency)
         try container.encode(visualFreshnessSampleCount, forKey: .visualFreshnessSampleCount)
+        try container.encodeIfPresent(timestampLatency, forKey: .timestampLatency)
+        try container.encode(timestampLatencySampleCount, forKey: .timestampLatencySampleCount)
         try container.encode(tailLatency, forKey: .tailLatency)
         try container.encode(phaseBudget, forKey: .phaseBudget)
         try container.encode(rendererUploadSampleCount, forKey: .rendererUploadSampleCount)
