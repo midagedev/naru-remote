@@ -8,6 +8,7 @@ private struct PendingPointerMove {
     let streamID: UUID?
     let sessionID: RemoteSession.ID?
     let profileID: ConnectionProfile.ID?
+    let allowsBestEffort: Bool
 }
 
 private enum FrameDeliveryInteractionReason: Hashable {
@@ -5679,7 +5680,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 streamID: streamID,
                 sessionID: sessionID,
                 profileID: profileID,
-                coalescingDelay: Self.trackpadPointerMoveCoalescingDelay
+                coalescingDelay: Self.trackpadPointerMoveCoalescingDelay,
+                allowsBestEffort: true
             )
             return result
         }
@@ -7397,25 +7399,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerClient: RFBPointerEventClient,
         streamID: UUID?,
         sessionID: RemoteSession.ID?,
-        profileID: ConnectionProfile.ID?
+        profileID: ConnectionProfile.ID?,
+        allowsBestEffortPointerMove: Bool = false
     ) {
         guard !commandBatch.isEmpty else {
             return
         }
 
+        if allowsBestEffortPointerMove,
+           let command = commandBatch.singleButtonlessPointerMove,
+           let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient,
+           isCurrentPointerInputTarget(
+               pointerClient: pointerClient,
+               streamID: streamID,
+               sessionID: sessionID,
+               profileID: profileID
+           )
+        {
+            sendImmediateBestEffortPointerMove(command, pointerClient: bestEffortClient)
+            return
+        }
+
         pointerInputDispatcher.enqueue(
             operation: { [pointerClient, commandBatch] in
-                if let command = commandBatch.singleButtonlessPointerMove,
-                   let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient
-                {
-                    try bestEffortClient.sendBestEffortPointerEvent(
-                        buttonMask: command.buttonMask,
-                        x: command.x,
-                        y: command.y
-                    )
-                    return
-                }
-
                 switch commandBatch {
                 case .none:
                     return
@@ -7463,10 +7469,12 @@ public final class NaruRemoteAppModel: ObservableObject {
                     guard let self else {
                         return false
                     }
-                    return self.activeFrameStreamID == streamID
-                        && self.session?.id == sessionID
-                        && self.selectedProfileID == profileID
-                        && self.activePointerClient === pointerClient
+                    return self.isCurrentPointerInputTarget(
+                        pointerClient: pointerClient,
+                        streamID: streamID,
+                        sessionID: sessionID,
+                        profileID: profileID
+                    )
                 }
             },
             record: { [weak self, pointerClient, streamID, sessionID, profileID] queueDelayMilliseconds, operationMilliseconds, timedOut in
@@ -7508,13 +7516,51 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
+    private func isCurrentPointerInputTarget(
+        pointerClient: RFBPointerEventClient,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) -> Bool {
+        activeFrameStreamID == streamID
+            && session?.id == sessionID
+            && selectedProfileID == profileID
+            && activePointerClient === pointerClient
+    }
+
+    private func sendImmediateBestEffortPointerMove(
+        _ command: RFBPointerCommand,
+        pointerClient: RFBBestEffortPointerEventClient
+    ) {
+        let startedAt = Date()
+        do {
+            try pointerClient.sendBestEffortPointerEvent(
+                buttonMask: command.buttonMask,
+                x: command.x,
+                y: command.y
+            )
+            recordOutboundInputEvent(
+                queueDelayMilliseconds: 0,
+                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                timedOut: false
+            )
+        } catch {
+            recordOutboundInputEvent(
+                queueDelayMilliseconds: 0,
+                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                timedOut: false
+            )
+        }
+    }
+
     private func enqueueCoalescedPointerMove(
         _ command: RFBPointerCommand,
         pointerClient: RFBPointerEventClient,
         streamID: UUID?,
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?,
-        coalescingDelay: Duration? = nil
+        coalescingDelay: Duration? = nil,
+        allowsBestEffort: Bool = false
     ) {
         let coalescingDelay = coalescingDelay ?? Self.directPointerMoveCoalescingDelay
         pendingPointerMove = PendingPointerMove(
@@ -7522,7 +7568,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             pointerClient: pointerClient,
             streamID: streamID,
             sessionID: sessionID,
-            profileID: profileID
+            profileID: profileID,
+            allowsBestEffort: allowsBestEffort
         )
 
         guard pointerMoveFlushTask == nil else {
@@ -7552,11 +7599,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         pendingPointerMove = nil
 
         enqueuePointerCommands(
-            [pendingMove.command],
+            RFBPointerCommandBatch([pendingMove.command]),
             pointerClient: pendingMove.pointerClient,
             streamID: pendingMove.streamID,
             sessionID: pendingMove.sessionID,
-            profileID: pendingMove.profileID
+            profileID: pendingMove.profileID,
+            allowsBestEffortPointerMove: pendingMove.allowsBestEffort
         )
     }
 

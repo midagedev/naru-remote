@@ -15,13 +15,15 @@ import NaruRemoteCore
 @MainActor
 final class TrackpadModeModelTests: XCTestCase {
     private func makeModel(
-        connector: TrackpadPointerCapturingConnector
+        connector: TrackpadPointerCapturingConnector,
+        outboundInputEventTimeout: Duration = .milliseconds(2_500)
     ) throws -> NaruRemoteAppModel {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         return NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
-            connectorFactory: { connector }
+            connectorFactory: { connector },
+            outboundInputEventTimeout: outboundInputEventTimeout
         )
     }
 
@@ -197,6 +199,39 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(event.mask, 0x00)
         XCTAssertEqual(event.x, 140)
         XCTAssertEqual(event.y, 60)
+    }
+
+    func testTrackpadHoverMoveBypassesStalledReliablePointerQueue() async throws {
+        let connector = TrackpadPointerCapturingConnector(
+            width: 200,
+            height: 100,
+            pointerEventDelays: [.seconds(10)]
+        )
+        let model = try makeModel(
+            connector: connector,
+            outboundInputEventTimeout: .milliseconds(250)
+        )
+        try await connect(model)
+
+        model.sendTapAt(
+            viewPoint: CGPoint(x: 20, y: 20),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .dragChanged(
+                viewPoint: CGPoint(x: 120, y: 60),
+                translation: CGSize(width: 20, height: 10)
+            ),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        try await waitForPointerEvents(connector, count: 1, timeout: 0.16)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.mask, RFBPointerCommand.released)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.x, 120)
+        XCTAssertEqual(connector.recordedPointerEvents.first?.y, 60)
     }
 
     func testTrackpadDragUsesZoomedTransformAndReturnsAttachedAutoPan() async throws {
@@ -439,17 +474,23 @@ final class TrackpadModeModelTests: XCTestCase {
 /// for the trackpad-mode tests.  Mirrors the recorder used in
 /// `PointerEventTapTests` but kept private to this file so the existing
 /// suite stays structurally unchanged.
-private final class TrackpadPointerCapturingConnector: RFBStreamingClient {
+private final class TrackpadPointerCapturingConnector:
+    RFBStreamingClient,
+    RFBBestEffortPointerEventClient,
+    @unchecked Sendable
+{
     private struct Recording {
         var framebuffers: [RFBRawFramebuffer]
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var pointerEventDelays: [Duration?]
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
+    private let bestEffortCount = OSAllocatedUnfairLock(initialState: 0)
     private let width: Int
     private let height: Int
 
-    init(width: Int, height: Int) {
+    init(width: Int, height: Int, pointerEventDelays: [Duration?] = []) {
         self.width = width
         self.height = height
         let framebuffer = RFBRawFramebuffer(
@@ -458,7 +499,10 @@ private final class TrackpadPointerCapturingConnector: RFBStreamingClient {
             fill: RFBColor(red: 10, green: 20, blue: 30)
         )
         self.recording = OSAllocatedUnfairLock(
-            initialState: Recording(framebuffers: [framebuffer, framebuffer, framebuffer])
+            initialState: Recording(
+                framebuffers: [framebuffer, framebuffer, framebuffer],
+                pointerEventDelays: pointerEventDelays
+            )
         )
     }
 
@@ -467,6 +511,10 @@ private final class TrackpadPointerCapturingConnector: RFBStreamingClient {
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
+    }
+
+    var recordedBestEffortPointerEventCount: Int {
+        bestEffortCount.withLock { $0 }
     }
 
     func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
@@ -515,6 +563,27 @@ private final class TrackpadPointerCapturingConnector: RFBStreamingClient {
     func sendPasteCommand(_ command: PasteCommand) throws {}
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
+        let pointerEventDelay = recording.withLock { state -> Duration? in
+            if state.pointerEventDelays.count > 1 {
+                return state.pointerEventDelays.removeFirst()
+            }
+            return state.pointerEventDelays.first ?? nil
+        }
+        if let pointerEventDelay {
+            try await Task.sleep(for: pointerEventDelay)
+        }
+        recordPointerEvent(buttonMask: buttonMask, x: x, y: y)
+    }
+
+    func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws {
+        guard buttonMask == RFBPointerCommand.released else {
+            throw RFBNetworkClientError.unsupportedBestEffortPointerMask
+        }
+        bestEffortCount.withLock { $0 += 1 }
+        recordPointerEvent(buttonMask: buttonMask, x: x, y: y)
+    }
+
+    private func recordPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) {
         recording.withLock { state in
             state.recordedPointerEventsList.append((buttonMask, x, y))
         }
