@@ -6280,6 +6280,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
             ),
             connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
             lowPowerModeProvider: { false },
             streamPacingSleep: { delay in
                 try await pacingGate.sleep(delay)
@@ -6362,6 +6363,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
             ),
             connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
             lowPowerModeProvider: { false },
             streamPacingSleep: { delay in
                 try await pacingGate.sleep(delay)
@@ -6406,6 +6408,58 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
+    }
+
+    func testPointerInputWakesVisualPacingSleepBeforeNextRequest() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hoverEchoFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hoverEchoFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 1.5
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        let wakeStartedAt = Date()
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(wakeStartedAt),
+            1.0,
+            "Pointer input should wake an in-flight visual pacing sleep so remote hover/click echo is sampled without waiting for the full visual cadence slot."
+        )
     }
 
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {

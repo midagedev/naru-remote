@@ -701,6 +701,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var frameDeliveryInteractionReasons: Set<FrameDeliveryInteractionReason> = []
     private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
     private var transientFrameDeliveryInteractionExpiresAt: ContinuousClock.Instant?
+    private var streamPacingWakeGeneration: UInt64 = 0
     private var pendingFocusedInputConnectionQuality: ConnectionQuality?
     private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
     private var pendingFocusedInputIncomingClipboard: IncomingClipboardReview?
@@ -752,6 +753,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
+    private static let streamPacingWakePollIntervalSeconds: TimeInterval = 0.05
     public static let defaultActiveFrameInterval: TimeInterval =
         StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
@@ -3758,6 +3760,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         )
                         await self.recordSessionStreamStartupPreflight(startupPreflightResult)
                     }
+                    let streamPacingWakeGeneration = await self.streamPacingWakeGeneration
                     let pacingDecision = await self.recordSessionStreamStatsAndPacingDecision(
                         for: frame,
                         configuration: configuration,
@@ -3772,7 +3775,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                             pacingDecision,
                             streamID: streamID,
                             sessionID: pendingSession.id,
-                            profileID: profile.id
+                            profileID: profile.id,
+                            wakeGeneration: streamPacingWakeGeneration
                         )
                     }
                 }
@@ -3848,26 +3852,25 @@ public final class NaruRemoteAppModel: ObservableObject {
         _ decision: SessionStreamPacingDecision,
         streamID: UUID,
         sessionID: RemoteSession.ID,
-        profileID: ConnectionProfile.ID
+        profileID: ConnectionProfile.ID,
+        wakeGeneration: UInt64
     ) async throws {
         let delay = decision.delay
         if let streamPacingSleepOverride {
             // Tests own the full sleep interval through this hook; production
-            // helper-video early-wake polling stays on the path below.
+            // wake polling stays on the path below.
             try await streamPacingSleepOverride(delay)
             return
         }
 
-        guard decision.usesHelperVideoPrimaryVNCSamplingPacing else {
-            try await Task.sleep(for: .seconds(delay))
-            return
-        }
-
-        let pollInterval = 0.05
+        let pollInterval = Self.streamPacingWakePollIntervalSeconds
         let deadline = Date().addingTimeInterval(delay)
         while true {
             guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID),
-                  isHelperVideoHealthyPrimaryVisualTransport
+                  shouldContinueStreamPacingSleep(
+                    decision,
+                    wakeGeneration: wakeGeneration
+                  )
             else {
                 return
             }
@@ -3878,6 +3881,19 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
             try await Task.sleep(for: .seconds(min(remaining, pollInterval)))
         }
+    }
+
+    private func shouldContinueStreamPacingSleep(
+        _ decision: SessionStreamPacingDecision,
+        wakeGeneration: UInt64
+    ) -> Bool {
+        guard streamPacingWakeGeneration == wakeGeneration else {
+            return false
+        }
+        guard decision.usesHelperVideoPrimaryVNCSamplingPacing else {
+            return true
+        }
+        return isHelperVideoHealthyPrimaryVisualTransport
     }
 
     private var isHelperVideoHealthyPrimaryVisualTransport: Bool {
@@ -4259,6 +4275,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func markTransientFrameDeliveryInteractionActivity() {
+        streamPacingWakeGeneration &+= 1
         setFrameDeliveryInteractionReason(.transientInteraction, active: true)
         transientFrameDeliveryInteractionExpiresAt =
             ContinuousClock.now + Self.transientFrameDeliveryInteractionPriorityDuration
