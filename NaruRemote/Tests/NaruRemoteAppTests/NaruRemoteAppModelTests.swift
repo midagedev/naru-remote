@@ -6499,6 +6499,63 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
     }
 
+    func testHardwareHoverInputWakesVisualPacingSleepBeforeNextRequest() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hoverEchoFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hoverEchoFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 1.5
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.togglePointerControlMode()
+        let wakeStartedAt = Date()
+        model.handleTrackpadGesture(
+            .hoverMoved(viewPoint: CGPoint(x: 1, y: 0.5)),
+            viewSize: CGSize(width: 2, height: 1)
+        )
+        try await waitForPointerEvents(connector, count: 1)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(wakeStartedAt),
+            1.0,
+            "Hardware pointer hover should wake an in-flight visual pacing sleep so desktop hover echo is sampled without waiting for the full visual cadence slot."
+        )
+    }
+
     func testPointerInputUsesEchoCadenceAfterWakingSlowVisualStream() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
@@ -7962,7 +8019,14 @@ private final class RecordingStreamConnectorFactory: @unchecked Sendable {
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
+private final class FakeStreamingConnector:
+    RFBStreamingClient,
+    RFBBestEffortPointerEventClient,
+    RFBRegionFramebufferUpdating,
+    RFBFramebufferUpdateReceiving,
+    RFBTransportControlClient,
+    RFBContinuousUpdateCapabilityReporting
+{
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
@@ -7972,6 +8036,7 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         var recordedClipboardPayloads: [String] = []
         var recordedPasteCommands: [PasteCommand] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var recordedBestEffortPointerEventCount = 0
         var renegotiatedPreferences: [RFBEncodingPreference] = []
         var receivedFrameCount = 0
         var continuousUpdateFlags: [Bool] = []
@@ -7987,6 +8052,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
+    }
+
+    var recordedBestEffortPointerEventCount: Int {
+        recording.withLock { $0.recordedBestEffortPointerEventCount }
     }
 
     var renegotiatedPreferences: [RFBEncodingPreference] {
@@ -8228,6 +8297,16 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
         recording.withLock { state in
+            state.recordedPointerEventsList.append((buttonMask, x, y))
+        }
+    }
+
+    func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws {
+        guard buttonMask == RFBPointerCommand.released else {
+            throw RFBNetworkClientError.unsupportedBestEffortPointerMask
+        }
+        recording.withLock { state in
+            state.recordedBestEffortPointerEventCount += 1
             state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }
