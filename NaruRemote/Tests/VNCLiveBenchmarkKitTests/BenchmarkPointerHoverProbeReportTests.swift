@@ -8,6 +8,7 @@ final class BenchmarkPointerHoverProbeReportTests: XCTestCase {
             networkConditionProfile: .constrainedCellular,
             connectStatus: .passed,
             firstFrameStatus: .passed,
+            targetVisibilityStatus: .passed,
             sendStatus: .passed,
             observationStatus: .observed,
             timestampLatency: BenchmarkLatencySummary([84, 120, 143]),
@@ -23,7 +24,10 @@ final class BenchmarkPointerHoverProbeReportTests: XCTestCase {
         XCTAssertTrue(json.contains("\"pointer-hover-observed-probe\""))
         XCTAssertTrue(json.contains("\"observed-hover\""))
         XCTAssertTrue(json.contains("\"constrained-cellular\""))
+        XCTAssertTrue(json.contains("\"targetVisibilityStatus\""))
         XCTAssertTrue(json.contains("\"timestampLatency\""))
+        XCTAssertTrue(json.contains("\"recommendedNextActionLabel\""))
+        XCTAssertTrue(json.contains("\"none\""))
         XCTAssertFalse(json.contains("\"x\""))
         XCTAssertFalse(json.contains("\"y\""))
         XCTAssertFalse(json.contains("\"framebufferWidth\""))
@@ -37,17 +41,21 @@ final class BenchmarkPointerHoverProbeReportTests: XCTestCase {
             status: .failed,
             connectStatus: .passed,
             firstFrameStatus: .passed,
+            targetVisibilityStatus: .failed,
             sendStatus: .passed,
             observationStatus: .timedOut,
-            failureLabel: "pointer-hover-observation-timed-out"
+            failureLabel: "pointer-hover-observation-timed-out",
+            recommendedNextActionLabel: "inspectPointerHoverAndServerCadence"
         )
 
         let data = try JSONEncoder().encode(report)
         let decoded = try JSONDecoder().decode(BenchmarkPointerHoverProbeReport.self, from: data)
 
         XCTAssertEqual(decoded.status, .failed)
+        XCTAssertEqual(decoded.targetVisibilityStatus, .failed)
         XCTAssertEqual(decoded.observationStatus, .timedOut)
         XCTAssertEqual(decoded.timestampLatencySampleCount, 0)
         XCTAssertEqual(decoded.failureLabel, "pointer-hover-observation-timed-out")
+        XCTAssertEqual(decoded.recommendedNextActionLabel, "inspectPointerHoverAndServerCadence")
     }
 }

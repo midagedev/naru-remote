@@ -276,7 +276,8 @@ enum VNCLiveBenchmark {
                 firstFrameStatus: .notRun,
                 sendStatus: .notRun,
                 observationStatus: .targetUnavailable,
-                failureLabel: start.failureLabel
+                failureLabel: start.failureLabel,
+                recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
             )
         }
         defer {
@@ -300,7 +301,8 @@ enum VNCLiveBenchmark {
                 firstFrameStatus: .notRun,
                 sendStatus: .notRun,
                 observationStatus: .notRun,
-                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverConnect)
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverConnect),
+                recommendedNextActionLabel: pointerHoverNextActionInspectConnection
             )
         }
         defer {
@@ -318,14 +320,52 @@ enum VNCLiveBenchmark {
                 firstFrameStatus: .failed,
                 sendStatus: .notRun,
                 observationStatus: .notRun,
-                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverFirstFrame)
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverFirstFrame),
+                recommendedNextActionLabel: pointerHoverNextActionInspectConnection
             )
         }
 
         let probe = BenchmarkVisualFreshnessProbe(sidecarPath: target.sidecarPath)
-        let baselineSequence = probe.observe(framebuffer: firstFrameResult.framebuffer)?.sequence ?? 0
+        let baselineObservation: BenchmarkVisualFreshnessObservation
+        do {
+            guard let observation = try waitForPointerHoverTargetBaseline(
+                client: client,
+                probe: probe,
+                initialFramebuffer: firstFrameResult.framebuffer,
+                timeout: min(max(observationTimeout, 0.25), 2.0)
+            ) else {
+                return BenchmarkPointerHoverProbeReport(
+                    status: .failed,
+                    networkConditionProfile: networkConditionProfile,
+                    connectStatus: .passed,
+                    firstFrameStatus: .passed,
+                    targetVisibilityStatus: .failed,
+                    sendStatus: .notRun,
+                    observationStatus: .notRun,
+                    failureLabel: pointerHoverTargetMarkerNotVisibleLabel,
+                    recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
+                )
+            }
+            baselineObservation = observation
+        } catch {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                targetVisibilityStatus: .failed,
+                sendStatus: .notRun,
+                observationStatus: .failed,
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverObserve),
+                recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
+            )
+        }
+        let baselineSequence = baselineObservation.sequence
+        let outsidePoint = controlledObservationTargetOutsidePoint(framebuffer: firstFrameResult.framebuffer)
         let point = controlledObservationTargetCenterPoint(framebuffer: firstFrameResult.framebuffer)
         do {
+            try await client.sendPointerEvent(buttonMask: 0x00, x: outsidePoint.x, y: outsidePoint.y)
+            try await Task.sleep(for: .milliseconds(40))
             try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
         } catch {
             return BenchmarkPointerHoverProbeReport(
@@ -333,9 +373,11 @@ enum VNCLiveBenchmark {
                 networkConditionProfile: networkConditionProfile,
                 connectStatus: .passed,
                 firstFrameStatus: .passed,
+                targetVisibilityStatus: .passed,
                 sendStatus: .failed,
                 observationStatus: .notRun,
-                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverSend)
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverSend),
+                recommendedNextActionLabel: pointerHoverNextActionInspectPointerSend
             )
         }
 
@@ -363,9 +405,11 @@ enum VNCLiveBenchmark {
                     networkConditionProfile: networkConditionProfile,
                     connectStatus: .passed,
                     firstFrameStatus: .passed,
+                    targetVisibilityStatus: .passed,
                     sendStatus: .passed,
                     observationStatus: .failed,
-                    failureLabel: safeFailureLabel(for: error, phase: .pointerHoverObserve)
+                    failureLabel: safeFailureLabel(for: error, phase: .pointerHoverObserve),
+                    recommendedNextActionLabel: pointerHoverNextActionInspectHoverCadence
                 )
             }
         }
@@ -376,9 +420,11 @@ enum VNCLiveBenchmark {
                 networkConditionProfile: networkConditionProfile,
                 connectStatus: .passed,
                 firstFrameStatus: .passed,
+                targetVisibilityStatus: .passed,
                 sendStatus: .passed,
                 observationStatus: .timedOut,
-                failureLabel: pointerHoverObservationTimedOutLabel
+                failureLabel: pointerHoverObservationTimedOutLabel,
+                recommendedNextActionLabel: pointerHoverNextActionInspectHoverCadence
             )
         }
 
@@ -387,6 +433,7 @@ enum VNCLiveBenchmark {
             networkConditionProfile: networkConditionProfile,
             connectStatus: .passed,
             firstFrameStatus: .passed,
+            targetVisibilityStatus: .passed,
             sendStatus: .passed,
             observationStatus: .observed,
             timestampLatency: latency,
@@ -760,6 +807,48 @@ enum VNCLiveBenchmark {
             upperBound: framebuffer.height
         )
         return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledObservationTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterYFromBottom = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX - Int(300.0 * scale), upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(
+            framebuffer.height - targetCenterYFromBottom,
+            upperBound: framebuffer.height
+        )
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func waitForPointerHoverTargetBaseline(
+        client: RFBNetworkClient,
+        probe: BenchmarkVisualFreshnessProbe,
+        initialFramebuffer: RFBRawFramebuffer,
+        timeout: TimeInterval
+    ) throws -> BenchmarkVisualFreshnessObservation? {
+        if let observation = probe.observe(framebuffer: initialFramebuffer) {
+            return observation
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let remaining = max(deadline.timeIntervalSinceNow, 0.01)
+            do {
+                let update = try client.requestFramebufferUpdate(
+                    incremental: false,
+                    timeout: min(max(remaining, 0.05), 0.35)
+                )
+                if let observation = probe.observe(framebuffer: update.framebuffer) {
+                    return observation
+                }
+            } catch RFBNetworkClientError.timedOut, RFBNetworkClientError.readTimedOut {
+                continue
+            }
+        }
+        return nil
     }
 
     private static func textKeystrokeObservationTargetScale(
@@ -2892,7 +2981,13 @@ private let textKeystrokeObservationTargetNotReadyLabel = "text-probe-observatio
 private let pointerHoverObservationTargetMissingLabel = "pointer-hover-target-missing"
 private let pointerHoverObservationTargetLaunchFailedLabel = "pointer-hover-target-launch-failed"
 private let pointerHoverObservationTargetNotReadyLabel = "pointer-hover-target-not-ready"
+private let pointerHoverTargetMarkerNotVisibleLabel = "pointer-hover-target-marker-not-visible"
 private let pointerHoverObservationTimedOutLabel = "pointer-hover-observation-timed-out"
+private let pointerHoverNextActionVerifyStimulusTargetDisplay =
+    "verifyStimulusTargetVisibleOnLiveVNCDisplay"
+private let pointerHoverNextActionInspectConnection = "inspectLiveVNCConnection"
+private let pointerHoverNextActionInspectPointerSend = "inspectPointerEventSendPath"
+private let pointerHoverNextActionInspectHoverCadence = "inspectPointerHoverAndServerCadence"
 
 private struct StreamShapeStimulusStart {
     let runningStimulus: RunningStreamShapeStimulus?
@@ -4569,6 +4664,7 @@ private func renderText(_ report: BenchmarkPointerHoverProbeReport) {
     print("network condition: \(report.networkConditionProfile.rawValue)")
     print("connect: \(report.connectStatus.rawValue)")
     print("first frame: \(report.firstFrameStatus.rawValue)")
+    print("target visibility: \(report.targetVisibilityStatus.rawValue)")
     print("send: \(report.sendStatus.rawValue)")
     print("observation: \(report.observationStatus.rawValue)")
     if let latency = report.timestampLatency {
@@ -4580,6 +4676,7 @@ private func renderText(_ report: BenchmarkPointerHoverProbeReport) {
         )
     }
     print("failure: \(report.failureLabel ?? "none")")
+    print("recommended next action: \(report.recommendedNextActionLabel)")
     print(
         "safety: pointer coordinates, target identity, credentials, dimensions, pixels, sidecar timestamps, and raw errors are redacted"
     )
