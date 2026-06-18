@@ -361,7 +361,7 @@ run_remote_desktop_visual_freshness_probe() {
   export NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE="$sidecar_file"
   local stimulus_executable stimulus_command
   stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
-  printf -v stimulus_command '%q --top-left --visual-freshness-sidecar %q' \
+  printf -v stimulus_command '%q --top-left --width 960 --height 720 --visual-freshness-sidecar %q' \
     "$stimulus_executable" \
     "$sidecar_file"
   export NARU_LIVE_STIMULUS_COMMAND="$stimulus_command"

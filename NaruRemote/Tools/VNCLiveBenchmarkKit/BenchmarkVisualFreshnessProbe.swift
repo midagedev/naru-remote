@@ -86,7 +86,9 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
             return nil
         }
 
-        let cellSizes = [96, 80, 72, 64, 56, 48, 40, 32, 28, 24, 20, 16, 12]
+        let cellSizes = stride(from: 96, through: 12, by: -4)
+            .flatMap { [$0, $0 - 2] }
+            .filter { $0 >= 12 }
         let bands = searchBands(for: framebuffer)
 
         for cellSize in cellSizes {

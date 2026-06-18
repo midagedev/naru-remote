@@ -752,6 +752,10 @@ enum VNCLiveBenchmark {
         process.arguments = [
             "--hover-probe",
             "--top-left",
+            "--width",
+            "960",
+            "--height",
+            "720",
             "--visual-freshness-sidecar",
             sidecarURL.path,
             "--duration",
