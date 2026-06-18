@@ -113,6 +113,225 @@ public struct NaruRemoteAppShell: View {
         )
     }
 
+    @ViewBuilder
+    private func remoteInputDockHost(state: RemoteInputDockRenderState) -> some View {
+        RemoteInputDockEquatableHost(
+            state: state,
+            onSend: { model.sendComposedText($0) },
+            onTextChange: { model.updateComposeDraftText($0) },
+            onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
+            onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+            onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
+            onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
+            onHardwareKey: { keysym, modifiers, isDown in
+                Task {
+                    await model.handleHardwareKey(
+                        keysym: keysym,
+                        modifiers: modifiers,
+                        isDown: isDown
+                    )
+                }
+            },
+            onMacSessionControl: { control in
+                Task { await model.sendMacSessionControl(control) }
+            },
+            onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
+            onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
+            onComposeFocusChange: { focused in
+                let focusedSessionID = model.snapshot.session?.id
+                if focused,
+                   isLiveSession,
+                   let focusedSessionID {
+                    liveSessionLayoutSessionID = focusedSessionID
+                }
+                composeFieldFocused = focused
+                if !focused,
+                   isLiveSession,
+                   let focusedSessionID {
+                    liveSessionLayoutSessionID = focusedSessionID
+                }
+                model.setComposeInputEditingActive(focused)
+            }
+        )
+        .equatable()
+    }
+
+    @ViewBuilder
+    private func profileSidebar(snapshot: NaruRemoteAppSnapshot) -> some View {
+        ProfileListView(
+            profiles: snapshot.profiles,
+            selectedProfileID: snapshot.selectedProfile?.id,
+            verdicts: snapshot.lastDiagnosticVerdict,
+            onSelect: { id in
+                model.selectProfile(id: id)
+                showsSelectedProfileDetail = true
+                preferredCompactColumn = .detail
+            },
+            onEdit: { profile in
+                editingProfile = EditingProfile(
+                    profile: profile,
+                    hasExistingCredential: profile.credentialRef != nil
+                )
+            },
+            onDelete: { id in
+                Task { await model.deleteProfile(id: id) }
+            }
+        )
+        .navigationTitle("Naru Remote")
+        .toolbar {
+            Button {
+                showsProfileEditor = true
+            } label: {
+                Label("Add Profile", systemImage: "plus")
+            }
+            .accessibilityIdentifier("naru.profile.add")
+        }
+    }
+
+    @ViewBuilder
+    private func sessionDetailSurface(
+        snapshot: NaruRemoteAppSnapshot,
+        isEmptyHome: Bool,
+        showsConnectionGrid: Bool,
+        usesLiveSessionLayout: Bool
+    ) -> some View {
+        // GRD-parity hero (spec 003 FR-001): during a live session the
+        // remote screen is the dominant full-bleed surface — no
+        // ScrollView wrapper, no diagnostics stacked beneath, so when
+        // the soft keyboard rises the bottom dock rises with it and the
+        // filling viewport merely shrinks instead of being crushed to a
+        // sliver. Pre-connect / disconnected keeps the historical
+        // scrollable stack so the diagnostics summary stays reachable.
+        ZStack {
+            Group {
+                if isEmptyHome {
+                    EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                } else if showsConnectionGrid {
+                    ConnectionGridView(
+                        cards: snapshot.connectionGridCards,
+                        onSelect: { id in
+                            model.selectProfile(id: id)
+                            showsSelectedProfileDetail = true
+                            preferredCompactColumn = .detail
+                        },
+                        onAddProfile: { showsProfileEditor = true }
+                    )
+                    .navigationBarBackButtonHidden(true)
+                } else if usesLiveSessionLayout {
+                    sessionViewport(fillsAvailableHeight: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .naruLiveSessionChromeHidden()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            sessionViewport(fillsAvailableHeight: false)
+
+                            DiagnosticSummaryView(
+                                rows: snapshot.diagnosticRows,
+                                shareTextProvider: { [buildVersion] in
+                                    model.makeDiagnosticExport()
+                                        .renderSharePayload(buildVersion: buildVersion)
+                                }
+                            )
+                        }
+                        .frame(width: compactWindowWidth, alignment: .top)
+                    }
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if !isEmptyHome && !showsConnectionGrid {
+                let accessoryChrome = RemoteInputAccessoryChromeState(
+                    snapshot: snapshot,
+                    incomingClipboardReview: model.pendingIncomingClipboard,
+                    isLiveSession: usesLiveSessionLayout,
+                    isComposeFieldFocused: composeFieldFocused
+                )
+                let dockState = RemoteInputDockRenderState(
+                    snapshot: snapshot,
+                    isLiveSession: usesLiveSessionLayout,
+                    isComposeFieldFocused: composeFieldFocused
+                )
+
+                if accessoryChrome.usesFloatingOverlay(for: dockState) {
+                    remoteInputDockHost(state: dockState)
+                        .frame(width: compactWindowWidth, alignment: .center)
+                        .padding(.horizontal, 12)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Spec FR-015: empty home -> no Compose/Direct preview,
+            // no clipboard banner. The dock has nothing to send
+            // to until a profile exists, and surfacing it before
+            // the user has added a computer is exactly the
+            // pre-announcement of capabilities the empty-home CTA
+            // is meant to remove.
+            if !isEmptyHome && !showsConnectionGrid {
+                let accessoryChrome = RemoteInputAccessoryChromeState(
+                    snapshot: snapshot,
+                    incomingClipboardReview: model.pendingIncomingClipboard,
+                    isLiveSession: usesLiveSessionLayout,
+                    isComposeFieldFocused: composeFieldFocused
+                )
+                let dockState = RemoteInputDockRenderState(
+                    snapshot: snapshot,
+                    isLiveSession: usesLiveSessionLayout,
+                    isComposeFieldFocused: composeFieldFocused
+                )
+
+                if !accessoryChrome.usesFloatingOverlay(for: dockState) {
+                    VStack(spacing: 0) {
+                        IncomingClipboardBanner(
+                            review: accessoryChrome.incomingClipboardReview,
+                            onAccept: { model.acceptIncomingClipboard() },
+                            onDismiss: { model.dismissIncomingClipboard() }
+                        )
+
+                        if let statusLine = accessoryChrome.statusLine {
+                            RemoteInputDockStatusLine(text: statusLine.text)
+                        }
+
+                        remoteInputDockHost(state: dockState)
+                    }
+                    .frame(width: compactWindowWidth, alignment: .center)
+                }
+            }
+        }
+        // UX punch-list #107: the HUD badge collided with the dock
+        // badge whenever the soft keyboard was up. Direct mode and
+        // Compose editing still keep the dock pinned through the
+        // bottom inset, while idle live sessions use the floating
+        // accessory strip below.
+        .background(NaruColors.canvas)
+        .overlay(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
+                   snapshot.session?.hasReceivedFrame == true {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("First frame received")
+                        .accessibilityIdentifier("naru.test.session.firstFrameReceived")
+                        .allowsHitTesting(false)
+                }
+
+                if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] == "1",
+                   let payload = model.diagnosticExportRelayForTesting {
+                    Text("Diagnostic export captured")
+                        .font(.caption2)
+                        .frame(width: 1, height: 1)
+                        .clipped()
+                        .opacity(0.01)
+                        .accessibilityIdentifier("naru.test.diagnosticExportRelay")
+                        .accessibilityLabel("Diagnostic export captured")
+                        .accessibilityValue(payload)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
     public var body: some View {
         let snapshot = model.snapshot
         // First-launch surface (spec FR-015): zero saved profiles
@@ -131,200 +350,37 @@ public struct NaruRemoteAppShell: View {
             && snapshot.session == nil
             && snapshot.diagnosticRun == nil
 
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            ProfileListView(
-                profiles: snapshot.profiles,
-                selectedProfileID: snapshot.selectedProfile?.id,
-                verdicts: snapshot.lastDiagnosticVerdict,
-                onSelect: { id in
-                    model.selectProfile(id: id)
-                    showsSelectedProfileDetail = true
-                    preferredCompactColumn = .detail
-                },
-                onEdit: { profile in
-                    editingProfile = EditingProfile(
-                        profile: profile,
-                        hasExistingCredential: profile.credentialRef != nil
-                    )
-                },
-                onDelete: { id in
-                    Task { await model.deleteProfile(id: id) }
-                }
-            )
-            .navigationTitle("Naru Remote")
-            .toolbar {
-                Button {
-                    showsProfileEditor = true
-                } label: {
-                    Label("Add Profile", systemImage: "plus")
-                }
-                .accessibilityIdentifier("naru.profile.add")
-            }
-        } detail: {
-            // GRD-parity hero (spec 003 FR-001): during a live session the
-            // remote screen is the dominant full-bleed surface — no
-            // ScrollView wrapper, no diagnostics stacked beneath, so when
-            // the soft keyboard rises the bottom dock rises with it and the
-            // filling viewport merely shrinks instead of being crushed to a
-            // sliver.  Pre-connect / disconnected keeps the historical
-            // scrollable stack so the diagnostics summary stays reachable.
-            ZStack {
-                Group {
-                    if isEmptyHome {
-                        EmptyHomeView(onAddProfile: { showsProfileEditor = true })
-                    } else if showsConnectionGrid {
-                        ConnectionGridView(
-                            cards: snapshot.connectionGridCards,
-                            onSelect: { id in
-                                model.selectProfile(id: id)
-                                showsSelectedProfileDetail = true
-                                preferredCompactColumn = .detail
-                            },
-                            onAddProfile: { showsProfileEditor = true }
-                        )
-                        .navigationBarBackButtonHidden(true)
-                    } else if usesLiveSessionLayout {
-                        sessionViewport(fillsAvailableHeight: true)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .naruLiveSessionChromeHidden()
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                sessionViewport(fillsAvailableHeight: false)
-
-                                DiagnosticSummaryView(
-                                    rows: snapshot.diagnosticRows,
-                                    shareTextProvider: { [buildVersion] in
-                                        model.makeDiagnosticExport()
-                                            .renderSharePayload(buildVersion: buildVersion)
-                                    }
-                                )
-                            }
-                            .frame(width: compactWindowWidth, alignment: .top)
-                        }
-                    }
-                }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Spec FR-015: empty home → no Compose/Direct preview,
-                // no clipboard banner.  The dock has nothing to send
-                // to until a profile exists, and surfacing it before
-                // the user has added a computer is exactly the
-                // pre-announcement of capabilities the empty-home CTA
-                // is meant to remove.
-                if !isEmptyHome && !showsConnectionGrid {
-                    let accessoryChrome = RemoteInputAccessoryChromeState(
+        Group {
+            if usesLiveSessionLayout {
+                sessionDetailSurface(
+                    snapshot: snapshot,
+                    isEmptyHome: isEmptyHome,
+                    showsConnectionGrid: showsConnectionGrid,
+                    usesLiveSessionLayout: usesLiveSessionLayout
+                )
+            } else {
+                NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+                    profileSidebar(snapshot: snapshot)
+                } detail: {
+                    sessionDetailSurface(
                         snapshot: snapshot,
-                        incomingClipboardReview: model.pendingIncomingClipboard,
-                        isLiveSession: usesLiveSessionLayout,
-                        isComposeFieldFocused: composeFieldFocused
+                        isEmptyHome: isEmptyHome,
+                        showsConnectionGrid: showsConnectionGrid,
+                        usesLiveSessionLayout: usesLiveSessionLayout
                     )
-
-                    VStack(spacing: 0) {
-                        IncomingClipboardBanner(
-                            review: accessoryChrome.incomingClipboardReview,
-                            onAccept: { model.acceptIncomingClipboard() },
-                            onDismiss: { model.dismissIncomingClipboard() }
-                        )
-
-                        if let statusLine = accessoryChrome.statusLine {
-                            RemoteInputDockStatusLine(text: statusLine.text)
-                        }
-
-                        RemoteInputDockEquatableHost(
-                            state: RemoteInputDockRenderState(
-                                snapshot: snapshot,
-                                isLiveSession: usesLiveSessionLayout,
-                                isComposeFieldFocused: composeFieldFocused
-                            ),
-                            onSend: { model.sendComposedText($0) },
-                            onTextChange: { model.updateComposeDraftText($0) },
-                            onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
-                            onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
-                            onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
-                            onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
-                            onHardwareKey: { keysym, modifiers, isDown in
-                                Task {
-                                    await model.handleHardwareKey(
-                                        keysym: keysym,
-                                        modifiers: modifiers,
-                                        isDown: isDown
-                                    )
-                                }
-                            },
-                            onMacSessionControl: { control in
-                                Task { await model.sendMacSessionControl(control) }
-                            },
-                            onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
-                            onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
-                            onComposeFocusChange: { focused in
-                                let focusedSessionID = model.snapshot.session?.id
-                                if focused,
-                                   isLiveSession,
-                                   let focusedSessionID {
-                                    liveSessionLayoutSessionID = focusedSessionID
-                                }
-                                composeFieldFocused = focused
-                                if !focused,
-                                   isLiveSession,
-                                   let focusedSessionID {
-                                    liveSessionLayoutSessionID = focusedSessionID
-                                }
-                                model.setComposeInputEditingActive(focused)
-                            }
-                        )
-                        .equatable()
-                    }
-                    .frame(width: compactWindowWidth, alignment: .center)
                 }
             }
-            .onChange(of: currentSessionID) { _, newSessionID in
-                if liveSessionLayoutSessionID != newSessionID {
-                    liveSessionLayoutSessionID = nil
-                }
+        }
+        .onChange(of: currentSessionID) { _, newSessionID in
+            if liveSessionLayoutSessionID != newSessionID {
+                liveSessionLayoutSessionID = nil
             }
-            .onChange(of: isLiveSession) { _, isLive in
-                if !isLive {
-                    liveSessionLayoutSessionID = nil
-                } else if !composeFieldFocused, let currentSessionID {
-                    liveSessionLayoutSessionID = currentSessionID
-                }
-            }
-            // UX punch-list #107: the HUD badge collided with the
-            // dock badge whenever the soft keyboard was up — they
-            // sat ~10pt apart vertically and read as duplicate cues.
-            // The dock is always pinned via `.safeAreaInset(edge:
-            // .bottom)` so the dock badge is always on screen while
-            // Direct mode is active; the HUD instance is redundant.
-            // Removing the HUD instance is the chosen fix; if a
-            // future revision lets the dock collapse, re-add an HUD
-            // fallback gated on `dockBadgeIsVisible == false`.
-            .background(NaruColors.canvas)
-            .overlay(alignment: .topLeading) {
-                ZStack(alignment: .topLeading) {
-                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
-                       snapshot.session?.hasReceivedFrame == true {
-                        Color.clear
-                            .frame(width: 1, height: 1)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("First frame received")
-                            .accessibilityIdentifier("naru.test.session.firstFrameReceived")
-                            .allowsHitTesting(false)
-                    }
-
-                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] == "1",
-                       let payload = model.diagnosticExportRelayForTesting {
-                        Text("Diagnostic export captured")
-                            .font(.caption2)
-                            .frame(width: 1, height: 1)
-                            .clipped()
-                            .opacity(0.01)
-                            .accessibilityIdentifier("naru.test.diagnosticExportRelay")
-                            .accessibilityLabel("Diagnostic export captured")
-                            .accessibilityValue(payload)
-                            .allowsHitTesting(false)
-                    }
-                }
+        }
+        .onChange(of: isLiveSession) { _, isLive in
+            if !isLive {
+                liveSessionLayoutSessionID = nil
+            } else if !composeFieldFocused, let currentSessionID {
+                liveSessionLayoutSessionID = currentSessionID
             }
         }
         .sheet(isPresented: $showsProfileEditor) {
@@ -396,6 +452,12 @@ struct RemoteInputAccessoryChromeState: Equatable, Sendable {
             isComposeFieldFocused: isComposeFieldFocused
         )
     }
+
+    func usesFloatingOverlay(for dockState: RemoteInputDockRenderState) -> Bool {
+        dockState.layoutStyle == .floatingAccessory
+            && incomingClipboardReview == nil
+            && statusLine == nil
+    }
 }
 
 struct RemoteInputDockRenderState: Equatable, Sendable {
@@ -420,11 +482,49 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         self.statusText = isLiveSession ? "" : snapshot.inputStatusText
         self.helperStatusText = isLiveSession ? nil : snapshot.inputHelperStatusText
         self.stickyModifierState = snapshot.stickyModifierState
-        self.layoutStyle = isLiveSession ? .compactAccessory : .standard
+        self.layoutStyle = Self.resolvedLayoutStyle(
+            snapshot: snapshot,
+            isLiveSession: isLiveSession,
+            isComposeFieldFocused: isComposeFieldFocused
+        )
         self.showsCompactStatusText = isLiveSession ? false : snapshot.latestInjectionAttempt != nil
         self.showsMacSessionControls = snapshot.session?.state == .active
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
+    }
+
+    nonisolated static func resolvedLayoutStyle(
+        snapshot: NaruRemoteAppSnapshot,
+        isLiveSession: Bool,
+        isComposeFieldFocused: Bool
+    ) -> RemoteInputDockLayoutStyle {
+        guard isLiveSession else {
+            return .standard
+        }
+        return shouldUseFloatingLiveAccessory(
+            snapshot: snapshot,
+            isComposeFieldFocused: isComposeFieldFocused
+        ) ? .floatingAccessory : .compactAccessory
+    }
+
+    nonisolated static func shouldUseFloatingLiveAccessory(
+        snapshot: NaruRemoteAppSnapshot,
+        isComposeFieldFocused: Bool
+    ) -> Bool {
+        guard !isComposeFieldFocused,
+              !snapshot.directKeystrokeMode.isActive,
+              snapshot.latestInjectionAttempt == nil
+        else {
+            return false
+        }
+
+        let draftText = snapshot.composeDraft?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard draftText.isEmpty else {
+            return false
+        }
+
+        let helperStatusText = snapshot.inputHelperStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return helperStatusText?.isEmpty ?? true
     }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {

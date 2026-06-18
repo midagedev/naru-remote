@@ -8,6 +8,7 @@ import UIKit
 public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
     case standard
     case compactAccessory
+    case floatingAccessory
 }
 
 public struct RemoteInputDockView: View {
@@ -126,6 +127,8 @@ public struct RemoteInputDockView: View {
                 standardBody
             case .compactAccessory:
                 compactAccessoryBody
+            case .floatingAccessory:
+                floatingAccessoryBody
             }
         }
         .frame(maxWidth: compactWindowWidth, alignment: .center)
@@ -273,6 +276,70 @@ public struct RemoteInputDockView: View {
                 .fill(NaruColors.hairline)
                 .frame(height: 1)
         }
+    }
+
+    @ViewBuilder
+    private var floatingAccessoryBody: some View {
+        if showsCompactComposeEditor || directKeystrokeMode.isActive {
+            compactAccessoryBody
+        } else {
+            floatingControlStrip
+        }
+    }
+
+    private var floatingControlStrip: some View {
+        HStack(spacing: 6) {
+            Button {
+                onToggleDirectMode()
+            } label: {
+                Label("Direct mode", systemImage: "keyboard")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(NaruColors.surfaceMuted)
+            .clipShape(Circle())
+            .accessibilityIdentifier("naru.input.direct-toggle")
+
+            Button {
+                compactComposeEditorRequested = true
+                Task { @MainActor in
+                    await Task.yield()
+                    focusComposeEditor()
+                }
+            } label: {
+                Label("Compose", systemImage: "text.cursor")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(NaruColors.surfaceEditor)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(NaruColors.hairline, lineWidth: 1)
+            )
+            .accessibilityIdentifier("naru.input.compose-reveal")
+
+            if showsMacSessionControls {
+                compactMacControlMenu
+            }
+
+            if showsComposeQuickKeys {
+                quickKeyMenu
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(NaruColors.hairline, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 4)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("naru.input.floating-accessory")
     }
 
     private var compactComposeRow: some View {
@@ -1220,7 +1287,7 @@ public struct RemoteInputDockView: View {
         showsMacSessionControls: Bool,
         layoutStyle: RemoteInputDockLayoutStyle
     ) -> Bool {
-        showsMacSessionControls && layoutStyle != .compactAccessory
+        showsMacSessionControls && layoutStyle == .standard
     }
 
     nonisolated static func shouldInlineDirectInputSurfacePicker(

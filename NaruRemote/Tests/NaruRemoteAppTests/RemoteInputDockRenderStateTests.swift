@@ -118,6 +118,10 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             "Live compact Direct mode should keep Naru/iOS/HW selection in the header so hardware-keyboard sessions reserve the remote screen for the desktop."
         )
         XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .floatingAccessory),
+            "The floating remote-control strip is only used while Direct mode is inactive."
+        )
+        XCTAssertFalse(
             RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .compactAccessory),
             "The compact dock must not spend a second row on the surface picker."
         )
@@ -126,6 +130,94 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
         XCTAssertTrue(
             RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .standard)
+        )
+    }
+
+    func testLiveIdleInputDockFloatsOverViewportWithoutReservingSafeArea() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let state = RemoteInputDockRenderState(snapshot: snapshot, isLiveSession: true)
+        let chrome = RemoteInputAccessoryChromeState(
+            snapshot: snapshot,
+            incomingClipboardReview: nil,
+            isLiveSession: true,
+            isComposeFieldFocused: false
+        )
+
+        XCTAssertEqual(state.layoutStyle, .floatingAccessory)
+        XCTAssertTrue(
+            chrome.usesFloatingOverlay(for: state),
+            "Idle remote control should keep the desktop full-height and place only a tiny floating input affordance above it."
+        )
+    }
+
+    func testLiveInputDockReturnsToReservedInsetWhenInputOrChromeNeedsSpace() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let baseSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let draftSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입력"),
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let directSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900),
+            directKeystrokeMode: DirectKeystrokeMode(isActive: true)
+        )
+        let review = IncomingClipboardReview(
+            text: "remote copied text",
+            arrivedAt: Date(timeIntervalSince1970: 1),
+            id: UUID(uuidString: "F6305806-E3AF-4B37-87FE-B053D08E3D8A")!
+        )
+        let floatingState = RemoteInputDockRenderState(snapshot: baseSnapshot, isLiveSession: true)
+        let chromeWithReview = RemoteInputAccessoryChromeState(
+            snapshot: baseSnapshot,
+            incomingClipboardReview: review,
+            isLiveSession: true,
+            isComposeFieldFocused: false
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: draftSnapshot,
+                isLiveSession: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: baseSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: directSnapshot,
+                isLiveSession: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertFalse(
+            chromeWithReview.usesFloatingOverlay(for: floatingState),
+            "Incoming clipboard review needs reserved bottom space instead of floating over the remote desktop."
         )
     }
 
