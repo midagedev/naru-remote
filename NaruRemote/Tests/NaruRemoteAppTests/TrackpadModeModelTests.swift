@@ -266,6 +266,28 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(model.trackpadCursor.position.y, 70, accuracy: 1e-6)
     }
 
+    func testFirstTrackpadHardwareHoverMoveUsesImmediateBestEffortPath() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .hoverMoved(viewPoint: CGPoint(x: 150, y: 70)),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        XCTAssertEqual(
+            connector.recordedBestEffortPointerEventCount,
+            1,
+            "The first hardware-pointer hover sample should not wait for the coalescing timer; desktop hover feedback depends on the initial move landing immediately."
+        )
+        let event = try XCTUnwrap(connector.recordedPointerEvents.first)
+        XCTAssertEqual(event.mask, RFBPointerCommand.released)
+        XCTAssertEqual(event.x, 150)
+        XCTAssertEqual(event.y, 70)
+    }
+
     func testTrackpadDragUsesZoomedTransformAndReturnsAttachedAutoPan() async throws {
         let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
         let model = try makeModel(connector: connector)

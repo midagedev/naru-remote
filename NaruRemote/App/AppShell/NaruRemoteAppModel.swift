@@ -5698,7 +5698,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 sessionID: sessionID,
                 profileID: profileID,
                 coalescingDelay: Self.trackpadPointerMoveCoalescingDelay,
-                allowsBestEffort: true
+                allowsBestEffort: true,
+                sendsImmediatelyWhenIdle: Self.shouldSendBestEffortPointerMoveImmediatelyWhenIdle(gesture)
             )
             return result
         }
@@ -5718,6 +5719,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         if case .dragChanged = gesture {
             return true
         }
+        if case .hoverMoved = gesture {
+            return true
+        }
+        return false
+    }
+
+    private static func shouldSendBestEffortPointerMoveImmediatelyWhenIdle(_ gesture: PointerGesture) -> Bool {
         if case .hoverMoved = gesture {
             return true
         }
@@ -7587,9 +7595,28 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?,
         coalescingDelay: Duration? = nil,
-        allowsBestEffort: Bool = false
+        allowsBestEffort: Bool = false,
+        sendsImmediatelyWhenIdle: Bool = false
     ) {
         let coalescingDelay = coalescingDelay ?? Self.directPointerMoveCoalescingDelay
+
+        if sendsImmediatelyWhenIdle,
+           allowsBestEffort,
+           pendingPointerMove == nil,
+           pointerMoveFlushTask == nil,
+           let bestEffortClient = pointerClient as? RFBBestEffortPointerEventClient,
+           isCurrentPointerInputTarget(
+               pointerClient: pointerClient,
+               streamID: streamID,
+               sessionID: sessionID,
+               profileID: profileID
+           )
+        {
+            sendImmediateBestEffortPointerMove(command, pointerClient: bestEffortClient)
+            schedulePointerMoveFlush(after: coalescingDelay)
+            return
+        }
+
         pendingPointerMove = PendingPointerMove(
             command: command,
             pointerClient: pointerClient,
@@ -7603,7 +7630,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let delay = coalescingDelay
+        schedulePointerMoveFlush(after: coalescingDelay)
+    }
+
+    private func schedulePointerMoveFlush(after delay: Duration) {
         pointerMoveFlushTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: delay)

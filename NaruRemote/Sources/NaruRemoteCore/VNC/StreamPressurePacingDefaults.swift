@@ -14,8 +14,11 @@ public enum StreamPressurePacingDefaults {
     public static let textInputContentFrameIntervalSeconds: Double = 0.10
     /// Direct keys, pointer taps, and trackpad moves need faster remote echo
     /// than focused IME, but still should not let VNC visual reads compete with
-    /// the local interaction path at an unbounded cadence.
-    public static let transientInputContentFrameIntervalSeconds: Double = 0.05
+    /// the local interaction path at an unbounded cadence. Keep this in a
+    /// 24 Hz-class burst so hover/click echo can surface quickly without
+    /// undercutting fair-thermal pacing or turning sustained idle VNC
+    /// sampling into a 60 Hz workload.
+    public static let transientInputContentFrameIntervalSeconds: Double = 1.0 / 24.0
     /// Localized terminal/cursor/editor damage can be sampled more often during
     /// viewport gestures without paying the full-frame upload cost. This keeps
     /// remote echo alive while the local compositor path owns pinch/pan.
