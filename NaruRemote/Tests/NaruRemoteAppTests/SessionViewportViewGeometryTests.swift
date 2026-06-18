@@ -143,6 +143,27 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testImmersiveControlsCollapseWhenViewportInteractionBegins() {
+        XCTAssertTrue(
+            SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
+                showsControlBar: true,
+                isViewportInteractionActive: true
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
+                showsControlBar: false,
+                isViewportInteractionActive: true
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
+                showsControlBar: true,
+                isViewportInteractionActive: false
+            )
+        )
+    }
+
     func testImmersiveControlsAutoHideOnlyWhenVisibleAndIdle() {
         XCTAssertTrue(
             SessionViewportView.allowsImmersiveControlAutoHide(

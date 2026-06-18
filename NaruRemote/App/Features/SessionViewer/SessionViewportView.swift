@@ -1949,6 +1949,14 @@ public struct SessionViewportView: View {
         _ isActive: Bool,
         frameStrategy: ViewportInteractionFrameStrategy
     ) {
+        if Self.collapsesImmersiveControlsOnViewportInteraction(
+            showsControlBar: showsImmersiveControlBar,
+            isViewportInteractionActive: isActive
+        ) {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                showsImmersiveControlBar = false
+            }
+        }
         if isViewportInteractionActive != isActive {
             isViewportInteractionActive = isActive
         }
@@ -2204,6 +2212,13 @@ public struct SessionViewportView: View {
         isViewportInteractionActive: Bool
     ) -> Bool {
         showsControlBar && !isViewportInteractionActive
+    }
+
+    nonisolated static func collapsesImmersiveControlsOnViewportInteraction(
+        showsControlBar: Bool,
+        isViewportInteractionActive: Bool
+    ) -> Bool {
+        showsControlBar && isViewportInteractionActive
     }
 
     nonisolated static func trackpadDragOwnsViewportInteraction(
