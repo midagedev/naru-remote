@@ -400,20 +400,39 @@ public struct RemoteInputDockView: View {
     }
 
     private var compactDirectHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            compactDirectHeaderRow(showsComposeTitle: true)
+            compactDirectHeaderRow(showsComposeTitle: false)
+        }
+    }
+
+    private func compactDirectHeaderRow(showsComposeTitle: Bool) -> some View {
         HStack(spacing: 8) {
             Button {
                 onToggleDirectMode()
             } label: {
-                Label("Compose", systemImage: "text.cursor")
+                if showsComposeTitle {
+                    Label("Compose", systemImage: "text.cursor")
+                } else {
+                    Label("Compose", systemImage: "text.cursor")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 38, height: 32)
+                }
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.small)
             .accessibilityIdentifier("naru.input.compose-toggle")
 
             if showsMacSessionControls {
                 compactMacControlMenu
             }
 
-            Spacer()
+            if Self.shouldInlineDirectInputSurfacePicker(layoutStyle: layoutStyle) {
+                directInputSurfacePicker
+                    .frame(maxWidth: 156)
+            }
+
+            Spacer(minLength: 0)
 
             DirectModeBadge(
                 isVisible: directKeystrokeMode.isActive,
@@ -647,7 +666,9 @@ public struct RemoteInputDockView: View {
     @ViewBuilder
     private var directKeyboard: some View {
         VStack(spacing: 8) {
-            directInputSurfacePicker
+            if Self.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: layoutStyle) {
+                directInputSurfacePicker
+            }
             if Self.shouldShowPersistentMacControlStrip(
                 showsMacSessionControls: showsMacSessionControls,
                 layoutStyle: layoutStyle
@@ -1200,6 +1221,18 @@ public struct RemoteInputDockView: View {
         layoutStyle: RemoteInputDockLayoutStyle
     ) -> Bool {
         showsMacSessionControls && layoutStyle != .compactAccessory
+    }
+
+    nonisolated static func shouldInlineDirectInputSurfacePicker(
+        layoutStyle: RemoteInputDockLayoutStyle
+    ) -> Bool {
+        layoutStyle == .compactAccessory
+    }
+
+    nonisolated static func shouldShowPersistentDirectInputSurfacePicker(
+        layoutStyle: RemoteInputDockLayoutStyle
+    ) -> Bool {
+        !shouldInlineDirectInputSurfacePicker(layoutStyle: layoutStyle)
     }
 
     nonisolated static func resolvedCompactStatusText(

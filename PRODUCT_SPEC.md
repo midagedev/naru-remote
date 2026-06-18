@@ -298,7 +298,9 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
   Compose 상태에서는 TextEditor를 숨기고 40pt Compose affordance만 남겨 원격
   화면 공간을 우선한다. 사용자가 affordance를 탭하거나 Compose에 focus/draft가
   생기면 편집 표면을 다시 넓혀 iOS IME, dictation, Korean/CJK marked text
-  안정성을 유지한다.
+  안정성을 유지한다. Direct mode의 Naru/iOS/HW 입력 표면 선택은 live compact
+  dock의 헤더 안에 들어가며, HW surface는 숨은 hardware-key responder만 유지해
+  외장 키보드 사용 중 원격 화면 세로 공간을 추가로 회복한다.
 - Compose mode에서도 Esc, Tab, Ctrl-C, 위/아래 화살표 quick keys를 제공해
   다국어 문장을 작성하던 사용자가 Direct mode로 전환하지 않고 terminal/AI
   CLI에 필요한 discrete control key를 보낼 수 있다.

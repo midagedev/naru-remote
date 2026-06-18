@@ -427,6 +427,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSessionActiveTrackpadCursor(mode: .dark, deviceTag: "iphone")
     }
 
+    func testSessionActiveDirectHardwareKeyboard_light() throws {
+        try runSessionActiveDirectHardwareKeyboard(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSessionActiveDirectHardwareKeyboard_dark() throws {
+        try runSessionActiveDirectHardwareKeyboard(mode: .dark, deviceTag: "iphone")
+    }
+
     private func runSessionActiveWidescreen(
         mode: ColorMode,
         deviceTag: String,
@@ -484,6 +492,51 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
 
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
+    }
+
+    private func runSessionActiveDirectHardwareKeyboard(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
+        let app = launchAppWithFixture(
+            .sessionActiveWidescreen,
+            mode: mode,
+            suppressDirectWarning: true
+        )
+
+        let directToggle = app.buttons["naru.input.direct-toggle"]
+        XCTAssertTrue(
+            directToggle.waitForExistence(timeout: 8),
+            "Active-session compact dock must expose Direct mode without expanding Compose."
+        )
+        directToggle.tap()
+
+        let hardwareSurface = app.buttons["HW"]
+        XCTAssertTrue(
+            hardwareSurface.waitForExistence(timeout: 4),
+            "Compact Direct header must keep the hardware-keyboard surface picker reachable."
+        )
+        hardwareSurface.tap()
+
+        XCTAssertTrue(
+            app.buttons["naru.input.compose-toggle"].waitForExistence(timeout: 4),
+            "Hardware-keyboard Direct mode must keep Compose one tap away."
+        )
+        XCTAssertTrue(
+            app.buttons["Key q"].waitForNonExistence(timeout: 3),
+            "Hardware-keyboard surface must hide Naru's custom soft keyboard to preserve remote screen area."
+        )
+        XCTAssertFalse(
+            app.keyboards.firstMatch.exists,
+            "Hardware-keyboard surface must not raise the iOS system keyboard."
+        )
+
+        try saveScreen(named: "19-session-active-direct-hw-\(deviceTag)-\(mode.suffix).png")
 
         if terminateAfterCapture {
             app.terminate()
@@ -757,13 +810,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
     /// drives the model to a deterministic synthetic state — see
     /// `UXAuditFixtures.swift`.
-    private func launchAppWithFixture(_ token: FixtureToken, mode: ColorMode) -> XCUIApplication {
+    private func launchAppWithFixture(
+        _ token: FixtureToken,
+        mode: ColorMode,
+        suppressDirectWarning: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
+        if suppressDirectWarning {
+            app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        }
         applyColorMode(mode, to: app)
         app.launch()
         return app
@@ -1020,5 +1080,11 @@ private extension XCUIElement {
         if condition(self) {
             tap()
         }
+    }
+
+    func waitForNonExistence(timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

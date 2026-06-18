@@ -112,6 +112,23 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testCompactAccessoryInlinesDirectInputSurfacePicker() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "Live compact Direct mode should keep Naru/iOS/HW selection in the header so hardware-keyboard sessions reserve the remote screen for the desktop."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "The compact dock must not spend a second row on the surface picker."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .standard)
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .standard)
+        )
+    }
+
     func testInputDockRenderStateIgnoresStreamingTelemetryAndFramebufferNoise() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)

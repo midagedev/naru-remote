@@ -187,6 +187,14 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   cursor-follow, mapping the hover point through `ViewportTransform` and using
   the same latest-value/best-effort pointer lane as touch trackpad moves.
   Covered by `PointerGestureResolverTests` and `TrackpadModeModelTests`. **Done.**
+- [x] T015bp [B] Hardware-keyboard compact dock follow-up: inline the Direct
+  Naru/iOS/HW surface picker into the live compact Direct header so selecting
+  HW keeps the custom soft keyboard hidden and spends no extra picker row while
+  Compose remains one tap away. Covered by `RemoteInputDockRenderStateTests`,
+  focused direct/input tests, iPhone/iPad simulator builds, and a compiling
+  `UXAuditScreenshotsUITests` state; the focused UI run hung in the simulator
+  execution phase after test build succeeded, so screenshot capture remains a
+  follow-up evidence gap. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
