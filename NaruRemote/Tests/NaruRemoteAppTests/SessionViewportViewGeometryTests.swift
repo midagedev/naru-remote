@@ -164,6 +164,43 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    func testImmersiveControlsCollapseOnTrackpadHoverAndPointerIntent() {
+        XCTAssertTrue(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40))
+            ),
+            "Hardware pointer hover is remote-control intent, so live chrome should clear the desktop immediately instead of waiting for the idle auto-hide timer."
+        )
+        XCTAssertTrue(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .tap(viewPoint: CGPoint(x: 80, y: 40))
+            )
+        )
+        XCTAssertTrue(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .dragChanged(
+                    viewPoint: CGPoint(x: 80, y: 40),
+                    translation: CGSize(width: 12, height: 0)
+                )
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .dragEnded(viewPoint: CGPoint(x: 80, y: 40))
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: false,
+                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40))
+            )
+        )
+    }
+
     func testImmersiveControlsAutoHideOnlyWhenVisibleAndIdle() {
         XCTAssertTrue(
             SessionViewportView.allowsImmersiveControlAutoHide(

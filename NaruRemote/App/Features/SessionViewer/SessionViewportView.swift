@@ -1055,6 +1055,7 @@ public struct SessionViewportView: View {
         framebuffer: RFBRawFramebuffer?,
         viewSize: CGSize
     ) {
+        collapseImmersiveControlsForTrackpadGesture(gesture)
         let transform = currentViewportTransform(coordinateSpace: coordinateSpace, viewSize: viewSize)
         let updatedTransform = onTrackpadGesture?(gesture, transform, trackpadCursor)?.transform ?? transform
         applyViewportTransform(
@@ -1427,6 +1428,7 @@ public struct SessionViewportView: View {
             trackpadCursor: trackpadCursor,
             serverCursor: serverCursor,
             onTrackpadGesture: { gesture, transform, cursor in
+                collapseImmersiveControlsForTrackpadGesture(gesture)
                 onTrackpadGesture?(gesture, transform, cursor)
             },
             onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
@@ -1590,6 +1592,7 @@ public struct SessionViewportView: View {
                     // mirrors viewport state after the gesture settles.
                     // Updating SwiftUI state on every pointer sample makes
                     // physical iPhone drags fight the fast UIKit path.
+                    collapseImmersiveControlsForTrackpadGesture(gesture)
                     onTrackpadGesture?(gesture, transform, cursor)
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
@@ -1963,6 +1966,18 @@ public struct SessionViewportView: View {
         onViewportInteractionChange?(isActive, frameStrategy)
     }
 
+    private func collapseImmersiveControlsForTrackpadGesture(_ gesture: PointerGesture) {
+        guard Self.collapsesImmersiveControlsOnTrackpadGesture(
+            showsControlBar: showsImmersiveControlBar,
+            gesture: gesture
+        ) else {
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.16)) {
+            showsImmersiveControlBar = false
+        }
+    }
+
     private var statusText: String {
         // "Not connected" reads clearer than the terse "None" the badge
         // used to show, while still staying short enough that it doesn't
@@ -2219,6 +2234,29 @@ public struct SessionViewportView: View {
         isViewportInteractionActive: Bool
     ) -> Bool {
         showsControlBar && isViewportInteractionActive
+    }
+
+    nonisolated static func collapsesImmersiveControlsOnTrackpadGesture(
+        showsControlBar: Bool,
+        gesture: PointerGesture
+    ) -> Bool {
+        guard showsControlBar else {
+            return false
+        }
+        switch gesture {
+        case .hoverMoved,
+             .tap,
+             .secondaryTap,
+             .longPress,
+             .dragBegan,
+             .dragChanged,
+             .pressDragBegan,
+             .pressDragChanged:
+            return true
+        case .dragEnded,
+             .pressDragEnded:
+            return false
+        }
     }
 
     nonisolated static func trackpadDragOwnsViewportInteraction(
