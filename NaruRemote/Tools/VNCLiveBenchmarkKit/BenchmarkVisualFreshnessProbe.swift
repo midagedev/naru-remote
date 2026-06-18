@@ -50,6 +50,7 @@ public enum BenchmarkVisualFreshnessSidecar {
 public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
     public static let markerCellCount = 13
     public static let markerPointCellSize = 20
+    public static let minimumDecodedCellSize = 8
     public static let sentinelNibbles = [15, 0, 10, 5]
 
     public static let palette: [RFBColor] = [
@@ -81,14 +82,18 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
     }
 
     public static func decodeSequence(in framebuffer: RFBRawFramebuffer) -> Int? {
-        guard framebuffer.width >= markerCellCount * 12,
-              framebuffer.height >= 24 else {
+        decodeObservation(in: framebuffer)?.sequence
+    }
+
+    public static func decodeObservation(in framebuffer: RFBRawFramebuffer) -> BenchmarkVisualFreshnessMarkerObservation? {
+        guard framebuffer.width >= markerCellCount * minimumDecodedCellSize,
+              framebuffer.height >= minimumDecodedCellSize else {
             return nil
         }
 
-        let cellSizes = stride(from: 96, through: 12, by: -4)
+        let cellSizes = stride(from: 96, through: minimumDecodedCellSize, by: -4)
             .flatMap { [$0, $0 - 2] }
-            .filter { $0 >= 12 }
+            .filter { $0 >= minimumDecodedCellSize }
         let bands = searchBands(for: framebuffer)
 
         for cellSize in cellSizes {
@@ -109,7 +114,11 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
                             y: y,
                             cellSize: cellSize
                         ) {
-                            return sequence
+                            return BenchmarkVisualFreshnessMarkerObservation(
+                                sequence: sequence,
+                                centerX: x + (markerCellCount * cellSize) / 2,
+                                centerY: y + cellSize / 2
+                            )
                         }
                         x += step
                     }
@@ -168,7 +177,7 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
                 in: framebuffer,
                 x: sampleX,
                 y: sampleY,
-                radius: min(max(cellSize / 8, 1), 3)
+                radius: sampleRadius(for: cellSize)
             )
             guard let nibble else {
                 return nil
@@ -188,6 +197,13 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         return sequenceNibbles.reduce(0) { partial, nibble in
             (partial << 4) | nibble
         }
+    }
+
+    private static func sampleRadius(for cellSize: Int) -> Int {
+        guard cellSize > 10 else {
+            return 0
+        }
+        return min(max(cellSize / 8, 1), 3)
     }
 
     private static func nearestPaletteIndex(
@@ -251,6 +267,18 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
     }
 }
 
+public struct BenchmarkVisualFreshnessMarkerObservation: Equatable, Sendable {
+    public let sequence: Int
+    public let centerX: Int
+    public let centerY: Int
+
+    public init(sequence: Int, centerX: Int, centerY: Int) {
+        self.sequence = max(sequence, 0)
+        self.centerX = max(centerX, 0)
+        self.centerY = max(centerY, 0)
+    }
+}
+
 public final class BenchmarkVisualFreshnessProbe {
     private let sidecarPath: String
     private var eventsBySequence: [Int: UInt64] = [:]
@@ -269,21 +297,27 @@ public final class BenchmarkVisualFreshnessProbe {
     }
 
     public func observe(framebuffer: RFBRawFramebuffer) -> BenchmarkVisualFreshnessObservation? {
-        guard let sequence = BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer) else {
+        guard let markerObservation = BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer) else {
             return nil
         }
+        let markerLocation = BenchmarkVisualFreshnessMarkerLocation(
+            centerX: markerObservation.centerX,
+            centerY: markerObservation.centerY
+        )
         refreshEvents()
-        guard let generatedAt = eventsBySequence[sequence] else {
+        guard let generatedAt = eventsBySequence[markerObservation.sequence] else {
             return BenchmarkVisualFreshnessObservation(
-                sequence: sequence,
-                freshnessMilliseconds: nil
+                sequence: markerObservation.sequence,
+                freshnessMilliseconds: nil,
+                markerLocation: markerLocation
             )
         }
         let now = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds()
         let elapsedNanoseconds = now >= generatedAt ? now - generatedAt : 0
         return BenchmarkVisualFreshnessObservation(
-            sequence: sequence,
-            freshnessMilliseconds: Int(elapsedNanoseconds / 1_000_000)
+            sequence: markerObservation.sequence,
+            freshnessMilliseconds: Int(elapsedNanoseconds / 1_000_000),
+            markerLocation: markerLocation
         )
     }
 
@@ -302,12 +336,48 @@ public final class BenchmarkVisualFreshnessProbe {
     }
 }
 
+public struct BenchmarkVisualFreshnessMarkerLocation: Equatable, Sendable {
+    public let centerX: Int
+    public let centerY: Int
+
+    public init(centerX: Int, centerY: Int) {
+        self.centerX = max(centerX, 0)
+        self.centerY = max(centerY, 0)
+    }
+}
+
 public struct BenchmarkVisualFreshnessObservation: Codable, Equatable, Sendable {
     public let sequence: Int
     public let freshnessMilliseconds: Int?
+    public let markerLocation: BenchmarkVisualFreshnessMarkerLocation?
 
-    public init(sequence: Int, freshnessMilliseconds: Int?) {
+    public init(
+        sequence: Int,
+        freshnessMilliseconds: Int?,
+        markerLocation: BenchmarkVisualFreshnessMarkerLocation? = nil
+    ) {
         self.sequence = max(sequence, 0)
         self.freshnessMilliseconds = freshnessMilliseconds.map { max($0, 0) }
+        self.markerLocation = markerLocation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sequence
+        case freshnessMilliseconds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sequence = max(try container.decode(Int.self, forKey: .sequence), 0)
+        freshnessMilliseconds = try container
+            .decodeIfPresent(Int.self, forKey: .freshnessMilliseconds)
+            .map { max($0, 0) }
+        markerLocation = nil
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sequence, forKey: .sequence)
+        try container.encodeIfPresent(freshnessMilliseconds, forKey: .freshnessMilliseconds)
     }
 }

@@ -39,6 +39,32 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
     }
 
+    func testMarkerObservationIncludesDecodedMarkerLocation() throws {
+        let sequence = 0x0000_FF31
+        let originX = 1_520
+        let originY = 1_160
+        let cellSize = 64
+        var framebuffer = RFBRawFramebuffer(
+            width: 2_400,
+            height: 1_600,
+            fill: RFBColor(red: 19, green: 20, blue: 21)
+        )
+        drawMarker(
+            sequence: sequence,
+            x: originX,
+            y: originY,
+            cellSize: cellSize,
+            framebuffer: &framebuffer
+        )
+
+        let observation = try XCTUnwrap(BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer))
+        XCTAssertEqual(observation.sequence, sequence)
+        XCTAssertGreaterThanOrEqual(observation.centerX, originX)
+        XCTAssertLessThan(observation.centerX, originX + BenchmarkVisualFreshnessMarker.markerCellCount * cellSize)
+        XCTAssertGreaterThanOrEqual(observation.centerY, originY)
+        XCTAssertLessThan(observation.centerY, originY + cellSize)
+    }
+
     func testMarkerDecodeScansFractionalVNCDisplayScales() throws {
         let sequence = 0x0000_9A4C
         var framebuffer = RFBRawFramebuffer(
@@ -62,6 +88,29 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
+    }
+
+    func testMarkerDecodeScansDownsampledRetinaVNCScale() throws {
+        let sequence = 0x0000_10AC
+        var framebuffer = RFBRawFramebuffer(
+            width: 1_512,
+            height: 982,
+            fill: RFBColor(red: 19, green: 20, blue: 21)
+        )
+        drawMarker(
+            sequence: sequence,
+            x: 58,
+            y: 76,
+            cellSize: 10,
+            framebuffer: &framebuffer
+        )
+
+        let observation = try XCTUnwrap(BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer))
+        XCTAssertEqual(observation.sequence, sequence)
+        XCTAssertGreaterThanOrEqual(observation.centerX, 58)
+        XCTAssertLessThan(observation.centerX, 58 + BenchmarkVisualFreshnessMarker.markerCellCount * 10)
+        XCTAssertGreaterThanOrEqual(observation.centerY, 76)
+        XCTAssertLessThan(observation.centerY, 86)
     }
 
     func testMarkerDecodeScansWideTopBandForCompositeFramebuffers() throws {
@@ -138,6 +187,27 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         )
         XCTAssertEqual(observation.sequence, sequence)
         XCTAssertNotNil(observation.freshnessMilliseconds)
+        XCTAssertNotNil(observation.markerLocation)
+    }
+
+    func testFreshnessObservationOmitsMarkerLocationFromJSON() throws {
+        let observation = BenchmarkVisualFreshnessObservation(
+            sequence: 42,
+            freshnessMilliseconds: 17,
+            markerLocation: BenchmarkVisualFreshnessMarkerLocation(centerX: 123, centerY: 456)
+        )
+
+        let json = try XCTUnwrap(String(data: JSONEncoder().encode(observation), encoding: .utf8))
+        XCTAssertTrue(json.contains("\"sequence\":42"))
+        XCTAssertTrue(json.contains("\"freshnessMilliseconds\":17"))
+        XCTAssertFalse(json.contains("markerLocation"))
+        XCTAssertFalse(json.contains("centerX"))
+        XCTAssertFalse(json.contains("centerY"))
+
+        let decoded = try JSONDecoder().decode(BenchmarkVisualFreshnessObservation.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.sequence, 42)
+        XCTAssertEqual(decoded.freshnessMilliseconds, 17)
+        XCTAssertNil(decoded.markerLocation)
     }
 
     private func drawMarker(

@@ -364,8 +364,14 @@ enum VNCLiveBenchmark {
             )
         }
         let baselineSequence = baselineObservation.sequence
-        let outsidePoint = controlledTopLeftObservationTargetOutsidePoint(framebuffer: firstFrameResult.framebuffer)
-        let point = controlledTopLeftObservationTargetCenterPoint(framebuffer: firstFrameResult.framebuffer)
+        let outsidePoint = controlledPointerHoverTargetOutsidePoint(
+            framebuffer: firstFrameResult.framebuffer,
+            markerLocation: baselineObservation.markerLocation
+        )
+        let point = controlledPointerHoverTargetCenterPoint(
+            framebuffer: firstFrameResult.framebuffer,
+            markerLocation: baselineObservation.markerLocation
+        )
         do {
             try await client.sendPointerEvent(buttonMask: 0x00, x: outsidePoint.x, y: outsidePoint.y)
             try await Task.sleep(for: .milliseconds(40))
@@ -835,6 +841,37 @@ enum VNCLiveBenchmark {
             upperBound: framebuffer.height
         )
         return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledPointerHoverTargetCenterPoint(
+        framebuffer: RFBRawFramebuffer,
+        markerLocation: BenchmarkVisualFreshnessMarkerLocation?
+    ) -> (x: UInt16, y: UInt16) {
+        guard let markerLocation else {
+            return controlledTopLeftObservationTargetCenterPoint(framebuffer: framebuffer)
+        }
+        let x = clampFramebufferCoordinate(markerLocation.centerX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(markerLocation.centerY, upperBound: framebuffer.height)
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledPointerHoverTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer,
+        markerLocation: BenchmarkVisualFreshnessMarkerLocation?
+    ) -> (x: UInt16, y: UInt16) {
+        guard let markerLocation else {
+            return controlledTopLeftObservationTargetOutsidePoint(framebuffer: framebuffer)
+        }
+        let x = markerLocation.centerX < framebuffer.width / 2
+            ? framebuffer.width - 1
+            : 0
+        let y = markerLocation.centerY < framebuffer.height / 2
+            ? framebuffer.height - 1
+            : 0
+        return (
+            UInt16(clampFramebufferCoordinate(x, upperBound: framebuffer.width)),
+            UInt16(clampFramebufferCoordinate(y, upperBound: framebuffer.height))
+        )
     }
 
     private static func controlledTopLeftObservationTargetCenterPoint(
