@@ -516,12 +516,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
         directToggle.tap()
 
-        let hardwareSurface = app.buttons["HW"]
-        XCTAssertTrue(
-            hardwareSurface.waitForExistence(timeout: 4),
-            "Compact Direct header must keep the hardware-keyboard surface picker reachable."
-        )
-        hardwareSurface.tap()
+        tapHardwareDirectSurface(in: app)
 
         XCTAssertTrue(
             app.buttons["naru.input.compose-toggle"].waitForExistence(timeout: 4),
@@ -541,6 +536,28 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         if terminateAfterCapture {
             app.terminate()
         }
+    }
+
+    private func tapHardwareDirectSurface(in app: XCUIApplication) {
+        let inlineHardwareSurface = app.buttons["HW"]
+        if inlineHardwareSurface.waitForExistence(timeout: 2) {
+            inlineHardwareSurface.tap()
+            return
+        }
+
+        let surfaceMenu = app.buttons["naru.direct.input-surface-menu"]
+        XCTAssertTrue(
+            surfaceMenu.waitForExistence(timeout: 4),
+            "Compact Direct header must keep the hardware-keyboard surface menu reachable on narrow iPhone action rows."
+        )
+        surfaceMenu.tap()
+
+        let hardwareMenuItem = app.buttons["Hardware keyboard"]
+        XCTAssertTrue(
+            hardwareMenuItem.waitForExistence(timeout: 4),
+            "Hardware-keyboard Direct surface must remain selectable from the compact fallback menu."
+        )
+        hardwareMenuItem.tap()
     }
 
     private func runSessionActiveTrackpadCursor(

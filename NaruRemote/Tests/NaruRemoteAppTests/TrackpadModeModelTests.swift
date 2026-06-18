@@ -286,6 +286,33 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTAssertEqual(event.mask, RFBPointerCommand.released)
         XCTAssertEqual(event.x, 150)
         XCTAssertEqual(event.y, 70)
+
+        try await waitForFramebufferUpdateRequests(connector, count: 1, timeout: 0.16)
+        let request = try XCTUnwrap(connector.recordedFramebufferUpdateRequests.first)
+        XCTAssertTrue(request.incremental)
+        XCTAssertNil(request.region)
+    }
+
+    func testRepeatedTrackpadHardwareHoverNudgesAreRateLimitedToLatestRequest() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        for x in [120, 130, 140] {
+            model.handleTrackpadGesture(
+                .hoverMoved(viewPoint: CGPoint(x: x, y: 70)),
+                viewSize: CGSize(width: 200, height: 100)
+            )
+        }
+
+        try await waitForFramebufferUpdateRequests(connector, count: 2, timeout: 0.5)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            connector.recordedFramebufferUpdateRequests.count,
+            2,
+            "Hardware hover should request a fresh VNC frame immediately, then keep only one latest-value follow-up request for the same display-cadence burst."
+        )
     }
 
     func testTrackpadDragUsesZoomedTransformAndReturnsAttachedAutoPan() async throws {
@@ -508,6 +535,23 @@ final class TrackpadModeModelTests: XCTestCase {
         XCTFail("Timed out waiting for \(count) pointer events; got \(connector.recordedPointerEvents.count)")
     }
 
+    private func waitForFramebufferUpdateRequests(
+        _ connector: TrackpadPointerCapturingConnector,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connector.recordedFramebufferUpdateRequests.count >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail(
+            "Timed out waiting for \(count) framebuffer update requests; got \(connector.recordedFramebufferUpdateRequests.count)"
+        )
+    }
+
     private func waitForTrackpadCursor(
         _ model: NaruRemoteAppModel,
         timeout: TimeInterval = 2,
@@ -530,12 +574,14 @@ final class TrackpadModeModelTests: XCTestCase {
 /// suite stays structurally unchanged.
 private final class TrackpadPointerCapturingConnector:
     RFBStreamingClient,
+    RFBFramebufferUpdateRequestSending,
     RFBBestEffortPointerEventClient,
     @unchecked Sendable
 {
     private struct Recording {
         var framebuffers: [RFBRawFramebuffer]
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var recordedFramebufferUpdateRequestsList: [(incremental: Bool, region: RFBFramebufferUpdateRegion?)] = []
         var pointerEventDelays: [Duration?]
     }
 
@@ -569,6 +615,10 @@ private final class TrackpadPointerCapturingConnector:
 
     var recordedBestEffortPointerEventCount: Int {
         bestEffortCount.withLock { $0 }
+    }
+
+    var recordedFramebufferUpdateRequests: [(incremental: Bool, region: RFBFramebufferUpdateRegion?)] {
+        recording.withLock { $0.recordedFramebufferUpdateRequestsList }
     }
 
     func connectNoAuthFirstFrame(host: String, port: UInt16, timeout: TimeInterval) throws -> RFBServerInit {
@@ -611,6 +661,16 @@ private final class TrackpadPointerCapturingConnector:
             throw RFBNetworkClientError.incompleteTranscript(expected: 1, actual: 0)
         }
         return framebuffer
+    }
+
+    func sendFramebufferUpdateRequest(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws {
+        recording.withLock { state in
+            state.recordedFramebufferUpdateRequestsList.append((incremental, region))
+        }
     }
 
     func setClipboardText(_ text: String) throws {}

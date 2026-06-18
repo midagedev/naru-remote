@@ -494,9 +494,19 @@ public struct RemoteInputDockView: View {
                 compactMacControlMenu
             }
 
-            if Self.shouldInlineDirectInputSurfacePicker(layoutStyle: layoutStyle) {
+            if Self.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: layoutStyle,
+                availableWidth: compactWindowWidth,
+                showsMacSessionControls: showsMacSessionControls
+            ) {
                 directInputSurfacePicker
                     .frame(maxWidth: 156)
+            } else if Self.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: layoutStyle,
+                availableWidth: compactWindowWidth,
+                showsMacSessionControls: showsMacSessionControls
+            ) {
+                compactDirectInputSurfaceMenu
             }
 
             Spacer(minLength: 0)
@@ -769,6 +779,35 @@ public struct RemoteInputDockView: View {
         .pickerStyle(.segmented)
         .controlSize(.small)
         .accessibilityIdentifier("naru.direct.input-surface-picker")
+    }
+
+    private var compactDirectInputSurfaceMenu: some View {
+        Menu {
+            ForEach(DirectKeystrokeInputSurface.allCases, id: \.self) { surface in
+                Button {
+                    onSetDirectInputSurface(surface)
+                } label: {
+                    Label(
+                        Self.directInputSurfaceLabel(for: surface),
+                        systemImage: Self.directInputSurfaceSystemImageName(for: surface)
+                    )
+                }
+                .accessibilityIdentifier("naru.direct.input-surface-menu.\(surface.rawValue)")
+            }
+        } label: {
+            Label(
+                Self.directInputSurfaceShortLabel(for: directKeystrokeMode.inputSurface),
+                systemImage: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface)
+            )
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .frame(minWidth: 54, minHeight: 38)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(
+            "Direct input surface, \(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))"
+        )
+        .accessibilityIdentifier("naru.direct.input-surface-menu")
     }
 
     @ViewBuilder
@@ -1291,15 +1330,75 @@ public struct RemoteInputDockView: View {
     }
 
     nonisolated static func shouldInlineDirectInputSurfacePicker(
-        layoutStyle: RemoteInputDockLayoutStyle
+        layoutStyle: RemoteInputDockLayoutStyle,
+        availableWidth: CGFloat? = nil,
+        showsMacSessionControls: Bool = false
     ) -> Bool {
-        layoutStyle == .compactAccessory
+        guard layoutStyle == .compactAccessory else {
+            return false
+        }
+        guard let availableWidth else {
+            return true
+        }
+        let minimumWidth: CGFloat = showsMacSessionControls ? 430 : 360
+        return availableWidth >= minimumWidth
+    }
+
+    nonisolated static func shouldShowCompactDirectInputSurfaceMenu(
+        layoutStyle: RemoteInputDockLayoutStyle,
+        availableWidth: CGFloat?,
+        showsMacSessionControls: Bool
+    ) -> Bool {
+        layoutStyle == .compactAccessory && !shouldInlineDirectInputSurfacePicker(
+            layoutStyle: layoutStyle,
+            availableWidth: availableWidth,
+            showsMacSessionControls: showsMacSessionControls
+        )
     }
 
     nonisolated static func shouldShowPersistentDirectInputSurfacePicker(
         layoutStyle: RemoteInputDockLayoutStyle
     ) -> Bool {
-        !shouldInlineDirectInputSurfacePicker(layoutStyle: layoutStyle)
+        layoutStyle == .standard
+    }
+
+    nonisolated static func directInputSurfaceLabel(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "Naru keyboard"
+        case .systemKeyboard:
+            return "iOS keyboard"
+        case .hardwareKeyboard:
+            return "Hardware keyboard"
+        }
+    }
+
+    nonisolated static func directInputSurfaceShortLabel(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "Naru"
+        case .systemKeyboard:
+            return "iOS"
+        case .hardwareKeyboard:
+            return "HW"
+        }
+    }
+
+    nonisolated static func directInputSurfaceSystemImageName(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "keyboard"
+        case .systemKeyboard:
+            return "text.cursor"
+        case .hardwareKeyboard:
+            return "command"
+        }
     }
 
     nonisolated static func resolvedCompactStatusText(

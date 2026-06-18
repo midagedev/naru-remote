@@ -1429,7 +1429,7 @@ public struct SessionViewportView: View {
             serverCursor: serverCursor,
             onTrackpadGesture: { gesture, transform, cursor in
                 collapseImmersiveControlsForTrackpadGesture(gesture)
-                onTrackpadGesture?(gesture, transform, cursor)
+                return onTrackpadGesture?(gesture, transform, cursor)
             },
             onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
             onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
@@ -1593,7 +1593,7 @@ public struct SessionViewportView: View {
                     // Updating SwiftUI state on every pointer sample makes
                     // physical iPhone drags fight the fast UIKit path.
                     collapseImmersiveControlsForTrackpadGesture(gesture)
-                    onTrackpadGesture?(gesture, transform, cursor)
+                    return onTrackpadGesture?(gesture, transform, cursor)
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,

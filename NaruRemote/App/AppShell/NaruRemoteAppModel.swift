@@ -11,6 +11,14 @@ private struct PendingPointerMove {
     let allowsBestEffort: Bool
 }
 
+private struct PendingPointerInputFramebufferUpdateNudge: Sendable {
+    let sender: any RFBFramebufferUpdateRequestSending
+    let streamID: UUID
+    let sessionID: RemoteSession.ID
+    let profileID: ConnectionProfile.ID
+    let region: RFBFramebufferUpdateRegion?
+}
+
 private enum FrameDeliveryInteractionReason: Hashable {
     case composeFocus
     case viewportGesture
@@ -634,6 +642,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
     private var activePointerClient: RFBPointerEventClient?
+    private var activeFramebufferUpdateRequestSender: (any RFBFramebufferUpdateRequestSending)?
     /// Capability-protocol view of the active streaming client that
     /// owns RFB `KeyEvent` emission (RFC 6143 §7.5.4).  Set in
     /// lockstep with `activeTextClient` and `activePointerClient`
@@ -664,6 +673,9 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// edges remain strictly ordered.
     private var pendingPointerMove: PendingPointerMove?
     private var pointerMoveFlushTask: Task<Void, Never>?
+    private var pendingPointerInputFramebufferUpdateNudge: PendingPointerInputFramebufferUpdateNudge?
+    private var pointerInputFramebufferUpdateNudgeTask: Task<Void, Never>?
+    private var lastPointerInputFramebufferUpdateNudgeAt: Date?
     /// Latest visual trackpad cursor waiting for a frame-sized publish
     /// window. The Metal host applies cursor/auto-pan feedback
     /// immediately; this coalesces SwiftUI overlay state so touch
@@ -678,7 +690,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Trackpad mode has immediate local cursor feedback, so the wire can
     /// stay near display cadence instead of racing touch samples. This keeps
     /// VNC writes from competing with the UIKit/Metal pan loop on iPhone.
-    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(8)
+    private static let trackpadPointerMoveCoalescingDelay: Duration = .milliseconds(16)
+    private static let pointerInputFramebufferUpdateNudgeMinimumInterval: TimeInterval =
+        StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds
+    private static let pointerInputFramebufferUpdateNudgeWriteTimeout: TimeInterval = 0.25
     /// Published SwiftUI cursor snapshots are only a mirror; the Metal
     /// host paints the hot cursor immediately from the gesture result.
     private static let trackpadCursorPublishDelay: Duration = .milliseconds(16)
@@ -1558,6 +1573,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             clearIncomingClipboardReviewState()
             activeTextClient = nil
             activePointerClient = nil
+            activeFramebufferUpdateRequestSender = nil
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
@@ -1658,6 +1674,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             resetVisualTransportState()
             activeTextClient = nil
             activePointerClient = nil
+            activeFramebufferUpdateRequestSender = nil
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
@@ -2380,6 +2397,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             clearIncomingClipboardReviewState()
             activeTextClient = nil
             activePointerClient = nil
+            activeFramebufferUpdateRequestSender = nil
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
@@ -3425,6 +3443,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             session = nextSession
             activeTextClient = nil
             activePointerClient = nil
+            activeFramebufferUpdateRequestSender = nil
             activeKeyEventClient = nil
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
@@ -3496,6 +3515,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 let textClient = connector as? RemoteClipboardTextClient
                 activeTextClient = textClient
                 activePointerClient = connector as? RFBPointerEventClient
+                activeFramebufferUpdateRequestSender = connector as? (any RFBFramebufferUpdateRequestSending)
                 setInputCoordinateSpace(from: connectionResult.serverInit)
                 let keyEventClient = connector as? (any RFBKeyEventClient)
                 activeKeyEventClient = keyEventClient
@@ -3546,6 +3566,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 stopHelperVideoStreamBootstrap()
                 activeTextClient = nil
                 activePointerClient = nil
+                activeFramebufferUpdateRequestSender = nil
                 lastEmittedDragCoord = nil
                 stopIncomingClipboardReceive()
                 clearSessionFrame()
@@ -3797,6 +3818,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func bindActiveStreamingClients(_ streamingClient: any RFBStreamingClient, serverInit: RFBServerInit) {
         activeTextClient = streamingClient
         activePointerClient = streamingClient
+        activeFramebufferUpdateRequestSender = streamingClient as? (any RFBFramebufferUpdateRequestSending)
         activeKeyEventClient = streamingClient
         keystrokeEmitter = KeystrokeEmitter(client: streamingClient)
         setInputCoordinateSpace(from: serverInit)
@@ -5103,6 +5125,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         activeTextClient = nil
         activePointerClient = nil
+        activeFramebufferUpdateRequestSender = nil
         inputCoordinateSpace = nil
         activeKeyEventClient = nil
         keystrokeEmitter = nil
@@ -5369,6 +5392,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         clearIncomingClipboardReviewState()
         activeTextClient = nil
         activePointerClient = nil
+        activeFramebufferUpdateRequestSender = nil
         activeKeyEventClient = nil
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
@@ -5428,6 +5452,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerMoveFlushTask?.cancel()
         pointerMoveFlushTask = nil
         pendingPointerMove = nil
+        cancelPointerInputFramebufferUpdateNudge()
         pointerInputDispatcher.cancelAll()
         keyInputDispatcher.cancelAll()
     }
@@ -5436,6 +5461,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         pointerMoveFlushTask?.cancel()
         pointerMoveFlushTask = nil
         pendingPointerMove = nil
+        cancelPointerInputFramebufferUpdateNudge()
         pointerInputDispatcher.cancelAll()
     }
 
@@ -7452,6 +7478,11 @@ public final class NaruRemoteAppModel: ObservableObject {
            )
         {
             sendImmediateBestEffortPointerMove(command, pointerClient: bestEffortClient)
+            requestPointerInputFramebufferUpdateNudge(
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
             return
         }
 
@@ -7563,6 +7594,100 @@ public final class NaruRemoteAppModel: ObservableObject {
             && activePointerClient === pointerClient
     }
 
+    private func requestPointerInputFramebufferUpdateNudge(
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let sender = activeFramebufferUpdateRequestSender,
+              let streamID,
+              let sessionID,
+              let profileID,
+              isCurrentStream(streamID, sessionID: sessionID, profileID: profileID)
+        else {
+            return
+        }
+
+        let region = activeFramePump.map { pump in
+            currentViewportRequestRegion(
+                incrementalRequestIndex: max(pump.deliveredFrameCount, 1)
+            )
+        } ?? nil
+        let pendingNudge = PendingPointerInputFramebufferUpdateNudge(
+            sender: sender,
+            streamID: streamID,
+            sessionID: sessionID,
+            profileID: profileID,
+            region: region
+        )
+        let now = Date()
+        if let lastPointerInputFramebufferUpdateNudgeAt {
+            let elapsed = now.timeIntervalSince(lastPointerInputFramebufferUpdateNudgeAt)
+            let remaining = Self.pointerInputFramebufferUpdateNudgeMinimumInterval - elapsed
+            if remaining > 0 {
+                pendingPointerInputFramebufferUpdateNudge = pendingNudge
+                schedulePointerInputFramebufferUpdateNudge(after: remaining)
+                return
+            }
+        }
+
+        sendPointerInputFramebufferUpdateNudge(pendingNudge, requestedAt: now)
+    }
+
+    private func schedulePointerInputFramebufferUpdateNudge(after delay: TimeInterval) {
+        guard pointerInputFramebufferUpdateNudgeTask == nil else {
+            return
+        }
+
+        pointerInputFramebufferUpdateNudgeTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(max(delay, 0)))
+            } catch {
+                return
+            }
+            self?.flushPendingPointerInputFramebufferUpdateNudge()
+        }
+    }
+
+    private func flushPendingPointerInputFramebufferUpdateNudge() {
+        pointerInputFramebufferUpdateNudgeTask = nil
+        guard let pendingNudge = pendingPointerInputFramebufferUpdateNudge else {
+            return
+        }
+        pendingPointerInputFramebufferUpdateNudge = nil
+        sendPointerInputFramebufferUpdateNudge(pendingNudge, requestedAt: Date())
+    }
+
+    private func cancelPointerInputFramebufferUpdateNudge() {
+        pointerInputFramebufferUpdateNudgeTask?.cancel()
+        pointerInputFramebufferUpdateNudgeTask = nil
+        pendingPointerInputFramebufferUpdateNudge = nil
+        lastPointerInputFramebufferUpdateNudgeAt = nil
+    }
+
+    private func sendPointerInputFramebufferUpdateNudge(
+        _ nudge: PendingPointerInputFramebufferUpdateNudge,
+        requestedAt: Date
+    ) {
+        guard isCurrentStream(
+            nudge.streamID,
+            sessionID: nudge.sessionID,
+            profileID: nudge.profileID
+        ) else {
+            return
+        }
+
+        lastPointerInputFramebufferUpdateNudgeAt = requestedAt
+        let timeout = Self.pointerInputFramebufferUpdateNudgeWriteTimeout
+        Task.detached(priority: .userInitiated) {
+            try? nudge.sender.sendFramebufferUpdateRequest(
+                incremental: true,
+                timeout: timeout,
+                region: nudge.region
+            )
+        }
+    }
+
     private func sendImmediateBestEffortPointerMove(
         _ command: RFBPointerCommand,
         pointerClient: RFBBestEffortPointerEventClient
@@ -7613,6 +7738,11 @@ public final class NaruRemoteAppModel: ObservableObject {
            )
         {
             sendImmediateBestEffortPointerMove(command, pointerClient: bestEffortClient)
+            requestPointerInputFramebufferUpdateNudge(
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
             schedulePointerMoveFlush(after: coalescingDelay)
             return
         }

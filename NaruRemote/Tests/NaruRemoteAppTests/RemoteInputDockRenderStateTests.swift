@@ -133,6 +133,49 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    func testCompactDirectInputSurfacePickerCollapsesToMenuOnNarrowActionRows() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: true
+            ),
+            "An iPhone-width Direct header with Mac controls should not spend a 156pt segmented picker in the same action row."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: true
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "The compact fallback is a header menu, not a second persistent row that steals more remote-screen height."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 430,
+                showsMacSessionControls: true
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: false
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: .standard,
+                availableWidth: 320,
+                showsMacSessionControls: true
+            )
+        )
+    }
+
     func testLiveIdleInputDockFloatsOverViewportWithoutReservingSafeArea() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
