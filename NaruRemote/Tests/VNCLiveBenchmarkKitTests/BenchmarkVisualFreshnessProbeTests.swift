@@ -21,6 +21,34 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
     }
 
+    func testMarkerDecodeScansRetinaScaleAwayFromTopLeft() throws {
+        let sequence = 0x0000_FF31
+        var framebuffer = RFBRawFramebuffer(
+            width: 2_400,
+            height: 1_600,
+            fill: RFBColor(red: 19, green: 20, blue: 21)
+        )
+        drawMarker(
+            sequence: sequence,
+            x: 1_520,
+            y: 1_160,
+            cellSize: 64,
+            framebuffer: &framebuffer
+        )
+
+        XCTAssertEqual(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer), sequence)
+    }
+
+    func testMarkerDecodeReturnsNilForLargeFrameWithoutMarker() throws {
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_920,
+            height: 1_080,
+            fill: RFBColor(red: 19, green: 20, blue: 21)
+        )
+
+        XCTAssertNil(BenchmarkVisualFreshnessMarker.decodeSequence(in: framebuffer))
+    }
+
     func testSidecarProbeCalculatesFreshnessForDecodedSequence() throws {
         let sidecarURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("naru-freshness-\(UUID().uuidString).jsonl")

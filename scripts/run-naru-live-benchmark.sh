@@ -356,9 +356,12 @@ run_remote_desktop_visual_freshness_probe() {
   local sidecar_file
   sidecar_file="$(mktemp "${TMPDIR:-/tmp}/naru-visual-freshness-sidecar.XXXXXX")"
   export NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE="$sidecar_file"
-  if [[ -z "${NARU_LIVE_STIMULUS_COMMAND:-}" ]]; then
-    export NARU_LIVE_STIMULUS_COMMAND="\"$repo_root/.build/debug/VNCLiveStimulusWindow\" --titled-animation-window --top-left"
-  fi
+  local stimulus_executable stimulus_command
+  stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  printf -v stimulus_command '%q --top-left --visual-freshness-sidecar %q' \
+    "$stimulus_executable" \
+    "$sidecar_file"
+  export NARU_LIVE_STIMULUS_COMMAND="$stimulus_command"
 
   local args=(
     --attempts 1
@@ -426,6 +429,9 @@ run_with_wall_timeout() {
       printf '1' >"$timeout_marker"
       pkill -TERM -P "$command_pid" >/dev/null 2>&1 || true
       kill -TERM "$command_pid" >/dev/null 2>&1 || true
+      sleep 5
+      pkill -KILL -P "$command_pid" >/dev/null 2>&1 || true
+      kill -KILL "$command_pid" >/dev/null 2>&1 || true
     fi
   ) &
   local watchdog_pid=$!

@@ -26,7 +26,8 @@ enum VNCLiveStimulusWindow {
     }
 
     private static func runAnimation(options: StimulusOptions, app: NSApplication) {
-        app.setActivationPolicy(options.titledAnimationWindow ? .regular : .accessory)
+        let isVisualFreshnessProbe = options.visualFreshnessSidecarPath != nil
+        app.setActivationPolicy((options.titledAnimationWindow || isVisualFreshnessProbe) ? .regular : .accessory)
         let view = StimulusView(frame: NSRect(origin: .zero, size: options.size))
         view.configureVisualFreshnessSidecar(path: options.visualFreshnessSidecarPath)
         let window = NSWindow(
@@ -36,11 +37,11 @@ enum VNCLiveStimulusWindow {
             defer: false
         )
         window.title = options.titledAnimationWindow ? "Naru Video Probe" : ""
-        window.level = options.titledAnimationWindow ? .normal : .floating
+        window.level = isVisualFreshnessProbe ? .floating : (options.titledAnimationWindow ? .normal : .floating)
         window.backgroundColor = .black
         window.isOpaque = true
-        window.ignoresMouseEvents = !options.titledAnimationWindow
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.ignoresMouseEvents = isVisualFreshnessProbe || !options.titledAnimationWindow
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.contentView = view
         if options.titledAnimationWindow {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
@@ -474,8 +475,51 @@ private final class StimulusView: NSView {
         }
 
         let cellSize = CGFloat(BenchmarkVisualFreshnessMarker.markerPointCellSize)
-        let origin = NSPoint(x: 12, y: 12)
         let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
+        let markerWidth = CGFloat(BenchmarkVisualFreshnessMarker.markerCellCount) * cellSize
+        let inset: CGFloat = 12
+        let anchors = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: max(inset, bounds.width - markerWidth - inset), y: inset),
+            NSPoint(x: inset, y: max(inset, bounds.height - cellSize - inset)),
+            NSPoint(
+                x: max(inset, bounds.width - markerWidth - inset),
+                y: max(inset, bounds.height - cellSize - inset)
+            ),
+            NSPoint(x: max(inset, bounds.midX - markerWidth / 2), y: inset)
+        ]
+        var drawnOrigins = Set<String>()
+        for origin in anchors {
+            let clampedOrigin = NSPoint(
+                x: min(max(origin.x, inset), max(inset, bounds.width - markerWidth - inset)),
+                y: min(max(origin.y, inset), max(inset, bounds.height - cellSize - inset))
+            )
+            let key = "\(Int(clampedOrigin.x.rounded())):\(Int(clampedOrigin.y.rounded()))"
+            guard drawnOrigins.insert(key).inserted else {
+                continue
+            }
+            drawVisualFreshnessMarker(at: clampedOrigin, cellSize: cellSize, nibbles: nibbles)
+        }
+
+        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
+        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
+        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
+        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(
+            in: NSRect(x: 18, y: 48, width: 284, height: 28),
+            withAttributes: attributes
+        )
+    }
+
+    private func drawVisualFreshnessMarker(
+        at origin: NSPoint,
+        cellSize: CGFloat,
+        nibbles: [Int]
+    ) {
         for (index, nibble) in nibbles.enumerated() {
             let color = BenchmarkVisualFreshnessMarker.palette[nibble]
             NSColor(
@@ -491,18 +535,5 @@ private final class StimulusView: NSView {
                 height: cellSize
             )).fill()
         }
-
-        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
-        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
-        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
-        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
-            .foregroundColor: NSColor.white
-        ]
-        (text as NSString).draw(
-            in: NSRect(x: 18, y: 48, width: 284, height: 28),
-            withAttributes: attributes
-        )
     }
 }

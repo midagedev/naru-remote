@@ -86,36 +86,68 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
             return nil
         }
 
-        let searchWidth = min(framebuffer.width, 1_400)
-        let searchHeight = min(framebuffer.height, 900)
-        let cellSizes = [48, 40, 32, 28, 24, 20, 16, 12]
+        let cellSizes = [96, 80, 72, 64, 56, 48, 40, 32, 28, 24, 20, 16, 12]
+        let bands = searchBands(for: framebuffer)
 
-        for cellSize in cellSizes where searchWidth >= markerCellCount * cellSize {
-            let step = max(cellSize / 2, 6)
-            let maxX = searchWidth - (markerCellCount * cellSize)
-            let maxY = searchHeight - cellSize
-            guard maxX >= 0, maxY >= 0 else {
-                continue
-            }
-            var y = 0
-            while y <= maxY {
-                var x = 0
-                while x <= maxX {
-                    if let sequence = decodeSequence(
-                        in: framebuffer,
-                        x: x,
-                        y: y,
-                        cellSize: cellSize
-                    ) {
-                        return sequence
-                    }
-                    x += step
+        for cellSize in cellSizes {
+            for band in bands where band.width >= markerCellCount * cellSize && band.height >= cellSize {
+                let step = max(cellSize, 6)
+                let maxX = band.maxX - markerCellCount * cellSize
+                let maxY = band.maxY - cellSize
+                guard maxX >= band.minX, maxY >= band.minY else {
+                    continue
                 }
-                y += step
+                var y = band.minY
+                while y <= maxY {
+                    var x = band.minX
+                    while x <= maxX {
+                        if let sequence = decodeSequence(
+                            in: framebuffer,
+                            x: x,
+                            y: y,
+                            cellSize: cellSize
+                        ) {
+                            return sequence
+                        }
+                        x += step
+                    }
+                    y += step
+                }
             }
         }
 
         return nil
+    }
+
+    private static func searchBands(for framebuffer: RFBRawFramebuffer) -> [SearchBand] {
+        let fullWidth = framebuffer.width
+        let fullHeight = framebuffer.height
+        let topBandHeight = min(fullHeight, 1_200)
+        let leftBandWidth = min(fullWidth, 1_800)
+        let rightBandMinX = max(0, fullWidth - 1_800)
+        let bottomBandMinY = max(0, fullHeight - 1_200)
+        var bands: [SearchBand] = [
+            SearchBand(minX: 0, minY: 0, maxX: leftBandWidth, maxY: topBandHeight),
+            SearchBand(minX: rightBandMinX, minY: 0, maxX: fullWidth, maxY: topBandHeight),
+            SearchBand(minX: 0, minY: bottomBandMinY, maxX: leftBandWidth, maxY: fullHeight),
+            SearchBand(minX: rightBandMinX, minY: bottomBandMinY, maxX: fullWidth, maxY: fullHeight)
+        ]
+
+        if fullWidth <= 1_800 || fullHeight <= 1_200 {
+            bands.append(SearchBand(minX: 0, minY: 0, maxX: fullWidth, maxY: fullHeight))
+        } else {
+            let centerMinX = max(0, (fullWidth / 2) - 900)
+            let centerMaxX = min(fullWidth, centerMinX + 1_800)
+            let centerMinY = max(0, (fullHeight / 2) - 600)
+            let centerMaxY = min(fullHeight, centerMinY + 1_200)
+            bands.append(SearchBand(minX: centerMinX, minY: centerMinY, maxX: centerMaxX, maxY: centerMaxY))
+        }
+
+        var uniqueBands: [SearchBand] = []
+        for band in bands where band.width > 0 && band.height > 0 && !uniqueBands.contains(band) {
+            uniqueBands.append(band)
+        }
+        return uniqueBands
     }
 
     private static func decodeSequence(
@@ -124,17 +156,26 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         y: Int,
         cellSize: Int
     ) -> Int? {
-        let nibbles = (0..<markerCellCount).compactMap { cellIndex in
-            nearestPaletteIndex(
-                in: framebuffer,
-                x: x + cellIndex * cellSize + cellSize / 2,
-                y: y + cellSize / 2,
-                radius: max(cellSize / 6, 1)
-            )
-        }
-        guard nibbles.count == markerCellCount,
-              Array(nibbles.prefix(sentinelNibbles.count)) == sentinelNibbles else {
-            return nil
+        var nibbles: [Int] = []
+        nibbles.reserveCapacity(markerCellCount)
+        for cellIndex in 0..<markerCellCount {
+            let sampleX = x + cellIndex * cellSize + cellSize / 2
+            let sampleY = y + cellSize / 2
+            let nibble = cellIndex < sentinelNibbles.count
+                ? nearestPaletteIndexAtPoint(in: framebuffer, x: sampleX, y: sampleY)
+                : nearestPaletteIndex(
+                    in: framebuffer,
+                    x: sampleX,
+                    y: sampleY,
+                    radius: min(max(cellSize / 8, 1), 3)
+                )
+            guard let nibble else {
+                return nil
+            }
+            if cellIndex < sentinelNibbles.count, nibble != sentinelNibbles[cellIndex] {
+                return nil
+            }
+            nibbles.append(nibble)
         }
 
         let sequenceNibbles = Array(nibbles.dropFirst(sentinelNibbles.count).prefix(8))
@@ -146,6 +187,17 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         return sequenceNibbles.reduce(0) { partial, nibble in
             (partial << 4) | nibble
         }
+    }
+
+    private static func nearestPaletteIndexAtPoint(
+        in framebuffer: RFBRawFramebuffer,
+        x: Int,
+        y: Int
+    ) -> Int? {
+        guard let color = framebuffer[x, y] else {
+            return nil
+        }
+        return nearestPaletteIndex(for: color)
     }
 
     private static func nearestPaletteIndex(
@@ -173,16 +225,19 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
             return nil
         }
 
-        let averaged = RFBColor(
+        return nearestPaletteIndex(for: RFBColor(
             red: UInt8(clamping: redTotal / sampleCount),
             green: UInt8(clamping: greenTotal / sampleCount),
             blue: UInt8(clamping: blueTotal / sampleCount)
-        )
+        ))
+    }
+
+    private static func nearestPaletteIndex(for color: RFBColor) -> Int? {
         let candidate = palette.enumerated().min { lhs, rhs in
-            squaredDistance(averaged, lhs.element) < squaredDistance(averaged, rhs.element)
+            squaredDistance(color, lhs.element) < squaredDistance(color, rhs.element)
         }
         guard let candidate,
-              squaredDistance(averaged, candidate.element) <= 10_000 else {
+              squaredDistance(color, candidate.element) <= 10_000 else {
             return nil
         }
         return candidate.offset
@@ -193,6 +248,16 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         let green = Int(lhs.green) - Int(rhs.green)
         let blue = Int(lhs.blue) - Int(rhs.blue)
         return red * red + green * green + blue * blue
+    }
+
+    private struct SearchBand: Equatable {
+        let minX: Int
+        let minY: Int
+        let maxX: Int
+        let maxY: Int
+
+        var width: Int { maxX - minX }
+        var height: Int { maxY - minY }
     }
 }
 
