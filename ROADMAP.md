@@ -402,16 +402,21 @@ P0 — App Store rejects or runtime fails without these:
   P1 dark-mode regressions on the Direct keystroke keyboard +
   compose `TextEditor` background were surfaced by Chunk 8 and
   filed for follow-up under #301 / #302.
-- Open UX issue #477 tracks the next iPhone-first polish pass after the
-  merged Compose safe-area/input-stall fix (`807b6128`). Current evidence:
-  `artifacts/benchmarks/2026-06-17-compose-input-scroll-safe-area-and-storm-fixture-summary.md`
-  proves the pre-connection Korean/CJK Compose stall is fixed in simulator, but
-  it does not close the broader layout-overflow report. Next action: run a
-  fresh iPhone simulator screenshot audit for connection grid, profile detail,
-  disconnected/connecting/active session, keyboard-up Compose, Direct mode, and
-  trackpad overlays, then split visible layout fixes into small PR-sized
-  changes. Do not run physical iPhone/iPad tests from automation unless a human
-  explicitly requests that evidence.
+- Open UX issue #477 tracks the remaining iPhone-first polish pass. Current
+  merged coverage: the Compose safe-area/input-stall fix (`807b6128`) has
+  simulator benchmark evidence in
+  `artifacts/benchmarks/2026-06-17-compose-input-scroll-safe-area-and-storm-fixture-summary.md`,
+  PR #479 fixed the compact Direct keyboard width subcase, and PR #483 fixed
+  compact selected-profile header clipping on `main`. Active follow-up: PR #484
+  hides the disconnected selected-profile Remote Input Dock overlay and is
+  approved/mergeable. Remaining visible gap: compact selected-profile action
+  row chrome should not expose inactive pointer controls or crowd stream tuning,
+  startup experiments, and PiP Watch into the iPhone action row. Current
+  implementation direction: keep Checks, Connect, quality, and status primary,
+  move secondary controls into one `Session tools` menu, then verify with
+  iPhone simulator screenshot audit/build evidence. Do not run physical
+  iPhone/iPad tests from automation unless a human explicitly requests that
+  evidence.
 
 P1 — App Store listing requires these:
 

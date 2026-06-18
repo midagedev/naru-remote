@@ -163,6 +163,12 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   the user has started a new Korean/CJK draft. Covered by
   `NaruRemoteAppModelTests/testEditingComposeDraftDuringSendCancelsStalePasteCommand`,
   focused `NaruRemoteAppModelTests`, and full `swift test`. **Done.**
+- [x] T015bn [B] Profile-detail chrome correction: keep compact pre-connect
+  iPhone actions focused on Checks, Connect, quality, and status while moving
+  stream tuning, startup experiments, and PiP Watch into a one-tap
+  `Session tools` menu; hide the disabled pointer-mode toggle until a session
+  is active. Covered by profile-detail UX-audit assertions and iPhone simulator
+  build verification. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

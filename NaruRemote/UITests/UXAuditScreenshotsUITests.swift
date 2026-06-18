@@ -153,6 +153,18 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             checksButton.waitForExistence(timeout: 4),
             "Run Checks button must be visible after opening a grid card"
         )
+        XCTAssertTrue(
+            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
+            "Profile detail must expose secondary stream and PiP controls from one Session tools menu"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.streamPowerMode"].exists,
+            "Profile detail must not keep stream tuning as a permanent primary button on iPhone"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.pointerMode"].exists,
+            "Profile detail must not show disabled pointer mode before a session is active"
+        )
 
         // State 5: diagnostics populated.  Closes UX punch-list #007
         // — previously this state re-launched the app and tapped the
