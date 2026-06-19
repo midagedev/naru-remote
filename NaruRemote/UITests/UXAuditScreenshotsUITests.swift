@@ -759,12 +759,22 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         }
     }
 
-    private func launchApp(mode: ColorMode, seedProfiles: [SeedProfile] = []) -> XCUIApplication {
+    private func launchApp(
+        mode: ColorMode,
+        seedProfiles: [SeedProfile] = [],
+        forceInputDock: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        if forceInputDock {
+            // Input-dock screenshots drive Compose/Direct on a selected
+            // profile without a live socket; the dock is otherwise a
+            // session-only surface (see NaruRemoteAppShell.showsInputDock).
+            app.launchEnvironment["NARU_TEST_FORCE_INPUT_DOCK"] = "1"
+        }
         if !seedProfiles.isEmpty {
             try? writeSeedProfiles(seedProfiles, to: storeURL)
         }
@@ -790,7 +800,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             mode: mode,
             seedProfiles: [
                 SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
-            ]
+            ],
+            forceInputDock: true
         )
     }
 
@@ -801,6 +812,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        app.launchEnvironment["NARU_TEST_FORCE_INPUT_DOCK"] = "1"
         try? writeSeedProfiles(
             [SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")],
             to: storeURL
