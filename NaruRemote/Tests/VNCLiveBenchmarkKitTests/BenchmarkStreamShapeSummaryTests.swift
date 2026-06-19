@@ -35,7 +35,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     clientProcessingMilliseconds: 5,
                     zrleInflateMilliseconds: 3,
                     zrleTileApplyMilliseconds: 7,
-                    actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1)
+                    actualEncodingMix: RFBFramebufferEncodingMix(tightRectangles: 1, cursorRectangles: 1),
+                    visualFreshnessSequence: 12,
+                    visualFreshnessMilliseconds: 92
                 ),
                 BenchmarkStreamShapeSample(
                     kind: .emptyUpdate,
@@ -47,7 +49,9 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
                     networkReadMilliseconds: 47,
                     firstByteWaitMilliseconds: 40,
                     clientProcessingMilliseconds: 1,
-                    actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1)
+                    actualEncodingMix: RFBFramebufferEncodingMix(rawRectangles: 1),
+                    visualFreshnessSequence: 13,
+                    visualFreshnessMilliseconds: 148
                 )
             ],
             elapsedMilliseconds: 100,
@@ -85,6 +89,12 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.clientProcessingLatency).maxMilliseconds, 5)
         XCTAssertEqual(try XCTUnwrap(summary.zrleInflateLatency).averageMilliseconds, 3)
         XCTAssertEqual(try XCTUnwrap(summary.zrleTileApplyLatency).p95Milliseconds, 7)
+        XCTAssertEqual(summary.visualFreshnessSampleCount, 2)
+        XCTAssertEqual(try XCTUnwrap(summary.visualFreshnessLatency).averageMilliseconds, 120)
+        XCTAssertEqual(try XCTUnwrap(summary.visualFreshnessLatency).p95Milliseconds, 148)
+        XCTAssertEqual(summary.timestampLatencySampleCount, 2)
+        XCTAssertEqual(try XCTUnwrap(summary.timestampLatency).averageMilliseconds, 120)
+        XCTAssertEqual(try XCTUnwrap(summary.timestampLatency).p95Milliseconds, 148)
         XCTAssertEqual(summary.phaseBudget.sampleCount, 2)
         XCTAssertEqual(summary.phaseBudget.networkReadSharePermille, 838)
         XCTAssertEqual(summary.phaseBudget.firstByteWaitSharePermille, 866)
@@ -517,6 +527,47 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertEqual(decoded.receivedSamplePermille, 1_000)
         XCTAssertEqual(decoded.unansweredSamplePermille, 0)
         XCTAssertEqual(decoded.contentSamplePermille, 1_000)
+    }
+
+    func testDecodingLegacySummaryDerivesTimestampLatencyFromVisualFreshness() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 2,
+            samples: [
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 40,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    visualFreshnessSequence: 4,
+                    visualFreshnessMilliseconds: 81
+                ),
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 42,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 10,
+                    changedPixelsPermille: 10,
+                    visualFreshnessSequence: 5,
+                    visualFreshnessMilliseconds: 119
+                )
+            ],
+            elapsedMilliseconds: 100,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+        let legacyData = try Self.encodedPayload(
+            from: summary,
+            removingKeys: [
+                "timestampLatency",
+                "timestampLatencySampleCount"
+            ]
+        )
+
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: legacyData)
+
+        XCTAssertEqual(decoded.timestampLatencySampleCount, 2)
+        XCTAssertEqual(decoded.timestampLatency?.averageMilliseconds, 100)
     }
 
     func testRecommendationPicksLowestAverageRequestResponseLatency() throws {

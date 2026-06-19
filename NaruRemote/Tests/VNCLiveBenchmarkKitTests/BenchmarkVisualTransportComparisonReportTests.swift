@@ -206,6 +206,31 @@ final class BenchmarkVisualTransportComparisonReportTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
     }
 
+    func testScreenCaptureKitTCPProbeMapsInjectedNoCallbackTimeoutToSafeIssueCode() throws {
+        let report = BenchmarkHelperVideoProbe.makeComparison(
+            selection: try .parse("helper-video"),
+            probeMode: .screenCaptureKitTCP,
+            screenCaptureKitAccessUnitSource: FailingHelperVideoAccessUnitSource(
+                error: NaruHelperVideoScreenCaptureKitAccessUnitSourceError
+                    .captureNoOutputCallbacks
+            )
+        )
+        let helperReport = try XCTUnwrap(report.helperVideoReports.first)
+        let json = String(decoding: try JSONEncoder().encode(helperReport), as: UTF8.self)
+
+        XCTAssertEqual(helperReport.verdict, .fail)
+        XCTAssertTrue(
+            helperReport.issueCodes.contains(.captureNoOutputCallbacks),
+            "\(helperReport.issueCodes) \(json)"
+        )
+        XCTAssertEqual(helperReport.recommendedAction, .inspectHelperVideoCaptureSource)
+        XCTAssertTrue(json.contains("helper-video-capture-no-output-callbacks"), json)
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("screencapturekit"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("callbackCount"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("raw"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("error"))
+    }
+
     func testExternalHelperSyntheticEncodedTCPProbeFailsSafelyWhenExecutableIsMissing() throws {
         let missingPath = "/tmp/naru-helper-missing-\(UUID().uuidString)"
         let helperReport = BenchmarkHelperVideoProbe.externalHelperSyntheticEncodedTCPHelperVideoReport(

@@ -3,6 +3,66 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class RemoteInputDockRenderStateTests: XCTestCase {
+    func testCompactComposeEditorCollapsesOnlyWhenIdleAndEmpty() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "",
+                expansionRequested: false
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "",
+                expansionRequested: true
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: true,
+                text: "",
+                expansionRequested: false
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactComposeEditor(
+                isFocused: false,
+                text: "입력",
+                expansionRequested: false
+            )
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: ""
+            ),
+            RemoteInputDockView.compactComposeIdleMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: true,
+                text: ""
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: "입력"
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+        XCTAssertEqual(
+            RemoteInputDockView.compactComposeEditorMaxHeight(
+                isFocused: false,
+                text: "",
+                expansionRequested: true
+            ),
+            RemoteInputDockView.compactComposeExpandedMaxHeight
+        )
+    }
+
     func testMacSessionControlsOnlyShowForActiveSessions() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connectingSession = RemoteSession(profileID: profile.id, state: .connecting)
@@ -27,6 +87,180 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 ),
                 isLiveSession: true
             ).showsMacSessionControls
+        )
+    }
+
+    func testCompactAccessoryCollapsesPersistentMacControlStrip() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: true,
+                layoutStyle: .compactAccessory
+            ),
+            "Live compact dock should keep Mac controls reachable without reserving a permanent strip."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: true,
+                layoutStyle: .standard
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: false,
+                layoutStyle: .standard
+            )
+        )
+    }
+
+    func testCompactAccessoryInlinesDirectInputSurfacePicker() {
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "Live compact Direct mode should keep Naru/iOS/HW selection in the header so hardware-keyboard sessions reserve the remote screen for the desktop."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .floatingAccessory),
+            "The floating remote-control strip is only used while Direct mode is inactive."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "The compact dock must not spend a second row on the surface picker."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(layoutStyle: .standard)
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .standard)
+        )
+    }
+
+    func testCompactDirectInputSurfacePickerCollapsesToMenuOnNarrowActionRows() {
+        XCTAssertFalse(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: true
+            ),
+            "An iPhone-width Direct header with Mac controls should not spend a 156pt segmented picker in the same action row."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: true
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: .compactAccessory),
+            "The compact fallback is a header menu, not a second persistent row that steals more remote-screen height."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 430,
+                showsMacSessionControls: true
+            )
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: .compactAccessory,
+                availableWidth: 393,
+                showsMacSessionControls: false
+            )
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: .standard,
+                availableWidth: 320,
+                showsMacSessionControls: true
+            )
+        )
+    }
+
+    func testLiveIdleInputDockFloatsOverViewportWithoutReservingSafeArea() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let state = RemoteInputDockRenderState(snapshot: snapshot, isLiveSession: true)
+        let chrome = RemoteInputAccessoryChromeState(
+            snapshot: snapshot,
+            incomingClipboardReview: nil,
+            isLiveSession: true,
+            isComposeFieldFocused: false
+        )
+
+        XCTAssertEqual(state.layoutStyle, .floatingAccessory)
+        XCTAssertTrue(
+            chrome.usesFloatingOverlay(for: state),
+            "Idle remote control should keep the desktop full-height and place only a tiny floating input affordance above it."
+        )
+    }
+
+    func testLiveInputDockReturnsToReservedInsetWhenInputOrChromeNeedsSpace() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let baseSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let draftSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "입력"),
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900)
+        )
+        let directSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: RFBRawFramebuffer(width: 1600, height: 900),
+            directKeystrokeMode: DirectKeystrokeMode(isActive: true)
+        )
+        let review = IncomingClipboardReview(
+            text: "remote copied text",
+            arrivedAt: Date(timeIntervalSince1970: 1),
+            id: UUID(uuidString: "F6305806-E3AF-4B37-87FE-B053D08E3D8A")!
+        )
+        let floatingState = RemoteInputDockRenderState(snapshot: baseSnapshot, isLiveSession: true)
+        let chromeWithReview = RemoteInputAccessoryChromeState(
+            snapshot: baseSnapshot,
+            incomingClipboardReview: review,
+            isLiveSession: true,
+            isComposeFieldFocused: false
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: draftSnapshot,
+                isLiveSession: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: baseSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: directSnapshot,
+                isLiveSession: true
+            ).layoutStyle,
+            .compactAccessory
+        )
+        XCTAssertFalse(
+            chromeWithReview.usesFloatingOverlay(for: floatingState),
+            "Incoming clipboard review needs reserved bottom space instead of floating over the remote desktop."
         )
     }
 
@@ -158,6 +392,32 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 isComposeFieldFocused: false
             ),
             "After focus leaves, external model text should be adoptable again."
+        )
+    }
+
+    func testFocusedPreConnectionInputDockKeepsStandardLayout() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id
+        )
+
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: false
+            ).layoutStyle,
+            .standard
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: false,
+                isComposeFieldFocused: true
+            ).layoutStyle,
+            .standard,
+            "Pre-connection Compose focus must not flip the dock into live compact layout; the safe-area inset is attached outside the scrollable detail content instead."
         )
     }
 

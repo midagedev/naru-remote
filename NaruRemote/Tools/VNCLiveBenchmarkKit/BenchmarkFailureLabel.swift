@@ -14,6 +14,10 @@ public enum BenchmarkFailurePhase: String, Codable, Equatable, Sendable {
     case textProbeConnect = "text-probe-connect"
     case textProbeFirstFrame = "text-probe-first-frame"
     case textProbeSend = "text-probe-send"
+    case pointerHoverConnect = "pointer-hover-connect"
+    case pointerHoverFirstFrame = "pointer-hover-first-frame"
+    case pointerHoverSend = "pointer-hover-send"
+    case pointerHoverObserve = "pointer-hover-observe"
 }
 
 public enum BenchmarkFailureLabel {

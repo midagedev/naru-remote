@@ -71,12 +71,16 @@ state가 남아 있으면 Green이 아니다.
 - diagnostic privacy test: 성능 로그가 민감 payload를 내보내지 않음을 확인한다.
 
 증거가 없으면 해당 항목은 "추정상 개선"일 수는 있어도 Green 근거가 아니다.
+성능/UX PR은 명확한 개선 수치나 관찰 증거가 있을 때만 만든다. 예를 들어
+FPS, frame freshness, gesture long-frame 비율, input responsiveness, thermal,
+traffic proxy, physical-device hand-feel 중 하나 이상이 기준선보다 좋아졌다는
+전후 비교가 없으면 해당 작업은 로컬 실험 또는 문서/진단 보강으로 남긴다.
 일상 개발 루프에서는
 `scripts/run-naru-live-benchmark.sh simulator-input-viewport-gate`를 먼저 돌려
 iPhone/iPad simulator에서 Korean/CJK Compose freeze 회귀와 viewport hot path
-퇴행, viewport pressure diagnostic 회귀를 잡는다. 이 simulator gate는 빠른
-반복 기준이며, Green 승격 근거로는 manual/physical 또는 live benchmark 증거를
-추가한다.
+퇴행, viewport pressure diagnostic 회귀, trackpad viewport gesture UI 회귀를
+잡는다. 이 simulator gate는 빠른 반복 기준이며, Green 승격 근거로는
+manual/physical 또는 live benchmark 증거를 추가한다.
 
 Recurring automation runs MUST NOT start physical iPhone or iPad tests unless a
 human explicitly asks for that run. Hourly issue triage, roadmap maintenance,

@@ -21,8 +21,9 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private let outputDirectory = UXAuditScreenshotsUITests.defaultOutputDirectory()
 
     private static func defaultOutputDirectory() -> String {
-        if let override = ProcessInfo.processInfo.environment["NARU_UX_AUDIT_OUTPUT_DIR"],
-           !override.isEmpty {
+        let override = ProcessInfo.processInfo.environment["NARU_UX_AUDIT_OUTPUT_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let override, !override.isEmpty {
             return override
         }
 
@@ -152,6 +153,18 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         XCTAssertTrue(
             checksButton.waitForExistence(timeout: 4),
             "Run Checks button must be visible after opening a grid card"
+        )
+        XCTAssertTrue(
+            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
+            "Profile detail must expose secondary stream and PiP controls from one Session tools menu"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.streamPowerMode"].exists,
+            "Profile detail must not keep stream tuning as a permanent primary button on iPhone"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.pointerMode"].exists,
+            "Profile detail must not show disabled pointer mode before a session is active"
         )
 
         // State 5: diagnostics populated.  Closes UX punch-list #007
@@ -414,7 +427,19 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSessionActiveTrackpadCursor(mode: .dark, deviceTag: "iphone")
     }
 
-    private func runSessionActiveWidescreen(mode: ColorMode, deviceTag: String) throws {
+    func testSessionActiveDirectHardwareKeyboard_light() throws {
+        try runSessionActiveDirectHardwareKeyboard(mode: .light, deviceTag: "iphone")
+    }
+
+    func testSessionActiveDirectHardwareKeyboard_dark() throws {
+        try runSessionActiveDirectHardwareKeyboard(mode: .dark, deviceTag: "iphone")
+    }
+
+    private func runSessionActiveWidescreen(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
         // Screen-first hero viewport (spec 003 FR-001): an `.active`
         // session carrying a real 16:9 framebuffer.  Confirms the remote
         // screen renders at the server's true aspect ratio and — once the
@@ -425,16 +450,39 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Remote Desktop.
         let app = launchAppWithFixture(.sessionActiveWidescreen, mode: mode)
 
-        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 8)
+        let composeReveal = waitForCompactComposeReveal(in: app, timeout: 8)
         XCTAssertTrue(
-            compactEditor.exists,
-            "Active-session compact compose field must be reachable"
+            composeReveal.exists,
+            "Active-session compact compose affordance must be reachable"
+        )
+        revealSessionControlsIfNeeded(app: app)
+        XCTAssertTrue(
+            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
+            "Active-session immersive controls must collapse secondary commands into a tools menu"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.checks"].exists,
+            "Active-session immersive controls must not keep Checks as a permanent primary button"
+        )
+        XCTAssertTrue(
+            app.buttons["naru.input.mac-controls.menu"].waitForExistence(timeout: 4),
+            "Active-session compact dock must keep Mac controls reachable from a menu"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.input.mac-controls"].exists,
+            "Active-session compact dock must not permanently reserve height for the Mac controls strip"
         )
 
         sleep(3)
 
         try saveScreen(named: "16-session-active-widescreen-\(deviceTag)-\(mode.suffix).png")
 
+        composeReveal.tap()
+        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 4)
+        XCTAssertTrue(
+            compactEditor.exists,
+            "Active-session compact compose field must expand from the affordance"
+        )
         compactEditor.tap()
 
         let keyboard = app.keyboards.firstMatch
@@ -444,19 +492,93 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         )
 
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
     }
 
-    private func runSessionActiveTrackpadCursor(mode: ColorMode, deviceTag: String) throws {
+    private func runSessionActiveDirectHardwareKeyboard(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
+        let app = launchAppWithFixture(
+            .sessionActiveWidescreen,
+            mode: mode,
+            suppressDirectWarning: true
+        )
+
+        let directToggle = app.buttons["naru.input.direct-toggle"]
+        XCTAssertTrue(
+            directToggle.waitForExistence(timeout: 8),
+            "Active-session compact dock must expose Direct mode without expanding Compose."
+        )
+        directToggle.tap()
+
+        tapHardwareDirectSurface(in: app)
+
+        XCTAssertTrue(
+            app.buttons["naru.input.compose-toggle"].waitForExistence(timeout: 4),
+            "Hardware-keyboard Direct mode must keep Compose one tap away."
+        )
+        XCTAssertTrue(
+            app.buttons["Key q"].waitForNonExistence(timeout: 3),
+            "Hardware-keyboard surface must hide Naru's custom soft keyboard to preserve remote screen area."
+        )
+        XCTAssertFalse(
+            app.keyboards.firstMatch.exists,
+            "Hardware-keyboard surface must not raise the iOS system keyboard."
+        )
+
+        try saveScreen(named: "19-session-active-direct-hw-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
+    }
+
+    private func tapHardwareDirectSurface(in app: XCUIApplication) {
+        let inlineHardwareSurface = app.buttons["HW"]
+        if inlineHardwareSurface.waitForExistence(timeout: 2) {
+            inlineHardwareSurface.tap()
+            return
+        }
+
+        let surfaceMenu = app.buttons["naru.direct.input-surface-menu"]
+        XCTAssertTrue(
+            surfaceMenu.waitForExistence(timeout: 4),
+            "Compact Direct header must keep the hardware-keyboard surface menu reachable on narrow iPhone action rows."
+        )
+        surfaceMenu.tap()
+
+        let hardwareMenuItem = app.buttons["Hardware keyboard"]
+        XCTAssertTrue(
+            hardwareMenuItem.waitForExistence(timeout: 4),
+            "Hardware-keyboard Direct surface must remain selectable from the compact fallback menu."
+        )
+        hardwareMenuItem.tap()
+    }
+
+    private func runSessionActiveTrackpadCursor(
+        mode: ColorMode,
+        deviceTag: String,
+        terminateAfterCapture: Bool = false
+    ) throws {
         let app = launchAppWithFixture(.sessionActiveTrackpadCursor, mode: mode)
 
         XCTAssertTrue(
-            waitForRemoteInputEditor(in: app, timeout: 8).exists,
-            "Active-session compact compose field must be reachable"
+            waitForCompactComposeReveal(in: app, timeout: 8).exists,
+            "Active-session compact compose affordance must be reachable"
         )
 
         sleep(3)
 
         try saveScreen(named: "18-session-active-trackpad-cursor-\(deviceTag)-\(mode.suffix).png")
+
+        if terminateAfterCapture {
+            app.terminate()
+        }
     }
 
     // MARK: - iPhone — sidebar with multiple profiles
@@ -605,6 +727,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                     try saveScreen(named: "08-direct-qwerty-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
+
+                // States 16/17 — active session and keyboard-expanded Compose
+                try runSessionActiveWidescreen(
+                    mode: mode,
+                    deviceTag: "ipad-\(orientationTag)",
+                    terminateAfterCapture: true
+                )
+
+                // State 18 — active trackpad cursor surface
+                try runSessionActiveTrackpadCursor(
+                    mode: mode,
+                    deviceTag: "ipad-\(orientationTag)",
+                    terminateAfterCapture: true
+                )
             }
         }
     }
@@ -691,13 +827,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
     /// drives the model to a deterministic synthetic state — see
     /// `UXAuditFixtures.swift`.
-    private func launchAppWithFixture(_ token: FixtureToken, mode: ColorMode) -> XCUIApplication {
+    private func launchAppWithFixture(
+        _ token: FixtureToken,
+        mode: ColorMode,
+        suppressDirectWarning: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
+        if suppressDirectWarning {
+            app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
+        }
         applyColorMode(mode, to: app)
         app.launch()
         return app
@@ -846,6 +989,31 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         return textField
     }
 
+    private func waitForCompactComposeReveal(
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement {
+        let button = app.buttons["naru.input.compose-reveal"]
+        if button.waitForExistence(timeout: timeout) {
+            return button
+        }
+
+        let anyElement = app.descendants(matching: .any)["naru.input.compose-reveal"]
+        _ = anyElement.waitForExistence(timeout: 1)
+        return anyElement
+    }
+
+    private func revealSessionControlsIfNeeded(app: XCUIApplication) {
+        if app.buttons["naru.session.tools.menu"].exists {
+            return
+        }
+
+        let reveal = app.buttons["naru.session.controls.reveal"]
+        if reveal.waitForExistence(timeout: 4) {
+            reveal.tap()
+        }
+    }
+
     // MARK: - Helpers — saving
 
     private func saveScreen(named filename: String) throws {
@@ -929,5 +1097,11 @@ private extension XCUIElement {
         if condition(self) {
             tap()
         }
+    }
+
+    func waitForNonExistence(timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

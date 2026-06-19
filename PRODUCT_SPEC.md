@@ -283,6 +283,27 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - app-layer PiP renderer boundary는 framebuffer를 BGRA pixel buffer와 sample
   buffer로 바꿔 `AVSampleBufferDisplayLayer`에 공급한다.
 - session viewport는 sampled SwiftUI preview를 표시할 수 있다.
+- live session viewport는 screen-first hero surface로 전환되어 diagnostics와
+  profile chrome을 scroll stack 밖으로 밀어내고, 원격 framebuffer가 하단
+  Remote Input Dock 위의 대부분 공간을 차지한다. 첫 프레임 이후에는
+  서버의 실제 aspect ratio를 기준으로 보여주며, phone portrait에서 strict
+  aspect-fit이 세로 공간을 낭비할 때는 로컬 crop-to-fill baseline을 사용한다.
+- 세션 조작은 direct-touch와 trackpad pointer mode를 모두 지원한다. Trackpad
+  mode는 원격 cursor를 상대 이동으로 조작하고 tap/right-tap/drag/scroll을
+  기존 RFB pointer event lane으로 보낸다. iPad hardware trackpad/mouse hover는
+  trackpad mode에서 현재 hover 지점을 같은 viewport transform으로 원격
+  framebuffer 좌표에 매핑해 buttonless pointer move로 보낸다. Pinch zoom,
+  zoomed pan, PiP focus crop은 로컬 transform이며 원격 입력을 발생시키지 않는다.
+- active session의 Remote Input Dock은 compact accessory로 내려가며, 빈
+  Compose 상태에서는 TextEditor를 숨기고 40pt Compose affordance만 남겨 원격
+  화면 공간을 우선한다. 사용자가 affordance를 탭하거나 Compose에 focus/draft가
+  생기면 편집 표면을 다시 넓혀 iOS IME, dictation, Korean/CJK marked text
+  안정성을 유지한다. Direct mode의 Naru/iOS/HW 입력 표면 선택은 live compact
+  dock의 헤더 안에 들어가며, HW surface는 숨은 hardware-key responder만 유지해
+  외장 키보드 사용 중 원격 화면 세로 공간을 추가로 회복한다.
+- Compose mode에서도 Esc, Tab, Ctrl-C, 위/아래 화살표 quick keys를 제공해
+  다국어 문장을 작성하던 사용자가 Direct mode로 전환하지 않고 terminal/AI
+  CLI에 필요한 discrete control key를 보낼 수 있다.
 - full-rate SwiftUI/Metal rendering, clipboard restore/receive, broader
   pointer/keyboard events, real-device credential verification, system PiP
   window, and multi-session coordinator는 아직 구현 대상이다.

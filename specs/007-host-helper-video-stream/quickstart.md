@@ -6,12 +6,29 @@ checks first, then the planned checks as each later task lands.
 ## Readiness
 
 ```bash
-rg -n "NEEDS CLARIFICATION" specs/007-host-helper-video-stream
+! rg -n "\[NEEDS CLARIFICATION\]" \
+  specs/007-host-helper-video-stream/spec.md \
+  specs/007-host-helper-video-stream/plan.md \
+  specs/007-host-helper-video-stream/research.md \
+  specs/007-host-helper-video-stream/contracts
 ```
 
 Expected: no matches.
 
 ## Implemented Foundation Tests
+
+For simulator-only development, run the nonphysical quickstart gate first. It
+chains the clarification scan, helper-video foundation regression slice, input
+and viewport unit slice, simulator gate self-test, and the actual simulator
+input/viewport gate. It intentionally excludes physical iPhone/iPad checks.
+
+```bash
+scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate
+scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate-self-test
+```
+
+Set `NARU_NONPHYSICAL_QUICKSTART_INCLUDE_SIMULATOR_GATE=0` only when validating
+the quickstart JSON policy shape without booting iOS simulators.
 
 ```bash
 swift test --filter HelperVideo
@@ -92,6 +109,20 @@ swift test --filter NaruHelperVideoListenRuntimeTests
 .build/debug/NaruHelper --video-capability
 ```
 
+For local helper-video receive-path CPU checks, run the opt-in wire codec
+benchmark:
+
+```bash
+NARU_RUN_SIM_BENCHMARKS=1 \
+NARU_SIM_BENCHMARK_ITERATIONS=5 \
+NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_SAMPLES=200 \
+NARU_HELPER_VIDEO_WIRE_CODEC_BENCHMARK_PAYLOAD_BYTES=262144 \
+swift test --filter HelperVideoWireCodecBenchmarkTests
+```
+
+This compares full-frame access-unit decode against split JSON/header/payload
+decode without needing a live helper or physical iPhone.
+
 `NaruHelper --video-listen` now defaults to a sustained helper-video stream.
 Use `--video-frame-count N` only for bounded benchmark or smoke runs; `0` and
 `continuous` both mean unbounded streaming until the client disconnects. The
@@ -153,12 +184,26 @@ scripts/run-naru-live-benchmark.sh helper-dev-app-setup
 scripts/run-naru-live-benchmark.sh helper-screen-app-bootstrap-benchmark
 scripts/run-naru-live-benchmark.sh helper-video-live-gate
 scripts/run-naru-live-benchmark.sh helper-video-live-gate-self-test
+scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate
+scripts/run-naru-live-benchmark.sh nonphysical-quickstart-gate-self-test
+scripts/run-naru-live-benchmark.sh helper-text-dev-app-setup
+scripts/run-naru-live-benchmark.sh helper-text-permission-watch
+scripts/run-naru-live-benchmark.sh helper-text-permission-watch-self-test
+scripts/run-naru-live-benchmark.sh helper-text-observed-probe
+scripts/run-naru-live-benchmark.sh helper-text-observed-probe-self-test
+scripts/run-naru-live-benchmark.sh helper-text-live-gate
+scripts/run-naru-live-benchmark.sh helper-text-live-gate-summary-self-test
+scripts/run-naru-live-benchmark.sh text-keystroke-probe
+scripts/run-naru-live-benchmark.sh text-keystroke-observed-probe
 scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate
 scripts/run-naru-live-benchmark.sh physical-iphone-helper-video-gate-self-test
 scripts/run-naru-live-benchmark.sh screen-recording-setup
 scripts/run-naru-live-benchmark.sh screen-recording-watch
 scripts/run-naru-live-benchmark.sh screen-recording-watch-self-test
 scripts/run-naru-live-benchmark.sh physical-device-preflight
+scripts/run-naru-live-benchmark.sh physical-signing-variant-probe
+scripts/run-naru-live-benchmark.sh physical-provisioning-profile-inventory
+scripts/run-naru-live-benchmark.sh physical-provisioning-profile-inventory-self-test
 scripts/run-naru-live-benchmark.sh physical-signing-setup-summary-self-test
 scripts/run-naru-live-benchmark.sh physical-team-inference-self-test
 scripts/run-naru-live-benchmark.sh short-live-comparison
@@ -180,18 +225,31 @@ tools. `helper-synthetic-probe` does not require live VNC target credentials.
 Screen Recording to `NaruHelperDev`. `short-live-comparison` is a compact
 constrained-cellular VNC plus external synthetic helper-video gate for ongoing
 fallback and traffic work.
+`physical-iphone-helper-video-gate` emits `diagnosticExportSummary` from the
+app's safe diagnostic JSON and `pipEvidenceSummary` from a physical PiP
+enter/exit attempt. If xcodebuild passes but either post-run evidence block is
+missing or invalid, the command returns `status=failed` with fixed labels such
+as `physical-diagnostic-export-missing` or `physical-pip-evidence-missing`
+instead of treating the run as promotion evidence.
 `helper-readiness-sweep` emits one JSON object containing helper capability,
 environment preflight, external synthetic helper-video, and external
-ScreenCaptureKit helper-video probe reports. It rejects additional arguments so
-the readiness gate remains repeatable. If a sub-step exits before returning
-JSON, the sweep emits only that step's fixed label and fixed safe failure code;
-it does not print raw helper stderr, credential values, helper paths,
-endpoints, payloads, byte counts, dimensions, raw OS errors, or exact timings.
+ScreenCaptureKit helper-video probe reports. The finite and sustained
+ScreenCaptureKit probes launch the same redacted animated stimulus window and
+wait for a short warmup before capture so the helper waits for `.complete`
+frames instead of static-screen idle callbacks. The sweep rejects additional
+arguments so the readiness gate remains repeatable. If a sub-step exits before
+returning JSON, the sweep emits only that step's fixed label and fixed safe
+failure code; it does not print raw helper stderr, credential values, helper
+paths, endpoints, payloads, byte counts, dimensions, raw OS errors, or exact
+timings.
 `helper-screen-app-bootstrap-benchmark` runs the opt-in app-runner sustained
 smoke for ScreenCaptureKit access units from the selected external helper app
 through helper TCP framing, app-model helper-video bootstrap, and the H.264
-sample-buffer factory. It imports the same `NARU_HELPER_EXECUTABLE` helper app
-bundle as the live gate, emits fixed JSON only, and hides raw XCTest output.
+sample-buffer factory. It launches the same redacted animated stimulus window
+as the ScreenCaptureKit probe wrappers before starting XCTest so the app-model
+gate measures complete capture frames rather than static-screen idle callbacks.
+It imports the same `NARU_HELPER_EXECUTABLE` helper app bundle as the live
+gate, emits fixed JSON only, and hides raw XCTest output.
 By default the runner requests 30 displayable helper-video frames; set
 `NARU_HELPER_VIDEO_APP_BENCHMARK_FRAMES` to a value from `1` to `120` to shorten
 or strengthen the app-decode gate. The app-model benchmark observes the
@@ -202,14 +260,40 @@ limit to `requestedFrameCount + 2` so the TCP client can receive the start
 response, parameter set, and requested displayable frames. A `skipped` result
 now maps to fixed setup actions such as
 `configure-helper-video-executable` or
-`grant-helper-video-app-screen-recording-permission` before T031 can claim true
-live helper-video app decode evidence.
+`grant-helper-video-app-screen-recording-permission`. A failed ScreenCaptureKit
+run maps callback-stage stalls to fixed app-bootstrap labels such as
+`helper-video-app-bootstrap-capture-no-output-callbacks`,
+`helper-video-app-bootstrap-capture-non-screen-callbacks`,
+`helper-video-app-bootstrap-capture-non-displayable-frames`,
+`helper-video-app-bootstrap-capture-missing-image-buffer`, or
+`helper-video-app-bootstrap-capture-insufficient-displayable-frames`; it does
+not emit raw XCTest output, callback counts, raw statuses, dimensions, pixels,
+frame payloads, byte counts, endpoints, credentials, helper paths, or exact
+timings.
 `helper-video-live-gate` chains the Screen Recording watch, helper readiness
 sweep, and app bootstrap smoke into one privacy-safe report. If Screen
 Recording is still missing, the readiness and bootstrap subreports are skipped
 instead of spending time on impossible capture work; once the watch reports
 `granted`, the same command proceeds to the helper screen probe and app decode
 smoke and routes a pass to the physical iPhone helper-video gate.
+`helper-text-observed-probe` launches a controlled local text target and asks
+the selected helper to perform native text insertion with a fixed payload label
+such as `unicode-hangul`. It reports only fixed capability, insert,
+observation, issue, and setup-action labels. A result of `observed-inserted`
+means the local target reported a fixed-label match; a result of
+`helper.permissionMissing` means the helper text Accessibility/value-insert
+permission must be granted and the helper relaunched before Compose native
+insertion can be promoted. `helper-text-live-gate` chains helper text dev-app
+setup, permission watch, and the observed probe into one privacy-safe report;
+when it reaches `readyForPhysicalComposeGate`, the next useful evidence is a
+physical iPhone Compose native-insert run.
+`text-keystroke-observed-probe` is the VNC KeyEvent fallback check. In observed
+mode it may enqueue a pointer focus prelude before key events, but reports only
+fixed payload, stage, observation, and failure labels. A `sent` result means key
+events were enqueued; only `observed-inserted` proves the controlled local text
+target actually received the payload. If `ascii` and `unicode-hangul` both
+report `no-input`, do not treat Hangul decomposition or Unicode keysyms as the
+sole blocker.
 `helper-dev-app-setup` builds and installs the local `NaruHelperDev` app
 wrapper, sets the launchctl helper executable for future GUI-launched shells,
 runs the explicit Screen Recording permission request, optionally opens macOS
@@ -279,6 +363,33 @@ installed in the standard provisioning profile directory. A matching candidate
 routes to `install-provisioning-profile-into-standard-directory`; a mismatched
 candidate routes to the fixed app/team/device/expiration setup label instead of
 asking the operator to repeat a full physical UI run.
+`xcodebuild`. The same summary is target-aware: the default target remains
+iPhone and routes ready states to `run-physical-iphone-helper-video-gate`, but
+`NARU_PHYSICAL_IOS_DEVICE_CLASS=ipad` uses fixed iPad device labels and
+`run-physical-ipad-smoke` / `rerun-physical-ipad-smoke` follow-up labels. If a
+launchctl-selected `NARU_PHYSICAL_IOS_DEVICE_ID` still points at an iPhone, the
+iPad target ignores it and falls back to iPad auto-discovery. iPad preflight
+must not satisfy the iPhone-first promotion gate. When a selected physical
+device is reachable but signing remains blocked, run
+`physical-signing-variant-probe`. It compares `allowProvisioningUpdates`,
+`localProfilesOnly`, and `allowUpdatesAndDeviceRegistration` builds and emits
+only fixed boolean labels such as `hasNoAccounts`, `hasNoProfiles`,
+`hasProvisioningUpdatesHint`, and `hasDeviceRegistrationHint`. It must not print
+raw xcodebuild logs, team identifiers, bundle identifiers, provisioning profile
+names, device names, or device identifiers. If local profiles appear to exist
+but `localProfilesOnly` still reports no usable profile, run
+`physical-provisioning-profile-inventory` before rerunning device gates. It
+distinguishes exact app development profiles from wildcard profiles with fixed
+labels such as `exactDevelopmentProfileStatus`,
+`wildcardDevelopmentProfileStatus`, and
+`primaryBlockedGateLabel=ios-exact-provisioning-profile`; wildcard profiles in
+Xcode cache locations are not enough evidence that `xcodebuild` can install the
+app on the physical device. When the exact app profile is missing, setup
+actions use `install-exact-profile-to-standard-provisioning-directory` so cached
+wildcard profile copy/install experiments are not mistaken for the required
+fix. The inventory mode must not print profile names, profile UUIDs, team
+identifiers, bundle identifiers, device identifiers, certificate names, raw
+profile plists, or raw xcodebuild logs.
 `physical-iphone-helper-video-gate` is the standard handoff from helper-video
 Mac-side readiness into physical iPhone evidence. It imports
 `NARU_PHYSICAL_E2E_*` values, falling back to the launchctl-backed
@@ -430,10 +541,11 @@ VideoToolbox H.264 output for safe loopback smoke tests. `--video-source
 screen-capturekit` uses a finite ScreenCaptureKit batch and requires Screen
 Recording permission in the helper process context. This entrypoint is still a
 finite batch sender per `startStream` request, not the final long-lived adaptive
-desktop stream. Prefer `--token-env` and `--profile-fingerprint-env` so
-sensitive values are not exposed through helper process arguments. It must not
-print pairing secrets, endpoints, frame payloads, display dimensions, byte
-counts, host names, raw OS errors, or exact timings.
+desktop stream. Use `--token-env` and `--profile-fingerprint-env`; direct
+`--token` and `--profile-fingerprint` values are rejected so sensitive values
+are not exposed through helper process arguments. It must not print pairing
+secrets, endpoints, frame payloads, display dimensions, byte counts, host names,
+raw OS errors, or exact timings.
 
 ## Implemented Helper Video Benchmark TCP Probe
 

@@ -11,6 +11,10 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
                 "NARU_LIVE_MAC_PASSWORD": "secret",
                 "NARU_LIVE_MAC_PORT": "5900",
                 "NARU_LIVE_STIMULUS_COMMAND": "secret command",
+                "NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE": "/tmp/naru-freshness.jsonl",
+                "NARU_LIVE_STIMULUS_SCREEN_INDEX": "1",
+                "NARU_LIVE_STIMULUS_X": "1440",
+                "NARU_LIVE_STIMULUS_Y": "72",
                 "UNRELATED_SECRET": "secret"
             ],
             durationSeconds: "7.25",
@@ -25,6 +29,10 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"], "0.0833")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_PROFILE_LABEL"], "local-low-latency")
         XCTAssertEqual(environment["NARU_LIVE_STIMULUS_TRANSPORT_MODE"], "request-response")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE"], "/tmp/naru-freshness.jsonl")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_SCREEN_INDEX"], "1")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_X"], "1440")
+        XCTAssertEqual(environment["NARU_LIVE_STIMULUS_Y"], "72")
         XCTAssertNil(environment["NARU_LIVE_MAC_HOST"])
         XCTAssertNil(environment["NARU_LIVE_MAC_PASSWORD"])
         XCTAssertNil(environment["NARU_LIVE_MAC_PORT"])
@@ -40,6 +48,18 @@ final class BenchmarkStreamShapeStimulusEnvironmentTests: XCTestCase {
         XCTAssertEqual(
             BenchmarkStreamShapeStimulusEnvironment.frameIntervalKey,
             "NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeStimulusEnvironment.screenIndexKey,
+            "NARU_LIVE_STIMULUS_SCREEN_INDEX"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeStimulusEnvironment.originXKey,
+            "NARU_LIVE_STIMULUS_X"
+        )
+        XCTAssertEqual(
+            BenchmarkStreamShapeStimulusEnvironment.originYKey,
+            "NARU_LIVE_STIMULUS_Y"
         )
     }
 }

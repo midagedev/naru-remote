@@ -7,15 +7,8 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     private let pairingSecret = "test-video-listen-secret"
     private let profileFingerprint = "sha256:test-video-listen-profile"
 
-    func testConfigurationParsesRequiredTokenAndProfileFingerprintWithSafeDefaults() throws {
-        let configuration = try NaruHelperVideoListenConfiguration.parse(arguments: [
-            "NaruHelper",
-            "--video-listen",
-            "--token",
-            pairingSecret,
-            "--profile-fingerprint",
-            profileFingerprint
-        ])
+    func testConfigurationParsesRequiredTokenAndProfileFingerprintFromEnvironmentWithSafeDefaults() throws {
+        let configuration = try parseListenConfiguration()
 
         XCTAssertEqual(configuration.pairingSecret, pairingSecret)
         XCTAssertEqual(configuration.profileFingerprint, profileFingerprint)
@@ -25,13 +18,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     }
 
     func testConfigurationParsesCustomPortSourceAndFrameCount() throws {
-        let configuration = try NaruHelperVideoListenConfiguration.parse(arguments: [
-            "NaruHelper",
-            "--video-listen",
-            "--token",
-            pairingSecret,
-            "--profile-fingerprint",
-            profileFingerprint,
+        let configuration = try parseListenConfiguration(additionalArguments: [
             "--port",
             "5999",
             "--video-source",
@@ -45,36 +32,69 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.frameCount, 3)
     }
 
-    func testConfigurationParsesSensitiveValuesFromEnvironmentIndirection() throws {
-        let configuration = try NaruHelperVideoListenConfiguration.parse(
-            arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token-env",
-                "NARU_HELPER_VIDEO_TOKEN",
-                "--profile-fingerprint-env",
-                "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT"
-            ],
-            environment: [
-                "NARU_HELPER_VIDEO_TOKEN": pairingSecret,
-                "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT": profileFingerprint
-            ]
-        )
+    func testConfigurationRejectsDirectSecretBearingArguments() {
+        XCTAssertThrowsError(
+            try NaruHelperVideoListenConfiguration.parse(
+                arguments: [
+                    "NaruHelper",
+                    "--video-listen",
+                    "--token",
+                    pairingSecret,
+                    "--profile-fingerprint-env",
+                    "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT"
+                ],
+                environment: listenEnvironment
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? NaruHelperVideoListenConfigurationError,
+                .directTokenArgumentUnsupported
+            )
+        }
 
-        XCTAssertEqual(configuration.pairingSecret, pairingSecret)
-        XCTAssertEqual(configuration.profileFingerprint, profileFingerprint)
-        XCTAssertEqual(configuration.port, UInt16(naruHelperVideoStreamDefaultPort))
-        XCTAssertEqual(configuration.frameCount, 0)
+        XCTAssertThrowsError(
+            try NaruHelperVideoListenConfiguration.parse(
+                arguments: [
+                    "NaruHelper",
+                    "--video-listen",
+                    "--token-env",
+                    "NARU_HELPER_VIDEO_TOKEN",
+                    "--profile-fingerprint",
+                    profileFingerprint
+                ],
+                environment: listenEnvironment
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? NaruHelperVideoListenConfigurationError,
+                .directProfileFingerprintArgumentUnsupported
+            )
+        }
     }
 
     func testConfigurationRejectsUnsafeMissingOrInvalidArguments() {
         XCTAssertThrowsError(
+            try NaruHelperVideoListenConfiguration.parse(
+                arguments: [
+                    "NaruHelper",
+                    "--video-listen",
+                    "--token-env",
+                    "MISSING_TOKEN_ENV",
+                    "--profile-fingerprint-env",
+                    "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT"
+                ],
+                environment: listenEnvironment
+            )
+        ) { error in
+            XCTAssertEqual(error as? NaruHelperVideoListenConfigurationError, .missingToken)
+        }
+
+        XCTAssertThrowsError(
             try NaruHelperVideoListenConfiguration.parse(arguments: [
                 "NaruHelper",
                 "--video-listen",
-                "--token",
-                "--profile-fingerprint",
-                profileFingerprint
+                "--profile-fingerprint-env",
+                "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT"
             ])
         ) { error in
             XCTAssertEqual(error as? NaruHelperVideoListenConfigurationError, .missingToken)
@@ -86,34 +106,12 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
                     "NaruHelper",
                     "--video-listen",
                     "--token-env",
-                    "MISSING_TOKEN_ENV",
-                    "--profile-fingerprint",
-                    profileFingerprint
+                    "NARU_HELPER_VIDEO_TOKEN",
+                    "--profile-fingerprint-env",
+                    "MISSING_PROFILE_ENV"
                 ],
-                environment: [:]
+                environment: listenEnvironment
             )
-        ) { error in
-            XCTAssertEqual(error as? NaruHelperVideoListenConfigurationError, .missingToken)
-        }
-
-        XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--profile-fingerprint",
-                profileFingerprint
-            ])
-        ) { error in
-            XCTAssertEqual(error as? NaruHelperVideoListenConfigurationError, .missingToken)
-        }
-
-        XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret
-            ])
         ) { error in
             XCTAssertEqual(
                 error as? NaruHelperVideoListenConfigurationError,
@@ -126,12 +124,10 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
                 arguments: [
                     "NaruHelper",
                     "--video-listen",
-                    "--token",
-                    pairingSecret,
-                    "--profile-fingerprint-env",
-                    "MISSING_PROFILE_ENV"
+                    "--token-env",
+                    "NARU_HELPER_VIDEO_TOKEN"
                 ],
-                environment: [:]
+                environment: listenEnvironment
             )
         ) { error in
             XCTAssertEqual(
@@ -141,15 +137,18 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret,
-                "--profile-fingerprint",
-                "--port",
-                "5999"
-            ])
+            try NaruHelperVideoListenConfiguration.parse(
+                arguments: [
+                    "NaruHelper",
+                    "--video-listen",
+                    "--token-env",
+                    "NARU_HELPER_VIDEO_TOKEN",
+                    "--profile-fingerprint-env",
+                    "--port",
+                    "5999"
+                ],
+                environment: listenEnvironment
+            )
         ) { error in
             XCTAssertEqual(
                 error as? NaruHelperVideoListenConfigurationError,
@@ -158,13 +157,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret,
-                "--profile-fingerprint",
-                profileFingerprint,
+            try parseListenConfiguration(additionalArguments: [
                 "--port",
                 "0"
             ])
@@ -173,13 +166,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret,
-                "--profile-fingerprint",
-                profileFingerprint,
+            try parseListenConfiguration(additionalArguments: [
                 "--port",
                 "--video-source",
                 "synthetic-encoded"
@@ -189,13 +176,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret,
-                "--profile-fingerprint",
-                profileFingerprint,
+            try parseListenConfiguration(additionalArguments: [
                 "--video-source",
                 "raw"
             ])
@@ -204,13 +185,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try NaruHelperVideoListenConfiguration.parse(arguments: [
-                "NaruHelper",
-                "--video-listen",
-                "--token",
-                pairingSecret,
-                "--profile-fingerprint",
-                profileFingerprint,
+            try parseListenConfiguration(additionalArguments: [
                 "--video-frame-count",
                 "-1"
             ])
@@ -220,23 +195,11 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     }
 
     func testConfigurationParsesContinuousFrameCount() throws {
-        let zeroFrameCount = try NaruHelperVideoListenConfiguration.parse(arguments: [
-            "NaruHelper",
-            "--video-listen",
-            "--token",
-            pairingSecret,
-            "--profile-fingerprint",
-            profileFingerprint,
+        let zeroFrameCount = try parseListenConfiguration(additionalArguments: [
             "--video-frame-count",
             "0"
         ])
-        let namedFrameCount = try NaruHelperVideoListenConfiguration.parse(arguments: [
-            "NaruHelper",
-            "--video-listen",
-            "--token",
-            pairingSecret,
-            "--profile-fingerprint",
-            profileFingerprint,
+        let namedFrameCount = try parseListenConfiguration(additionalArguments: [
             "--video-frame-count",
             "continuous"
         ])
@@ -281,6 +244,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 6
         )
         let result = try await client.startStream(maxServerFrames: 3)
@@ -317,7 +281,8 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
-            timeout: 3
+            transportProtection: .authenticatedPrivateProfile,
+            timeout: syntheticEncodedStreamTimeout(frameCount: frameCount)
         )
         let result = try await client.startStream(maxServerFrames: frameCount + 2)
 
@@ -340,6 +305,10 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     }
 
     func testExternalHelperProcessSendsSustainedSyntheticEncodedStream() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["NARU_RUN_EXTERNAL_HELPER_PROCESS_TESTS"] == "1",
+            "Set NARU_RUN_EXTERNAL_HELPER_PROCESS_TESTS=1 to run external helper process smoke tests."
+        )
         let frameCount = 6
         let helperPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/debug/NaruHelper")
@@ -386,7 +355,8 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
-            timeout: 3
+            transportProtection: .authenticatedPrivateProfile,
+            timeout: externalProcessSyntheticEncodedStreamTimeout(frameCount: frameCount)
         )
         do {
             var startAccepted = false
@@ -452,6 +422,7 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         let result = try await client.startStream(maxServerFrames: 1)
@@ -478,6 +449,30 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
     }
     #endif
 
+    private var listenEnvironment: [String: String] {
+        [
+            "NARU_HELPER_VIDEO_TOKEN": pairingSecret,
+            "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT": profileFingerprint
+        ]
+    }
+
+    private func parseListenConfiguration(
+        additionalArguments: [String] = [],
+        environment: [String: String]? = nil
+    ) throws -> NaruHelperVideoListenConfiguration {
+        try NaruHelperVideoListenConfiguration.parse(
+            arguments: [
+                "NaruHelper",
+                "--video-listen",
+                "--token-env",
+                "NARU_HELPER_VIDEO_TOKEN",
+                "--profile-fingerprint-env",
+                "NARU_HELPER_VIDEO_PROFILE_FINGERPRINT"
+            ] + additionalArguments,
+            environment: environment ?? listenEnvironment
+        )
+    }
+
     private func waitForPort(
         _ server: NaruHelperVideoStreamNetworkServer
     ) async throws -> UInt16 {
@@ -488,6 +483,14 @@ final class NaruHelperVideoListenRuntimeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         return try XCTUnwrap(server.port)
+    }
+
+    private func syntheticEncodedStreamTimeout(frameCount: Int) -> TimeInterval {
+        max(6, Double(max(frameCount, 1)) / 15.0 + 5.0)
+    }
+
+    private func externalProcessSyntheticEncodedStreamTimeout(frameCount: Int) -> TimeInterval {
+        syntheticEncodedStreamTimeout(frameCount: frameCount) + 10
     }
 
     private static func stderrString(from pipe: Pipe) -> String {

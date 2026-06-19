@@ -77,6 +77,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
 
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] = "1"
+        app.launchEnvironment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] = "1"
         app.launchEnvironment["NARU_TEST_EMIT_DIAGNOSTIC_EXPORT_AFTER_ACTIVE_SECONDS"] =
             Self.secondsString(sustainedDuration)
         app.launchEnvironment["NARU_TEST_SKIP_SETTINGS_STORE_LOAD"] = "1"
@@ -119,6 +120,8 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             usleep(500_000)
         }
 
+        relayDiagnosticExportIfAvailable(in: app)
+
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "physical-sustained-candidate-final"
@@ -131,6 +134,13 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             "Expected physical sustained gate to remain in the session surface"
         )
         XCTAssertFalse(failureBadge.exists, "Physical sustained gate finished in a failed state")
+
+        let pipEvidence = exercisePiPWatchEnterExit(in: app)
+        emitPhysicalPiPEvidence(pipEvidence)
+        let pipAttachment = XCTAttachment(string: pipEvidence.jsonString())
+        pipAttachment.name = "physical-pip-enter-exit-evidence"
+        pipAttachment.lifetime = .keepAlways
+        add(pipAttachment)
     }
 
     private func waitForConnectButton(in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
@@ -348,6 +358,116 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         }
     }
 
+    private func relayDiagnosticExportIfAvailable(in app: XCUIApplication) {
+        guard let payload = waitForDiagnosticExportRelay(in: app, timeout: 15) else {
+            let attachment = XCTAttachment(string: "status=missing")
+            attachment.name = "physical-diagnostic-export-relay-missing"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            return
+        }
+
+        emitXcodeLogBlock(
+            begin: "NARU_DIAGNOSTIC_EXPORT_BEGIN",
+            end: "NARU_DIAGNOSTIC_EXPORT_END",
+            payload: payload
+        )
+    }
+
+    private func waitForDiagnosticExportRelay(in app: XCUIApplication, timeout: TimeInterval) -> String? {
+        let relay = app.descendants(matching: .any)["naru.test.diagnosticExportRelay"].firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if relay.exists,
+               let payload = relay.value as? String,
+               payload.contains("\"schemaVersion\"") {
+                return payload
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return nil
+    }
+
+    private func exercisePiPWatchEnterExit(in app: XCUIApplication) -> PhysicalPiPEvidence {
+        revealControlsIfNeeded(in: app)
+        let pipButton = app.buttons["naru.session.pipWatch"]
+        guard pipButton.waitForExistence(timeout: 3) else {
+            return PhysicalPiPEvidence.blocked(
+                enterStatus: "buttonMissing",
+                exitStatus: "notAttempted",
+                issueCodes: ["physical-pip-enter-control-missing"],
+                setupActionLabels: ["inspect-physical-pip-enter-control"]
+            )
+        }
+
+        guard pipButton.isEnabled else {
+            return PhysicalPiPEvidence.blocked(
+                enterStatus: "buttonDisabled",
+                exitStatus: "notAttempted",
+                issueCodes: ["physical-pip-unavailable"],
+                setupActionLabels: ["inspect-physical-pip-controller-support"]
+            )
+        }
+
+        pipButton.tap()
+        let pipDisplay = app.descendants(matching: .any)["naru.session.pipDisplayLayer"].firstMatch
+        let watchingStatus = app.staticTexts["Watching in PiP"]
+        let entered = pipDisplay.waitForExistence(timeout: 5) || watchingStatus.waitForExistence(timeout: 1)
+        guard entered else {
+            return PhysicalPiPEvidence.blocked(
+                enterStatus: "watchingNotObserved",
+                exitStatus: "notAttempted",
+                issueCodes: ["physical-pip-enter-failed"],
+                setupActionLabels: ["inspect-physical-pip-enter-exit"]
+            )
+        }
+
+        app.activate()
+        revealControlsIfNeeded(in: app)
+        let disconnect = app.buttons["naru.session.disconnect"]
+        guard disconnect.waitForExistence(timeout: 4), disconnect.isEnabled else {
+            return PhysicalPiPEvidence.blocked(
+                enterStatus: "entered",
+                exitStatus: "disconnectUnavailable",
+                issueCodes: ["physical-pip-exit-control-missing"],
+                setupActionLabels: ["inspect-physical-pip-enter-exit"]
+            )
+        }
+
+        disconnect.tap()
+        let connect = app.buttons["naru.session.connect"]
+        let exited = connect.waitForExistence(timeout: 5) || app.staticTexts["Connections"].waitForExistence(timeout: 2)
+        guard exited else {
+            return PhysicalPiPEvidence.blocked(
+                enterStatus: "entered",
+                exitStatus: "sessionStillActive",
+                issueCodes: ["physical-pip-exit-failed"],
+                setupActionLabels: ["inspect-physical-pip-enter-exit"]
+            )
+        }
+
+        return PhysicalPiPEvidence(
+            status: "passed",
+            enterStatus: "entered",
+            exitStatus: "exited",
+            issueCodes: [],
+            setupActionLabels: []
+        )
+    }
+
+    private func emitPhysicalPiPEvidence(_ evidence: PhysicalPiPEvidence) {
+        emitXcodeLogBlock(
+            begin: "NARU_PHYSICAL_PIP_EVIDENCE_BEGIN",
+            end: "NARU_PHYSICAL_PIP_EVIDENCE_END",
+            payload: evidence.jsonString()
+        )
+    }
+
+    private func emitXcodeLogBlock(begin: String, end: String, payload: String) {
+        let text = "\n\(begin)\n\(payload)\n\(end)\n"
+        FileHandle.standardError.write(Data(text.utf8))
+    }
+
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
         let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
         let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
@@ -462,6 +582,59 @@ private struct HelperVideoSeedConfiguration {
     let secretRef: String
     let pairingSecret: String
     let pairingFingerprint: String
+}
+
+private struct PhysicalPiPEvidence: Codable {
+    let schemaVersion: Int
+    let mode: String
+    let status: String
+    let enterStatus: String
+    let exitStatus: String
+    let issueCodes: [String]
+    let setupActionLabels: [String]
+    let diagnosticPolicyLabels: [String]
+
+    init(
+        status: String,
+        enterStatus: String,
+        exitStatus: String,
+        issueCodes: [String],
+        setupActionLabels: [String]
+    ) {
+        self.schemaVersion = 1
+        self.mode = "physical-iphone-helper-video-pip-evidence"
+        self.status = status
+        self.enterStatus = enterStatus
+        self.exitStatus = exitStatus
+        self.issueCodes = issueCodes
+        self.setupActionLabels = setupActionLabels
+        self.diagnosticPolicyLabels = [
+            "physical-pip-fixed-labels-only",
+            "pip-watch-only-no-input-payloads"
+        ]
+    }
+
+    static func blocked(
+        enterStatus: String,
+        exitStatus: String,
+        issueCodes: [String],
+        setupActionLabels: [String]
+    ) -> PhysicalPiPEvidence {
+        PhysicalPiPEvidence(
+            status: "blocked",
+            enterStatus: enterStatus,
+            exitStatus: exitStatus,
+            issueCodes: issueCodes,
+            setupActionLabels: setupActionLabels
+        )
+    }
+
+    func jsonString() -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try! encoder.encode(self)
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 private extension String {

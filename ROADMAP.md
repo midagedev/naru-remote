@@ -239,8 +239,11 @@ lookup primitives
   the diagnostic safe-detail catalog is unaffected by drag dispatch.
   The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
   intentionally does NOT install the drag recognizer.
-- Pointer follow-ups deferred to a later phase: hardware-trackpad
-  parity, hover/cursor preview for hardware pointer devices on iPad
+- Basic iPad hardware pointer hover now feeds trackpad-mode cursor-follow:
+  hovering over the Metal viewport maps through the shared `ViewportTransform`
+  and sends a buttonless pointer move on the best-effort cursor lane. Advanced
+  hardware-trackpad parity (pointer lock, custom pointer regions, modifier-aware
+  gestures) remains deferred.
 - Current boundary does not yet restore remote clipboard contents, emit
   keyboard events beyond the existing paste shim, support multi-button
   pointer or scroll, or verify saved credentials against real VNC
@@ -265,6 +268,26 @@ Status: selected for MVP
 
 Status: pending physical device access
 
+- Session Experience baseline is implemented in simulator-backed code:
+  live sessions use a screen-first hero viewport, compact auto-hiding
+  session controls, direct-touch and trackpad pointer modes, local
+  pinch/zoomed-pan with no RFB messages, connection quality chips,
+  Compose quick keys, and a compact Remote Input Dock that replaces
+  empty live-session Compose with a 40pt reveal affordance so remote
+  screen space remains dominant. Compact live sessions now also collapse
+  Mission/App Windows/Switch App Mac controls into a one-tap accessory menu
+  instead of permanently reserving a full control strip, and the immersive
+  top bar keeps only status, Disconnect, and pointer mode primary while
+  secondary commands move into a one-tap Session tools menu. Profile detail
+  chrome follows the same rule: Checks, Connect, and status stay primary;
+  stream tuning, startup experiments, PiP Watch, and inactive pointer controls
+  no longer crowd the iPhone action row.
+- UX screenshot automation now accepts `NARU_UX_AUDIT_OUTPUT_DIR` so
+  iPhone/iPad light/dark layout evidence can be captured per worktree
+  instead of writing into a fixed checkout path.
+- iPad screenshot automation now includes active-session widescreen,
+  keyboard-expanded Compose, and trackpad cursor states across portrait and
+  landscape, aligning Phase 5 with the iPad graceful-scaling target.
 - iPad/iPhone IME manual check
 - Dictation and hardware keyboard check
 - Stage Manager, split view, rotation, and viewport usability check

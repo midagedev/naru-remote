@@ -8,9 +8,12 @@ import UIKit
 public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
     case standard
     case compactAccessory
+    case floatingAccessory
 }
 
 public struct RemoteInputDockView: View {
+    nonisolated static let compactComposeIdleMaxHeight: CGFloat = 44
+    nonisolated static let compactComposeExpandedMaxHeight: CGFloat = 88
     nonisolated static let composeSendFastSnapshotCount = 3
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
     nonisolated static let composeSendStabilizationSnapshotCount = 30
@@ -40,6 +43,7 @@ public struct RemoteInputDockView: View {
     /// its own keyboard, so the focus signal is only meaningful for
     /// the Compose path.
     @State private var composeFieldFocused: Bool = false
+    @State private var compactComposeEditorRequested: Bool = false
 
     private let initialText: String
     private let statusText: String
@@ -123,6 +127,8 @@ public struct RemoteInputDockView: View {
                 standardBody
             case .compactAccessory:
                 compactAccessoryBody
+            case .floatingAccessory:
+                floatingAccessoryBody
             }
         }
         .frame(maxWidth: compactWindowWidth, alignment: .center)
@@ -160,6 +166,7 @@ public struct RemoteInputDockView: View {
             if isDirect {
                 flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
                 composeFieldFocused = false
+                compactComposeEditorRequested = false
                 onComposeFocusChange(false)
             }
         }
@@ -254,9 +261,6 @@ public struct RemoteInputDockView: View {
                 compactDirectHeader
                 directKeyboard
             } else {
-                if showsMacSessionControls {
-                    macSessionControlStrip
-                }
                 compactComposeRow
                 if let compactStatusText {
                     compactStatusLine(compactStatusText)
@@ -274,6 +278,70 @@ public struct RemoteInputDockView: View {
         }
     }
 
+    @ViewBuilder
+    private var floatingAccessoryBody: some View {
+        if showsCompactComposeEditor || directKeystrokeMode.isActive {
+            compactAccessoryBody
+        } else {
+            floatingControlStrip
+        }
+    }
+
+    private var floatingControlStrip: some View {
+        HStack(spacing: 6) {
+            Button {
+                onToggleDirectMode()
+            } label: {
+                Label("Direct mode", systemImage: "keyboard")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(NaruColors.surfaceMuted)
+            .clipShape(Circle())
+            .accessibilityIdentifier("naru.input.direct-toggle")
+
+            Button {
+                compactComposeEditorRequested = true
+                Task { @MainActor in
+                    await Task.yield()
+                    focusComposeEditor()
+                }
+            } label: {
+                Label("Compose", systemImage: "text.cursor")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .background(NaruColors.surfaceEditor)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(NaruColors.hairline, lineWidth: 1)
+            )
+            .accessibilityIdentifier("naru.input.compose-reveal")
+
+            if showsMacSessionControls {
+                compactMacControlMenu
+            }
+
+            if showsComposeQuickKeys {
+                quickKeyMenu
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(NaruColors.hairline, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 4)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("naru.input.floating-accessory")
+    }
+
     private var compactComposeRow: some View {
         HStack(spacing: 10) {
             Button {
@@ -288,52 +356,160 @@ public struct RemoteInputDockView: View {
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
 
-            composeTextEditor
-                .frame(minHeight: 40, maxHeight: 88)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .background(NaruColors.surfaceEditor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(NaruColors.hairline, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-                .simultaneousGesture(TapGesture().onEnded {
-                    focusComposeEditor()
-                })
-                .composeEditorShellAccessibility()
-
-            if showsComposeQuickKeys {
-                quickKeyMenu
+            if showsMacSessionControls {
+                compactMacControlMenu
             }
 
-            Button {
-                sendCurrentComposeText()
-            } label: {
-                Label("Send", systemImage: "paperplane.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 44, height: 40)
+            if showsCompactComposeEditor {
+                composeTextEditor
+                    .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .background(NaruColors.surfaceEditor)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(NaruColors.hairline, lineWidth: 1)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .simultaneousGesture(TapGesture().onEnded {
+                        focusComposeEditor()
+                    })
+                    .composeEditorShellAccessibility()
+
+                if showsComposeQuickKeys {
+                    quickKeyMenu
+                }
+
+                Button {
+                    sendCurrentComposeText()
+                } label: {
+                    Label("Send", systemImage: "paperplane.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 44, height: 40)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isComposeSendDisabled)
+                .help("Send composed text")
+                .accessibilityIdentifier("naru.input.send")
+            } else {
+                compactComposeRevealButton
+
+                if showsComposeQuickKeys {
+                    quickKeyMenu
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isComposeSendDisabled)
-            .help("Send composed text")
-            .accessibilityIdentifier("naru.input.send")
         }
     }
 
+    private var showsCompactComposeEditor: Bool {
+        Self.shouldShowCompactComposeEditor(
+            isFocused: composeFieldFocused,
+            text: text,
+            expansionRequested: compactComposeEditorRequested
+        )
+    }
+
+    private var compactComposeEditorMaxHeight: CGFloat {
+        Self.compactComposeEditorMaxHeight(
+            isFocused: composeFieldFocused,
+            text: text,
+            expansionRequested: compactComposeEditorRequested
+        )
+    }
+
+    nonisolated static func shouldShowCompactComposeEditor(
+        isFocused: Bool,
+        text: String,
+        expansionRequested: Bool
+    ) -> Bool {
+        let hasDraft = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return isFocused || hasDraft || expansionRequested
+    }
+
+    nonisolated static func compactComposeEditorMaxHeight(
+        isFocused: Bool,
+        text: String,
+        expansionRequested: Bool = false
+    ) -> CGFloat {
+        Self.shouldShowCompactComposeEditor(
+            isFocused: isFocused,
+            text: text,
+            expansionRequested: expansionRequested
+        )
+            ? compactComposeExpandedMaxHeight
+            : compactComposeIdleMaxHeight
+    }
+
+    private var compactComposeRevealButton: some View {
+        Button {
+            compactComposeEditorRequested = true
+            Task { @MainActor in
+                await Task.yield()
+                focusComposeEditor()
+            }
+        } label: {
+            Label("Compose", systemImage: "text.cursor")
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 40)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .background(NaruColors.surfaceEditor)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(NaruColors.hairline, lineWidth: 1)
+        )
+        .accessibilityIdentifier("naru.input.compose-reveal")
+    }
+
     private var compactDirectHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            compactDirectHeaderRow(showsComposeTitle: true)
+            compactDirectHeaderRow(showsComposeTitle: false)
+        }
+    }
+
+    private func compactDirectHeaderRow(showsComposeTitle: Bool) -> some View {
         HStack(spacing: 8) {
             Button {
                 onToggleDirectMode()
             } label: {
-                Label("Compose", systemImage: "text.cursor")
+                if showsComposeTitle {
+                    Label("Compose", systemImage: "text.cursor")
+                } else {
+                    Label("Compose", systemImage: "text.cursor")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 38, height: 32)
+                }
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.small)
             .accessibilityIdentifier("naru.input.compose-toggle")
 
-            Spacer()
+            if showsMacSessionControls {
+                compactMacControlMenu
+            }
+
+            if Self.shouldInlineDirectInputSurfacePicker(
+                layoutStyle: layoutStyle,
+                availableWidth: compactWindowWidth,
+                showsMacSessionControls: showsMacSessionControls
+            ) {
+                directInputSurfacePicker
+                    .frame(maxWidth: 156)
+            } else if Self.shouldShowCompactDirectInputSurfaceMenu(
+                layoutStyle: layoutStyle,
+                availableWidth: compactWindowWidth,
+                showsMacSessionControls: showsMacSessionControls
+            ) {
+                compactDirectInputSurfaceMenu
+            }
+
+            Spacer(minLength: 0)
 
             DirectModeBadge(
                 isVisible: directKeystrokeMode.isActive,
@@ -453,6 +629,30 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.mac-controls")
     }
 
+    /// Compact live sessions keep the remote screen dominant: Mac window
+    /// controls remain one tap away, but collapse from a permanent strip into
+    /// a menu inside the accessory row.
+    private var compactMacControlMenu: some View {
+        Menu {
+            ForEach(MacSessionControl.allCases, id: \.self) { control in
+                Button {
+                    onMacSessionControl(control)
+                } label: {
+                    Label(control.label, systemImage: control.systemImageName)
+                }
+                .accessibilityLabel(control.accessibilityLabel)
+                .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
+            }
+        } label: {
+            Label("Mac controls", systemImage: "rectangle.3.group")
+                .labelStyle(.iconOnly)
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Mac controls")
+        .accessibilityIdentifier("naru.input.mac-controls.menu")
+    }
+
     /// Inline terminal-control strip shown above the Compose editor
     /// while a session is active (spec 003 US5 / FR-013).  Lets a
     /// multilingual-composing user fire Esc / Tab / ⌃C / arrows once
@@ -543,8 +743,13 @@ public struct RemoteInputDockView: View {
     @ViewBuilder
     private var directKeyboard: some View {
         VStack(spacing: 8) {
-            directInputSurfacePicker
-            if showsMacSessionControls {
+            if Self.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: layoutStyle) {
+                directInputSurfacePicker
+            }
+            if Self.shouldShowPersistentMacControlStrip(
+                showsMacSessionControls: showsMacSessionControls,
+                layoutStyle: layoutStyle
+            ) {
                 macSessionControlStrip
             }
 
@@ -574,6 +779,35 @@ public struct RemoteInputDockView: View {
         .pickerStyle(.segmented)
         .controlSize(.small)
         .accessibilityIdentifier("naru.direct.input-surface-picker")
+    }
+
+    private var compactDirectInputSurfaceMenu: some View {
+        Menu {
+            ForEach(DirectKeystrokeInputSurface.allCases, id: \.self) { surface in
+                Button {
+                    onSetDirectInputSurface(surface)
+                } label: {
+                    Label(
+                        Self.directInputSurfaceLabel(for: surface),
+                        systemImage: Self.directInputSurfaceSystemImageName(for: surface)
+                    )
+                }
+                .accessibilityIdentifier("naru.direct.input-surface-menu.\(surface.rawValue)")
+            }
+        } label: {
+            Label(
+                Self.directInputSurfaceShortLabel(for: directKeystrokeMode.inputSurface),
+                systemImage: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface)
+            )
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .frame(minWidth: 54, minHeight: 38)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(
+            "Direct input surface, \(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))"
+        )
+        .accessibilityIdentifier("naru.direct.input-surface-menu")
     }
 
     @ViewBuilder
@@ -648,7 +882,11 @@ public struct RemoteInputDockView: View {
     private func updateComposeFocus(_ focused: Bool) {
         composeFieldFocused = focused
         if !focused {
-            flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
+            let currentText = currentComposeTextSnapshot()
+            flushComposeTextToModelIfNeeded(currentText, force: true)
+            if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                compactComposeEditorRequested = false
+            }
         }
     }
 
@@ -1082,6 +1320,85 @@ public struct RemoteInputDockView: View {
     ) -> Bool {
         let trimmed = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         return hasStatus && !trimmed.isEmpty
+    }
+
+    nonisolated static func shouldShowPersistentMacControlStrip(
+        showsMacSessionControls: Bool,
+        layoutStyle: RemoteInputDockLayoutStyle
+    ) -> Bool {
+        showsMacSessionControls && layoutStyle == .standard
+    }
+
+    nonisolated static func shouldInlineDirectInputSurfacePicker(
+        layoutStyle: RemoteInputDockLayoutStyle,
+        availableWidth: CGFloat? = nil,
+        showsMacSessionControls: Bool = false
+    ) -> Bool {
+        guard layoutStyle == .compactAccessory else {
+            return false
+        }
+        guard let availableWidth else {
+            return true
+        }
+        let minimumWidth: CGFloat = showsMacSessionControls ? 430 : 360
+        return availableWidth >= minimumWidth
+    }
+
+    nonisolated static func shouldShowCompactDirectInputSurfaceMenu(
+        layoutStyle: RemoteInputDockLayoutStyle,
+        availableWidth: CGFloat?,
+        showsMacSessionControls: Bool
+    ) -> Bool {
+        layoutStyle == .compactAccessory && !shouldInlineDirectInputSurfacePicker(
+            layoutStyle: layoutStyle,
+            availableWidth: availableWidth,
+            showsMacSessionControls: showsMacSessionControls
+        )
+    }
+
+    nonisolated static func shouldShowPersistentDirectInputSurfacePicker(
+        layoutStyle: RemoteInputDockLayoutStyle
+    ) -> Bool {
+        layoutStyle == .standard
+    }
+
+    nonisolated static func directInputSurfaceLabel(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "Naru keyboard"
+        case .systemKeyboard:
+            return "iOS keyboard"
+        case .hardwareKeyboard:
+            return "Hardware keyboard"
+        }
+    }
+
+    nonisolated static func directInputSurfaceShortLabel(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "Naru"
+        case .systemKeyboard:
+            return "iOS"
+        case .hardwareKeyboard:
+            return "HW"
+        }
+    }
+
+    nonisolated static func directInputSurfaceSystemImageName(
+        for surface: DirectKeystrokeInputSurface
+    ) -> String {
+        switch surface {
+        case .customKeyboard:
+            return "keyboard"
+        case .systemKeyboard:
+            return "text.cursor"
+        case .hardwareKeyboard:
+            return "command"
+        }
     }
 
     nonisolated static func resolvedCompactStatusText(

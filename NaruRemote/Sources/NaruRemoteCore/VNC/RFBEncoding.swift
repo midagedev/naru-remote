@@ -217,16 +217,26 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// ahead of Hextile in the preference order.
     public static let increment2 = RFBEncodingPreference(zrle: true)
 
-    /// Default for sustained private-network control: request/response
-    /// ZRLE with compression level 0, Hextile/Raw fallback, and
-    /// server-cursor pseudo-encodings. Redacted macOS Screen Sharing
-    /// duration benchmarks showed Tight-first being served as Raw on
-    /// this target, while ZRLE compression 0 negotiated actual ZRLE and
-    /// kept client-processing tails much lower. ContinuousUpdates
-    /// remains disabled by default.
+    /// Default for sustained private-network control: ZRLE with
+    /// compression level 0, Hextile/Raw fallback, and server-cursor
+    /// pseudo-encodings. Redacted macOS Screen Sharing duration
+    /// benchmarks showed Tight-first being served as Raw on this target,
+    /// while ZRLE compression 0 negotiated actual ZRLE and kept
+    /// client-processing tails much lower.
+    ///
+    /// `fence` + `continuousUpdates` are advertised so the already-wired
+    /// `.continuousUpdates` frame-pump path can negotiate when the server
+    /// supports the TigerVNC extension (Linux x11vnc/TigerVNC dev boxes),
+    /// eliminating the request/response round-trip that caps update rate
+    /// at one frame per RTT. The whole path stays gated behind
+    /// `clientContinuousUpdatesConfirmed`, so servers that ignore the
+    /// pseudo-encodings (Apple Screen Sharing) fall back cleanly to
+    /// request/response — advertising is a no-op there per RFC 6143.
     public static let localLowLatency = RFBEncodingPreference(
         zrle: true,
         cursor: true,
+        fence: true,
+        continuousUpdates: true,
         extendedClipboard: true,
         compressionLevel: 0
     )
@@ -244,6 +254,12 @@ public struct RFBEncodingPreference: Equatable, Sendable {
     /// Power-saver/sustained-session profile. This intentionally
     /// matches the balanced real-encoding order; the difference is the
     /// app-side pacing floor applied by the viewer power policy.
+    /// Power-saver intentionally does NOT advertise fence/continuousUpdates:
+    /// under a power constraint we keep the conservative polled
+    /// request/response path, where the app-side worker pacing throttles
+    /// network receive + decode. Server-pushed continuous updates would
+    /// run the receive/decode path at the server's change rate, which can
+    /// cost more on a busy screen than the throttled poll.
     public static let powerSaverSustained = RFBEncodingPreference(
         zrle: true,
         cursor: true,

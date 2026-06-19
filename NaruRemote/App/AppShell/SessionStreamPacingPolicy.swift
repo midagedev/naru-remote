@@ -95,14 +95,22 @@ struct SessionStreamPacingPolicy: Equatable, Sendable {
             usesViewportInteractionPacing: usesViewportInteractionPacing,
             contentFrameInterval: viewportInteractionContentFrameInterval
         )
-        let effectiveDelay = max(
+        let baselineDelay = max(
             configuredDelayWithBackoff,
             thermalMinimum,
             powerSaverMinimum,
-            activeInputMinimum,
             viewportInteractionMinimum,
             helperVideoMinimum
         )
+        let effectiveDelay: TimeInterval
+        if activeInputMinimum > 0 {
+            // Input echo is a bounded burst: if the visual/fallback stream is
+            // slower than the input cadence, temporarily sample at the input
+            // cadence; if it is faster, keep the existing input cap.
+            effectiveDelay = max(activeInputMinimum, thermalMinimum)
+        } else {
+            effectiveDelay = baselineDelay
+        }
         return SessionStreamPacingDecision(
             delay: effectiveDelay,
             usesThermalPacing: thermalMinimum > 0 && thermalMinimum == effectiveDelay,

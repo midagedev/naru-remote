@@ -163,7 +163,17 @@ public enum BenchmarkHelperVideoProbe {
                 return [.captureSourceUnavailable]
             case .captureTimedOut, .noCapturedFrames:
                 return [.captureTimedOut]
-            case .captureFailed, .capturedFrameMissingImageBuffer:
+            case .captureNoOutputCallbacks:
+                return [.captureNoOutputCallbacks]
+            case .captureNonScreenOutputCallbacks:
+                return [.captureNonScreenCallbacks]
+            case .captureNonDisplayableScreenFrames:
+                return [.captureNonDisplayableFrames]
+            case .capturedFrameMissingImageBuffer:
+                return [.captureMissingImageBuffer]
+            case .captureInsufficientDisplayableFrames:
+                return [.captureInsufficientDisplayableFrames]
+            case .captureFailed:
                 return [.captureFailed]
             }
         }
@@ -182,6 +192,7 @@ public enum BenchmarkHelperVideoProbe {
             case .timedOut:
                 return [.externalHelperTimedOut]
             case .unreachable,
+                 .transportProtectionRequired,
                  .malformedFrame,
                  .missingStartResponse,
                  .unexpectedMessageType:
@@ -215,20 +226,28 @@ public enum BenchmarkHelperVideoProbe {
             requestHandler: requestHandler,
             accessUnitSource: accessUnitSource
         )
-        let server = try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
+        let server = try NaruHelperVideoStreamNetworkServer(
+            pipeline: pipeline,
+            transportProtection: .authenticatedPrivateProfile
+        )
         server.start()
         defer { server.cancel() }
 
         let port = try waitForSyntheticHelperVideoServerPort(server)
+        let maxServerFrames = BenchmarkHelperVideoProbeTiming.maxServerFrames
+        let clientTimeout = BenchmarkHelperVideoProbeTiming.clientTimeout(
+            forLocalSyntheticMaxServerFrames: maxServerFrames
+        )
         let client = HelperVideoStreamNetworkClient(
             host: "127.0.0.1",
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
-            timeout: BenchmarkHelperVideoProbeTiming.clientTimeout
+            transportProtection: .authenticatedPrivateProfile,
+            timeout: clientTimeout
         )
-        return try awaitSynchronously(timeout: BenchmarkHelperVideoProbeTiming.startStreamTimeout) {
-            try await client.startStream(maxServerFrames: BenchmarkHelperVideoProbeTiming.maxServerFrames)
+        return try awaitSynchronously(timeout: clientTimeout + 1.0) {
+            try await client.startStream(maxServerFrames: maxServerFrames)
         }
     }
 
@@ -351,6 +370,16 @@ public enum BenchmarkHelperVideoProbe {
             return [.captureSourceUnavailable]
         case .screenCaptureTimedOut:
             return [.captureTimedOut]
+        case .screenCaptureNoOutputCallbacks:
+            return [.captureNoOutputCallbacks]
+        case .screenCaptureNonScreenCallbacks:
+            return [.captureNonScreenCallbacks]
+        case .screenCaptureNonDisplayableFrames:
+            return [.captureNonDisplayableFrames]
+        case .screenCaptureMissingImageBuffer:
+            return [.captureMissingImageBuffer]
+        case .screenCaptureInsufficientDisplayableFrames:
+            return [.captureInsufficientDisplayableFrames]
         case .screenCaptureFailed:
             return [.captureFailed]
         case .noAccessUnit,
@@ -376,6 +405,7 @@ public enum BenchmarkHelperVideoProbe {
              .decoderRejected,
              .revoked,
              .transportFailed,
+             .transportProtectionRequired,
              .fallbackToVNC,
              .privateNetworkRequired,
              .none:
@@ -461,6 +491,7 @@ public enum BenchmarkHelperVideoProbe {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: BenchmarkHelperVideoProbeTiming.clientTimeout(
                 forExternalHelperFrameCount: clampedFrameCount
             )
@@ -619,6 +650,10 @@ enum BenchmarkHelperVideoProbeTiming {
 
     static func startStreamTimeout(forExternalHelperFrameCount frameCount: Int) -> TimeInterval {
         clientTimeout(forExternalHelperFrameCount: frameCount) + 1.0
+    }
+
+    static func clientTimeout(forLocalSyntheticMaxServerFrames maxServerFrames: Int) -> TimeInterval {
+        max(clientTimeout, Double(max(maxServerFrames, 1)) / 15.0 + 4.0)
     }
 }
 

@@ -20,14 +20,18 @@ enum VNCLiveStimulusWindow {
         switch options.mode {
         case .animation:
             runAnimation(options: options, app: app)
+        case .hoverProbe:
+            runHoverProbe(options: options, app: app)
         case .textProbe:
             runTextProbe(options: options, app: app)
         }
     }
 
     private static func runAnimation(options: StimulusOptions, app: NSApplication) {
-        app.setActivationPolicy(options.titledAnimationWindow ? .regular : .accessory)
+        let isVisualFreshnessProbe = options.visualFreshnessSidecarPath != nil
+        app.setActivationPolicy((options.titledAnimationWindow || isVisualFreshnessProbe) ? .regular : .accessory)
         let view = StimulusView(frame: NSRect(origin: .zero, size: options.size))
+        view.configureVisualFreshnessSidecar(path: options.visualFreshnessSidecarPath)
         let window = NSWindow(
             contentRect: NSRect(origin: options.origin, size: options.size),
             styleMask: options.titledAnimationWindow ? [.titled] : [.borderless],
@@ -38,15 +42,15 @@ enum VNCLiveStimulusWindow {
         window.level = options.titledAnimationWindow ? .normal : .floating
         window.backgroundColor = .black
         window.isOpaque = true
-        window.ignoresMouseEvents = !options.titledAnimationWindow
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.ignoresMouseEvents = isVisualFreshnessProbe || !options.titledAnimationWindow
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.contentView = view
-        if options.titledAnimationWindow {
+        if options.titledAnimationWindow || isVisualFreshnessProbe {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
             app.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
-        if options.titledAnimationWindow {
+        if options.titledAnimationWindow || isVisualFreshnessProbe {
             window.orderFrontRegardless()
         }
 
@@ -59,6 +63,34 @@ enum VNCLiveStimulusWindow {
         )
         controller = animationController
         animationController.start()
+    }
+
+    private static func runHoverProbe(options: StimulusOptions, app: NSApplication) {
+        app.setActivationPolicy(.regular)
+        let view = HoverProbeView(frame: NSRect(origin: .zero, size: options.size))
+        view.configureVisualFreshnessSidecar(path: options.visualFreshnessSidecarPath)
+        let window = HoverProbeWindow(
+            contentRect: NSRect(origin: options.origin, size: options.size),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Naru Hover Probe"
+        window.level = .floating
+        window.backgroundColor = .black
+        window.isOpaque = true
+        window.acceptsMouseMovedEvents = true
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.contentView = view
+
+        let hoverProbeController = HoverProbeController(
+            app: app,
+            window: window,
+            view: view,
+            duration: options.duration
+        )
+        controller = hoverProbeController
+        hoverProbeController.start()
     }
 
     private static func runTextProbe(options: StimulusOptions, app: NSApplication) {
@@ -131,6 +163,7 @@ private final class StimulusController: NSObject {
     }
 
     func start() {
+        view.recordCurrentVisualFreshnessFrame()
         frameTimer = Timer.scheduledTimer(
             timeInterval: frameInterval,
             target: self,
@@ -269,6 +302,62 @@ private final class TextProbeWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+private final class HoverProbeWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+@MainActor
+private final class HoverProbeController: NSObject {
+    private let app: NSApplication
+    private let window: NSWindow
+    private let view: HoverProbeView
+    private let duration: TimeInterval
+    private var stopTimer: Timer?
+    private var readinessPulseTimer: Timer?
+
+    init(app: NSApplication, window: NSWindow, view: HoverProbeView, duration: TimeInterval) {
+        self.app = app
+        self.window = window
+        self.view = view
+        self.duration = duration
+    }
+
+    func start() {
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        app.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
+        view.recordReadyFrame()
+        readinessPulseTimer = Timer.scheduledTimer(
+            timeInterval: 0.2,
+            target: self,
+            selector: #selector(pulseReadyFrame),
+            userInfo: nil,
+            repeats: true
+        )
+        stopTimer = Timer.scheduledTimer(
+            timeInterval: duration,
+            target: self,
+            selector: #selector(stop),
+            userInfo: nil,
+            repeats: false
+        )
+    }
+
+    @objc private func pulseReadyFrame() {
+        view.pulseReadyFrame()
+    }
+
+    @objc private func stop() {
+        readinessPulseTimer?.invalidate()
+        stopTimer?.invalidate()
+        window.orderOut(nil)
+        app.terminate(nil)
+    }
+}
+
 private struct StimulusOptions {
     var mode: StimulusMode
     var duration: TimeInterval
@@ -278,6 +367,11 @@ private struct StimulusOptions {
     var textProbePayload: BenchmarkTextKeystrokeProbePayload
     var resultFilePath: String?
     var titledAnimationWindow: Bool
+    var visualFreshnessSidecarPath: String?
+    var placeAtTopLeft: Bool
+    var screenIndex: Int?
+    var originXWasSpecified: Bool
+    var originYWasSpecified: Bool
 
     static func parse(_ arguments: ArraySlice<String>) -> StimulusOptions {
         var options = StimulusOptions(
@@ -288,8 +382,23 @@ private struct StimulusOptions {
             origin: NSPoint(x: 72, y: 72),
             textProbePayload: .unicodeHangul,
             resultFilePath: nil,
-            titledAnimationWindow: false
+            titledAnimationWindow: false,
+            visualFreshnessSidecarPath: ProcessInfo.processInfo.environment[
+                BenchmarkVisualFreshnessSidecar.environmentKey
+            ],
+            placeAtTopLeft: false,
+            screenIndex: environmentInteger(BenchmarkStreamShapeStimulusEnvironment.screenIndexKey),
+            originXWasSpecified: false,
+            originYWasSpecified: false
         )
+        if let originX = environmentDouble(BenchmarkStreamShapeStimulusEnvironment.originXKey) {
+            options.origin.x = originX
+            options.originXWasSpecified = true
+        }
+        if let originY = environmentDouble(BenchmarkStreamShapeStimulusEnvironment.originYKey) {
+            options.origin.y = originY
+            options.originYWasSpecified = true
+        }
         var index = arguments.startIndex
 
         while index < arguments.endIndex {
@@ -298,9 +407,20 @@ private struct StimulusOptions {
             case "--text-probe":
                 options.mode = .textProbe
                 index = arguments.index(after: index)
+            case "--hover-probe":
+                options.mode = .hoverProbe
+                index = arguments.index(after: index)
             case "--titled-animation-window":
                 options.titledAnimationWindow = true
                 index = arguments.index(after: index)
+            case "--top-left":
+                options.placeAtTopLeft = true
+                index = arguments.index(after: index)
+            case "--screen-index":
+                if let value = value(after: index, in: arguments).flatMap(Int.init), value >= 0 {
+                    options.screenIndex = value
+                }
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--text-probe-payload":
                 if let value = value(after: index, in: arguments),
                    let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) {
@@ -309,6 +429,9 @@ private struct StimulusOptions {
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--result-file":
                 options.resultFilePath = value(after: index, in: arguments)
+                index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
+            case "--visual-freshness-sidecar":
+                options.visualFreshnessSidecarPath = value(after: index, in: arguments)
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--duration":
                 if let value = value(after: index, in: arguments).flatMap(TimeInterval.init), value > 0 {
@@ -333,11 +456,13 @@ private struct StimulusOptions {
             case "--x":
                 if let value = value(after: index, in: arguments).flatMap(Double.init) {
                     options.origin.x = value
+                    options.originXWasSpecified = true
                 }
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             case "--y":
                 if let value = value(after: index, in: arguments).flatMap(Double.init) {
                     options.origin.y = value
+                    options.originYWasSpecified = true
                 }
                 index = arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex) ?? arguments.endIndex
             default:
@@ -352,7 +477,26 @@ private struct StimulusOptions {
             options.size.width = max(options.size.width, 360)
             options.size.height = max(options.size.height, 140)
         }
+        if options.placeAtTopLeft, let screenFrame = selectedScreenFrame(index: options.screenIndex) {
+            if !options.originXWasSpecified {
+                options.origin.x = screenFrame.minX + 72
+            }
+            if !options.originYWasSpecified {
+                options.origin.y = max(
+                    screenFrame.minY,
+                    screenFrame.maxY - options.size.height - 72
+                )
+            }
+        }
         return options
+    }
+
+    private static func selectedScreenFrame(index: Int?) -> NSRect? {
+        let screens = NSScreen.screens
+        if let index, screens.indices.contains(index) {
+            return screens[index].visibleFrame
+        }
+        return NSScreen.main?.visibleFrame ?? screens.first?.visibleFrame
     }
 
     private static func environmentDuration() -> TimeInterval? {
@@ -369,6 +513,21 @@ private struct StimulusOptions {
         return TimeInterval(value).flatMap { $0 > 0 ? $0 : nil }
     }
 
+    private static func environmentInteger(_ key: String) -> Int? {
+        guard let value = ProcessInfo.processInfo.environment[key] else {
+            return nil
+        }
+        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0 >= 0 ? $0 : nil }
+    }
+
+    private static func environmentDouble(_ key: String) -> Double? {
+        guard let value = ProcessInfo.processInfo.environment[key] else {
+            return nil
+        }
+        return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     private static func value(after index: ArraySlice<String>.Index, in arguments: ArraySlice<String>) -> String? {
         let valueIndex = arguments.index(after: index)
         guard valueIndex < arguments.endIndex else {
@@ -380,16 +539,217 @@ private struct StimulusOptions {
 
 private enum StimulusMode {
     case animation
+    case hoverProbe
     case textProbe
+}
+
+private final class HoverProbeView: NSView {
+    private var frameIndex = 0
+    private var readinessPulseIndex = 0
+    private var visualFreshnessSidecarPath: String?
+    private var trackingArea: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+
+    func configureVisualFreshnessSidecar(path: String?) {
+        visualFreshnessSidecarPath = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if visualFreshnessSidecarPath?.isEmpty == true {
+            visualFreshnessSidecarPath = nil
+        }
+    }
+
+    func recordReadyFrame() {
+        recordCurrentFrame()
+        needsDisplay = true
+    }
+
+    func pulseReadyFrame() {
+        guard frameIndex == 0 else {
+            return
+        }
+        readinessPulseIndex += 1
+        recordCurrentFrame()
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        recordHoverFrame()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        recordHoverFrame()
+    }
+
+    private func recordHoverFrame() {
+        frameIndex += 1
+        recordCurrentFrame()
+        needsDisplay = true
+    }
+
+    private func recordCurrentFrame() {
+        guard let visualFreshnessSidecarPath else {
+            return
+        }
+        BenchmarkVisualFreshnessSidecar.append(sequence: frameIndex, to: visualFreshnessSidecarPath)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.setFill()
+        dirtyRect.fill()
+
+        let inset: CGFloat = 24
+        let targetRect = bounds.insetBy(dx: inset, dy: inset)
+        NSColor(calibratedRed: 0.08, green: 0.12, blue: 0.16, alpha: 1).setFill()
+        NSBezierPath(roundedRect: targetRect, xRadius: 10, yRadius: 10).fill()
+
+        NSColor(calibratedRed: 0.22, green: 0.78, blue: 0.50, alpha: 1).setStroke()
+        let border = NSBezierPath(roundedRect: targetRect, xRadius: 10, yRadius: 10)
+        border.lineWidth = 4
+        border.stroke()
+        drawReadinessPulse(in: targetRect)
+
+        let label = frameIndex == 0 ? "hover target ready" : "hover observed \(frameIndex)"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 20, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (label as NSString).draw(
+            in: NSRect(x: inset + 12, y: inset + 14, width: bounds.width - inset * 2 - 24, height: 30),
+            withAttributes: attributes
+        )
+        drawVisualFreshnessMarker()
+    }
+
+    private func drawReadinessPulse(in targetRect: NSRect) {
+        guard frameIndex == 0 else {
+            return
+        }
+        let pulse = CGFloat((readinessPulseIndex % 6) + 1) / 6.0
+        NSColor(calibratedRed: 0.22, green: 0.78, blue: 0.50, alpha: 0.25 + pulse * 0.55).setFill()
+        NSBezierPath(roundedRect: NSRect(
+            x: targetRect.maxX - 112,
+            y: targetRect.minY + 18,
+            width: 72,
+            height: 14
+        ), xRadius: 7, yRadius: 7).fill()
+    }
+
+    private func drawVisualFreshnessMarker() {
+        let cellSize: CGFloat = 40
+        let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
+        let markerWidth = CGFloat(BenchmarkVisualFreshnessMarker.markerCellCount) * cellSize
+        let inset: CGFloat = 12
+        let anchors = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: max(inset, bounds.width - markerWidth - inset), y: inset),
+            NSPoint(x: inset, y: max(inset, bounds.height - cellSize - inset)),
+            NSPoint(
+                x: max(inset, bounds.width - markerWidth - inset),
+                y: max(inset, bounds.height - cellSize - inset)
+            ),
+            NSPoint(x: max(inset, bounds.midX - markerWidth / 2), y: inset),
+            NSPoint(
+                x: max(inset, bounds.midX - markerWidth / 2),
+                y: max(inset, bounds.height - cellSize - inset)
+            )
+        ]
+        var drawnOrigins = Set<String>()
+        for origin in anchors {
+            let clampedOrigin = NSPoint(
+                x: min(max(origin.x, inset), max(inset, bounds.width - markerWidth - inset)),
+                y: min(max(origin.y, inset), max(inset, bounds.height - cellSize - inset))
+            )
+            let key = "\(Int(clampedOrigin.x.rounded())):\(Int(clampedOrigin.y.rounded()))"
+            guard drawnOrigins.insert(key).inserted else {
+                continue
+            }
+            drawVisualFreshnessMarker(at: clampedOrigin, cellSize: cellSize, nibbles: nibbles)
+        }
+
+        drawVisualFreshnessTimestampLabel()
+    }
+
+    private func drawVisualFreshnessMarker(
+        at origin: NSPoint,
+        cellSize: CGFloat,
+        nibbles: [Int]
+    ) {
+        for (index, nibble) in nibbles.enumerated() {
+            let color = BenchmarkVisualFreshnessMarker.palette[nibble]
+            NSColor(
+                calibratedRed: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
+                alpha: 1
+            ).setFill()
+            NSBezierPath(rect: NSRect(
+                x: origin.x + CGFloat(index) * cellSize,
+                y: origin.y,
+                width: cellSize,
+                height: cellSize
+            )).fill()
+        }
+    }
+
+    private func drawVisualFreshnessTimestampLabel() {
+        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
+        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
+        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
+        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(
+            in: NSRect(x: 18, y: 48, width: 284, height: 28),
+            withAttributes: attributes
+        )
+    }
 }
 
 private final class StimulusView: NSView {
     private var frameIndex = 0
+    private var visualFreshnessSidecarPath: String?
 
     override var isFlipped: Bool { true }
 
+    func configureVisualFreshnessSidecar(path: String?) {
+        visualFreshnessSidecarPath = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if visualFreshnessSidecarPath?.isEmpty == true {
+            visualFreshnessSidecarPath = nil
+        }
+    }
+
+    func recordCurrentVisualFreshnessFrame() {
+        guard let visualFreshnessSidecarPath else {
+            return
+        }
+        BenchmarkVisualFreshnessSidecar.append(
+            sequence: frameIndex,
+            to: visualFreshnessSidecarPath
+        )
+        needsDisplay = true
+    }
+
     func advance() {
         frameIndex += 1
+        recordCurrentVisualFreshnessFrame()
         needsDisplay = true
     }
 
@@ -423,5 +783,75 @@ private final class StimulusView: NSView {
                 height: markerSize
             )
         ).fill()
+
+        drawVisualFreshnessOverlayIfNeeded()
+    }
+
+    private func drawVisualFreshnessOverlayIfNeeded() {
+        guard visualFreshnessSidecarPath != nil else {
+            return
+        }
+
+        let cellSize = CGFloat(BenchmarkVisualFreshnessMarker.markerPointCellSize)
+        let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
+        let markerWidth = CGFloat(BenchmarkVisualFreshnessMarker.markerCellCount) * cellSize
+        let inset: CGFloat = 12
+        let anchors = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: max(inset, bounds.width - markerWidth - inset), y: inset),
+            NSPoint(x: inset, y: max(inset, bounds.height - cellSize - inset)),
+            NSPoint(
+                x: max(inset, bounds.width - markerWidth - inset),
+                y: max(inset, bounds.height - cellSize - inset)
+            ),
+            NSPoint(x: max(inset, bounds.midX - markerWidth / 2), y: inset)
+        ]
+        var drawnOrigins = Set<String>()
+        for origin in anchors {
+            let clampedOrigin = NSPoint(
+                x: min(max(origin.x, inset), max(inset, bounds.width - markerWidth - inset)),
+                y: min(max(origin.y, inset), max(inset, bounds.height - cellSize - inset))
+            )
+            let key = "\(Int(clampedOrigin.x.rounded())):\(Int(clampedOrigin.y.rounded()))"
+            guard drawnOrigins.insert(key).inserted else {
+                continue
+            }
+            drawVisualFreshnessMarker(at: clampedOrigin, cellSize: cellSize, nibbles: nibbles)
+        }
+
+        NSColor(calibratedWhite: 0, alpha: 0.72).setFill()
+        NSBezierPath(rect: NSRect(x: 10, y: 40, width: 300, height: 38)).fill()
+        let timestampMilliseconds = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds() / 1_000_000
+        let text = "seq \(frameIndex)  t \(timestampMilliseconds)ms"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(
+            in: NSRect(x: 18, y: 48, width: 284, height: 28),
+            withAttributes: attributes
+        )
+    }
+
+    private func drawVisualFreshnessMarker(
+        at origin: NSPoint,
+        cellSize: CGFloat,
+        nibbles: [Int]
+    ) {
+        for (index, nibble) in nibbles.enumerated() {
+            let color = BenchmarkVisualFreshnessMarker.palette[nibble]
+            NSColor(
+                calibratedRed: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
+                alpha: 1
+            ).setFill()
+            NSBezierPath(rect: NSRect(
+                x: origin.x + CGFloat(index) * cellSize,
+                y: origin.y,
+                width: cellSize,
+                height: cellSize
+            )).fill()
+        }
     }
 }

@@ -62,6 +62,11 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
         XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
+        // Advertise the low-latency transport extensions so the wired
+        // `.continuousUpdates` frame-pump path can negotiate on capable
+        // servers (gated by clientContinuousUpdatesConfirmed).
+        XCTAssertTrue(list.contains(RFBEncoding.fence))
+        XCTAssertTrue(list.contains(RFBEncoding.continuousUpdates))
     }
 
     func testTightFirstCursorPrefersTightWithServerCursorAndNoClipboard() {
@@ -90,6 +95,10 @@ final class RFBEncodingTests: XCTestCase {
         XCTAssertTrue(list.contains(RFBEncoding.tightCompressionLevel(0)))
         XCTAssertTrue(list.contains(RFBEncoding.extendedClipboard))
         XCTAssertTrue(list.contains(RFBEncoding.raw))
+        // Power-saver keeps the conservative polled path: no continuous-update
+        // transport extensions advertised.
+        XCTAssertFalse(list.contains(RFBEncoding.fence))
+        XCTAssertFalse(list.contains(RFBEncoding.continuousUpdates))
     }
 
     func testQualityAndCompressionHintsRideOnlyOnTheirEncodings() {

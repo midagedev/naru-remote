@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 import NaruRemoteCore
 import VNCLiveBenchmarkKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 private let toolName = "VNCLiveBenchmark"
 
@@ -43,7 +46,9 @@ enum VNCLiveBenchmark {
                 }
                 return
             }
-            if options.textKeystrokeProbeOnly || options.textKeystrokeObservedProbeOnly {
+            if options.textKeystrokeProbeOnly
+                || options.textKeystrokeObservedProbeOnly
+                || options.pointerHoverObservedProbeOnly {
                 let passwordOverride = try options.askPassword ? readPasswordFromTerminal() : nil
                 guard let configuration = LiveTargetConfiguration.fromEnvironment(
                     passwordOverride: passwordOverride
@@ -60,6 +65,22 @@ enum VNCLiveBenchmark {
                     profile: options.networkConditionProfile
                 )
                 defer { proxy?.stop() }
+                if options.pointerHoverObservedProbeOnly {
+                    let report = await runPointerHoverProbe(
+                        configuration: configuration.conditioned(by: proxy),
+                        networkConditionProfile: options.networkConditionProfile,
+                        timeout: options.timeout,
+                        observationTimeout: options.pointerHoverObservationTimeout
+                    )
+                    progressReporter.record(.reportRendering)
+                    if options.json {
+                        try renderJSON(report)
+                    } else {
+                        renderText(report)
+                    }
+                    return
+                }
+
                 let report = await runTextKeystrokeProbe(
                     configuration: configuration.conditioned(by: proxy),
                     networkConditionProfile: options.networkConditionProfile,
@@ -240,6 +261,196 @@ enum VNCLiveBenchmark {
         )
     }
 
+    private static func runPointerHoverProbe(
+        configuration: LiveTargetConfiguration,
+        networkConditionProfile: BenchmarkNetworkConditionProfile,
+        timeout: TimeInterval,
+        observationTimeout: TimeInterval
+    ) async -> BenchmarkPointerHoverProbeReport {
+        let start = startPointerHoverObservationTarget(
+            connectionTimeout: timeout,
+            observationTimeout: observationTimeout
+        )
+        guard start.failureLabel == nil, let target = start.target else {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .notRun,
+                firstFrameStatus: .notRun,
+                sendStatus: .notRun,
+                observationStatus: .targetUnavailable,
+                failureLabel: start.failureLabel,
+                recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
+            )
+        }
+        defer {
+            target.stop()
+        }
+
+        let client = RFBNetworkClient(encodingPreference: .localLowLatency)
+        do {
+            _ = try client.connectSession(
+                host: configuration.host,
+                port: configuration.port,
+                credential: .vncPassword(configuration.password),
+                timeout: timeout
+            )
+        } catch {
+            client.disconnect()
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .failed,
+                firstFrameStatus: .notRun,
+                sendStatus: .notRun,
+                observationStatus: .notRun,
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverConnect),
+                recommendedNextActionLabel: pointerHoverNextActionInspectConnection
+            )
+        }
+        defer {
+            client.disconnect()
+        }
+
+        let firstFrameResult: RFBFramebufferUpdateResult
+        do {
+            firstFrameResult = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+            debugDumpPointerHoverFrameIfRequested(firstFrameResult.framebuffer)
+        } catch {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .passed,
+                firstFrameStatus: .failed,
+                sendStatus: .notRun,
+                observationStatus: .notRun,
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverFirstFrame),
+                recommendedNextActionLabel: pointerHoverNextActionInspectConnection
+            )
+        }
+
+        let probe = BenchmarkVisualFreshnessProbe(sidecarPath: target.sidecarPath)
+        let baselineObservation: BenchmarkVisualFreshnessObservation
+        do {
+            guard let observation = try waitForPointerHoverTargetBaseline(
+                client: client,
+                probe: probe,
+                initialFramebuffer: firstFrameResult.framebuffer,
+                timeout: min(max(observationTimeout, 0.25), 2.0)
+            ) else {
+                return BenchmarkPointerHoverProbeReport(
+                    status: .failed,
+                    networkConditionProfile: networkConditionProfile,
+                    connectStatus: .passed,
+                    firstFrameStatus: .passed,
+                    targetVisibilityStatus: .failed,
+                    sendStatus: .notRun,
+                    observationStatus: .notRun,
+                    failureLabel: pointerHoverTargetMarkerNotVisibleLabel,
+                    recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
+                )
+            }
+            baselineObservation = observation
+        } catch {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                targetVisibilityStatus: .failed,
+                sendStatus: .notRun,
+                observationStatus: .failed,
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverObserve),
+                recommendedNextActionLabel: pointerHoverNextActionVerifyStimulusTargetDisplay
+            )
+        }
+        let baselineSequence = baselineObservation.sequence
+        let outsidePoint = controlledPointerHoverTargetOutsidePoint(
+            framebuffer: firstFrameResult.framebuffer,
+            markerLocation: baselineObservation.markerLocation
+        )
+        let point = controlledPointerHoverTargetCenterPoint(
+            framebuffer: firstFrameResult.framebuffer,
+            markerLocation: baselineObservation.markerLocation
+        )
+        do {
+            try await client.sendPointerEvent(buttonMask: 0x00, x: outsidePoint.x, y: outsidePoint.y)
+            try await Task.sleep(for: .milliseconds(40))
+            try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
+        } catch {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                targetVisibilityStatus: .passed,
+                sendStatus: .failed,
+                observationStatus: .notRun,
+                failureLabel: safeFailureLabel(for: error, phase: .pointerHoverSend),
+                recommendedNextActionLabel: pointerHoverNextActionInspectPointerSend
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(observationTimeout)
+        var observedSamples: [Int] = []
+        while Date() < deadline {
+            let remaining = max(deadline.timeIntervalSinceNow, 0.01)
+            do {
+                let update = try client.requestFramebufferUpdate(
+                    incremental: true,
+                    timeout: min(max(remaining, 0.05), 0.25)
+                )
+                guard let observation = probe.observe(framebuffer: update.framebuffer),
+                      observation.sequence > baselineSequence,
+                      let freshnessMilliseconds = observation.freshnessMilliseconds else {
+                    continue
+                }
+                observedSamples.append(freshnessMilliseconds)
+                break
+            } catch RFBNetworkClientError.timedOut, RFBNetworkClientError.readTimedOut {
+                continue
+            } catch {
+                return BenchmarkPointerHoverProbeReport(
+                    status: .failed,
+                    networkConditionProfile: networkConditionProfile,
+                    connectStatus: .passed,
+                    firstFrameStatus: .passed,
+                    targetVisibilityStatus: .passed,
+                    sendStatus: .passed,
+                    observationStatus: .failed,
+                    failureLabel: safeFailureLabel(for: error, phase: .pointerHoverObserve),
+                    recommendedNextActionLabel: pointerHoverNextActionInspectHoverCadence
+                )
+            }
+        }
+
+        guard let latency = BenchmarkLatencySummary(observedSamples) else {
+            return BenchmarkPointerHoverProbeReport(
+                status: .failed,
+                networkConditionProfile: networkConditionProfile,
+                connectStatus: .passed,
+                firstFrameStatus: .passed,
+                targetVisibilityStatus: .passed,
+                sendStatus: .passed,
+                observationStatus: .timedOut,
+                failureLabel: pointerHoverObservationTimedOutLabel,
+                recommendedNextActionLabel: pointerHoverNextActionInspectHoverCadence
+            )
+        }
+
+        return BenchmarkPointerHoverProbeReport(
+            status: .observedHover,
+            networkConditionProfile: networkConditionProfile,
+            connectStatus: .passed,
+            firstFrameStatus: .passed,
+            targetVisibilityStatus: .passed,
+            sendStatus: .passed,
+            observationStatus: .observed,
+            timestampLatency: latency,
+            failureLabel: nil
+        )
+    }
+
     private static func runTextKeystrokeProbe(
         configuration: LiveTargetConfiguration,
         networkConditionProfile: BenchmarkNetworkConditionProfile,
@@ -326,8 +537,9 @@ enum VNCLiveBenchmark {
             client.disconnect()
         }
 
+        let firstFrameResult: RFBFramebufferUpdateResult
         do {
-            _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+            firstFrameResult = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
         } catch {
             return BenchmarkTextKeystrokeProbeReport(
                 status: .failed,
@@ -342,6 +554,29 @@ enum VNCLiveBenchmark {
                 sendStatus: .notRun,
                 failureLabel: safeFailureLabel(for: error, phase: .textProbeFirstFrame)
             )
+        }
+
+        if observationTarget != nil {
+            do {
+                try await focusTextKeystrokeObservationTarget(
+                    client: client,
+                    framebuffer: firstFrameResult.framebuffer
+                )
+            } catch {
+                return BenchmarkTextKeystrokeProbeReport(
+                    status: .failed,
+                    payload: payload,
+                    networkConditionProfile: networkConditionProfile,
+                    payloadEncoding: transcoding.payloadEncoding,
+                    usesUnicodeKeysyms: transcoding.usesUnicodeKeysyms,
+                    eventCountBucket: eventCountBucket,
+                    connectStatus: .passed,
+                    firstFrameStatus: .passed,
+                    transcodeStatus: .passed,
+                    sendStatus: .failed,
+                    failureLabel: safeFailureLabel(for: error, phase: .textProbeSend)
+                )
+            }
         }
 
         do {
@@ -496,6 +731,237 @@ enum VNCLiveBenchmark {
         return TextKeystrokeObservationStart(target: target, failureLabel: nil)
     }
 
+    private static func startPointerHoverObservationTarget(
+        connectionTimeout: TimeInterval,
+        observationTimeout: TimeInterval
+    ) -> PointerHoverObservationStart {
+        guard
+            let executable = ProcessInfo.processInfo.environment[pointerHoverObservationTargetExecutableKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !executable.isEmpty,
+            FileManager.default.isExecutableFile(atPath: executable)
+        else {
+            return PointerHoverObservationStart(
+                target: nil,
+                failureLabel: pointerHoverObservationTargetMissingLabel
+            )
+        }
+
+        let sidecarURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-pointer-hover-observation-\(UUID().uuidString).jsonl")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        let readinessTimeout = min(max(observationTimeout, 0.25), 2.0)
+        let targetDuration = connectionTimeout * 2.0
+            + readinessTimeout
+            + observationTimeout
+            + 3.0
+        process.arguments = [
+            "--hover-probe",
+            "--top-left",
+            "--width",
+            "960",
+            "--height",
+            "720",
+            "--visual-freshness-sidecar",
+            sidecarURL.path,
+            "--duration",
+            formatSeconds(max(targetDuration, 1.0))
+        ]
+        process.environment = minimalObservationTargetEnvironment()
+        let nullOutput = FileHandle(forWritingAtPath: "/dev/null")
+        process.standardOutput = nullOutput
+        process.standardError = nullOutput
+
+        do {
+            try process.run()
+        } catch {
+            try? nullOutput?.close()
+            try? FileManager.default.removeItem(at: sidecarURL)
+            return PointerHoverObservationStart(
+                target: nil,
+                failureLabel: pointerHoverObservationTargetLaunchFailedLabel
+            )
+        }
+
+        let target = RunningPointerHoverObservationTarget(
+            process: process,
+            sidecarURL: sidecarURL,
+            nullOutput: nullOutput
+        )
+        guard waitForPointerHoverObservationTargetReady(
+            target,
+            timeout: min(max(observationTimeout, 0.25), 2.0)
+        ) else {
+            target.stop()
+            return PointerHoverObservationStart(
+                target: nil,
+                failureLabel: pointerHoverObservationTargetNotReadyLabel
+            )
+        }
+
+        return PointerHoverObservationStart(target: target, failureLabel: nil)
+    }
+
+    private static func focusTextKeystrokeObservationTarget(
+        client: RFBNetworkClient,
+        framebuffer: RFBRawFramebuffer
+    ) async throws {
+        let point = controlledObservationTargetCenterPoint(framebuffer: framebuffer)
+        try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(40))
+        try await client.sendPointerEvent(buttonMask: 0x01, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(40))
+        try await client.sendPointerEvent(buttonMask: 0x00, x: point.x, y: point.y)
+        try await Task.sleep(for: .milliseconds(80))
+    }
+
+    private static func controlledObservationTargetCenterPoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterYFromBottom = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(
+            framebuffer.height - targetCenterYFromBottom,
+            upperBound: framebuffer.height
+        )
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledObservationTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterYFromBottom = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX - Int(300.0 * scale), upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(
+            framebuffer.height - targetCenterYFromBottom,
+            upperBound: framebuffer.height
+        )
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledPointerHoverTargetCenterPoint(
+        framebuffer: RFBRawFramebuffer,
+        markerLocation: BenchmarkVisualFreshnessMarkerLocation?
+    ) -> (x: UInt16, y: UInt16) {
+        guard let markerLocation else {
+            return controlledTopLeftObservationTargetCenterPoint(framebuffer: framebuffer)
+        }
+        let x = clampFramebufferCoordinate(markerLocation.centerX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(markerLocation.centerY, upperBound: framebuffer.height)
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledPointerHoverTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer,
+        markerLocation: BenchmarkVisualFreshnessMarkerLocation?
+    ) -> (x: UInt16, y: UInt16) {
+        guard let markerLocation else {
+            return controlledTopLeftObservationTargetOutsidePoint(framebuffer: framebuffer)
+        }
+        let x = markerLocation.centerX < framebuffer.width / 2
+            ? framebuffer.width - 1
+            : 0
+        let y = markerLocation.centerY < framebuffer.height / 2
+            ? framebuffer.height - 1
+            : 0
+        return (
+            UInt16(clampFramebufferCoordinate(x, upperBound: framebuffer.width)),
+            UInt16(clampFramebufferCoordinate(y, upperBound: framebuffer.height))
+        )
+    }
+
+    private static func controlledTopLeftObservationTargetCenterPoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterY = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX, upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(targetCenterY, upperBound: framebuffer.height)
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func controlledTopLeftObservationTargetOutsidePoint(
+        framebuffer: RFBRawFramebuffer
+    ) -> (x: UInt16, y: UInt16) {
+        let scale = textKeystrokeObservationTargetScale(framebuffer: framebuffer)
+        let targetCenterX = Int((72.0 + 210.0) * scale)
+        let targetCenterY = Int((72.0 + 120.0) * scale)
+        let x = clampFramebufferCoordinate(targetCenterX - Int(300.0 * scale), upperBound: framebuffer.width)
+        let y = clampFramebufferCoordinate(targetCenterY, upperBound: framebuffer.height)
+        return (UInt16(x), UInt16(y))
+    }
+
+    private static func waitForPointerHoverTargetBaseline(
+        client: RFBNetworkClient,
+        probe: BenchmarkVisualFreshnessProbe,
+        initialFramebuffer: RFBRawFramebuffer,
+        timeout: TimeInterval
+    ) throws -> BenchmarkVisualFreshnessObservation? {
+        if let observation = probe.observe(framebuffer: initialFramebuffer) {
+            return observation
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let remaining = max(deadline.timeIntervalSinceNow, 0.01)
+            do {
+                let update = try client.requestFramebufferUpdate(
+                    incremental: false,
+                    timeout: min(max(remaining, 0.05), 0.35)
+                )
+                if let observation = probe.observe(framebuffer: update.framebuffer) {
+                    return observation
+                }
+            } catch RFBNetworkClientError.timedOut, RFBNetworkClientError.readTimedOut {
+                continue
+            }
+        }
+        return nil
+    }
+
+    private static func debugDumpPointerHoverFrameIfRequested(_ framebuffer: RFBRawFramebuffer) {
+        guard let path = ProcessInfo.processInfo.environment["NARU_DEBUG_POINTER_HOVER_FRAME_PPM"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !path.isEmpty else {
+            return
+        }
+        var data = Data("P6\n\(framebuffer.width) \(framebuffer.height)\n255\n".utf8)
+        data.reserveCapacity(data.count + framebuffer.pixels.count * 3)
+        for pixel in framebuffer.pixels {
+            data.append(pixel.red)
+            data.append(pixel.green)
+            data.append(pixel.blue)
+        }
+        try? data.write(to: URL(fileURLWithPath: path), options: [.atomic])
+    }
+
+    private static func textKeystrokeObservationTargetScale(
+        framebuffer: RFBRawFramebuffer
+    ) -> Double {
+        #if canImport(AppKit)
+        guard let screenHeight = NSScreen.main?.frame.height,
+              screenHeight > 0
+        else {
+            return 1
+        }
+        let estimatedScale = Double(max(framebuffer.height, 1)) / screenHeight
+        return min(max(estimatedScale, 1), 4)
+        #else
+        return 1
+        #endif
+    }
+
+    private static func clampFramebufferCoordinate(_ value: Int, upperBound: Int) -> Int {
+        let safeUpperBound = max(upperBound - 1, 0)
+        return min(max(value, 0), min(safeUpperBound, Int(UInt16.max)))
+    }
+
     private static func waitForTextKeystrokeObservationTargetReady(
         _ target: RunningTextKeystrokeObservationTarget,
         timeout: TimeInterval
@@ -507,6 +973,23 @@ enum VNCLiveBenchmark {
                     return true
                 }
                 return false
+            }
+            if !target.isRunning {
+                return false
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return false
+    }
+
+    private static func waitForPointerHoverObservationTargetReady(
+        _ target: RunningPointerHoverObservationTarget,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if target.hasReadyEvent {
+                return true
             }
             if !target.isRunning {
                 return false
@@ -556,10 +1039,20 @@ enum VNCLiveBenchmark {
     }
 
     private static func minimalTextKeystrokeObservationEnvironment() -> [String: String] {
+        minimalObservationTargetEnvironment()
+    }
+
+    private static func minimalObservationTargetEnvironment() -> [String: String] {
         var environment: [String: String] = [:]
         let parent = ProcessInfo.processInfo.environment
         for key in ["PATH", "HOME", "TMPDIR", "__CF_USER_TEXT_ENCODING"] {
             if let value = parent[key] {
+                environment[key] = value
+            }
+        }
+        for key in BenchmarkStreamShapeStimulusEnvironment.allowedPlacementEnvironmentKeys {
+            if let value = parent[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
                 environment[key] = value
             }
         }
@@ -846,6 +1339,7 @@ enum VNCLiveBenchmark {
         var samples: [BenchmarkStreamShapeSample] = []
         var firstFrameMilliseconds: Int?
         var firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
+        var firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation?
         var firstTimeoutMilliseconds: Int?
         var elapsedMilliseconds: Int?
         var failureLabel: String?
@@ -854,6 +1348,7 @@ enum VNCLiveBenchmark {
         var clientPressureState = BenchmarkStreamShapeClientPressureState()
         var adaptiveClientPressurePacingSamples = 0
         var viewportInteractionPacingSamples = 0
+        let visualFreshnessProbe = BenchmarkVisualFreshnessProbe.fromEnvironment()
         defer {
             pump.stopContinuousUpdatesIfNeeded(timeout: timeout)
             client.disconnect()
@@ -905,6 +1400,7 @@ enum VNCLiveBenchmark {
             maxSamples: maxSamples,
             durationLimit: durationLimit,
             idleTimeout: idleTimeout,
+            firstFrameTimeout: timeout,
             warmupSeconds: stimulusWarmupSeconds,
             frameInterval: stimulusFrameInterval
         )
@@ -949,6 +1445,11 @@ enum VNCLiveBenchmark {
                 initialRequestRegion: firstFrameRequestRegion
             )
             firstFrameReceiveTiming = firstFrame?.timing
+            if let firstFrame {
+                firstFrameVisualFreshnessObservation = visualFreshnessProbe?.observe(
+                    framebuffer: firstFrame.framebuffer
+                )
+            }
             firstFrameMilliseconds = milliseconds(since: firstFrameStartedAt)
         } catch {
             failureLabel = safeFailureLabel(for: error, phase: .streamFirstFrame)
@@ -1043,7 +1544,8 @@ enum VNCLiveBenchmark {
                 }
                 let sample = streamShapeSample(
                     from: frame,
-                    durationMilliseconds: milliseconds(since: startedAt)
+                    durationMilliseconds: milliseconds(since: startedAt),
+                    visualFreshnessProbe: visualFreshnessProbe
                 )
                 samples.append(sample)
                 clientPressureState.record(
@@ -1105,6 +1607,7 @@ enum VNCLiveBenchmark {
             attemptedSamples: attemptedSamples,
             firstFrameMilliseconds: firstFrameMilliseconds,
             firstFrameReceiveTiming: firstFrameReceiveTiming,
+            firstFrameVisualFreshnessObservation: firstFrameVisualFreshnessObservation,
             samples: samples,
             elapsedMilliseconds: elapsedMilliseconds,
             firstTimeoutMilliseconds: firstTimeoutMilliseconds,
@@ -1170,6 +1673,9 @@ enum VNCLiveBenchmark {
             orderOrdinal: orderOrdinal,
             firstFrameMilliseconds: probe.firstFrameMilliseconds,
             firstFrameReceiveTiming: probe.firstFrameReceiveTiming,
+            firstFrameVisualFreshnessSequence: probe.firstFrameVisualFreshnessObservation?.sequence,
+            firstFrameVisualFreshnessMilliseconds: probe.firstFrameVisualFreshnessObservation?
+                .freshnessMilliseconds,
             summary: probe.summary
         )
     }
@@ -1542,6 +2048,7 @@ enum VNCLiveBenchmark {
         maxSamples: Int,
         durationLimit: TimeInterval?,
         idleTimeout: TimeInterval,
+        firstFrameTimeout: TimeInterval,
         warmupSeconds: TimeInterval,
         frameInterval: TimeInterval
     ) -> StreamShapeStimulusStart {
@@ -1570,6 +2077,7 @@ enum VNCLiveBenchmark {
                         maxSamples: maxSamples,
                         durationLimit: durationLimit,
                         idleTimeout: idleTimeout,
+                        firstFrameTimeout: firstFrameTimeout,
                         warmupSeconds: warmupSeconds
                     )
                 ),
@@ -1602,6 +2110,7 @@ enum VNCLiveBenchmark {
         maxSamples: Int,
         durationLimit: TimeInterval?,
         idleTimeout: TimeInterval,
+        firstFrameTimeout: TimeInterval,
         warmupSeconds: TimeInterval
     ) -> TimeInterval {
         let streamDuration: TimeInterval
@@ -1610,12 +2119,13 @@ enum VNCLiveBenchmark {
         } else {
             streamDuration = Double(max(maxSamples, 1)) * max(idleTimeout, 0.001)
         }
-        return max(streamDuration + warmupSeconds + idleTimeout + 1, 1)
+        return max(streamDuration + warmupSeconds + max(firstFrameTimeout, 0) + idleTimeout + 1, 1)
     }
 
     private static func streamShapeSample(
         from frame: RFBFramePumpFrame,
-        durationMilliseconds: Int
+        durationMilliseconds: Int,
+        visualFreshnessProbe: BenchmarkVisualFreshnessProbe? = nil
     ) -> BenchmarkStreamShapeSample {
         let framebufferArea = max(frame.framebuffer.width * frame.framebuffer.height, 1)
         let dirtyArea = frame.dirtyRectangles.reduce(0) { total, rect in
@@ -1631,6 +2141,7 @@ enum VNCLiveBenchmark {
             shouldUpload: kind == .contentUpdate
         )
         let hasZRLEMeasurement = frame.encodingMix.zrleRectangles > 0
+        let visualFreshnessObservation = visualFreshnessProbe?.observe(framebuffer: frame.framebuffer)
 
         return BenchmarkStreamShapeSample(
             kind: kind,
@@ -1647,7 +2158,9 @@ enum VNCLiveBenchmark {
             clientProcessingMilliseconds: frame.timing?.clientProcessingMilliseconds,
             zrleInflateMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleInflateMilliseconds : nil,
             zrleTileApplyMilliseconds: hasZRLEMeasurement ? frame.decodeMetrics.zrleTileApplyMilliseconds : nil,
-            actualEncodingMix: frame.encodingMix
+            actualEncodingMix: frame.encodingMix,
+            visualFreshnessSequence: visualFreshnessObservation?.sequence,
+            visualFreshnessMilliseconds: visualFreshnessObservation?.freshnessMilliseconds
         )
     }
 
@@ -1813,8 +2326,10 @@ private struct BenchmarkOptions: Equatable {
     var helperVideoProbeOnly = false
     var textKeystrokeProbeOnly = false
     var textKeystrokeObservedProbeOnly = false
+    var pointerHoverObservedProbeOnly = false
     var textKeystrokeProbePayload: BenchmarkTextKeystrokeProbePayload = .unicodeHangul
     var textKeystrokeObservationTimeout: TimeInterval = 2.0
+    var pointerHoverObservationTimeout: TimeInterval = 3.0
     var json = false
     var showHelp = false
     var safeProgressLabelFile: String?
@@ -1850,6 +2365,9 @@ private struct BenchmarkOptions: Equatable {
             case "--text-keystroke-observed-probe-only":
                 options.textKeystrokeObservedProbeOnly = true
                 index = arguments.index(after: index)
+            case "--pointer-hover-observed-probe-only":
+                options.pointerHoverObservedProbeOnly = true
+                index = arguments.index(after: index)
             case "--text-keystroke-probe-payload":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 guard let payload = BenchmarkTextKeystrokeProbePayload(rawValue: value) else {
@@ -1864,6 +2382,10 @@ private struct BenchmarkOptions: Equatable {
             case "--text-keystroke-observation-timeout":
                 let value = try nextValue(after: index, in: arguments, option: argument)
                 options.textKeystrokeObservationTimeout = try positiveTimeInterval(value, option: argument)
+                index = arguments.index(index, offsetBy: 2)
+            case "--pointer-hover-observation-timeout":
+                let value = try nextValue(after: index, in: arguments, option: argument)
+                options.pointerHoverObservationTimeout = try positiveTimeInterval(value, option: argument)
                 index = arguments.index(index, offsetBy: 2)
             case "--network-condition":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -2550,10 +3072,22 @@ private let streamShapeStimulusTerminationGraceSeconds: TimeInterval = 0.1
 private let streamShapeStimulusTerminationPollSeconds: TimeInterval = 0.01
 private let textKeystrokeObservationTargetExecutableKey =
     "NARU_TEXT_KEYSTROKE_OBSERVATION_TARGET_EXECUTABLE"
+private let pointerHoverObservationTargetExecutableKey =
+    "NARU_POINTER_HOVER_OBSERVATION_TARGET_EXECUTABLE"
 private let textKeystrokeObservationTargetMissingLabel = "text-probe-observation-target-missing"
 private let textKeystrokeObservationTargetLaunchFailedLabel =
     "text-probe-observation-target-launch-failed"
 private let textKeystrokeObservationTargetNotReadyLabel = "text-probe-observation-target-not-ready"
+private let pointerHoverObservationTargetMissingLabel = "pointer-hover-target-missing"
+private let pointerHoverObservationTargetLaunchFailedLabel = "pointer-hover-target-launch-failed"
+private let pointerHoverObservationTargetNotReadyLabel = "pointer-hover-target-not-ready"
+private let pointerHoverTargetMarkerNotVisibleLabel = "pointer-hover-target-marker-not-visible"
+private let pointerHoverObservationTimedOutLabel = "pointer-hover-observation-timed-out"
+private let pointerHoverNextActionVerifyStimulusTargetDisplay =
+    "verifyStimulusTargetVisibleOnLiveVNCDisplay"
+private let pointerHoverNextActionInspectConnection = "inspectLiveVNCConnection"
+private let pointerHoverNextActionInspectPointerSend = "inspectPointerEventSendPath"
+private let pointerHoverNextActionInspectHoverCadence = "inspectPointerHoverAndServerCadence"
 
 private struct StreamShapeStimulusStart {
     let runningStimulus: RunningStreamShapeStimulus?
@@ -2562,6 +3096,11 @@ private struct StreamShapeStimulusStart {
 
 private struct TextKeystrokeObservationStart {
     let target: RunningTextKeystrokeObservationTarget?
+    let failureLabel: String?
+}
+
+private struct PointerHoverObservationStart {
+    let target: RunningPointerHoverObservationTarget?
     let failureLabel: String?
 }
 
@@ -2624,6 +3163,48 @@ private final class RunningTextKeystrokeObservationTarget {
         }
         try? nullOutput?.close()
         try? FileManager.default.removeItem(at: resultURL)
+    }
+}
+
+private final class RunningPointerHoverObservationTarget {
+    private let process: Process
+    let sidecarURL: URL
+    private let nullOutput: FileHandle?
+
+    init(process: Process, sidecarURL: URL, nullOutput: FileHandle?) {
+        self.process = process
+        self.sidecarURL = sidecarURL
+        self.nullOutput = nullOutput
+    }
+
+    var isRunning: Bool {
+        process.isRunning
+    }
+
+    var sidecarPath: String {
+        sidecarURL.path
+    }
+
+    var hasReadyEvent: Bool {
+        guard let data = try? Data(contentsOf: sidecarURL) else {
+            return false
+        }
+        return !data.isEmpty
+    }
+
+    func stop() {
+        if process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(streamShapeStimulusTerminationGraceSeconds)
+            while process.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: streamShapeStimulusTerminationPollSeconds)
+            }
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        try? nullOutput?.close()
+        try? FileManager.default.removeItem(at: sidecarURL)
     }
 }
 
@@ -2905,7 +3486,7 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 68
+        self.schemaVersion = 69
         self.target = "configured-redacted"
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
@@ -2990,6 +3571,7 @@ private struct BenchmarkReport: Codable, Equatable {
             "receive/network/client-processing timing metrics emit aggregate millisecond summaries only",
             "zrle decode phase timing metrics emit aggregate millisecond summaries only",
             "stream-shape stimulus reports emit only fixed mode labels, warmup seconds, and configured cadence; external command text and command output are not emitted, and target environment variables are not forwarded to the stimulus child",
+            "visual freshness probes emit decoded sequence ids and aggregate millisecond summaries only; sidecar timestamps and live pixels are not emitted",
             "profile-order metrics emit only fixed iteration/order ordinals and aggregate per-profile summaries",
             "stream-shape preflight reports emit only the fixed requested hidden-frame count; hidden preflight frame contents and timings are not emitted",
             "stream-shape request-pipeline depth emits only a clamped integer and no outstanding-request coordinates, bytes, pixels, or payloads",
@@ -3116,6 +3698,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
     let firstFrameRequestAreaPermille: Int?
     let firstFrameMilliseconds: Int?
     let firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
+    let firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation?
     let summary: BenchmarkStreamShapeSummary
 
     init(profileReport: BenchmarkStreamShapeProfileReport) {
@@ -3124,6 +3707,12 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         self.firstFrameRequestAreaPermille = profileReport.firstFrameRequestAreaPermille
         self.firstFrameMilliseconds = profileReport.firstFrameMilliseconds
         self.firstFrameReceiveTiming = profileReport.firstFrameReceiveTiming
+        self.firstFrameVisualFreshnessObservation = profileReport.firstFrameVisualFreshnessSequence.map {
+            BenchmarkVisualFreshnessObservation(
+                sequence: $0,
+                freshnessMilliseconds: profileReport.firstFrameVisualFreshnessMilliseconds
+            )
+        }
         self.summary = profileReport.summary
     }
 
@@ -3135,6 +3724,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         attemptedSamples: Int? = nil,
         firstFrameMilliseconds: Int?,
         firstFrameReceiveTiming: RFBFramebufferUpdateTiming? = nil,
+        firstFrameVisualFreshnessObservation: BenchmarkVisualFreshnessObservation? = nil,
         samples: [BenchmarkStreamShapeSample],
         elapsedMilliseconds: Int?,
         firstTimeoutMilliseconds: Int?,
@@ -3151,6 +3741,7 @@ private struct StreamShapeProbeReport: Codable, Equatable {
         self.firstFrameRequestAreaPermille = firstFrameRequestAreaPermille.map { min(max($0, 0), 1_000) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.firstFrameReceiveTiming = firstFrameReceiveTiming
+        self.firstFrameVisualFreshnessObservation = firstFrameVisualFreshnessObservation
         self.summary = BenchmarkStreamShapeSummary(
             requestedSamples: requestedSamples,
             attemptedSamples: attemptedSamples,
@@ -4167,6 +4758,37 @@ private func renderJSON(_ report: BenchmarkTextKeystrokeProbeReport) throws {
     print(String(decoding: data, as: UTF8.self))
 }
 
+private func renderText(_ report: BenchmarkPointerHoverProbeReport) {
+    print("\(toolName) pointer-hover observed probe")
+    print("status: \(report.status.rawValue)")
+    print("network condition: \(report.networkConditionProfile.rawValue)")
+    print("connect: \(report.connectStatus.rawValue)")
+    print("first frame: \(report.firstFrameStatus.rawValue)")
+    print("target visibility: \(report.targetVisibilityStatus.rawValue)")
+    print("send: \(report.sendStatus.rawValue)")
+    print("observation: \(report.observationStatus.rawValue)")
+    if let latency = report.timestampLatency {
+        print(
+            "timestamp latency ms avg/p50/p95/min/max: "
+                + "\(latency.averageMilliseconds)/\(latency.p50Milliseconds)/"
+                + "\(latency.p95Milliseconds)/\(latency.minMilliseconds)/"
+                + "\(latency.maxMilliseconds)"
+        )
+    }
+    print("failure: \(report.failureLabel ?? "none")")
+    print("recommended next action: \(report.recommendedNextActionLabel)")
+    print(
+        "safety: pointer coordinates, target identity, credentials, dimensions, pixels, sidecar timestamps, and raw errors are redacted"
+    )
+}
+
+private func renderJSON(_ report: BenchmarkPointerHoverProbeReport) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(report)
+    print(String(decoding: data, as: UTF8.self))
+}
+
 private func renderText(_ report: BenchmarkLiveEnvironmentPreflightReport) {
     print("\(toolName) environment preflight")
     print("host: \(report.hostStatus.rawValue)")
@@ -4222,7 +4844,7 @@ private func formatTriageCounts(_ counts: [BenchmarkStreamShapeTriageLabelCount]
 private func printUsage() {
     print("""
     Usage:
-      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--text-keystroke-probe-only] [--text-keystroke-observed-probe-only] [--text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)] [--text-keystroke-observation-timeout SECONDS] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
+      swift run VNCLiveBenchmark [--environment-preflight] [--helper-video-probe-only] [--text-keystroke-probe-only] [--text-keystroke-observed-probe-only] [--pointer-hover-observed-probe-only] [--text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)] [--text-keystroke-observation-timeout SECONDS] [--pointer-hover-observation-timeout SECONDS] [--network-condition \(BenchmarkNetworkConditionProfile.usageDescription)] [--stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)] [--attempts N] [--full-refresh-samples N] [--stream-shape-samples N] [--stream-shape-duration-seconds SECONDS] [--stream-shape-frame-interval SECONDS] [--stream-shape-idle-frame-interval SECONDS] [--stream-shape-empty-backoff app|none] [--stream-shape-power-mode normal|low-power] [--stream-shape-client-pressure off|app] [--stream-shape-viewport-interaction off|app] [--stream-shape-stimulus off|external-command] [--stream-shape-stimulus-warmup-seconds SECONDS] [--stream-shape-stimulus-frame-interval SECONDS] [--stream-shape-preflight-frames N] [--stream-shape-request-pipeline-depth 1...3] [--stream-shape-practical-target \(BenchmarkStreamShapePracticalTargetSelection.usageDescription)] [--stream-shape-viewport-interaction-pause-seconds SECONDS] [--first-frame-profiles all|local-low-latency|stream-shape-profiles|none] [--stream-shape-profiles \(BenchmarkStreamShapeProfileSelection.usageDescription(allProfileLabels: BenchmarkProfile.allCases.map(\.label)))] [--stream-shape-transport request-response|continuous-updates|both] [--visual-transport \(BenchmarkVisualTransportSelection.usageDescription)] [--stream-shape-profile-iterations N] [--stream-shape-profile-order fixed|rotate] [--stream-shape-request-region \(BenchmarkStreamShapeRequestRegion.usageDescription)] [--stream-shape-first-frame-request \(BenchmarkStreamShapeFirstFrameRequestMode.usageDescription)] [--stream-shape-first-frame-visible-glance-scale SCALE] [--continuous-update-samples N] [--ask-password] [--timeout SECONDS] [--idle-timeout SECONDS] [--safe-progress-label-file PATH] [--json]
 
     Options:
       --environment-preflight
@@ -4233,14 +4855,18 @@ private func printUsage() {
                             Connect to the live VNC target, request a first frame, and enqueue a fixed committed-text KeyEvent probe without enabling it as the app's default Compose send route.
       --text-keystroke-observed-probe-only
                             Launch a controlled local text target, connect to the live VNC target, enqueue the fixed KeyEvent payload, and require a fixed-label target match before reporting observed-inserted. Requires \(textKeystrokeObservationTargetExecutableKey) to point at VNCLiveStimulusWindow.
+      --pointer-hover-observed-probe-only
+                            Launch a controlled local hover target, connect to the live VNC target, send one buttonless PointerEvent to the target, and report timestamp-marker latency when the hover state is observed through VNC. Requires \(pointerHoverObservationTargetExecutableKey) to point at VNCLiveStimulusWindow.
       --text-keystroke-probe-payload \(BenchmarkTextKeystrokeProbePayload.usageDescription)
                             Fixed privacy-safe payload class for --text-keystroke-probe-only. Defaults to unicode-hangul.
       --text-keystroke-observation-timeout SECONDS
                             Observation wait for --text-keystroke-observed-probe-only. Defaults to 2 seconds.
+      --pointer-hover-observation-timeout SECONDS
+                            Observation wait for --pointer-hover-observed-probe-only. Defaults to 3 seconds.
       --network-condition \(BenchmarkNetworkConditionProfile.usageDescription)
                                 Optional benchmark-only local TCP conditioning proxy. Defaults to none. Non-none profiles emit only this fixed label and do not report proxy ports, upstream hosts, payloads, coordinates, pixels, or byte counters.
       --stream-shape-gate-preset \(BenchmarkStreamShapeGatePreset.usageDescription)
-                                Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles; remote-desktop-10fps runs the fixed 0.25 visible-glance local-low-latency-rgb565 VNC gate against request-response and ContinuousUpdates under iphone-remote-desktop-10fps-v1. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v68 reports network-condition, request-pipeline depth, viewport request-region area, first-frame request mode, visible-glance scale permille, synthetic first-frame visual-audit coverage permille, first-frame request-area permille, first-frame receive timing, first-frame payload-read traffic pressure, sustained first-byte/payload-read traffic pressure, request/server cadence diagnosis, transport cadence diagnosis, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
+                            Apply a standard stream-shape gate configuration. sustained-v2-core sets the v2 controlled-stimulus core matrix across both transports; sustained-v2-request-response uses the same core matrix with request/response only; sustained-v2-zrle-isolation uses request/response-only ZRLE extension isolation; sustained-v2-zrle-zero-delay uses the same ZRLE isolation shape with zero post-content request delay; sustained-v2-zrle-pacing-sweep holds zrle-compression-0-clipboard constant and compares fixed request pacing windows; sustained-v2-zrle-region-sweep holds zrle-compression-0-clipboard constant and compares fixed incremental request regions; sustained-v2-zrle-viewport-region holds zrle-compression-0-clipboard constant and compares full requests against fixed phone-portrait viewport-aware regions with heartbeat/fallback candidates; sustained-v2-pixel-format uses the same gate shape with benchmark-only full-color/RGB565 profile pairs across both transports; sustained-v2-constrained-cellular-bootstrap applies constrained-cellular conditioning, request/response-only phone viewport probes, the poor-network traffic target, and benchmark-only full-color/RGB565 profile pairs; sustained-v2-constrained-cellular-visible-startup keeps that shape but requests the visible phone region for the first non-incremental frame; sustained-v2-constrained-cellular-visible-core-startup requests only the fixed visible core for the first non-incremental frame; sustained-v2-constrained-cellular-visible-focus-startup requests a smaller fixed central focus area for the first non-incremental frame; sustained-v2-constrained-cellular-app-low-traffic keeps the visible-glance poor-network shape and compares the app's opt-in RGB565 low-traffic profiles; remote-desktop-10fps runs the fixed 0.25 visible-glance local-low-latency-rgb565 VNC gate against request-response and ContinuousUpdates under iphone-remote-desktop-10fps-v1. Presets use app client-pressure pacing and 12 Hz stimulus cadence, and schema v69 reports network-condition, request-pipeline depth, viewport request-region area, first-frame request mode, visible-glance scale permille, synthetic first-frame visual-audit coverage permille, first-frame request-area permille, first-frame receive timing, first-frame visual freshness, first-frame payload-read traffic pressure, sustained visual freshness, sustained first-byte/payload-read traffic pressure, request/server cadence diagnosis, transport cadence diagnosis, and the visible-glance first-frame mode without bytes, dimensions, coordinates, or pixels. Use custom benchmark commands without a preset for active viewport-interaction experiments.
       --full-refresh-samples N  Extra non-incremental frame requests after each successful first frame. Defaults to 1; use 0 to disable.
       --stream-shape-samples N  Incremental request/response samples after a full frame. Defaults to 12; use 0 with --stream-shape-duration-seconds for duration-only sustained runs.
       --stream-shape-duration-seconds SECONDS
@@ -4302,7 +4928,7 @@ private func printUsage() {
       NARU_LIVE_MAC_PASSWORD   redacted from output; optional when --ask-password is used
       NARU_LIVE_MAC_PORT       optional, defaults to 5900
       NARU_LIVE_STIMULUS_COMMAND
-                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, and NARU_LIVE_STIMULUS_TRANSPORT_MODE.
+                                required only for --stream-shape-stimulus external-command; redacted from output. The child starts with a minimal launch environment plus NARU_LIVE_STIMULUS_DURATION_SECONDS, NARU_LIVE_STIMULUS_FRAME_INTERVAL_SECONDS, NARU_LIVE_STIMULUS_PROFILE_LABEL, NARU_LIVE_STIMULUS_TRANSPORT_MODE, and optional NARU_LIVE_STIMULUS_SCREEN_INDEX/X/Y placement hints.
 
     The report intentionally omits target identity, framebuffer dimensions,
     pixel payloads, byte counts, cursor pixels, and raw error descriptions.

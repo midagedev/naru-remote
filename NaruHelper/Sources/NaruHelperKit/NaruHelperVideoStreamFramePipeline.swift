@@ -155,7 +155,17 @@ public struct NaruHelperVideoOpenedFrameStream: Sendable {
             return .screenCaptureSourceUnavailable
         case .captureTimedOut, .noCapturedFrames:
             return .screenCaptureTimedOut
-        case .captureFailed, .capturedFrameMissingImageBuffer:
+        case .captureNoOutputCallbacks:
+            return .screenCaptureNoOutputCallbacks
+        case .captureNonScreenOutputCallbacks:
+            return .screenCaptureNonScreenCallbacks
+        case .captureNonDisplayableScreenFrames:
+            return .screenCaptureNonDisplayableFrames
+        case .capturedFrameMissingImageBuffer:
+            return .screenCaptureMissingImageBuffer
+        case .captureInsufficientDisplayableFrames:
+            return .screenCaptureInsufficientDisplayableFrames
+        case .captureFailed:
             return .screenCaptureFailed
         case .screenRecordingPermissionMissing:
             return .screenCaptureSourceUnavailable

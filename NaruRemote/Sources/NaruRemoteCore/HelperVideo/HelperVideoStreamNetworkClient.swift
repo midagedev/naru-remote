@@ -7,6 +7,7 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     public let host: String
     public let port: UInt16
     public let profileFingerprint: String
+    public let transportProtection: HelperVideoTransportProtection
 
     private static let streamEventBufferLimit = 8
     private static let streamEventBackpressureDelay: DispatchTimeInterval = .milliseconds(24)
@@ -20,12 +21,14 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         port: UInt16,
         profileFingerprint: String,
         pairingSecret: String,
+        transportProtection: HelperVideoTransportProtection,
         timeout: TimeInterval = 3
     ) {
         self.host = host
         self.port = port
         self.profileFingerprint = profileFingerprint
         self.pairingSecret = pairingSecret
+        self.transportProtection = transportProtection
         self.timeout = timeout
     }
 
@@ -34,6 +37,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         maxServerFrames: Int = 16,
         allowsPartialResultOnTimeout: Bool = false
     ) async throws -> HelperVideoStreamNetworkStartResult {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            throw HelperVideoStreamNetworkClientError.transportProtectionRequired
+        }
         guard let port = NWEndpoint.Port(rawValue: port) else {
             throw HelperVideoStreamNetworkClientError.invalidPort
         }
@@ -103,6 +109,11 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     public func streamEvents(
         _ requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody()
     ) -> HelperVideoStreamNetworkEvents {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            return HelperVideoStreamNetworkEvents(
+                failure: HelperVideoStreamNetworkClientError.transportProtectionRequired
+            )
+        }
         guard let port = NWEndpoint.Port(rawValue: port) else {
             return HelperVideoStreamNetworkEvents(failure: HelperVideoStreamNetworkClientError.invalidPort)
         }
@@ -624,6 +635,7 @@ public struct HelperVideoStreamNetworkStartResult: Equatable, Sendable {
 
 public enum HelperVideoStreamNetworkClientError: Error, Equatable, Sendable {
     case invalidPort
+    case transportProtectionRequired
     case unreachable
     case timedOut
     case malformedFrame

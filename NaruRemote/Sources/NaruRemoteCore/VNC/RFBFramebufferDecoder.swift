@@ -108,6 +108,17 @@ public enum RFBFramebufferDecoder {
             maxY = max(maxY ?? y, y)
         }
 
+        mutating func recordRectangle(_ rectangle: RFBFrameDamageRect, changedPixelCount: Int) {
+            guard rectangle.width > 0, rectangle.height > 0, changedPixelCount > 0 else {
+                return
+            }
+            self.changedPixelCount += changedPixelCount
+            minX = min(minX ?? rectangle.x, rectangle.x)
+            minY = min(minY ?? rectangle.y, rectangle.y)
+            maxX = max(maxX ?? rectangle.x + rectangle.width - 1, rectangle.x + rectangle.width - 1)
+            maxY = max(maxY ?? rectangle.y + rectangle.height - 1, rectangle.y + rectangle.height - 1)
+        }
+
         var boundingRectangle: RFBFrameDamageRect? {
             guard let minX, let minY, let maxX, let maxY else {
                 return nil
@@ -859,18 +870,18 @@ public enum RFBFramebufferDecoder {
                         guard painted + runLength <= pixelCount else {
                             throw RFBRawFramebufferDecoderError.malformedZRLE
                         }
-                        for _ in 0..<runLength {
-                            recordZRLEWrite(
-                                &framebuffer,
-                                damage: &tileDamage,
-                                raster: painted,
-                                tileWidth: tileWidth,
-                                originX: originX,
-                                originY: originY,
-                                color: color
-                            )
-                            painted += 1
-                        }
+                        recordZRLERun(
+                            &framebuffer,
+                            damage: &tileDamage,
+                            startRaster: painted,
+                            runLength: runLength,
+                            tileWidth: tileWidth,
+                            tileHeight: tileHeight,
+                            originX: originX,
+                            originY: originY,
+                            color: color
+                        )
+                        painted += runLength
                     }
                     damage.append(tileDamage)
 
@@ -895,18 +906,18 @@ public enum RFBFramebufferDecoder {
                             throw RFBRawFramebufferDecoderError.malformedZRLE
                         }
                         let color = palette[paletteIndex]
-                        for _ in 0..<runLength {
-                            recordZRLEWrite(
-                                &framebuffer,
-                                damage: &tileDamage,
-                                raster: painted,
-                                tileWidth: tileWidth,
-                                originX: originX,
-                                originY: originY,
-                                color: color
-                            )
-                            painted += 1
-                        }
+                        recordZRLERun(
+                            &framebuffer,
+                            damage: &tileDamage,
+                            startRaster: painted,
+                            runLength: runLength,
+                            tileWidth: tileWidth,
+                            tileHeight: tileHeight,
+                            originX: originX,
+                            originY: originY,
+                            color: color
+                        )
+                        painted += runLength
                     }
                     damage.append(tileDamage)
 
@@ -964,6 +975,31 @@ public enum RFBFramebufferDecoder {
         let y = originY + raster / tileWidth
         if framebuffer.setPixelTrackingChange(color, x: x, y: y) {
             damage.recordPixel(x: x, y: y)
+        }
+    }
+
+    private static func recordZRLERun(
+        _ framebuffer: inout RFBRawFramebuffer,
+        damage: inout FrameDamageAccumulator,
+        startRaster: Int,
+        runLength: Int,
+        tileWidth: Int,
+        tileHeight: Int,
+        originX: Int,
+        originY: Int,
+        color: RFBColor
+    ) {
+        let result = framebuffer.fillRasterRunTrackingChange(
+            originX: originX,
+            originY: originY,
+            tileWidth: tileWidth,
+            tileHeight: tileHeight,
+            startRaster: startRaster,
+            runLength: runLength,
+            color: color
+        )
+        if let rectangle = result.rectangle {
+            damage.recordRectangle(rectangle, changedPixelCount: result.changedPixelCount)
         }
     }
 

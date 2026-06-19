@@ -8,15 +8,15 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
-    func testDefaultFrameStreamConfigurationCapsActiveCadenceForSustainedPhoneUse() {
+    func testDefaultFrameStreamConfigurationLetsWorkerOwnActiveCadence() {
         let configuration = NaruRemoteAppModel.defaultFrameStreamConfiguration
 
         XCTAssertEqual(configuration.requestTimeout, 8)
         XCTAssertEqual(
             configuration.frameInterval,
-            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            0,
             accuracy: 0.0001,
-            "Default live sessions should cap active frame requests at the benchmark-backed sustained cadence."
+            "The application worker is the single content-rate authority; the request loop should not stack a second steady-state cap, so the active request floor is 0 (request as fast as the round-trip allows)."
         )
         XCTAssertEqual(configuration.idleFrameInterval, 0.05)
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
@@ -360,12 +360,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(
             SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .viewportNavigation),
-            0.05,
+            1.0 / 24.0,
             accuracy: 0.0001
         )
         XCTAssertEqual(
             SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .textInput),
-            0.10,
+            1.0 / 30.0,
             accuracy: 0.0001
         )
         XCTAssertEqual(
@@ -376,9 +376,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 contentFrameMinimumInterval: SessionFrameApplicationWorkerPacing
                     .contentFrameMinimumInterval(for: .textInput)
             ),
-            0.099,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval - 0.001,
             accuracy: 0.0001,
-            "Focused Compose should cap MainActor frame application at a 10fps-class cadence while keeping only the latest pending frame."
+            "Focused Compose should pace MainActor frame application at the 30fps-class text-input cadence while keeping only the latest pending frame."
         )
     }
 
@@ -710,6 +710,36 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(emptyDecision.delay, interval, accuracy: 0.0001)
         XCTAssertTrue(emptyDecision.usesActiveInputPacing)
         XCTAssertFalse(emptyDecision.usesEmptyBackoffPacing)
+    }
+
+    func testSessionStreamPacingPolicyUsesActiveInputEchoCadenceForSlowVisualStreams() {
+        let interval = StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds
+        let slowVisualDecision = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: 1.5,
+            thermalState: .nominal,
+            activeInputPacingInterval: interval
+        )
+
+        XCTAssertEqual(slowVisualDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertTrue(slowVisualDecision.usesActiveInputPacing)
+        XCTAssertFalse(slowVisualDecision.usesHelperVideoPrimaryVNCSamplingPacing)
+
+        let helperFallbackDecision = SessionStreamPacingPolicy.decision(
+            for: .contentFrame,
+            configuredDelay: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            thermalState: .nominal,
+            activeInputPacingInterval: interval,
+            helperVideoPrimaryVNCSamplingInterval:
+                StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds
+        )
+
+        XCTAssertEqual(helperFallbackDecision.delay, interval, accuracy: 0.0001)
+        XCTAssertTrue(helperFallbackDecision.usesActiveInputPacing)
+        XCTAssertFalse(
+            helperFallbackDecision.usesHelperVideoPrimaryVNCSamplingPacing,
+            "Pointer/keyboard echo must temporarily sample faster than the helper-video fallback cadence."
+        )
     }
 
     func testSessionStreamPacingDecisionClassifiesActiveFloor() {
@@ -3371,7 +3401,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
                     maxServerFrames: maxServerFrames
                 )
             },
-            helperVideoRendererFactory: { helperRenderer }
+            helperVideoRendererFactory: { helperRenderer },
+            thermalStateProvider: { .nominal },
+            lowPowerModeProvider: { false }
         )
 
         await model.connectSelectedProfile()
@@ -3625,8 +3657,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         delays = await pacingGate.delays
         XCTAssertEqual(delays.count, 2)
+        XCTAssertEqual(
+            delays[1],
+            StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds,
+            accuracy: 0.0001,
+            "Pointer input should temporarily sample the VNC control plane faster than the helper-video fallback cadence."
+        )
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers[2])
-        XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 2)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 1)
+        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
     }
 
     func testHelperVideoFallbackWakesVNCFallbackSamplingSleepEarly() async throws {
@@ -6225,7 +6264,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await frameApplicationGate.waitForWaitCount(1)
         let frameApplicationDelays = await frameApplicationGate.delays
         let firstFrameApplicationDelay = try XCTUnwrap(frameApplicationDelays.first)
-        XCTAssertGreaterThanOrEqual(firstFrameApplicationDelay, 0.09)
+        XCTAssertGreaterThan(
+            firstFrameApplicationDelay,
+            SessionFrameApplicationWorkerPacing.visualContentFrameMinimumInterval,
+            "Compose focus must pace frame application at the slower text-input cadence, not the visual cadence."
+        )
         XCTAssertLessThanOrEqual(
             firstFrameApplicationDelay,
             SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval
@@ -6278,6 +6321,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
             ),
             connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
             lowPowerModeProvider: { false },
             streamPacingSleep: { delay in
                 try await pacingGate.sleep(delay)
@@ -6311,9 +6355,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         delays = await pacingGate.delays
         XCTAssertEqual(
             try XCTUnwrap(delays.dropFirst().first),
-            StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval,
             accuracy: 0.0001,
-            "Focused Compose must lower VNC request/decode cadence before frames can compete with UIKit IME."
+            "Focused Compose must lower VNC request/decode cadence to the text-input floor (the single worker rate authority) before frames can compete with UIKit IME."
         )
         XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
 
@@ -6360,6 +6404,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 frameInterval: StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
             ),
             connectorFactory: { connector },
+            thermalStateProvider: { .nominal },
             lowPowerModeProvider: { false },
             streamPacingSleep: { delay in
                 try await pacingGate.sleep(delay)
@@ -6404,6 +6449,180 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
+    }
+
+    func testPointerInputWakesVisualPacingSleepBeforeNextRequest() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hoverEchoFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hoverEchoFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 1.5
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        let wakeStartedAt = Date()
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(wakeStartedAt),
+            1.0,
+            "Pointer input should wake an in-flight visual pacing sleep so remote hover/click echo is sampled without waiting for the full visual cadence slot."
+        )
+    }
+
+    func testHardwareHoverInputWakesVisualPacingSleepBeforeNextRequest() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hoverEchoFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hoverEchoFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 1.5
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+
+        model.togglePointerControlMode()
+        let wakeStartedAt = Date()
+        model.handleTrackpadGesture(
+            .hoverMoved(viewPoint: CGPoint(x: 1, y: 0.5)),
+            viewSize: CGSize(width: 2, height: 1)
+        )
+        try await waitForPointerEvents(connector, count: 1)
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(wakeStartedAt),
+            1.0,
+            "Hardware pointer hover should wake an in-flight visual pacing sleep so desktop hover echo is sampled without waiting for the full visual cadence slot."
+        )
+    }
+
+    func testPointerInputUsesEchoCadenceAfterWakingSlowVisualStream() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let hoverEchoFramebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 1,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, hoverEchoFramebuffer]
+        )
+        let pacingGate = PacingSleepGate()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                frameInterval: 1.5
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false },
+            streamPacingSleep: { delay in
+                try await pacingGate.sleep(delay)
+            }
+        )
+        defer {
+            model.disconnect()
+        }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(1)
+        XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
+        var delays = await pacingGate.delays
+        XCTAssertEqual(try XCTUnwrap(delays.first), 1.5, accuracy: 0.0001)
+
+        model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
+        try await waitForPointerEvents(connector, count: 2)
+
+        await pacingGate.releaseNext()
+        for _ in 0..<80 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await pacingGate.waitForWaitCount(2)
+        delays = await pacingGate.delays
+
+        XCTAssertEqual(
+            try XCTUnwrap(delays.dropFirst().first),
+            StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds,
+            accuracy: 0.0001,
+            "After pointer input wakes a slow visual stream, follow-up sampling should stay in the input-echo cadence instead of falling back to the slow visual slot."
+        )
+        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
+
+        await pacingGate.releaseNext()
     }
 
     func testViewportInteractionKeepsRequestsLiveAndFlushesLatestFrameAfterGesture() async throws {
@@ -7804,7 +8023,14 @@ private final class RecordingStreamConnectorFactory: @unchecked Sendable {
     }
 }
 
-private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebufferUpdating, RFBFramebufferUpdateReceiving, RFBTransportControlClient, RFBContinuousUpdateCapabilityReporting {
+private final class FakeStreamingConnector:
+    RFBStreamingClient,
+    RFBBestEffortPointerEventClient,
+    RFBRegionFramebufferUpdating,
+    RFBFramebufferUpdateReceiving,
+    RFBTransportControlClient,
+    RFBContinuousUpdateCapabilityReporting
+{
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
         var recordedSessionRequests: [FakeFirstFrameConnector.Request] = []
@@ -7814,6 +8040,7 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
         var recordedClipboardPayloads: [String] = []
         var recordedPasteCommands: [PasteCommand] = []
         var recordedPointerEventsList: [(mask: UInt8, x: UInt16, y: UInt16)] = []
+        var recordedBestEffortPointerEventCount = 0
         var renegotiatedPreferences: [RFBEncodingPreference] = []
         var receivedFrameCount = 0
         var continuousUpdateFlags: [Bool] = []
@@ -7829,6 +8056,10 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
+    }
+
+    var recordedBestEffortPointerEventCount: Int {
+        recording.withLock { $0.recordedBestEffortPointerEventCount }
     }
 
     var renegotiatedPreferences: [RFBEncodingPreference] {
@@ -8070,6 +8301,16 @@ private final class FakeStreamingConnector: RFBStreamingClient, RFBRegionFramebu
 
     func sendPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) async throws {
         recording.withLock { state in
+            state.recordedPointerEventsList.append((buttonMask, x, y))
+        }
+    }
+
+    func sendBestEffortPointerEvent(buttonMask: UInt8, x: UInt16, y: UInt16) throws {
+        guard buttonMask == RFBPointerCommand.released else {
+            throw RFBNetworkClientError.unsupportedBestEffortPointerMask
+        }
+        recording.withLock { state in
+            state.recordedBestEffortPointerEventCount += 1
             state.recordedPointerEventsList.append((buttonMask, x, y))
         }
     }

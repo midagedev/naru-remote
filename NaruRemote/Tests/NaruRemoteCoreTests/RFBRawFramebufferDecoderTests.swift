@@ -84,6 +84,44 @@ final class RFBRawFramebufferDecoderTests: XCTestCase {
         XCTAssertEqual(format.decodeColor(bytes, at: 0), RFBColor(red: 255, green: 255, blue: 255))
     }
 
+    func testRasterRunFillTracksChangedBoundsAcrossRows() {
+        let red = RFBColor(red: 255, green: 0, blue: 0)
+        let blue = RFBColor(red: 0, green: 0, blue: 255)
+        var framebuffer = RFBRawFramebuffer(width: 6, height: 4, fill: red)
+
+        let result = framebuffer.fillRasterRunTrackingChange(
+            originX: 1,
+            originY: 1,
+            tileWidth: 4,
+            tileHeight: 2,
+            startRaster: 2,
+            runLength: 5,
+            color: blue
+        )
+
+        XCTAssertEqual(result.changedPixelCount, 5)
+        XCTAssertEqual(result.rectangle, RFBFrameDamageRect(x: 1, y: 1, width: 4, height: 2))
+        XCTAssertEqual(framebuffer[3, 1], blue)
+        XCTAssertEqual(framebuffer[4, 1], blue)
+        XCTAssertEqual(framebuffer[1, 2], blue)
+        XCTAssertEqual(framebuffer[2, 2], blue)
+        XCTAssertEqual(framebuffer[3, 2], blue)
+        XCTAssertEqual(framebuffer[1, 1], red)
+        XCTAssertEqual(framebuffer[4, 2], red)
+
+        let identical = framebuffer.fillRasterRunTrackingChange(
+            originX: 1,
+            originY: 1,
+            tileWidth: 4,
+            tileHeight: 2,
+            startRaster: 2,
+            runLength: 5,
+            color: blue
+        )
+        XCTAssertEqual(identical.changedPixelCount, 0)
+        XCTAssertNil(identical.rectangle)
+    }
+
     func testAppliesIncrementalRawRectangleOntoPreviousFramebuffer() throws {
         let previousFramebuffer = RFBRawFramebuffer(
             width: 2,

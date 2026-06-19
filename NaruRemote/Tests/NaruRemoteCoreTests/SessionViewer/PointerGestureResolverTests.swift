@@ -124,6 +124,37 @@ final class PointerGestureResolverTests: XCTestCase {
         XCTAssertTrue(outcome.cursor.isVisible)
     }
 
+    func testTrackpadHoverMapsHardwarePointerToFramebufferPoint() {
+        let resolver = PointerGestureResolver(mode: .trackpad)
+        let cursor = TrackpadCursor(position: CGPoint(x: 10, y: 20), isVisible: true)
+        let outcome = resolver.resolve(
+            .hoverMoved(viewPoint: CGPoint(x: 300, y: 400)),
+            transform: transform(),
+            cursor: cursor
+        )
+
+        XCTAssertEqual(outcome.commands, [
+            RFBPointerCommand(buttonMask: 0x00, x: 300, y: 400)
+        ])
+        XCTAssertEqual(outcome.cursor.position.x, 300, accuracy: 1e-6)
+        XCTAssertEqual(outcome.cursor.position.y, 400, accuracy: 1e-6)
+        XCTAssertTrue(outcome.cursor.isVisible)
+    }
+
+    func testTrackpadHoverOutsideFramebufferIsNoOp() {
+        let wide = ViewportTransform(framebufferSize: CGSize(width: 1000, height: 200), viewSize: view)
+        let resolver = PointerGestureResolver(mode: .trackpad)
+        let cursor = TrackpadCursor(position: CGPoint(x: 10, y: 20), isVisible: true)
+        let outcome = resolver.resolve(
+            .hoverMoved(viewPoint: CGPoint(x: 500, y: 10)),
+            transform: wide,
+            cursor: cursor
+        )
+
+        XCTAssertTrue(outcome.commands.isEmpty)
+        XCTAssertEqual(outcome.cursor, cursor)
+    }
+
     func testTrackpadTapAndAHalfEmitsDownHoldUp() {
         let resolver = PointerGestureResolver(mode: .trackpad)
         let cursor = TrackpadCursor(position: CGPoint(x: 200, y: 200), isVisible: true)

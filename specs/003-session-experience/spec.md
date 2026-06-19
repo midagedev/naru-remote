@@ -66,6 +66,7 @@ A user switches the pointer mode to **Trackpad**. A cursor appears on the remote
 4. **Given** trackpad mode and the user wants to drag (select text / move a window), **When** they tap-and-hold then drag (tap-and-a-half), **Then** Naru emits button-1 down at the cursor, button-1 holds through the move, and button-1 up on release.
 5. **Given** trackpad mode and the screen is zoomed in, **When** the cursor approaches a screen edge, **Then** the viewport auto-pans to keep the cursor visible.
 6. **Given** the user switches to **Direct-touch** mode, **When** they tap the screen, **Then** Naru emits a button-1 pair at the **touched** framebuffer point (the existing behavior), and the trackpad cursor is hidden.
+7. **Given** trackpad mode is active on iPad with a hardware trackpad or mouse, **When** the pointer hovers over the remote framebuffer, **Then** Naru maps the hover point through the shared viewport transform, updates the visible cursor, and emits a buttonless pointer move so remote hover feedback can update without waiting for a tap/drag.
 
 ---
 
@@ -131,6 +132,7 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **FR-014**: All view→framebuffer coordinate mapping (fit scale × zoom × pan, plus trackpad cursor position) MUST be a single shared, pure, unit-tested transform used by both pointer modes so the two paths cannot diverge.
 - **FR-015**: While PiP Watch is active, local zoom/pan changes MUST update the PiP video focus without emitting RFB input. The output video dimensions SHOULD remain stable across focus changes to avoid PiP layer churn.
 - **FR-016**: The app MUST isolate app-level outbound pointer and key queues. A stalled or timed-out pointer operation MUST NOT block or permanently disable later pointer gestures, Direct-mode key events, or Compose quick keys on the same active session. A stalled key operation MUST likewise release its own lane so later keys are retryable. RFB `PointerEvent` and `KeyEvent` delivery SHOULD return after transport enqueue rather than waiting for Network.framework `contentProcessed`; non-zero button masks and multi-command pointer gestures MUST still preserve down/move/up ordering through the ordered app-level pointer lane. Single buttonless trackpad cursor-follow moves MAY use a latest-value/best-effort capability.
+- **FR-017**: In trackpad mode on iPad pointer hardware, hover movement over the viewport SHOULD update the local cursor and send a single buttonless (`0x00`) pointer move at the mapped framebuffer coordinate. This hover path MUST use the same `ViewportTransform` mapping as touch input and MUST NOT log or persist pointer coordinates.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 
@@ -173,6 +175,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 | Double-tap toggles fit↔zoom-to-point | Unit + screenshot | iPhone (simulator) | `swift test` anchoring math; screenshot |
 | Direct-touch tap maps through zoom+pan to correct framebuffer pixel | Unit + Fake RFB | iPhone (simulator) | recorder `(mask,x,y)` matches expected pixel |
 | Trackpad drag moves cursor relatively, clamped, buttonless remote pointer move | Unit + Fake RFB | iPhone (simulator) | `swift test` for `TrackpadCursor` move/clamp and recorder `(0x00,x,y)` |
+| Hardware pointer hover in trackpad mode maps to framebuffer and bypasses stalled pointer queue | Unit + Fake RFB | iPad (simulator) | resolver hover mapping test; app-model delayed reliable pointer queue regression |
 | Trackpad tap → button-1 at cursor; 2-finger tap → button-3 at cursor | Unit + Fake RFB | iPhone (simulator) | recorder triples for move→tap→2-finger-tap |
 | Trackpad tap-and-a-half → button-1 down/hold/up | Unit + Fake RFB | iPhone (simulator) | recorder down→move(0x01)→up sequence |
 | Trackpad/input write backlog does not freeze keyboard or pointer lane | Unit + Fake RFB | iPhone (simulator) | delayed pointer/key writes; Direct key records promptly on separate lane; later pointer tap retries after a stalled pointer write |
@@ -204,7 +207,7 @@ Per constitution §VI, every user-facing scenario lists an iPhone path before an
 ## Non-Goals
 
 - **RFB encoding work** (CopyRect / Hextile / ZRLE / Tight), `SetEncodings` negotiation, continuous updates, Cursor / DesktopSize pseudo-encodings — `specs/004-rfb-encodings`.
-- **Hardware-trackpad (indirect pointer) parity on iPad** (`UIPointerInteraction`, hover) — layered enhancement, not a gate (constitution §VI).
+- **Advanced hardware-trackpad parity on iPad** — pointer locking, custom pointer shape regions, modifier-aware pointer behavior, and full Magic Keyboard gesture customization remain layered enhancements. Basic hover-follow in trackpad mode is in scope as a small iPad graceful-scaling follow-up.
 - **Multi-session / multi-view / session parking** — `specs/008` (ROADMAP Phase 8).
 - **Replacing Direct Keystroke Mode** — the Compose quick-key strip is a convenience, not the full custom keyboard (`specs/002`).
 - **Floating/repositionable control surface** — bottom/edge-docked or fixed overlay only in v1.

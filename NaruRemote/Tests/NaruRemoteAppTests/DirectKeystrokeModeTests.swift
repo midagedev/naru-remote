@@ -517,7 +517,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
         model.toggleDirectKeystrokeMode()
         await model.tapDirectKey(.character("a"))
 
-        try await Task.sleep(for: .milliseconds(140))
+        try await waitForOutboundInputTimeouts(model, count: 1)
         XCTAssertTrue(
             connector.recordedKeyEvents.isEmpty,
             "The delayed key write should be cancelled before it records stale key events"
@@ -570,7 +570,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
         model.toggleDirectKeystrokeMode()
         await model.tapDirectKey(.character("a"))
 
-        try await Task.sleep(for: .milliseconds(140))
+        try await waitForOutboundInputTimeouts(model, count: 1)
         XCTAssertTrue(
             connector.recordedKeyEvents.isEmpty,
             "The first delayed key write should time out before recording"
@@ -619,7 +619,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
             viewPoint: CGPoint(x: 10, y: 10),
             viewSize: CGSize(width: 80, height: 60)
         )
-        try await Task.sleep(for: .milliseconds(140))
+        try await waitForOutboundInputTimeouts(model, count: 1)
         XCTAssertTrue(
             connector.recordedPointerEvents.isEmpty,
             "The delayed pointer write should time out before recording"
@@ -666,7 +666,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
             viewPoint: CGPoint(x: 10, y: 10),
             viewSize: CGSize(width: 80, height: 60)
         )
-        try await Task.sleep(for: .milliseconds(140))
+        try await waitForOutboundInputTimeouts(model, count: 1)
         XCTAssertTrue(
             connector.recordedPointerEvents.isEmpty,
             "The first delayed pointer write should time out before recording"
@@ -1027,6 +1027,24 @@ final class DirectKeystrokeModeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(count) pointer events; got \(connector.recordedPointerEvents.count)")
+        throw DirectKeystrokeTestTimeout.inputEvents
+    }
+
+    private func waitForOutboundInputTimeouts(
+        _ model: NaruRemoteAppModel,
+        count: Int,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if model.snapshot.sessionStreamStats.outboundInputEventTimeoutCount >= count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail(
+            "Timed out waiting for \(count) outbound input timeout records; got \(model.snapshot.sessionStreamStats.outboundInputEventTimeoutCount)"
+        )
         throw DirectKeystrokeTestTimeout.inputEvents
     }
 

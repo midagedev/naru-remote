@@ -176,6 +176,6 @@ public struct BenchmarkTextKeystrokeProbeReport: Codable, Equatable, Sendable {
     public static let defaultSafety = [
         "text-keystroke probe reports omit raw text, keysyms, target identity, credentials, byte counts, framebuffer dimensions, pixels, raw OS errors, and exact timings",
         "text-keystroke probe reports emit fixed payload labels, encoding labels, stage labels, event-count buckets, network-condition labels, observation labels, and safe failure labels only",
-        "sent means key events were enqueued on the RFB transport; observed-inserted additionally requires a controlled local target to report a fixed-label match"
+        "observed mode may enqueue a pointer focus prelude without reporting coordinates; sent means key events were enqueued on the RFB transport; observed-inserted additionally requires a controlled local target to report a fixed-label match"
     ]
 }

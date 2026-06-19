@@ -40,6 +40,16 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
     /// update request. `nil` preserves the default full-frame bootstrap; a
     /// region is an opt-in benchmark/viewport startup experiment.
     public let initialRequestRegion: RFBFramebufferUpdateRegion?
+    /// Number of incremental `FramebufferUpdateRequest` messages kept
+    /// outstanding on a request/response transport. `1` is the classic
+    /// one-request-per-round-trip behaviour. A depth `> 1` keeps the
+    /// server's encode pipeline primed so it does not idle during the
+    /// request→response round-trip — the request/response-compatible way
+    /// to recover the latency that ContinuousUpdates would, against
+    /// servers (e.g. Apple Screen Sharing) that do not support the
+    /// extension. Ignored once ContinuousUpdates is active (that transport
+    /// already decouples request from response). Clamped to `1...4`.
+    public let requestPipelineDepth: Int
 
     public init(
         maxFrames: Int? = nil,
@@ -48,7 +58,8 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
         idleFrameInterval: TimeInterval = 0,
         updateMode: RFBFramePumpUpdateMode = .requestResponse,
         requestRegion: RFBFramebufferUpdateRegion? = nil,
-        initialRequestRegion: RFBFramebufferUpdateRegion? = nil
+        initialRequestRegion: RFBFramebufferUpdateRegion? = nil,
+        requestPipelineDepth: Int = 1
     ) {
         self.maxFrames = maxFrames
         self.requestTimeout = requestTimeout
@@ -57,6 +68,7 @@ public struct RFBFramePumpConfiguration: Equatable, Sendable {
         self.updateMode = updateMode
         self.requestRegion = requestRegion
         self.initialRequestRegion = initialRequestRegion
+        self.requestPipelineDepth = min(max(requestPipelineDepth, 1), 4)
     }
 }
 
@@ -166,6 +178,11 @@ public final class RFBFramePump: @unchecked Sendable {
     private var cancelled = false
     private var continuousUpdatesEnabled = false
     private var continuousUpdatesSuppressed = false
+    /// Incremental requests currently parked on the server in pipelined
+    /// request/response mode. Maintained at the configured depth so the
+    /// backlog stays bounded across a sustained session (unlike a naive
+    /// send-depth-per-frame burst, which would grow without limit).
+    private var pipelinedOutstandingRequests = 0
 
     public init(source: any RFBFramebufferUpdating) {
         self.source = source
@@ -197,7 +214,8 @@ public final class RFBFramePump: @unchecked Sendable {
                 requestTimeout: configuration.requestTimeout,
                 updateMode: configuration.updateMode,
                 requestRegion: configuration.requestRegion,
-                initialRequestRegion: configuration.initialRequestRegion
+                initialRequestRegion: configuration.initialRequestRegion,
+                requestPipelineDepth: configuration.requestPipelineDepth
             ) else {
                 break
             }
@@ -237,7 +255,8 @@ public final class RFBFramePump: @unchecked Sendable {
         requestTimeout: TimeInterval = 2,
         updateMode: RFBFramePumpUpdateMode = .requestResponse,
         requestRegion: RFBFramebufferUpdateRegion? = nil,
-        initialRequestRegion: RFBFramebufferUpdateRegion? = nil
+        initialRequestRegion: RFBFramebufferUpdateRegion? = nil,
+        requestPipelineDepth: Int = 1
     ) throws -> RFBFramePumpFrame? {
         let nextSequence: Int? = lock.withRFBFramePumpLock {
             guard !cancelled else {
@@ -271,6 +290,41 @@ public final class RFBFramePump: @unchecked Sendable {
             } else {
                 updateResult = try receiver.receiveFramebufferUpdate(timeout: requestTimeout)
             }
+        } else if isIncremental,
+                  requestPipelineDepth > 1,
+                  let sender = source as? any RFBFramebufferUpdateRequestSending,
+                  let pipelinedReceiver = source as? any RFBContinuousFramebufferUpdateReceiving {
+            // Pipelined request/response: keep `requestPipelineDepth`
+            // incremental requests parked on the server so it can begin
+            // encoding the next frame while we are still reading the
+            // current one. This is the request/response-safe stand-in for
+            // ContinuousUpdates on servers (e.g. Apple Screen Sharing)
+            // that do not support the extension — it removes the per-frame
+            // request→response idle gap that dominates that server's
+            // first-byte wait.
+            let depth = max(requestPipelineDepth, 1)
+            if pipelinedOutstandingRequests <= 0 {
+                for _ in 0..<depth {
+                    try sender.sendFramebufferUpdateRequest(
+                        incremental: true,
+                        timeout: requestTimeout,
+                        region: regionForRequest
+                    )
+                }
+                pipelinedOutstandingRequests = depth
+            }
+            let result = try pipelinedReceiver.receiveContinuousFramebufferUpdate(timeout: requestTimeout)
+            if !result.transportIdleTimedOut {
+                // Consumed one server response — refill to hold the pipeline
+                // at `depth`. On an idle timeout no response was consumed, so
+                // the parked requests stay put and the backlog never grows.
+                try sender.sendFramebufferUpdateRequest(
+                    incremental: true,
+                    timeout: requestTimeout,
+                    region: regionForRequest
+                )
+            }
+            updateResult = result
         } else if (isIncremental || regionForRequest != nil),
                   let regionSource = source as? any RFBRegionFramebufferUpdating {
             updateResult = try regionSource.requestFramebufferUpdate(
@@ -312,6 +366,7 @@ public final class RFBFramePump: @unchecked Sendable {
             cancelled = false
             continuousUpdatesEnabled = false
             continuousUpdatesSuppressed = false
+            pipelinedOutstandingRequests = 0
         }
     }
 

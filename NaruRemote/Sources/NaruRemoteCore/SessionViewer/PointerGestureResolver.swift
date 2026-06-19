@@ -14,6 +14,9 @@ public enum PointerGesture: Equatable, Sendable {
     /// A long-press at a view-space point (right-click intent, used by
     /// direct-touch mode).
     case longPress(viewPoint: CGPoint)
+    /// Hardware pointer hover sampled from iPadOS trackpad/mouse input.
+    /// Unlike touch trackpad drags, this is an absolute view-space point.
+    case hoverMoved(viewPoint: CGPoint)
     /// One-finger drag lifecycle. `translation` is the per-callback
     /// delta in view points; `viewPoint` is the current location.
     case dragBegan(viewPoint: CGPoint)
@@ -138,7 +141,7 @@ public struct PointerGestureResolver: Sendable {
                 cursor: hiddenCursor,
                 commandBatch: clickCommands(atViewPoint: viewPoint, transform: transform, mask: RFBPointerCommand.rightButton)
             )
-        case .dragBegan:
+        case .hoverMoved, .dragBegan:
             // A pan begins; no wire event. (Drag-to-click in direct
             // mode remains the existing pointer-down/move/up path the
             // App model drives directly; this resolver path is for the
@@ -172,6 +175,16 @@ public struct PointerGestureResolver: Sendable {
             return clickAtCursor(mask: RFBPointerCommand.leftButton, transform: transform, cursor: cursor)
         case .secondaryTap, .longPress:
             return clickAtCursor(mask: RFBPointerCommand.rightButton, transform: transform, cursor: cursor)
+        case let .hoverMoved(viewPoint):
+            guard let framebufferPoint = transform.framebufferPoint(fromViewPoint: viewPoint) else {
+                return PointerGestureOutcome(transform: transform, cursor: cursor)
+            }
+            let hoveredCursor = TrackpadCursor(position: framebufferPoint, isVisible: true)
+            return PointerGestureOutcome(
+                transform: transform,
+                cursor: hoveredCursor,
+                commandBatch: .one(buttonlessPointerMove(at: hoveredCursor))
+            )
         case .dragBegan:
             return PointerGestureOutcome(transform: transform, cursor: cursor)
         case let .dragChanged(_, translation):

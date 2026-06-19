@@ -20,11 +20,12 @@ remote desktop protocol. VNC remains the control and fallback channel.
     followed by exactly that many encoded bytes
 - No newline-delimited framing.
 - The first helper executable entrypoint is an explicit `NaruHelper
-  --video-listen` mode requiring a local pairing token, profile fingerprint,
-  private-network port, and source selection. Prefer `--token-env` and
-  `--profile-fingerprint-env` over direct value arguments so sensitive inputs
-  do not appear in helper process arguments. It is finite per authenticated
-  `startStream` request and is not yet the long-lived adaptive desktop stream.
+  --video-listen` mode requiring env-indirected local pairing token and profile
+  fingerprint inputs, plus private-network port and source selection. Use
+  `--token-env` and `--profile-fingerprint-env`; direct `--token` and
+  `--profile-fingerprint` values are rejected so sensitive inputs do not appear
+  in helper process arguments. It is finite per authenticated `startStream`
+  request and is not yet the long-lived adaptive desktop stream.
 - `--video-listen` must fail with fixed safe CLI errors only; it must not print
   pairing secrets, endpoints, payloads, display metadata, host names, raw OS
   errors, byte counts, or exact timings.
@@ -154,6 +155,23 @@ Body:
 
 All values are fixed catalog labels or coarse buckets; no frame, byte count,
 endpoint, coordinate, dimension, or exact timing data is allowed.
+
+ScreenCaptureKit source stalls use fixed reason labels only. Current
+capture-stage labels are:
+
+- `screenCaptureSourceUnavailable`
+- `screenCaptureTimedOut`
+- `screenCaptureNoOutputCallbacks`
+- `screenCaptureNonScreenCallbacks`
+- `screenCaptureNonDisplayableFrames`
+- `screenCaptureMissingImageBuffer`
+- `screenCaptureInsufficientDisplayableFrames`
+- `screenCaptureFailed`
+
+These labels identify the helper callback boundary without exporting callback
+counts, raw status values, app/window names, titles, dimensions, pixels, frame
+payloads, byte counts, raw OS errors, helper paths, endpoints, credentials, or
+exact timings.
 
 ### `stopStream`
 

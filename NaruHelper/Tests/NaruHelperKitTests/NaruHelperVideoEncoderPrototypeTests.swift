@@ -1,11 +1,15 @@
 import Foundation
 import XCTest
-import NaruHelperKit
+@testable import NaruHelperKit
 import NaruRemoteCore
 
 #if os(macOS) && canImport(VideoToolbox)
 import CoreVideo
 import VideoToolbox
+#endif
+
+#if os(macOS) && canImport(ScreenCaptureKit)
+@preconcurrency import ScreenCaptureKit
 #endif
 
 final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
@@ -463,6 +467,72 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertEqual(accessUnits[0].kind, .parameterSet)
         XCTAssertTrue(accessUnits.dropFirst().contains { $0.kind == .keyframe })
         XCTAssertTrue(accessUnits.allSatisfy { $0.binaryPayload.starts(with: Self.annexBStartCode) })
+    }
+
+    func testScreenCaptureKitFrameStatusPolicyAcceptsStartedFramesOnlyWhenBuffered() {
+        XCTAssertTrue(
+            NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+                rawStatus: nil,
+                hasImageBuffer: false
+            )
+        )
+        XCTAssertTrue(
+            NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+                rawStatus: SCFrameStatus.complete.rawValue,
+                hasImageBuffer: false
+            )
+        )
+        XCTAssertTrue(
+            NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+                rawStatus: SCFrameStatus.started.rawValue,
+                hasImageBuffer: true
+            )
+        )
+        XCTAssertFalse(
+            NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+                rawStatus: SCFrameStatus.started.rawValue,
+                hasImageBuffer: false
+            )
+        )
+        XCTAssertFalse(
+            NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+                rawStatus: SCFrameStatus.idle.rawValue,
+                hasImageBuffer: true
+            )
+        )
+    }
+
+    func testScreenCaptureKitStartedOrIdleCallbacksDoNotBecomeMissingImageBufferFailures() {
+        var diagnostics = LiveNaruHelperVideoScreenCaptureKitNoFrameDiagnostics()
+
+        diagnostics.record(
+            isScreenOutput: true,
+            isDisplayableScreenFrame: NaruHelperVideoScreenCaptureKitFrameSamplePolicy
+                .isDisplayableScreenFrame(
+                    rawStatus: SCFrameStatus.started.rawValue,
+                    hasImageBuffer: false
+                ),
+            hasImageBuffer: false
+        )
+        diagnostics.record(
+            isScreenOutput: true,
+            isDisplayableScreenFrame: NaruHelperVideoScreenCaptureKitFrameSamplePolicy
+                .isDisplayableScreenFrame(
+                    rawStatus: SCFrameStatus.idle.rawValue,
+                    hasImageBuffer: false
+                ),
+            hasImageBuffer: false
+        )
+
+        XCTAssertEqual(diagnostics.timeoutError, .captureNonDisplayableScreenFrames)
+
+        diagnostics.record(
+            isScreenOutput: true,
+            isDisplayableScreenFrame: true,
+            hasImageBuffer: false
+        )
+
+        XCTAssertEqual(diagnostics.timeoutError, .capturedFrameMissingImageBuffer)
     }
     #endif
     #endif

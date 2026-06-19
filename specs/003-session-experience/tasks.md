@@ -163,6 +163,38 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   the user has started a new Korean/CJK draft. Covered by
   `NaruRemoteAppModelTests/testEditingComposeDraftDuringSendCancelsStalePasteCommand`,
   focused `NaruRemoteAppModelTests`, and full `swift test`. **Done.**
+- [x] T015bl [B] Compact live-session chrome correction: collapse the
+  Mission/App Windows/Switch App Mac control strip into a one-tap menu inside
+  the compact accessory dock so active sessions recover vertical screen space
+  while keeping the controls reachable. Covered by
+  `RemoteInputDockRenderStateTests`, active-session UX-audit assertions, and
+  iPhone simulator build verification; the focused XCUITest launch path timed
+  out in simulator install/launch and needs a later screenshot rerun. **Done.**
+- [x] T015bm [B] Compact live-session chrome correction: collapse secondary
+  immersive control-bar actions (Checks, stream pacing, PiP Watch, and
+  pre-connect stream experiments) into a one-tap `Session tools` menu while
+  keeping status, Disconnect, and pointer-mode toggle as primary controls.
+  Covered by active-session UX-audit assertions and focused iPhone simulator
+  build verification. **Done.**
+- [x] T015bn [B] Profile-detail chrome correction: keep pre-connect iPhone
+  actions focused on Checks, Connect, and status while moving stream tuning,
+  startup experiments, and PiP Watch into the same one-tap `Session tools`
+  menu; hide the disabled pointer-mode toggle until a session is active.
+  Covered by profile-detail UX-audit assertions, focused app tests, and
+  iPhone simulator build verification. **Done.**
+- [x] T015bo [B] iPad hardware pointer follow-up: route
+  `UIHoverGestureRecognizer` samples from the Metal viewport into trackpad-mode
+  cursor-follow, mapping the hover point through `ViewportTransform` and using
+  the same latest-value/best-effort pointer lane as touch trackpad moves.
+  Covered by `PointerGestureResolverTests` and `TrackpadModeModelTests`. **Done.**
+- [x] T015bp [B] Hardware-keyboard compact dock follow-up: inline the Direct
+  Naru/iOS/HW surface picker into the live compact Direct header so selecting
+  HW keeps the custom soft keyboard hidden and spends no extra picker row while
+  Compose remains one tap away. Covered by `RemoteInputDockRenderStateTests`,
+  focused direct/input tests, iPhone/iPad simulator builds, and a compiling
+  `UXAuditScreenshotsUITests` state; the focused UI run hung in the simulator
+  execution phase after test build succeeded, so screenshot capture remains a
+  follow-up evidence gap. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys
@@ -172,10 +204,22 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 - [x] T023 [C] Inline Compose quick-key strip (Esc/Tab/⌃C/↑/↓) in `RemoteInputDockView`, dispatch via `model.sendComposeQuickKey`, draft untouched, gated on active session. `ComposeQuickKeyTests` (7) + `ComposeQuickKeyModelTests` (2). **Done.**
 - [x] T023a [C] Compose paste stabilization: macOS Command-V uses the documented VNC Mac `Alt_L` mapping, and the production app waits briefly after remote clipboard set before paste. **Done.**
 - [x] T024 [C][VISUAL] Quality chip and compact quick-key menu covered by the active-session UX-audit captures (`16-*` and `17-*`). **Done.**
+- [x] T025 [C][VISUAL] Compact live-session Compose now hides the empty,
+  unfocused editor behind a 40pt Compose affordance, expanding back to the
+  88pt editing surface when tapped, focused, or when a draft exists so remote
+  screen space stays dominant without destabilizing Korean/CJK IME
+  transactions. Covered by `RemoteInputDockRenderStateTests` and the
+  active-session UX-audit flow; MCP fallback evidence lives in
+  `artifacts/screenshots/ux-audit-compact-idle/`. **Done.**
 
 ## Cross-cutting
-- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark + keyboard captures refreshed for this PR. Full UX-audit set still pending a broader pass.
-- [ ] T031 Update `ROADMAP.md` (new "Phase 11 — Session Experience" or extend Phase 5/6 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport.
+- [~] T030 Re-capture the UX-audit screenshot set; active-session light/dark +
+  keyboard captures refreshed for this PR. The iPad audit loop now also covers
+  active widescreen, keyboard-expanded Compose, and trackpad cursor states in
+  portrait/landscape light/dark. Full UX-audit set still pending a broader pass.
+  The screenshot harness accepts `NARU_UX_AUDIT_OUTPUT_DIR` for worktree-local
+  iPhone/iPad evidence.
+- [x] T031 Update `ROADMAP.md` (extend Phase 5 notes) + `PRODUCT_SPEC.md §6.2` to reflect shipped pointer modes / zoom-pan / screen-first viewport and compact live-session Dock behavior. **Done.**
 - [ ] T032 [Manual] Real Mac VNC trackpad + zoom-to-read on physical iPhone — BLOCKED (no device); record residual risk per constitution §III.
 - [ ] T033 [Manual] Physical iPhone Korean/CJK Compose IME retest — verify marked-text composition in the compact `UITextView` dock and record iOS version, keyboard, target app, and whether the sent remote paste matches the local draft exactly.
 - [x] T034 [Cross-cutting] Physical sustained interaction gate verdict: add

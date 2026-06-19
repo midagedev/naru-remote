@@ -710,6 +710,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
     public let zrleInflateMilliseconds: Int?
     public let zrleTileApplyMilliseconds: Int?
     public let actualEncodingMix: RFBFramebufferEncodingMix
+    public let visualFreshnessSequence: Int?
+    public let visualFreshnessMilliseconds: Int?
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -727,6 +729,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         case zrleInflateMilliseconds
         case zrleTileApplyMilliseconds
         case actualEncodingMix
+        case visualFreshnessSequence
+        case visualFreshnessMilliseconds
     }
 
     public init(
@@ -744,7 +748,9 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         clientProcessingMilliseconds: Int? = nil,
         zrleInflateMilliseconds: Int? = nil,
         zrleTileApplyMilliseconds: Int? = nil,
-        actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix()
+        actualEncodingMix: RFBFramebufferEncodingMix = RFBFramebufferEncodingMix(),
+        visualFreshnessSequence: Int? = nil,
+        visualFreshnessMilliseconds: Int? = nil
     ) {
         self.kind = kind
         self.durationMilliseconds = max(durationMilliseconds, 0)
@@ -771,6 +777,8 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
         self.zrleInflateMilliseconds = Self.clampOptionalMilliseconds(zrleInflateMilliseconds)
         self.zrleTileApplyMilliseconds = Self.clampOptionalMilliseconds(zrleTileApplyMilliseconds)
         self.actualEncodingMix = actualEncodingMix
+        self.visualFreshnessSequence = visualFreshnessSequence.map { max($0, 0) }
+        self.visualFreshnessMilliseconds = Self.clampOptionalMilliseconds(visualFreshnessMilliseconds)
     }
 
     public init(from decoder: Decoder) throws {
@@ -811,7 +819,15 @@ public struct BenchmarkStreamShapeSample: Codable, Equatable, Sendable {
             actualEncodingMix: try container.decodeIfPresent(
                 RFBFramebufferEncodingMix.self,
                 forKey: .actualEncodingMix
-            ) ?? RFBFramebufferEncodingMix()
+            ) ?? RFBFramebufferEncodingMix(),
+            visualFreshnessSequence: try container.decodeIfPresent(
+                Int.self,
+                forKey: .visualFreshnessSequence
+            ),
+            visualFreshnessMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .visualFreshnessMilliseconds
+            )
         )
     }
 
@@ -1099,6 +1115,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let clientProcessingLatency: BenchmarkLatencySummary?
     public let zrleInflateLatency: BenchmarkLatencySummary?
     public let zrleTileApplyLatency: BenchmarkLatencySummary?
+    public let visualFreshnessLatency: BenchmarkLatencySummary?
+    public let visualFreshnessSampleCount: Int
+    public let timestampLatency: BenchmarkLatencySummary?
+    public let timestampLatencySampleCount: Int
     public let tailLatency: BenchmarkStreamShapeTailSummary
     public let phaseBudget: BenchmarkStreamShapePhaseBudgetSummary
     public let rendererUploadSampleCount: Int
@@ -1147,6 +1167,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case clientProcessingLatency
         case zrleInflateLatency
         case zrleTileApplyLatency
+        case visualFreshnessLatency
+        case visualFreshnessSampleCount
+        case timestampLatency
+        case timestampLatencySampleCount
         case tailLatency
         case phaseBudget
         case rendererUploadSampleCount
@@ -1249,6 +1273,11 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.clientProcessingLatency = BenchmarkLatencySummary(samples.compactMap(\.clientProcessingMilliseconds))
         self.zrleInflateLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleInflateMilliseconds))
         self.zrleTileApplyLatency = BenchmarkLatencySummary(samples.compactMap(\.zrleTileApplyMilliseconds))
+        let visualFreshnessSamples = samples.compactMap(\.visualFreshnessMilliseconds)
+        self.visualFreshnessLatency = BenchmarkLatencySummary(visualFreshnessSamples)
+        self.visualFreshnessSampleCount = visualFreshnessSamples.count
+        self.timestampLatency = self.visualFreshnessLatency
+        self.timestampLatencySampleCount = self.visualFreshnessSampleCount
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
         self.phaseBudget = BenchmarkStreamShapePhaseBudgetSummary(
             samples: samples,
@@ -1395,6 +1424,23 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.zrleTileApplyLatency = try container.decodeIfPresent(
             BenchmarkLatencySummary.self,
             forKey: .zrleTileApplyLatency
+        )
+        self.visualFreshnessLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .visualFreshnessLatency
+        )
+        self.visualFreshnessSampleCount = max(
+            try container.decodeIfPresent(Int.self, forKey: .visualFreshnessSampleCount) ?? 0,
+            0
+        )
+        self.timestampLatency = try container.decodeIfPresent(
+            BenchmarkLatencySummary.self,
+            forKey: .timestampLatency
+        ) ?? visualFreshnessLatency
+        self.timestampLatencySampleCount = max(
+            try container.decodeIfPresent(Int.self, forKey: .timestampLatencySampleCount)
+                ?? visualFreshnessSampleCount,
+            0
         )
         self.tailLatency = try container.decode(BenchmarkStreamShapeTailSummary.self, forKey: .tailLatency)
         self.phaseBudget = try container.decodeIfPresent(
@@ -1743,6 +1789,10 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         try container.encodeIfPresent(clientProcessingLatency, forKey: .clientProcessingLatency)
         try container.encodeIfPresent(zrleInflateLatency, forKey: .zrleInflateLatency)
         try container.encodeIfPresent(zrleTileApplyLatency, forKey: .zrleTileApplyLatency)
+        try container.encodeIfPresent(visualFreshnessLatency, forKey: .visualFreshnessLatency)
+        try container.encode(visualFreshnessSampleCount, forKey: .visualFreshnessSampleCount)
+        try container.encodeIfPresent(timestampLatency, forKey: .timestampLatency)
+        try container.encode(timestampLatencySampleCount, forKey: .timestampLatencySampleCount)
         try container.encode(tailLatency, forKey: .tailLatency)
         try container.encode(phaseBudget, forKey: .phaseBudget)
         try container.encode(rendererUploadSampleCount, forKey: .rendererUploadSampleCount)
@@ -1865,6 +1915,8 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
     public let orderOrdinal: Int?
     public let firstFrameMilliseconds: Int?
     public let firstFrameReceiveTiming: RFBFramebufferUpdateTiming?
+    public let firstFrameVisualFreshnessSequence: Int?
+    public let firstFrameVisualFreshnessMilliseconds: Int?
     public let summary: BenchmarkStreamShapeSummary
 
     private enum CodingKeys: String, CodingKey {
@@ -1878,6 +1930,8 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         case orderOrdinal
         case firstFrameMilliseconds
         case firstFrameReceiveTiming
+        case firstFrameVisualFreshnessSequence
+        case firstFrameVisualFreshnessMilliseconds
         case summary
     }
 
@@ -1892,6 +1946,8 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         orderOrdinal: Int? = nil,
         firstFrameMilliseconds: Int?,
         firstFrameReceiveTiming: RFBFramebufferUpdateTiming? = nil,
+        firstFrameVisualFreshnessSequence: Int? = nil,
+        firstFrameVisualFreshnessMilliseconds: Int? = nil,
         summary: BenchmarkStreamShapeSummary
     ) {
         self.label = label
@@ -1904,6 +1960,8 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
         self.orderOrdinal = orderOrdinal.map { max($0, 1) }
         self.firstFrameMilliseconds = firstFrameMilliseconds
         self.firstFrameReceiveTiming = firstFrameReceiveTiming
+        self.firstFrameVisualFreshnessSequence = firstFrameVisualFreshnessSequence.map { max($0, 0) }
+        self.firstFrameVisualFreshnessMilliseconds = firstFrameVisualFreshnessMilliseconds.map { max($0, 0) }
         self.summary = summary
     }
 
@@ -1937,6 +1995,14 @@ public struct BenchmarkStreamShapeProfileReport: Codable, Equatable, Sendable {
             firstFrameReceiveTiming: try container.decodeIfPresent(
                 RFBFramebufferUpdateTiming.self,
                 forKey: .firstFrameReceiveTiming
+            ),
+            firstFrameVisualFreshnessSequence: try container.decodeIfPresent(
+                Int.self,
+                forKey: .firstFrameVisualFreshnessSequence
+            ),
+            firstFrameVisualFreshnessMilliseconds: try container.decodeIfPresent(
+                Int.self,
+                forKey: .firstFrameVisualFreshnessMilliseconds
             ),
             summary: try container.decode(BenchmarkStreamShapeSummary.self, forKey: .summary)
         )

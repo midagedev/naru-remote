@@ -453,6 +453,37 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertEqual(renderer.flushCount, 1)
     }
 
+    func testTransportProtectionFailureRecordsSafeFailureWithoutLeakingRawError() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer()
+        let runner = HelperVideoStreamSessionRunner(
+            startStream: { _, _ in
+                throw HelperVideoStreamNetworkClientError.transportProtectionRequired
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertFalse(outcome.startAccepted)
+        XCTAssertEqual(outcome.fallbackFailureCode, .transportProtectionRequired)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .unreachable)
+        XCTAssertEqual(
+            snapshot.helperVideoProfileState[profile.id]?.lastFailureCode,
+            .transportProtectionRequired
+        )
+        XCTAssertNil(snapshot.session?.lastError)
+        XCTAssertEqual(renderer.flushCount, 1)
+    }
+
     func testNetworkFailureDoesNotMutateStaleSessionCallback() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let currentSession = RemoteSession(profileID: profile.id, state: .active)
