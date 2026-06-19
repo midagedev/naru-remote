@@ -351,7 +351,20 @@ public struct NaruRemoteAppShell: View {
             && snapshot.diagnosticRun == nil
 
         Group {
-            if usesLiveSessionLayout {
+            if isEmptyHome {
+                // First launch (zero profiles): present the single-CTA
+                // home as the full-screen root rather than the detail
+                // pane of a NavigationSplitView.  In compact width the
+                // split view injected a stray "back" chevron that led to
+                // an equally-empty sidebar — a confusing double empty
+                // state on the very first screen.  Promoting the empty
+                // home to root removes that chevron and the dead-end
+                // back navigation (spec FR-015 is still satisfied: one
+                // title, one primary action, nothing else).
+                EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(NaruColors.canvas)
+            } else if usesLiveSessionLayout {
                 sessionDetailSurface(
                     snapshot: snapshot,
                     isEmptyHome: isEmptyHome,
