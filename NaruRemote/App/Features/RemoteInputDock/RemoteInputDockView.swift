@@ -230,9 +230,6 @@ public struct RemoteInputDockView: View {
                 compactDirectHeader
                 directKeyboard
             } else {
-                if showsMacSessionControls {
-                    macSessionControlStrip
-                }
                 compactComposeRow
                 if let compactStatusText {
                     compactStatusLine(compactStatusText)
@@ -240,8 +237,8 @@ public struct RemoteInputDockView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 6)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) {
             Rectangle()
@@ -280,8 +277,8 @@ public struct RemoteInputDockView: View {
                 })
                 .composeEditorShellAccessibility()
 
-            if showsComposeQuickKeys {
-                quickKeyMenu
+            if showsCompactAuxiliaryMenu {
+                compactAuxiliaryMenu
             }
 
             Button {
@@ -297,6 +294,10 @@ public struct RemoteInputDockView: View {
             .help("Send composed text")
             .accessibilityIdentifier("naru.input.send")
         }
+    }
+
+    private var showsCompactAuxiliaryMenu: Bool {
+        showsMacSessionControls || showsComposeQuickKeys
     }
 
     private var compactDirectHeader: some View {
@@ -369,6 +370,38 @@ public struct RemoteInputDockView: View {
         }
         .buttonStyle(.bordered)
         .accessibilityIdentifier("naru.input.quickkeys.menu")
+    }
+
+    private var compactAuxiliaryMenu: some View {
+        Menu {
+            if showsMacSessionControls {
+                Section("Mac") {
+                    ForEach(MacSessionControl.allCases, id: \.self) { control in
+                        Button {
+                            onMacSessionControl(control)
+                        } label: {
+                            Label(control.label, systemImage: control.systemImageName)
+                        }
+                    }
+                }
+            }
+
+            if showsComposeQuickKeys {
+                Section("Keys") {
+                    ForEach(ComposeQuickKey.allCases, id: \.self) { key in
+                        Button(key.label) {
+                            onComposeQuickKey(key)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Session actions", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("naru.input.session-actions.menu")
     }
 
     /// Segmented picker that switches between Compose and Direct

@@ -203,6 +203,10 @@ iPhone/iPad simulator에서 Korean/CJK Compose freeze 회귀와 viewport hot pat
 - active session은 화면 영역이 기본 우선이다. keyboard가 올라와도 remote screen
   영역이 불필요하게 collapse되면 안 된다.
 - immersive controls는 자동으로 숨고, 필요할 때 한 번의 tap으로 복귀해야 한다.
+- Mac session controls, quick keys, diagnostics, stream toggles 같은 보조
+  기능은 active session에서 permanent panel이 아니라 compact overlay, menu,
+  또는 accessory surface로 접혀야 한다. 보조 기능을 추가했다는 이유로 원격
+  화면의 기본 높이가 줄어들면 UX regression으로 본다.
 - light/dark theme에서 session, grid, diagnostics, compose, direct-key,
   trackpad cursor UI가 모두 읽혀야 한다.
 - PiP mode는 watch-only이며 input을 보내지 않는다.

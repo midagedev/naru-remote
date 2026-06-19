@@ -343,9 +343,9 @@ enum UXAuditFixtures {
     /// ratio (spec 003 FR-001 — screen-first).  A real desktop is
     /// 16:9 / 16:10; before this change the container hardcoded 4:3
     /// and double-letterboxed widescreen frames into a small box.  The
-    /// framebuffer is a solid fill (the public `RFBRawFramebuffer`
-    /// init only takes one color) — the point of the fixture is the
-    /// container *shape*, which a solid wide rectangle makes obvious.
+    /// framebuffer uses a deterministic desktop-like pattern so visual
+    /// review can judge crop, contrast, cursor placement, and text-line
+    /// legibility instead of staring at a solid rectangle.
     private static func sessionActiveWidescreenSnapshot(
         serverCursor: RFBServerCursor? = nil
     ) -> NaruRemoteAppSnapshot {
@@ -355,13 +355,7 @@ enum UXAuditFixtures {
             state: .active,
             lastFrameAt: fixedDate(offsetSeconds: 5)
         )
-        // 1600×900 = 16:9.  Mid-slate fill so it reads as a real
-        // screen against the dark container, not an empty black box.
-        let framebuffer = RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
-        )
+        let framebuffer = sampleWidescreenFramebuffer()
         return NaruRemoteAppSnapshot(
             profiles: [profile],
             selectedProfileID: profile.id,
@@ -378,11 +372,7 @@ enum UXAuditFixtures {
             state: .active,
             lastFrameAt: fixedDate(offsetSeconds: 5)
         )
-        let framebuffer = RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
-        )
+        let framebuffer = sampleWidescreenFramebuffer()
         let draft = ComposeDraft(sessionID: session.id, text: "")
         let attempt = TextInjectionAttempt(
             draftID: draft.id,
@@ -422,10 +412,64 @@ enum UXAuditFixtures {
     }
 
     static func sampleWidescreenFramebuffer() -> RFBRawFramebuffer {
+        let width = 1600
+        let height = 900
+        let background = RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
+        let topBar = RFBColor(red: 0x12, green: 0x18, blue: 0x24)
+        let sidebar = RFBColor(red: 0x16, green: 0x20, blue: 0x2E)
+        let panel = RFBColor(red: 0xF3, green: 0xF5, blue: 0xF7)
+        let panelMuted = RFBColor(red: 0xD8, green: 0xDF, blue: 0xE8)
+        let terminal = RFBColor(red: 0x0B, green: 0x10, blue: 0x18)
+        let line = RFBColor(red: 0x7D, green: 0xF0, blue: 0xB0)
+        let accent = RFBColor(red: 0x1E, green: 0xA7, blue: 0xFF)
+
+        var pixels = Array(repeating: background, count: width * height)
+
+        func fillRect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
+            let startX = max(0, x)
+            let endX = min(width, x + rectWidth)
+            let startY = max(0, y)
+            let endY = min(height, y + rectHeight)
+            guard startX < endX, startY < endY else { return }
+            for row in startY..<endY {
+                let offset = row * width
+                for column in startX..<endX {
+                    pixels[offset + column] = color
+                }
+            }
+        }
+
+        fillRect(x: 0, y: 0, width: width, height: 64, color: topBar)
+        fillRect(x: 0, y: 64, width: 260, height: height - 64, color: sidebar)
+        fillRect(x: 298, y: 116, width: 1000, height: 260, color: panel)
+        fillRect(x: 332, y: 158, width: 390, height: 22, color: panelMuted)
+        fillRect(x: 332, y: 206, width: 850, height: 18, color: panelMuted)
+        fillRect(x: 332, y: 244, width: 760, height: 18, color: panelMuted)
+        fillRect(x: 332, y: 282, width: 590, height: 18, color: panelMuted)
+        fillRect(x: 298, y: 430, width: 1000, height: 340, color: terminal)
+
+        for index in 0..<9 {
+            fillRect(
+                x: 340,
+                y: 468 + index * 30,
+                width: 460 + (index % 3) * 90,
+                height: 12,
+                color: index == 0 ? accent : line
+            )
+        }
+
+        for index in 0..<7 {
+            fillRect(x: 34, y: 118 + index * 58, width: 170, height: 14, color: panelMuted)
+        }
+
+        fillRect(x: 34, y: 24, width: 180, height: 16, color: panelMuted)
+        fillRect(x: 1390, y: 22, width: 56, height: 20, color: panelMuted)
+        fillRect(x: 1470, y: 22, width: 56, height: 20, color: accent)
+
         RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
+            width: width,
+            height: height,
+            pixels: pixels
         )
     }
 
