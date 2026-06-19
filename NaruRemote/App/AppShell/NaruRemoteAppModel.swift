@@ -2,6 +2,14 @@ import Combine
 import Foundation
 import NaruRemoteCore
 
+/// Wall-clock milliseconds elapsed since `start`, clamped to ≥ 0. Shared by
+/// the outbound-input dispatcher and the app model's frame/stream timing so
+/// the rounding/clamping is defined once. Module-internal so
+/// `OutboundInputEventDispatcher` (its own file) can reuse it.
+func elapsedMilliseconds(since start: Date) -> Int {
+    max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
+}
+
 private struct PendingPointerMove {
     let command: RFBPointerCommand
     let pointerClient: RFBPointerEventClient
@@ -31,170 +39,6 @@ private struct DeferredViewportInteractionFrame {
     let profile: ConnectionProfile
     let sessionID: RemoteSession.ID
     let streamID: UUID
-}
-
-struct StreamFrameApplicationWork: Sendable {
-    let frame: RFBFramePumpFrame
-    let serverInit: RFBServerInit
-    let profile: ConnectionProfile
-    let sessionID: RemoteSession.ID
-    let streamID: UUID
-    let isEmptyUpdate: Bool
-}
-
-struct SessionFrameApplicationWorkerPacing: Equatable, Sendable {
-    static let visualContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
-    static let viewportNavigationContentFrameMinimumInterval: TimeInterval =
-        StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds
-    // Frame application cadence while the user is composing text. This is
-    // the single rate authority that also feeds the request loop's
-    // `activeInputPacingInterval`, so it governs both how often we request
-    // *and* apply frames during typing. Latency-priority: a 30 Hz-class
-    // floor keeps remote echo responsive while typing instead of the old
-    // 10 Hz cap that pinned typing-time screen updates to ~100 ms. The
-    // Core `textInputContentFrameIntervalSeconds` constant stays at its
-    // documented 10 Hz-class value for the benchmark/pressure-threshold
-    // mirror; this worker floor is intentionally decoupled from it.
-    static let textInputContentFrameMinimumInterval: TimeInterval = 1.0 / 30.0
-    static let defaultContentFrameMinimumInterval: TimeInterval =
-        visualContentFrameMinimumInterval
-
-    static func contentFrameMinimumInterval(
-        for priority: SessionFrameDeliveryPriority
-    ) -> TimeInterval {
-        switch priority {
-        case .visual:
-            return visualContentFrameMinimumInterval
-        case .viewportNavigation:
-            return viewportNavigationContentFrameMinimumInterval
-        case .textInput:
-            return textInputContentFrameMinimumInterval
-        }
-    }
-
-    func delay(
-        before work: StreamFrameApplicationWork,
-        lastContentFrameAppliedAt: Date?,
-        now: Date,
-        contentFrameMinimumInterval: TimeInterval = Self.defaultContentFrameMinimumInterval
-    ) -> TimeInterval {
-        guard !work.isEmptyUpdate else {
-            return 0
-        }
-        guard let lastContentFrameAppliedAt else {
-            return 0
-        }
-        return max(contentFrameMinimumInterval - now.timeIntervalSince(lastContentFrameAppliedAt), 0)
-    }
-}
-
-actor SessionStreamFrameApplicationQueue {
-    static let maximumPendingWorkCount = 3
-
-    private var pending: [StreamFrameApplicationWork] = []
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var isClosed = false
-
-    @discardableResult
-    func enqueue(_ work: StreamFrameApplicationWork) -> Int {
-        guard !isClosed else {
-            return 0
-        }
-        pending.append(work)
-        let droppedCount = coalescePending()
-        resumePendingWaiters()
-        return droppedCount
-    }
-
-    func next(preferControlUpdates: Bool = false) async -> StreamFrameApplicationWork? {
-        while true {
-            guard pending.isEmpty else {
-                if preferControlUpdates,
-                   let controlUpdateIndex = pending.firstIndex(where: \.isEmptyUpdate)
-                {
-                    return pending.remove(at: controlUpdateIndex)
-                }
-                return pending.removeFirst()
-            }
-            guard !isClosed else {
-                return nil
-            }
-            await withCheckedContinuation { continuation in
-                waiters.append(continuation)
-            }
-        }
-    }
-
-    func pendingCount() -> Int {
-        pending.count
-    }
-
-    func latestContentWork(replacing work: StreamFrameApplicationWork) -> StreamFrameApplicationWork {
-        guard !work.isEmptyUpdate,
-              let latestContentIndex = pending.indices.last(where: { !pending[$0].isEmptyUpdate })
-        else {
-            return work
-        }
-
-        let latest = pending.remove(at: latestContentIndex)
-        pending.removeAll { !$0.isEmptyUpdate }
-        return latest
-    }
-
-    func close() {
-        isClosed = true
-        resumePendingWaiters()
-    }
-
-    private func resumePendingWaiters() {
-        let pendingWaiters = waiters
-        waiters.removeAll()
-        pendingWaiters.forEach { $0.resume() }
-    }
-
-    private func coalescePending() -> Int {
-        guard pending.count > 1 else {
-            return 0
-        }
-
-        let originalCount = pending.count
-        let initialContentIndex = pending.indices.first {
-            !pending[$0].frame.isIncremental && !pending[$0].isEmptyUpdate
-        }
-        let latestContentIndex = pending.indices.last {
-            !pending[$0].isEmptyUpdate
-        }
-        let latestCursorIndex = pending.indices.last {
-            pending[$0].isEmptyUpdate && pending[$0].frame.serverCursor != nil
-        }
-        let latestLivenessIndex = pending.indices.last {
-            pending[$0].isEmptyUpdate && pending[$0].frame.serverCursor == nil
-        }
-
-        var retainedIndexes = Set<Int>()
-        if let initialContentIndex {
-            retainedIndexes.insert(initialContentIndex)
-        }
-        if let latestContentIndex {
-            retainedIndexes.insert(latestContentIndex)
-        }
-        if let latestCursorIndex {
-            retainedIndexes.insert(latestCursorIndex)
-        }
-        if retainedIndexes.isEmpty, let latestLivenessIndex {
-            retainedIndexes.insert(latestLivenessIndex)
-        }
-        if retainedIndexes.isEmpty, let lastIndex = pending.indices.last {
-            retainedIndexes.insert(lastIndex)
-        }
-
-        pending = pending.enumerated()
-            .compactMap { retainedIndexes.contains($0.offset) ? $0.element : nil }
-        if pending.count > Self.maximumPendingWorkCount {
-            pending = Array(pending.suffix(Self.maximumPendingWorkCount))
-        }
-        return originalCount - pending.count
-    }
 }
 
 private struct RemoteClipboardTextClientBox: @unchecked Sendable {
@@ -232,236 +76,6 @@ private struct ComposeRouteDiagnosticSnapshot {
     var utf8ClipboardSupport: RemoteClipboardUTF8Support?
     var routeBlocker: DiagnosticComposeRouteBlocker?
     var helperProfileID: ConnectionProfile.ID?
-}
-
-private enum OutboundInputEventError: Error {
-    case timedOut
-}
-
-private final class OutboundInputEventOperationRace: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, any Error>?
-    private var tasks: [Task<Void, Never>] = []
-    private var isFinished = false
-
-    func setContinuation(_ continuation: CheckedContinuation<Void, any Error>) {
-        var shouldResume = false
-        lock.lock()
-        if isFinished {
-            shouldResume = true
-        } else {
-            self.continuation = continuation
-        }
-        lock.unlock()
-
-        if shouldResume {
-            continuation.resume(throwing: CancellationError())
-        }
-    }
-
-    func setTasks(_ tasks: [Task<Void, Never>]) {
-        var tasksToCancel: [Task<Void, Never>] = []
-        lock.lock()
-        if isFinished {
-            tasksToCancel = tasks
-        } else {
-            self.tasks = tasks
-        }
-        lock.unlock()
-
-        for task in tasksToCancel {
-            task.cancel()
-        }
-    }
-
-    func finish(_ result: Result<Void, any Error>) {
-        let continuationToResume: CheckedContinuation<Void, any Error>?
-        let tasksToCancel: [Task<Void, Never>]
-
-        lock.lock()
-        guard !isFinished else {
-            lock.unlock()
-            return
-        }
-        isFinished = true
-        continuationToResume = continuation
-        continuation = nil
-        tasksToCancel = tasks
-        tasks = []
-        lock.unlock()
-
-        for task in tasksToCancel {
-            task.cancel()
-        }
-        continuationToResume?.resume(with: result)
-    }
-
-    func cancel() {
-        finish(.failure(CancellationError()))
-    }
-}
-
-private final class OutboundInputEventDispatcher: @unchecked Sendable {
-    typealias Operation = @Sendable () async throws -> Void
-    typealias Validator = @Sendable () async -> Bool
-    typealias Recorder = @Sendable (
-        _ queueDelayMilliseconds: Int,
-        _ operationMilliseconds: Int,
-        _ timedOut: Bool
-    ) async -> Void
-
-    private let lock = NSLock()
-    private let timeout: Duration
-    private var generation = UUID()
-    private var tail: Task<Void, Never>?
-
-    init(timeout: Duration) {
-        self.timeout = timeout
-    }
-
-    func cancelAll() {
-        let taskToCancel: Task<Void, Never>?
-        lock.lock()
-        generation = UUID()
-        taskToCancel = tail
-        tail = nil
-        lock.unlock()
-
-        taskToCancel?.cancel()
-    }
-
-    func enqueue(
-        operation: @escaping Operation,
-        validate: @escaping Validator,
-        record: @escaping Recorder,
-        handleFailure: @escaping Recorder
-    ) {
-        let enqueuedAt = Date()
-        let previous: Task<Void, Never>?
-        let eventGeneration: UUID
-
-        lock.lock()
-        previous = tail
-        eventGeneration = generation
-        lock.unlock()
-
-        let task = Task.detached(priority: .userInitiated) { [
-            weak self,
-            previous,
-            enqueuedAt,
-            eventGeneration,
-            operation,
-            validate,
-            record,
-            handleFailure
-        ] in
-            await previous?.value
-            guard let self,
-                  !Task.isCancelled,
-                  self.isCurrent(eventGeneration),
-                  await validate()
-            else {
-                return
-            }
-
-            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
-            let operationStartedAt = Date()
-            do {
-                try await Self.runOperation(timeout: self.timeout, operation: operation)
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                guard self.isCurrent(eventGeneration) else {
-                    return
-                }
-                await record(queueDelayMilliseconds, operationMilliseconds, false)
-            } catch {
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
-                let timedOut: Bool
-                if case OutboundInputEventError.timedOut = error {
-                    timedOut = true
-                } else {
-                    timedOut = false
-                }
-                guard self.invalidateIfCurrent(eventGeneration) else {
-                    return
-                }
-                await handleFailure(queueDelayMilliseconds, operationMilliseconds, timedOut)
-            }
-        }
-
-        let shouldCancelTask: Bool
-        lock.lock()
-        if generation == eventGeneration {
-            tail = task
-            shouldCancelTask = false
-        } else {
-            shouldCancelTask = true
-        }
-        lock.unlock()
-
-        if shouldCancelTask {
-            task.cancel()
-        }
-    }
-
-    private func isCurrent(_ eventGeneration: UUID) -> Bool {
-        let current: Bool
-        lock.lock()
-        current = generation == eventGeneration
-        lock.unlock()
-        return current
-    }
-
-    private func invalidateIfCurrent(_ eventGeneration: UUID) -> Bool {
-        let taskToCancel: Task<Void, Never>?
-        lock.lock()
-        guard generation == eventGeneration else {
-            lock.unlock()
-            return false
-        }
-        generation = UUID()
-        taskToCancel = tail
-        tail = nil
-        lock.unlock()
-
-        taskToCancel?.cancel()
-        return true
-    }
-
-    private static func elapsedMilliseconds(since start: Date) -> Int {
-        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
-    }
-
-    private static func runOperation(
-        timeout: Duration,
-        operation: @escaping Operation
-    ) async throws {
-        let race = OutboundInputEventOperationRace()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                race.setContinuation(continuation)
-                let operationTask = Task.detached(priority: .userInitiated) {
-                    do {
-                        try await operation()
-                        race.finish(.success(()))
-                    } catch {
-                        race.finish(.failure(error))
-                    }
-                }
-                let timeoutTask = Task.detached(priority: .userInitiated) {
-                    do {
-                        try await Task.sleep(for: timeout)
-                    } catch {
-                        return
-                    }
-                    operationTask.cancel()
-                    race.finish(.failure(OutboundInputEventError.timedOut))
-                }
-                race.setTasks([operationTask, timeoutTask])
-            }
-        } onCancel: {
-            race.cancel()
-        }
-    }
 }
 
 @MainActor
@@ -773,7 +387,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
-    private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
     // Wake granularity while a pacing delay is pending. Kept near one
@@ -3862,7 +3475,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID
     ) {
         let monitorID = UUID()
-        let probeInterval = Self.mainActorResponsivenessProbeInterval
+        let probeInterval = Duration.seconds(Self.mainActorResponsivenessProbeIntervalSeconds)
         mainActorResponsivenessMonitorID = monitorID
         mainActorResponsivenessTask?.cancel()
         mainActorResponsivenessTask = Task(priority: .utility) { @MainActor [weak self] in
@@ -3885,7 +3498,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
                 self.recordMainActorResponsivenessDelay(
-                    milliseconds: Self.elapsedMilliseconds(since: expectedWakeAt)
+                    milliseconds: elapsedMilliseconds(since: expectedWakeAt)
                 )
             }
         }
@@ -4251,10 +3864,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             consumedHiddenFrameCount: consumedHiddenFrameCount,
             outcome: .consumed
         )
-    }
-
-    private nonisolated static func elapsedMilliseconds(since start: Date) -> Int {
-        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
     }
 
     private func resetSessionStreamStats() {
@@ -4710,7 +4319,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isCurrentStream(work.streamID, sessionID: work.sessionID, profileID: work.profile.id) else {
             return
         }
-        recordAppFrameApplyTiming(milliseconds: Self.elapsedMilliseconds(since: appFrameApplyStart))
+        recordAppFrameApplyTiming(milliseconds: elapsedMilliseconds(since: appFrameApplyStart))
     }
 
     private func applyStreamFrame(
@@ -7728,13 +7337,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             recordOutboundInputEvent(
                 queueDelayMilliseconds: 0,
-                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                operationMilliseconds: elapsedMilliseconds(since: startedAt),
                 timedOut: false
             )
         } catch {
             recordOutboundInputEvent(
                 queueDelayMilliseconds: 0,
-                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                operationMilliseconds: elapsedMilliseconds(since: startedAt),
                 timedOut: false
             )
         }
