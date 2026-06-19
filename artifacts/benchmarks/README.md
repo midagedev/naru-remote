@@ -489,6 +489,21 @@ external synthetic, sustained synthetic, and true ScreenCaptureKit helper-video
 all `pass`, with app bootstrap `passed`. The remaining blocker is the physical
 iPhone gate: `xcode-account-missing` and
 `ios-provisioning-profile-missing`.
+Current helper-video ready-for-physical artifact:
+`artifacts/benchmarks/2026-06-16-helper-video-live-gate-ready-for-physical-summary.md`.
+The latest live gate keeps Screen Recording, helper screen capture, sustained
+screen capture, and 30-frame app bootstrap passing. The product-level
+readiness run still classifies VNC as a 10fps product failure
+(`first-byte-wait-failed`, `receivePath`, about `1.89` content FPS), and the
+remaining helper-video promotion blocker is an unavailable physical iPhone.
+Current helper-video security/privacy review artifact:
+`artifacts/benchmarks/2026-06-16-helper-video-security-privacy-review-summary.md`.
+Focused diagnostic/helper-video privacy regressions passed, and a source scan
+confirmed live helper-video gates and benchmark reports keep helper endpoints,
+credentials, tokens, frame payloads, dimensions, byte counts, raw errors,
+device identifiers, Compose text, keysyms, pointer coordinates, and clipboard
+contents out of exported artifacts. Physical-device result-bundle and manual
+log privacy still remain part of the physical iPhone T030 gate.
 Current launchctl request pipeline sweep:
 `artifacts/benchmarks/2026-06-07-launchctl-request-pipeline-sweep-summary.md`.
 The launchctl runner now has a VNC-only depth 1/2/3 sweep; the first run keeps

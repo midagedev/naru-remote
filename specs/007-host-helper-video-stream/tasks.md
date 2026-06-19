@@ -810,8 +810,13 @@ without unsafe report fields.
   peak physical memory. Covered by mixed-encoding CopyRect regressions and
   `RFBCopyRectBenchmarkTests`. **Done.**
 - [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
-- [ ] T031 [US2] Run a true live helper-video access-unit benchmark after the
-  helper sender/listener is connected to the iOS decode path.
+- [x] T031 [US2] Run a true live helper-video access-unit benchmark after the
+  helper sender/listener is connected to the iOS decode path. Current live
+  evidence records ScreenCaptureKit helper-video probe and sustained probe
+  passing, plus `helper-screen-app-bootstrap-benchmark` passing 30 displayable
+  frames through `helper-tcp-to-app-model` and
+  `h264-sample-buffer-factory`. Physical iPhone promotion remains T030.
+  **Done.**
 
 ---
 
@@ -820,7 +825,14 @@ without unsafe report fields.
 - [ ] TXXX Run all checks listed in `quickstart.md`.
 - [x] TXXX Update `research.md` if Apple API, permission, codec, or helper
   transport findings change.
-- [ ] TXXX Security/privacy review for helper video capture, transport,
-  diagnostics, benchmark reports, and logs.
-- [ ] TXXX Record residual manual-device risks if physical iPhone/Mac
-  verification cannot be completed in the current environment.
+- [x] TXXX Security/privacy review for helper video capture, transport,
+  diagnostics, benchmark reports, and logs. Focused diagnostic/helper-video
+  privacy regressions passed, and the review is recorded in
+  `artifacts/benchmarks/2026-06-16-helper-video-security-privacy-review-summary.md`.
+  Physical-device log/result-bundle privacy remains part of T030. **Done.**
+- [x] TXXX Record residual manual-device risks if physical iPhone/Mac
+  verification cannot be completed in the current environment. Current evidence
+  is recorded in
+  `artifacts/benchmarks/2026-06-16-helper-video-live-gate-ready-for-physical-summary.md`;
+  physical iPhone thermal, hand-feel, IME, foreground/background, and long
+  session stability remain T030 risks. **Done.**
