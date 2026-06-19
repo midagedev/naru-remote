@@ -56,13 +56,39 @@ public enum NaruColors {
         dark: rgb(0x22, 0x28, 0x32)
     )
 
-    /// Subtle selected-card outline.  Avoids using a translucent
-    /// accent fill over screenshots/preview placeholders, which can
-    /// wash out in one appearance or the other.
-    /// Light: `#2D7D77`  Dark: `#63C7BF`
-    public static let focusRing: Color = adaptive(
-        light: rgb(0x2D, 0x7D, 0x77),
-        dark: rgb(0x63, 0xC7, 0xBF)
+    /// `Signal Blue` token — primary action + selected state
+    /// (BRANDING.md §7). This is the app's accent: the tint resolved by
+    /// the iOSApp `AccentColor` asset uses the same hex pair, so SwiftUI
+    /// `.borderedProminent` buttons and the SwiftPM-module surfaces below
+    /// read as one identity. Blue is reserved for "you can press this";
+    /// status uses `reachable`/`warning`/`coral`, never the accent.
+    /// Light: `#2D7DFF`  Dark: `#5B9BFF`
+    public static let signalBlue: Color = adaptive(
+        light: rgb(0x2D, 0x7D, 0xFF),
+        dark: rgb(0x5B, 0x9B, 0xFF)
+    )
+
+    /// Subtle selected-card outline. The "selected" cue maps to the
+    /// Signal Blue accent (BRANDING.md §7: blue = primary action +
+    /// selected), so a chosen connection card rings in the same accent
+    /// the rest of the app presses.
+    /// Light: `#2D7DFF`  Dark: `#5B9BFF`
+    public static let focusRing: Color = signalBlue
+
+    /// `Ink` token — primary text on app chrome (BRANDING.md §7). Most
+    /// views can stay on `.primary`; this exists for brand surfaces that
+    /// want the exact ink rather than the system label color.
+    /// Light: `#171A1F`  Dark: `#F3F5F7`
+    public static let ink: Color = adaptive(
+        light: rgb(0x17, 0x1A, 0x1F),
+        dark: rgb(0xF3, 0xF5, 0xF7)
+    )
+
+    /// `Muted Ink` token — secondary text (BRANDING.md §7).
+    /// Light: `#68707D`  Dark: `#9AA3AF`
+    public static let mutedInk: Color = adaptive(
+        light: rgb(0x68, 0x70, 0x7D),
+        dark: rgb(0x9A, 0xA3, 0xAF)
     )
 
     /// `Surface Key` — primary fill for letter / number tiles on the

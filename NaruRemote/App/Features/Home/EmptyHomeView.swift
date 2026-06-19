@@ -21,21 +21,20 @@ public struct EmptyHomeView: View {
         VStack {
             Spacer(minLength: 0)
 
-            VStack(spacing: 20) {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 56, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+            VStack(spacing: 24) {
+                NaruMark()
+                    .frame(width: 88, height: 88)
 
                 VStack(spacing: 8) {
                     Text("Add a computer to begin.")
                         .font(.title3.weight(.semibold))
                         .multilineTextAlignment(.center)
 
-                    Text("Connect to your Mac or Linux machine over your private Tailscale network.")
+                    Text("Connect to a Mac or Linux machine on your private network. Compose text on your phone — Naru sends the finished input across.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .frame(maxWidth: 320)
                 }
 
                 Button(action: onAddProfile) {

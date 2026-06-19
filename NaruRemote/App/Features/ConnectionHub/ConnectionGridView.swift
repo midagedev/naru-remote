@@ -97,8 +97,11 @@ private struct ConnectionGridCardView: View {
                     statusBadge
                 }
 
+                // Host / MagicDNS / IP:port is a technical identifier —
+                // SF Mono per BRANDING.md §8 so it reads as an address,
+                // not prose, and digits/dots stay column-aligned.
                 Text(card.endpoint)
-                    .font(.caption)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)

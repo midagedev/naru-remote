@@ -34,6 +34,14 @@ public struct RemoteInputDockView: View {
     @State private var isPreparingComposeSend = false
     @State private var composeSendNeedsMarkedCommitStabilization = false
     #endif
+    /// The Compose & Send "crossing" pulse (BRANDING.md §10): a subtle
+    /// Signal-Blue packet that rises from the dock when text is sent, while
+    /// the status line reports the actual route. `crossingPulse` animates
+    /// 0→1; `crossingVisible` fades it in/out; `crossingToken` guards the
+    /// auto-hide against a newer pulse.
+    @State private var crossingPulse: Double = 0
+    @State private var crossingVisible: Bool = false
+    @State private var crossingToken: Int = 0
     /// Tracks whether the compose editor has firstResponder.
     /// Forwarded to the parent via `onComposeFocusChange` so future
     /// keyboard-aware surfaces can react to it.  Today no overlay
@@ -132,6 +140,9 @@ public struct RemoteInputDockView: View {
             }
         }
         .frame(maxWidth: compactWindowWidth, alignment: .center)
+        .overlay(alignment: .top) {
+            crossingPulseOverlay
+        }
         .onChange(of: initialText) { _, newValue in
             guard shouldApplyExternalComposeText(newValue) else {
                 return
@@ -994,11 +1005,54 @@ public struct RemoteInputDockView: View {
             composeSendNeedsMarkedCommitStabilization = false
             isPreparingComposeSend = false
             guard !finalText.isEmpty else { return }
+            triggerCrossingPulse()
             onSend(finalText)
         }
         #else
         onSend(text)
         #endif
+    }
+
+    /// Fires the Compose & Send "crossing" pulse (BRANDING.md §10 step 2:
+    /// "press Send → a subtle pulse appears"). It marks the act of sending;
+    /// the status line reports whether the text actually landed, so this is
+    /// honest for any dispatch, not a success claim.
+    private func triggerCrossingPulse() {
+        crossingToken += 1
+        let token = crossingToken
+        crossingPulse = 0
+        crossingVisible = true
+        withAnimation(.easeOut(duration: 0.45)) {
+            crossingPulse = 1
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 480_000_000)
+            guard token == crossingToken else { return }
+            withAnimation(.easeOut(duration: 0.18)) {
+                crossingVisible = false
+            }
+        }
+    }
+
+    /// The pulse itself — a Signal-Blue packet rising along a short faint
+    /// lane above the dock (the §6.2 "pulse" primitive). Always present in
+    /// the tree; invisible until a send fires.
+    private var crossingPulseOverlay: some View {
+        ZStack(alignment: .bottom) {
+            Capsule()
+                .fill(Color(NaruColors.signalBlue).opacity(0.16))
+                .frame(width: 4, height: 38)
+            Circle()
+                .fill(Color(NaruColors.signalBlue))
+                .frame(width: 11, height: 11)
+                .shadow(color: Color(NaruColors.signalBlue).opacity(0.55), radius: 5)
+                .offset(y: -CGFloat(crossingPulse) * 28)
+        }
+        .frame(width: 11, height: 38)
+        .opacity(crossingVisible ? 1 : 0)
+        .offset(y: -26)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     nonisolated static func composeSendPreparationPlan(

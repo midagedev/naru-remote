@@ -1109,11 +1109,28 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
 
         switch latestInjectionAttempt.status {
         case .sent:
-            return latestInjectionAttempt.safeMessage.isEmpty ? "Text accepted by remote target" : latestInjectionAttempt.safeMessage
+            return latestInjectionAttempt.safeMessage.isEmpty
+                ? Self.sentRouteLabel(for: latestInjectionAttempt)
+                : latestInjectionAttempt.safeMessage
         case .failed:
             return latestInjectionAttempt.safeMessage.isEmpty ? "Send failed; draft kept locally" : latestInjectionAttempt.safeMessage
         case .unknown:
             return latestInjectionAttempt.safeMessage.isEmpty ? "Confirmation unavailable; draft kept locally" : latestInjectionAttempt.safeMessage
+        }
+    }
+
+    /// Names the route a successful send actually took, in the brand
+    /// voice (BRANDING.md §10/§11: "Sent as UTF-8 text", "Pasted via
+    /// Helper"). Only used when the adapter left no `safeMessage` of its
+    /// own; honest and specific beats a generic "accepted".
+    private static func sentRouteLabel(for attempt: TextInjectionAttempt) -> String {
+        switch attempt.path {
+        case .helperTextBridge:
+            return "Inserted via Naru Helper"
+        case .vncClipboardPaste:
+            return attempt.payloadEncoding == .utf8ExtensionRequired
+                ? "Sent as UTF-8 clipboard"
+                : "Sent via clipboard"
         }
     }
 

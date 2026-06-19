@@ -59,7 +59,7 @@ public struct ProfileListView: View {
                                 .foregroundStyle(
                                     isPublicEndpoint
                                         ? NaruColors.coral
-                                        : .teal
+                                        : NaruColors.mutedInk
                                 )
                                 .frame(width: 24)
                                 .help(profile.hostKind.accessibilityLabel)
