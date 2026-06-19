@@ -9,8 +9,10 @@ final class NaruRemoteLaunchUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Add a computer to begin."].waitForExistence(timeout: 2))
         XCTAssertTrue(
-            app.staticTexts["Connect to your Mac or Linux machine over your private Tailscale network."]
-                .waitForExistence(timeout: 2)
+            app.staticTexts[
+                "Connect to a Mac or Linux machine on your private network. "
+                + "Compose text on your phone — Naru sends the finished input across."
+            ].waitForExistence(timeout: 2)
         )
         XCTAssertTrue(app.buttons["naru.home.empty.addProfile"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["Remote Input Dock"].exists)
