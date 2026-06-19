@@ -81,13 +81,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private func runProfileEditorAdd(mode: ColorMode, deviceTag: String) throws {
         let app = launchApp(mode: mode)
 
-        // On compact width (iPhone) the sidebar collapses into the
-        // detail column; the "Add Profile" toolbar button only shows
-        // when the sidebar is visible.  Open it via the back-link
-        // navigation toolbar.
-        revealSidebarIfNeeded(app: app)
-
-        let addProfile = app.buttons["Add Profile"]
+        // First launch (zero profiles) lands on the full-screen empty
+        // home (spec FR-015); its single CTA opens the add-profile sheet.
+        // The sidebar "Add Profile" toolbar button only exists once a
+        // profile has been saved.
+        let addProfile = app.buttons["naru.home.empty.addProfile"]
         XCTAssertTrue(addProfile.waitForExistence(timeout: 8))
         addProfile.tap()
 
@@ -953,18 +951,6 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     /// On compact width the sidebar may be collapsed.  Tap the
     /// system back-button on the navigation bar if it exists.
-    private func revealSidebarIfNeeded(app: XCUIApplication) {
-        // SwiftUI's NavigationSplitView exposes a back button on
-        // the navigation bar when the sidebar is collapsed.  The
-        // accessibility label is localised but the system identifier
-        // for the leading nav button is "Naru Remote" (the sidebar
-        // title).  Try a few selectors.
-        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        if backButton.exists && backButton.isHittable {
-            backButton.tap()
-        }
-    }
-
     private func openFirstConnectionCardIfPresent(app: XCUIApplication) {
         let gridHeading = app.staticTexts["Connections"]
         guard gridHeading.waitForExistence(timeout: 3) else {
