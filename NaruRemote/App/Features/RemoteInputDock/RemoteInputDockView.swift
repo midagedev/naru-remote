@@ -308,17 +308,18 @@ public struct RemoteInputDockView: View {
                     focusComposeEditor()
                 }
             } label: {
+                // Primary action of the idle live HUD: tap to type.
+                // Labelled (not icon-only) so the floating pill reads
+                // as "Compose" instead of a guessable glyph — the
+                // Direct toggle + menus stay compact icons beside it.
                 Label("Compose", systemImage: "text.cursor")
-                    .labelStyle(.iconOnly)
-                    .frame(width: 38, height: 38)
+                    .font(.subheadline.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 14)
+                    .frame(height: 38)
             }
-            .buttonStyle(.plain)
-            .background(NaruColors.surfaceEditor)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(NaruColors.hairline, lineWidth: 1)
-            )
+            .buttonStyle(.borderedProminent)
+            .clipShape(Capsule())
             .accessibilityIdentifier("naru.input.compose-reveal")
 
             if showsMacSessionControls {
@@ -494,20 +495,7 @@ public struct RemoteInputDockView: View {
                 compactMacControlMenu
             }
 
-            if Self.shouldInlineDirectInputSurfacePicker(
-                layoutStyle: layoutStyle,
-                availableWidth: compactWindowWidth,
-                showsMacSessionControls: showsMacSessionControls
-            ) {
-                directInputSurfacePicker
-                    .frame(maxWidth: 156)
-            } else if Self.shouldShowCompactDirectInputSurfaceMenu(
-                layoutStyle: layoutStyle,
-                availableWidth: compactWindowWidth,
-                showsMacSessionControls: showsMacSessionControls
-            ) {
-                compactDirectInputSurfaceMenu
-            }
+            directInputSurfaceControl
 
             Spacer(minLength: 0)
 
@@ -694,6 +682,22 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.quickkeys")
     }
 
+    /// Standard-layout compose editor height: slim when there is
+    /// nothing to compose yet (disconnected / idle), full multi-line
+    /// height once focused or holding a draft.
+    private var standardComposeEditorMinHeight: CGFloat {
+        isStandardComposeEditorExpanded ? 72 : 48
+    }
+
+    private var standardComposeEditorMaxHeight: CGFloat {
+        isStandardComposeEditorExpanded ? 120 : 48
+    }
+
+    private var isStandardComposeEditorExpanded: Bool {
+        composeFieldFocused
+            || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var composeRow: some View {
         // UX punch-list #204: bumped HStack spacing 12 → 16 and
         // padded the editor's trailing inset so the Send paperplane
@@ -702,7 +706,15 @@ public struct RemoteInputDockView: View {
         // room in static screenshots.
         HStack(alignment: .bottom, spacing: 16) {
             composeTextEditor
-                .frame(minHeight: 72, maxHeight: 120)
+                // Pre-compose, the editor sits slim so the standard dock
+                // does not dominate the disconnected detail screen (and
+                // hide the diagnostics beneath it).  It grows to the full
+                // multi-line height as soon as the field is focused or
+                // holds a draft, preserving the compose-ahead affordance.
+                .frame(
+                    minHeight: standardComposeEditorMinHeight,
+                    maxHeight: standardComposeEditorMaxHeight
+                )
                 // UX punch-list #302: was `Color.white.opacity(0.74)`
                 // which rendered as a stark bright rectangle on the
                 // dark canvas.  Adaptive `NaruColors.surfaceEditor`
@@ -744,7 +756,13 @@ public struct RemoteInputDockView: View {
     private var directKeyboard: some View {
         VStack(spacing: 8) {
             if Self.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: layoutStyle) {
-                directInputSurfacePicker
+                HStack(spacing: 10) {
+                    Text("Keyboard")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    directInputSurfaceControl
+                    Spacer(minLength: 0)
+                }
             }
             if Self.shouldShowPersistentMacControlStrip(
                 showsMacSessionControls: showsMacSessionControls,
@@ -764,24 +782,13 @@ public struct RemoteInputDockView: View {
         }
     }
 
-    private var directInputSurfacePicker: some View {
-        Picker(
-            "Direct input surface",
-            selection: Binding<DirectKeystrokeInputSurface>(
-                get: { directKeystrokeMode.inputSurface },
-                set: { onSetDirectInputSurface($0) }
-            )
-        ) {
-            Text("Naru").tag(DirectKeystrokeInputSurface.customKeyboard)
-            Text("iOS").tag(DirectKeystrokeInputSurface.systemKeyboard)
-            Text("HW").tag(DirectKeystrokeInputSurface.hardwareKeyboard)
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
-        .accessibilityIdentifier("naru.direct.input-surface-picker")
-    }
-
-    private var compactDirectInputSurfaceMenu: some View {
+    /// Single, self-explanatory keyboard-source control used in both
+    /// the standard dock and the compact live header.  Replaces the
+    /// old cryptic three-segment "Naru | iOS | HW" picker that stacked
+    /// a second segmented control under Compose|Direct: a user now
+    /// reads "Naru keyboard ▾" and the menu spells out each option in
+    /// full, instead of guessing what three abbreviations mean.
+    private var directInputSurfaceControl: some View {
         Menu {
             ForEach(DirectKeystrokeInputSurface.allCases, id: \.self) { surface in
                 Button {
@@ -795,17 +802,26 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.direct.input-surface-menu.\(surface.rawValue)")
             }
         } label: {
-            Label(
-                Self.directInputSurfaceShortLabel(for: directKeystrokeMode.inputSurface),
-                systemImage: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface)
-            )
-            .font(.caption.weight(.semibold))
-            .labelStyle(.titleAndIcon)
-            .frame(minWidth: 54, minHeight: 38)
+            HStack(spacing: 6) {
+                Image(systemName: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface))
+                Text(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(minHeight: 38)
+            .padding(.horizontal, 12)
+            .fixedSize(horizontal: true, vertical: false)
+            // Decorative icon + chevron must not surface as separate
+            // "chevron.down" / glyph buttons in the accessibility tree —
+            // the menu carries its own combined label below.
+            .accessibilityElement(children: .ignore)
         }
         .buttonStyle(.bordered)
         .accessibilityLabel(
-            "Direct input surface, \(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))"
+            "Keyboard, \(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))"
         )
         .accessibilityIdentifier("naru.direct.input-surface-menu")
     }
