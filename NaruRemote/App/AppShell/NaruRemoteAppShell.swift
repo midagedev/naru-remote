@@ -188,6 +188,50 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
+    /// The Remote Input Dock is a *session* surface, not a fixed part of
+    /// the pre-connect detail screen.  Per `PRODUCT_SPEC.md` the local
+    /// compose path is about "원격 세션이 열렸을 때 로컬 입력 경로가
+    /// 준비됐는지" — so before a connection exists there is nothing to
+    /// send to, and the dock would only bury the Connect button and the
+    /// diagnostics list.  Show it once a connection is in progress or
+    /// live; hide it on the bare "profile selected / running checks"
+    /// screen and after a connection has failed or closed.
+    static func showsInputDock(for snapshot: NaruRemoteAppSnapshot) -> Bool {
+        if sessionWarrantsInputDock(snapshot.session?.state) {
+            return true
+        }
+        return forcesInputDockForTesting
+    }
+
+    static func sessionWarrantsInputDock(_ state: RemoteSessionState?) -> Bool {
+        guard let state else {
+            return false
+        }
+        switch state {
+        case .failed, .closed:
+            return false
+        case .connecting, .authenticating, .active, .degraded, .reconnecting:
+            return true
+        }
+    }
+
+    /// Focused input-dock UI tests drive the dock without a live RFB
+    /// socket (they start on a selected profile and toggle Compose /
+    /// Direct).  They opt in via `NARU_TEST_START_PROFILE_DETAIL`
+    /// (already set by the Direct-keystroke / compose suites) or the
+    /// dedicated `NARU_TEST_FORCE_INPUT_DOCK` flag used by the
+    /// grid-entry screenshot helpers.  Inert in production.
+    private static var forcesInputDockForTesting: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["NARU_TEST_FORCE_INPUT_DOCK"] == "1" {
+            return true
+        }
+        guard let raw = environment["NARU_TEST_START_PROFILE_DETAIL"], !raw.isEmpty else {
+            return false
+        }
+        return raw != "0" && raw.lowercased() != "false"
+    }
+
     @ViewBuilder
     private func sessionDetailSurface(
         snapshot: NaruRemoteAppSnapshot,
@@ -240,7 +284,7 @@ public struct NaruRemoteAppShell: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !isEmptyHome && !showsConnectionGrid {
+            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot) {
                 let accessoryChrome = RemoteInputAccessoryChromeState(
                     snapshot: snapshot,
                     incomingClipboardReview: model.pendingIncomingClipboard,
@@ -267,7 +311,7 @@ public struct NaruRemoteAppShell: View {
             // the user has added a computer is exactly the
             // pre-announcement of capabilities the empty-home CTA
             // is meant to remove.
-            if !isEmptyHome && !showsConnectionGrid {
+            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot) {
                 let accessoryChrome = RemoteInputAccessoryChromeState(
                     snapshot: snapshot,
                     incomingClipboardReview: model.pendingIncomingClipboard,

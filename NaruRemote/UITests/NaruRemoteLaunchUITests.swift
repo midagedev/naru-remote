@@ -20,9 +20,15 @@ final class NaruRemoteLaunchUITests: XCTestCase {
     func testRemoteInputDockMovesAboveKeyboardWhileComposing() {
         XCUIDevice.shared.orientation = .landscapeLeft
 
-        let app = launchAppWithProfileStore(seedProfiles: [
-            SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
-        ])
+        let app = launchAppWithProfileStore(
+            seedProfiles: [
+                SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")
+            ],
+            // The Remote Input Dock is now a session-only surface; this
+            // focused dock test composes without a live socket, so opt the
+            // dock in explicitly (see NaruRemoteAppShell.showsInputDock).
+            launchEnvironment: ["NARU_TEST_FORCE_INPUT_DOCK": "1"]
+        )
 
         openFirstConnectionCardIfPresent(app: app)
 
