@@ -36,3 +36,8 @@ Packages/
 # Editor local state
 .vscode/
 .idea/
+
+# Release UI audit — keep organized contact sheets, drop bulky raw frames
+artifacts/release-audit/*
+!artifacts/release-audit/contact-light.png
+!artifacts/release-audit/contact-dark.png
