@@ -205,14 +205,7 @@ public final class SessionFrameStore: ObservableObject {
         guard let delay = coalescingDelay else {
             return
         }
-        frameDeliveryTask = Task { @MainActor [weak self, delay] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
-            }
-            self?.flushPendingFrameDelivery()
-        }
+        frameDeliveryTask = makeDelayedFrameFlushTask(after: delay)
     }
 
     private func reschedulePendingSteadyFrameDelivery() {
@@ -226,7 +219,14 @@ public final class SessionFrameStore: ObservableObject {
         guard let delay = pendingFrameDeliveryCoalescingDelay else {
             return
         }
-        frameDeliveryTask = Task { @MainActor [weak self, delay] in
+        frameDeliveryTask = makeDelayedFrameFlushTask(after: delay)
+    }
+
+    /// Schedules a single coalesced flush after `delay`. Used by both the
+    /// initial schedule and the steady-state reschedule path so the
+    /// sleep/cancel/flush lifecycle lives in one place.
+    private func makeDelayedFrameFlushTask(after delay: Duration) -> Task<Void, Never> {
+        Task { @MainActor [weak self, delay] in
             do {
                 try await Task.sleep(for: delay)
             } catch {

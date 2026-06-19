@@ -2,6 +2,13 @@ import Combine
 import Foundation
 import NaruRemoteCore
 
+/// Wall-clock milliseconds elapsed since `start`, clamped to ≥ 0. Shared by
+/// the outbound-input race and the app model's frame/stream timing so the
+/// rounding/clamping is defined once.
+private func elapsedMilliseconds(since start: Date) -> Int {
+    max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
+}
+
 private struct PendingPointerMove {
     let command: RFBPointerCommand
     let pointerClient: RFBPointerEventClient
@@ -364,17 +371,17 @@ private final class OutboundInputEventDispatcher: @unchecked Sendable {
                 return
             }
 
-            let queueDelayMilliseconds = Self.elapsedMilliseconds(since: enqueuedAt)
+            let queueDelayMilliseconds = elapsedMilliseconds(since: enqueuedAt)
             let operationStartedAt = Date()
             do {
                 try await Self.runOperation(timeout: self.timeout, operation: operation)
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                let operationMilliseconds = elapsedMilliseconds(since: operationStartedAt)
                 guard self.isCurrent(eventGeneration) else {
                     return
                 }
                 await record(queueDelayMilliseconds, operationMilliseconds, false)
             } catch {
-                let operationMilliseconds = Self.elapsedMilliseconds(since: operationStartedAt)
+                let operationMilliseconds = elapsedMilliseconds(since: operationStartedAt)
                 let timedOut: Bool
                 if case OutboundInputEventError.timedOut = error {
                     timedOut = true
@@ -425,10 +432,6 @@ private final class OutboundInputEventDispatcher: @unchecked Sendable {
 
         taskToCancel?.cancel()
         return true
-    }
-
-    private static func elapsedMilliseconds(since start: Date) -> Int {
-        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
     }
 
     private static func runOperation(
@@ -773,7 +776,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var lastPreviewSaveAt: [ConnectionProfile.ID: Date] = [:]
     private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
-    private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
     // Wake granularity while a pacing delay is pending. Kept near one
@@ -3862,7 +3864,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID
     ) {
         let monitorID = UUID()
-        let probeInterval = Self.mainActorResponsivenessProbeInterval
+        let probeInterval = Duration.seconds(Self.mainActorResponsivenessProbeIntervalSeconds)
         mainActorResponsivenessMonitorID = monitorID
         mainActorResponsivenessTask?.cancel()
         mainActorResponsivenessTask = Task(priority: .utility) { @MainActor [weak self] in
@@ -3885,7 +3887,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     return
                 }
                 self.recordMainActorResponsivenessDelay(
-                    milliseconds: Self.elapsedMilliseconds(since: expectedWakeAt)
+                    milliseconds: elapsedMilliseconds(since: expectedWakeAt)
                 )
             }
         }
@@ -4251,10 +4253,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             consumedHiddenFrameCount: consumedHiddenFrameCount,
             outcome: .consumed
         )
-    }
-
-    private nonisolated static func elapsedMilliseconds(since start: Date) -> Int {
-        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
     }
 
     private func resetSessionStreamStats() {
@@ -4710,7 +4708,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isCurrentStream(work.streamID, sessionID: work.sessionID, profileID: work.profile.id) else {
             return
         }
-        recordAppFrameApplyTiming(milliseconds: Self.elapsedMilliseconds(since: appFrameApplyStart))
+        recordAppFrameApplyTiming(milliseconds: elapsedMilliseconds(since: appFrameApplyStart))
     }
 
     private func applyStreamFrame(
@@ -7728,13 +7726,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
             recordOutboundInputEvent(
                 queueDelayMilliseconds: 0,
-                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                operationMilliseconds: elapsedMilliseconds(since: startedAt),
                 timedOut: false
             )
         } catch {
             recordOutboundInputEvent(
                 queueDelayMilliseconds: 0,
-                operationMilliseconds: Self.elapsedMilliseconds(since: startedAt),
+                operationMilliseconds: elapsedMilliseconds(since: startedAt),
                 timedOut: false
             )
         }
