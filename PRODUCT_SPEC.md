@@ -18,10 +18,6 @@ Naru Remote는 iPhone을 일차 설계 대상으로 둔다(constitution §VI). i
 
 > iPhone에서 합성하고, Tailnet 안의 컴퓨터에 정확히 보낸다. 데스크톱 터미널과 AI 에이전트를 주머니에 — 한국어가 깨지지 않은 채로.
 
-스트리밍, 입력, 제스처, iPhone/iPad 사용감이 "원활하다"고 판정하는
-구체적인 제품 품질 기준은 `PRODUCT_QUALITY_TARGETS.md`를 따른다. 기능별 spec은
-이 기준을 각 acceptance test와 benchmark gate로 구체화한다.
-
 ## 2. 배경과 문제
 
 기존 모바일 VNC viewer의 입력 방식은 대부분 키 이벤트 중심이다. 이 구조는 영어 물리 키보드 입력에는 충분하지만, 한글, 일본어, 중국어, 악센트 문자, 이모지, 복합 기호, 받아쓰기처럼 iOS에서 먼저 조합되어야 하는 입력에는 취약하다.
@@ -172,16 +168,7 @@ Naru Remote의 첫 경험은 "원격 화면 앱" 설명보다 "지금 연결을 
 - view-only mode
 - connection quality indicator
 
-### iPhone UX (1차 설계 대상; constitution §VI)
-
-- compose bar 우선 UX — sustained 터미널/AI CLI 세션을 폰에서 이어가는 것이 기준 시나리오다
-- 화면 조작을 방해하지 않는 compact toolbar
-- 한 손 thumb mode
-- quick zoom to cursor — 텍스트 위주 framebuffer에서 가독성/정확성을 최우선으로 둔다
-- 셀룰러↔Wi-Fi 전환과 백그라운드 복귀 시 끊김 없는 reconnect/세션 지속성
-- 외장 키보드는 옵션. 외장 키보드가 없는 상태에서 Compose & Send만으로 모든 기본 입력이 가능해야 한다
-
-### iPad UX (graceful scaling)
+### iPad UX
 
 - 전체 화면 원격 화면
 - 하단 compose bar
@@ -190,7 +177,13 @@ Naru Remote의 첫 경험은 "원격 화면 앱" 설명보다 "지금 연결을 
 - command palette
 - split view 대응
 - Stage Manager 대응
-- 외장 키보드 + 외부 디스플레이 + 펜은 layered enhancement이며, iPhone 우선순위를 흐리지 않는다
+
+### iPhone UX
+
+- 화면 조작을 방해하지 않는 compact toolbar
+- 한 손 thumb mode
+- quick zoom to cursor
+- compose bar 우선 UX
 
 ### PiP Watch Mode
 
@@ -212,8 +205,6 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - PiP 시작은 사용자가 명시적으로 선택해야 한다.
 - PiP는 제어 가능한 세션이 실제 원격 프레임을 받은 뒤에만 시작할 수 있다.
 - PiP에는 원격 화면과 최소 상태 overlay만 표시한다.
-- 사용자가 메인 세션에서 확대/팬으로 잡은 읽기 영역은 PiP에서도 같은
-  watch-only 포커스로 반영될 수 있어야 한다.
 - 민감한 프로필에서는 PiP 사용을 끌 수 있어야 한다.
 - diagnostic export와 logs에는 PiP 프레임이나 screenshots를 저장하지 않는다.
 
@@ -224,8 +215,6 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - 메인 viewport와 PiP는 같은 locally composed framebuffer pipeline을 공유한다.
   별도 디코더를 두지 않고 dirty rectangle, changed pixel count, change
   activity를 기준으로 렌더링 비용을 조절한다.
-- PiP 확대/팬은 원격 입력이 아니라 로컬 video-frame crop으로 처리하며,
-  PiP layer churn을 줄이기 위해 출력 sample-buffer 크기는 안정적으로 유지한다.
 - 변화가 적은 화면은 낮은 FPS로 유지하고, 변화가 많은 화면만 일시적으로
   프레임 전송 빈도를 올린다.
 - 첫 구현은 one active controllable session + one PiP watch session을 목표로
@@ -407,12 +396,8 @@ OS별 구현 후보:
 Compose & Send와 **나란한 두 번째 입력 모드**다. §6.3 전송 모드 안의
 "B. Keystroke Fallback Mode"가 Compose & Send 안의 send-time fallback인 것과 달리,
 이 모드는 Remote Input Dock 레벨에서 사용자가 명시적으로 켜는 토글 모드다. 켜지면
-compose 단계가 사라지고, **앱이 직접 그리는 커스텀 소프트 키보드**(Chrome Remote Desktop
-Android 패턴 — QWERTY 페이지 + 특수키 페이지 두 장, 화면 하단 도킹)의 각 탭이 즉시 RFB
-KeyEvent로 원격에 스트리밍된다. iOS 시스템 키보드는 이 모드에서 사용하지 않는다 — IME
-조합·자동완성·예측 입력이 raw 키스트로크 송신을 깨뜨리고, Tab/Esc/Ctrl/방향키 같은
-터미널 필수 키가 없으며, 같은 키보드에서 IME 조합과 raw 송신이 섞이면 사용자가 어느
-모드에 있는지 식별할 수 없기 때문이다. 다른 키보드 외형 자체가 모드 표시기로 작동한다.
+compose 단계가 사라지고 iOS 키보드의 각 키 입력이 즉시 RFB KeyEvent로 원격에
+스트리밍된다.
 
 이 모드는 헌법 원칙 I이 명시한 *"Remote key events MAY exist for compatibility, but
 they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영역에
@@ -428,38 +413,10 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 
 #### 흐름
 
-1. 사용자가 Remote Input Dock 상단의 segmented mode picker에서
-   "Compose" / "Direct" 두 세그먼트 중 "Direct"를 선택한다(shipped UI 라벨은
-   짧게 "Direct"; "Direct Keystroke"가 아니다 — 도크의 좁은 폭에 맞춘
-   결정이다).
-2. iOS 시스템 키보드가 내려가고 화면 하단에 Naru의 커스텀 소프트 키보드(QWERTY 페이지)가
-   올라오며, 도크 헤더와 세션 HUD 두 곳에 "Direct mode" 배지가 동시에
-   표시된다(도크 배지는 키보드와 함께, HUD 배지는 키보드를 접거나 다른
-   시트로 전환해도 유지된다 — FR-010).
-3. 첫 진입 시(세션당 1회) `confirmationDialog`로 경고가 표시된다. 본문은 영어로
-   "Keystrokes go straight to the remote computer. IME input (Korean,
-   Chinese, Japanese, emoji) will not work in this mode. Switch back to
-   Compose & Send for multilingual text." 이며 단일 액션 버튼 "Got it"로
-   닫는다(도크 chrome의 다른 영문 라벨 — Compose / Direct / Send — 과 톤을
-   맞춘 결과로 영어로 출시; 한국어 로컬라이제이션은 Ship Readiness P2의
-   `Localizable.strings` 작업에서 다룬다).
-4. 커스텀 키보드의 각 탭이 즉시 RFB KeyEvent로 송신된다(키-다운/키-업 한 쌍). 사용자가
-   특수키 페이지 토글을 누르면 Tab/Esc/Ctrl/Alt/Cmd/Shift/방향키/F1-F12/Home/End/PgUp/PgDn/
-   Insert/Delete를 포함한 페이지로 전환된다(전환 자체는 KeyEvent를 발생시키지 않는다).
-5. 모디파이어(Ctrl/Shift/Alt/Cmd)는 sticky 동작이다 — 1회 탭하면 armed
-   상태로 들어가 다음 비-모디파이어 키 하나에만 적용된 뒤 자동 해제,
-   400ms 안에 2회 탭하면 locked 상태로 lock(다시 탭할 때까지 유지). 세 가지
-   상태(idle / armed / locked)는 ModifierKeyButton의 시각으로 구분되며 (헌법
-   원칙: 시각이 표시기) accessibility label에도 "Control modifier, idle"
-   형태로 노출된다. 페이지에는 한 번에 모든 sticky 상태를 비우는 "Clr"
-   버튼이 있다(spec 초안의 "Clear modifiers" 어포던스를 좁은 키 폭에 맞게
-   라벨만 단축한 것이며 동작은 동일하다 — `model.tapDirectKey(.clearModifiers)`).
-6. 블루투스/Magic Keyboard가 연결돼 있으면 하드웨어 키스트로크가 동일한 키심 매핑 표를
-   거쳐 RFB KeyEvent로 송신된다(`UIKeyCommand`/`pressesBegan`/`pressesEnded` 경유).
-   하드웨어와 온스크린 입력은 충돌 없이 공존하며, 하드웨어 자동 반복은 원격 OS가 소유한다
-   (Naru가 합성하지 않는다).
-7. 사용자가 토글을 다시 끄면 iOS 시스템 키보드가 복원되고 Compose & Send 모드로 복귀한다.
-   이때 Compose 작성 중이던 초안은 보존된다.
+1. 사용자가 Remote Input Dock의 입력 모드 토글에서 "Direct Keystroke"를 선택한다.
+2. UI는 모드가 전환됐고 IME/자동완성/받아쓰기는 보장되지 않는다는 경고를 표시한다.
+3. iOS 키보드의 키 입력이 RFB KeyEvent로 즉시 송신된다.
+4. 사용자가 토글을 다시 끄면 Compose & Send 모드로 복귀한다.
 
 #### 제약과 경고
 
@@ -472,10 +429,9 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 
 #### MVP 범위
 
-Direct Keystroke Streaming Mode는 `specs/002-direct-keystroke-mode/spec.md` 로
-분리된 별도 feature이며, founder의 핵심 사용 사례(iPhone에서 지속적 AI 코딩 —
-Ghostty/Codex over VNC)가 이 모드 없이는 성립하지 않으므로 출시 전 구현이 필요한
-ship-blocker로 격상된다. 자세한 사용자 스토리·요구사항·검증은 그 spec에서 추적한다.
+MVP에서는 Compose & Send만 구현한다. Direct Keystroke Streaming Mode는 별도
+feature spec(`specs/00x-direct-keystroke-mode/spec.md`)으로 분리되며 MVP가 실기기
+검증을 마친 뒤 추가된다.
 
 ## 6.4 Voice Compose
 
