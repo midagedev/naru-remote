@@ -8,6 +8,27 @@ payloads here.
 Recent simulator input/viewport gate evidence:
 `artifacts/benchmarks/2026-06-14-compose-input-storm-pacing-summary.md`.
 
+Current 2026-06-15 gate status:
+`artifacts/benchmarks/2026-06-15-vnc-10fps-readiness-post-helper-wake-summary.md`
+records helper-video synthetic/screen gates passing, VNC still failing the
+10fps product target at about 1.8 content FPS from first-byte receive cadence,
+and the physical iPhone gate blocked by device availability. Do not repeat
+request-region/startup/payload/client-processing promotion work without a new
+server-cadence idea.
+
+Current physical device/signing loop:
+`artifacts/benchmarks/2026-06-15-physical-signing-team-profile-matrix-summary.md`
+records that the discovered profile can build/install on the connected iPad,
+that local certificate-team mismatch is downgraded when `xcodebuild` passes,
+and that the current iPhone blocker is `physical-iphone-device-unavailable`.
+It also records the physical iPad XCTest runner communication failure so the
+same sustained XCTest attempt is not repeated as a product signal.
+
+Current simulator input/viewport baseline:
+`artifacts/benchmarks/2026-06-15-simulator-input-viewport-gate-baseline-summary.md`
+records a passing iPhone+iPad simulator gate after the helper-video runner
+work; it is baseline evidence only, not a performance-promotion result.
+
 ## iPhone Simulator: Synthetic Frame Pipeline
 
 Use the opt-in XCTest benchmarks when investigating heat, low FPS, or

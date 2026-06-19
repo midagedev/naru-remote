@@ -3413,6 +3413,18 @@ append_unique() {
   eval "$array_name+=(\"\$value\")"
 }
 
+remove_array_value() {
+  local array_name="$1"
+  local value="$2"
+  local existing
+  eval "local current_values=(\"\${${array_name}[@]-}\")"
+  eval "$array_name=()"
+  for existing in "${current_values[@]}"; do
+    [[ "$existing" == "$value" ]] && continue
+    eval "$array_name+=(\"\$existing\")"
+  done
+}
+
 print_physical_signing_setup_summary() {
   local device_status="$1"
   local signing_identity_status="$2"
@@ -6303,8 +6315,10 @@ physical_preflight() {
       append_unique signing_diagnostic_labels "development-team-certificate-matched"
       ;;
     notMatched)
-      append_unique issue_codes "ios-development-team-certificate-mismatch"
-      append_unique setup_actions "set-xcode-development-team"
+      if [[ "$device_status" == "connected" ]]; then
+        append_unique issue_codes "ios-development-team-certificate-mismatch"
+        append_unique setup_actions "set-xcode-development-team"
+      fi
       append_unique signing_diagnostic_labels "development-team-not-backed-by-local-certificate"
       ;;
     noLocalAppleDevelopmentTeams)
@@ -6371,6 +6385,11 @@ physical_preflight() {
         append_unique signing_diagnostic_labels "xcodebuild-failed-without-known-signing-label"
       fi
     else
+      if [[ "$development_team_certificate_match_status" == "notMatched" ]]; then
+        remove_array_value issue_codes "ios-development-team-certificate-mismatch"
+        remove_array_value setup_actions "set-xcode-development-team"
+        append_unique signing_diagnostic_labels "development-team-certificate-mismatch-overridden-by-passing-xcodebuild"
+      fi
       provisioning_profile_status="available"
       xcode_account_status="available"
       append_unique signing_diagnostic_labels "physical-signing-ready"
@@ -6625,8 +6644,10 @@ physical_ipad_preflight() {
       append_unique signing_diagnostic_labels "development-team-certificate-matched"
       ;;
     notMatched)
-      append_unique issue_codes "ios-development-team-certificate-mismatch"
-      append_unique setup_actions "set-xcode-development-team"
+      if [[ "$device_status" == "connected" ]]; then
+        append_unique issue_codes "ios-development-team-certificate-mismatch"
+        append_unique setup_actions "set-xcode-development-team"
+      fi
       append_unique signing_diagnostic_labels "development-team-not-backed-by-local-certificate"
       ;;
     noLocalAppleDevelopmentTeams)
@@ -6688,6 +6709,11 @@ physical_ipad_preflight() {
         append_unique signing_diagnostic_labels "xcodebuild-failed-without-known-signing-label"
       fi
     else
+      if [[ "$development_team_certificate_match_status" == "notMatched" ]]; then
+        remove_array_value issue_codes "ios-development-team-certificate-mismatch"
+        remove_array_value setup_actions "set-xcode-development-team"
+        append_unique signing_diagnostic_labels "development-team-certificate-mismatch-overridden-by-passing-xcodebuild"
+      fi
       provisioning_profile_status="available"
       xcode_account_status="available"
       append_unique signing_diagnostic_labels "physical-ipad-signing-ready"
@@ -7621,8 +7647,35 @@ physical_ipad_state_marker_smoke() {
         --log-output "$marker_copy_log" >/dev/null 2>&1; then
         marker_copy_status="passed"
       else
-        append_unique issue_codes "physical-ipad-state-marker-copy-failed"
-        append_unique setup_actions "rebuild-and-reinstall-naruremote-physical-ipad-app"
+        local marker_documents_tmpdir
+        marker_documents_tmpdir="$marker_tmpdir/documents"
+        mkdir -p "$marker_documents_tmpdir"
+        rm -f "$marker_copy_json" "$marker_copy_log"
+        marker_copy_json="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-copy.XXXXXX")"
+        marker_copy_log="$(mktemp "${TMPDIR:-/tmp}/naru-ipad-marker-copy-log.XXXXXX")"
+        if xcrun devicectl device copy from \
+          --device "$device_id" \
+          --domain-type appDataContainer \
+          --domain-identifier com.naruremote.app \
+          --source "Documents" \
+          --destination "$marker_documents_tmpdir" \
+          --json-output "$marker_copy_json" \
+          --log-output "$marker_copy_log" >/dev/null 2>&1; then
+          for copied_marker in \
+            "$marker_documents_tmpdir/Documents/$marker_filename" \
+            "$marker_documents_tmpdir/$marker_filename"; do
+            if [[ -s "$copied_marker" ]]; then
+              marker_file="$copied_marker"
+              marker_copy_status="passed"
+              break
+            fi
+          done
+        fi
+
+        if [[ "$marker_copy_status" != "passed" ]]; then
+          append_unique issue_codes "physical-ipad-state-marker-copy-failed"
+          append_unique setup_actions "rebuild-and-reinstall-naruremote-physical-ipad-app"
+        fi
       fi
 
       marker_validation_label="$(physical_ipad_state_marker_validation_label "$marker_file" "$marker_nonce")"
@@ -7974,6 +8027,12 @@ physical_iphone_gate_classify_xcodebuild_failure() {
   if grep -qi "locked" "$output_file"; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "physical-ios-device-locked"
     append_unique PHYSICAL_GATE_SETUP_ACTIONS "unlock-physical-iphone"
+  fi
+  if grep -Eiq "communicating with a remote process|connection was invalidated|CoreDeviceCLISupport[.]DiagnoseError|problem with the test runner after launch" "$output_file"; then
+    append_unique PHYSICAL_GATE_ISSUE_CODES "physical-ios-test-runner-communication-invalidated"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "unlock-physical-iphone"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "reconnect-physical-ios-device"
+    append_unique PHYSICAL_GATE_SETUP_ACTIONS "inspect-xcode-physical-test-runner"
   fi
   if grep -q "XCTSkip" "$output_file" || grep -q "Test skipped" "$output_file"; then
     append_unique PHYSICAL_GATE_ISSUE_CODES "physical-iphone-helper-video-gate-skipped"
@@ -8438,6 +8497,24 @@ LOG
 
   rm -f "$log_file" "$diagnostic_file" "$summary_file"
 
+  local test_runner_log_file
+  test_runner_log_file="$(mktemp "${TMPDIR:-/tmp}/naru-physical-gate-test-runner-log.XXXXXX")"
+  cat >"$test_runner_log_file" <<'LOG'
+Testing failed:
+  NaruRemoteUITests-Runner encountered an error (Encountered a problem with the test runner after launch. (Underlying Error: An error occurred while communicating with a remote process. (Underlying Error: The connection was invalidated.)))
+LOG
+  PHYSICAL_GATE_ISSUE_CODES=()
+  PHYSICAL_GATE_SETUP_ACTIONS=()
+  physical_iphone_gate_classify_xcodebuild_failure "$test_runner_log_file" "failed"
+  local test_runner_status="failed"
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-ios-test-runner-communication-invalidated "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" reconnect-physical-ios-device "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" inspect-xcode-physical-test-runner "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " != *" physical-iphone-helper-video-gate-failed "* ]]; then
+    test_runner_status="passed"
+  fi
+  rm -f "$test_runner_log_file"
+
   if [[ -n "$saved_host" ]]; then export NARU_PHYSICAL_E2E_HOST="$saved_host"; else unset NARU_PHYSICAL_E2E_HOST; fi
   if [[ -n "$saved_port" ]]; then export NARU_PHYSICAL_E2E_PORT="$saved_port"; else unset NARU_PHYSICAL_E2E_PORT; fi
   if [[ -n "$saved_host_kind" ]]; then export NARU_PHYSICAL_E2E_HOST_KIND="$saved_host_kind"; else unset NARU_PHYSICAL_E2E_HOST_KIND; fi
@@ -8460,8 +8537,8 @@ LOG
   if [[ -n "$saved_helper_video_token" ]]; then export NARU_HELPER_VIDEO_TOKEN="$saved_helper_video_token"; else unset NARU_HELPER_VIDEO_TOKEN; fi
   if [[ -n "$saved_helper_video_fingerprint" ]]; then export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="$saved_helper_video_fingerprint"; else unset NARU_HELPER_VIDEO_PROFILE_FINGERPRINT; fi
 
-  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$target_class_status" == "passed" && "$listener_status" == "passed" && "$diagnostic_status" == "passed" ]]; then
-    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","targetClassCase":"passed","listenerLifecycleCase":"passed","diagnosticSummaryCase":"passed"}\n'
+  if [[ "$missing_status" == "passed" && "$fallback_status" == "passed" && "$port_status" == "passed" && "$valid_status" == "passed" && "$target_class_status" == "passed" && "$listener_status" == "passed" && "$diagnostic_status" == "passed" && "$test_runner_status" == "passed" ]]; then
+    printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"passed","configurationMissingCase":"passed","liveFallbackCase":"passed","portValidationCase":"passed","configurationValidCase":"passed","targetClassCase":"passed","listenerLifecycleCase":"passed","diagnosticSummaryCase":"passed","testRunnerCommunicationCase":"passed"}\n'
   else
     printf '{"schemaVersion":1,"mode":"physical-iphone-helper-video-gate-self-test","status":"failed","configurationMissingCase":'
     json_string "$missing_status"
@@ -8477,6 +8554,8 @@ LOG
     json_string "$listener_status"
     printf ',"diagnosticSummaryCase":'
     json_string "$diagnostic_status"
+    printf ',"testRunnerCommunicationCase":'
+    json_string "$test_runner_status"
     printf '}\n'
     exit 1
   fi
