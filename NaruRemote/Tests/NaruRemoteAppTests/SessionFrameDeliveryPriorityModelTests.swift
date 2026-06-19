@@ -9,21 +9,21 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
 
         model.setComposeInputEditingActive(true)
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100)
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay
         )
 
         model.setComposeInputEditingActive(false)
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -61,14 +61,14 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         model.setViewportInteractionActive(false)
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -79,7 +79,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         try await Task.sleep(
@@ -88,7 +88,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -99,7 +99,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         try await Task.sleep(
@@ -108,7 +108,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -119,14 +119,14 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         model.disconnect()
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
 
         try await Task.sleep(
@@ -135,7 +135,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -149,7 +149,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50),
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay,
             "The first transient lease expiry must not clear a newer interaction lease."
         )
 
@@ -159,7 +159,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -179,14 +179,14 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100)
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay
         )
 
         model.selectProfile(id: second.id)
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
 
         try await Task.sleep(
@@ -195,7 +195,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -207,7 +207,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100)
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay
         )
 
         try await Task.sleep(
@@ -216,7 +216,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100),
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay,
             "A transient interaction lease must not drop Compose focus back to visual frame cadence."
         )
 
@@ -224,7 +224,7 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 
@@ -234,27 +234,27 @@ final class SessionFrameDeliveryPriorityModelTests: XCTestCase {
         model.setViewportInteractionActive(true)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         model.setComposeInputEditingActive(true)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100),
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay,
             "IME-owned Compose input must win over viewport/navigation frame delivery."
         )
 
         model.setComposeInputEditingActive(false)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50),
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay,
             "Ending Compose focus should reveal the still-active viewport navigation cadence."
         )
 
         model.setViewportInteractionActive(false)
         XCTAssertEqual(
             model.frameStore.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
     }
 

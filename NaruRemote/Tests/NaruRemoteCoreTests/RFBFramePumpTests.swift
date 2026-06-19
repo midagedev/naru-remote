@@ -437,12 +437,162 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.continuousUpdatesEnabledFlags, [true])
     }
 
+    func testPipelinedRequestResponseKeepsDepthRequestsOutstanding() throws {
+        let source = FakePipelinedFramebufferUpdateSource(
+            firstFrame: Self.framebuffer(red: 255),
+            receivedResults: [
+                Self.contentResult(red: 10),
+                Self.contentResult(red: 20),
+                Self.contentResult(red: 30)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+        var frames: [RFBFramePumpFrame] = []
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 4, requestPipelineDepth: 3)
+        ) { frame in
+            frames.append(frame)
+            return .continue
+        }
+
+        XCTAssertEqual(frames.map(\.isIncremental), [false, true, true, true])
+        // Depth 3 primes 3 incremental requests on the first incremental,
+        // then refills one per consumed content frame: 3 + 3 = 6.
+        XCTAssertEqual(source.sentIncrementalRequestCount, 6)
+        XCTAssertTrue(source.sentRequestsAllIncremental)
+        XCTAssertEqual(source.continuousReceiveCount, 3)
+    }
+
+    func testPipelinedRequestResponseDoesNotRefillAfterIdleTimeout() throws {
+        let source = FakePipelinedFramebufferUpdateSource(
+            firstFrame: Self.framebuffer(red: 255),
+            receivedResults: [
+                Self.idleResult(),
+                Self.contentResult(red: 20)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 3, requestPipelineDepth: 2)
+        ) { _ in .continue }
+
+        // Depth 2 primes 2 requests; the idle-timeout receive consumes no
+        // server response so it does not refill; the content receive refills
+        // one. 2 + 1 = 3, and the backlog never grows past the depth.
+        XCTAssertEqual(source.sentIncrementalRequestCount, 3)
+    }
+
+    func testDepthOneDoesNotUsePipelinedSendPath() throws {
+        let source = FakePipelinedFramebufferUpdateSource(
+            firstFrame: Self.framebuffer(red: 255),
+            receivedResults: [Self.contentResult(red: 10)]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(maxFrames: 2, requestPipelineDepth: 1)
+        ) { _ in .continue }
+
+        // Depth 1 keeps the classic coupled request/response path, so the
+        // fire-and-forget send primitive is never used.
+        XCTAssertEqual(source.sentIncrementalRequestCount, 0)
+    }
+
     private static func framebuffer(red: UInt8) -> RFBRawFramebuffer {
         RFBRawFramebuffer(
             width: 1,
             height: 1,
             fill: RFBColor(red: red, green: 0, blue: 0)
         )
+    }
+
+    private static func contentResult(red: UInt8) -> RFBFramebufferUpdateResult {
+        RFBFramebufferUpdateResult(
+            framebuffer: framebuffer(red: red),
+            dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 1, height: 1)],
+            changedPixelCount: 1
+        )
+    }
+
+    private static func idleResult() -> RFBFramebufferUpdateResult {
+        RFBFramebufferUpdateResult(
+            framebuffer: framebuffer(red: 0),
+            dirtyRectangles: [],
+            changedPixelCount: 0,
+            transportIdleTimedOut: true
+        )
+    }
+}
+
+/// Source that only exposes the request/response *send* primitive plus the
+/// ContinuousUpdates-style receive boundary — the exact capability shape
+/// `RFBNetworkClient` presents — so the pump's pipelined request/response
+/// path can be exercised in isolation.
+private final class FakePipelinedFramebufferUpdateSource:
+    RFBFramebufferUpdating,
+    RFBFramebufferUpdateRequestSending,
+    RFBContinuousFramebufferUpdateReceiving
+{
+    enum Error: Swift.Error { case noFirstFrame, noReceivedFrame }
+
+    private struct State {
+        var frame: RFBRawFramebuffer
+        var receivedResults: [RFBFramebufferUpdateResult]
+        var sentIncrementalFlags: [Bool] = []
+        var continuousReceiveCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(firstFrame: RFBRawFramebuffer, receivedResults: [RFBFramebufferUpdateResult]) {
+        self.state = OSAllocatedUnfairLock(
+            initialState: State(frame: firstFrame, receivedResults: receivedResults)
+        )
+    }
+
+    var sentIncrementalRequestCount: Int {
+        state.withLock { $0.sentIncrementalFlags.count }
+    }
+
+    var sentRequestsAllIncremental: Bool {
+        state.withLock { $0.sentIncrementalFlags.allSatisfy { $0 } }
+    }
+
+    var continuousReceiveCount: Int {
+        state.withLock { $0.continuousReceiveCount }
+    }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        // Serves the coupled request/response path (first frame, and any
+        // depth-1 incremental that bypasses the pipelined send primitive).
+        state.withLock { $0.frame }
+    }
+
+    func sendFramebufferUpdateRequest(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws {
+        state.withLock { $0.sentIncrementalFlags.append(incremental) }
+    }
+
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        try receiveContinuousFramebufferUpdate(timeout: timeout)
+    }
+
+    func receiveContinuousFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        try state.withLock { state in
+            state.continuousReceiveCount += 1
+            guard !state.receivedResults.isEmpty else {
+                throw Error.noReceivedFrame
+            }
+            return state.receivedResults.removeFirst()
+        }
     }
 }
 

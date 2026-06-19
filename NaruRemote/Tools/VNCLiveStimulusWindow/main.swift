@@ -314,6 +314,7 @@ private final class HoverProbeController: NSObject {
     private let view: HoverProbeView
     private let duration: TimeInterval
     private var stopTimer: Timer?
+    private var readinessPulseTimer: Timer?
 
     init(app: NSApplication, window: NSWindow, view: HoverProbeView, duration: TimeInterval) {
         self.app = app
@@ -329,6 +330,13 @@ private final class HoverProbeController: NSObject {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
         view.recordReadyFrame()
+        readinessPulseTimer = Timer.scheduledTimer(
+            timeInterval: 0.2,
+            target: self,
+            selector: #selector(pulseReadyFrame),
+            userInfo: nil,
+            repeats: true
+        )
         stopTimer = Timer.scheduledTimer(
             timeInterval: duration,
             target: self,
@@ -338,7 +346,12 @@ private final class HoverProbeController: NSObject {
         )
     }
 
+    @objc private func pulseReadyFrame() {
+        view.pulseReadyFrame()
+    }
+
     @objc private func stop() {
+        readinessPulseTimer?.invalidate()
         stopTimer?.invalidate()
         window.orderOut(nil)
         app.terminate(nil)
@@ -532,6 +545,7 @@ private enum StimulusMode {
 
 private final class HoverProbeView: NSView {
     private var frameIndex = 0
+    private var readinessPulseIndex = 0
     private var visualFreshnessSidecarPath: String?
     private var trackingArea: NSTrackingArea?
 
@@ -546,6 +560,15 @@ private final class HoverProbeView: NSView {
     }
 
     func recordReadyFrame() {
+        recordCurrentFrame()
+        needsDisplay = true
+    }
+
+    func pulseReadyFrame() {
+        guard frameIndex == 0 else {
+            return
+        }
+        readinessPulseIndex += 1
         recordCurrentFrame()
         needsDisplay = true
     }
@@ -599,6 +622,7 @@ private final class HoverProbeView: NSView {
         let border = NSBezierPath(roundedRect: targetRect, xRadius: 10, yRadius: 10)
         border.lineWidth = 4
         border.stroke()
+        drawReadinessPulse(in: targetRect)
 
         let label = frameIndex == 0 ? "hover target ready" : "hover observed \(frameIndex)"
         let attributes: [NSAttributedString.Key: Any] = [
@@ -612,8 +636,22 @@ private final class HoverProbeView: NSView {
         drawVisualFreshnessMarker()
     }
 
+    private func drawReadinessPulse(in targetRect: NSRect) {
+        guard frameIndex == 0 else {
+            return
+        }
+        let pulse = CGFloat((readinessPulseIndex % 6) + 1) / 6.0
+        NSColor(calibratedRed: 0.22, green: 0.78, blue: 0.50, alpha: 0.25 + pulse * 0.55).setFill()
+        NSBezierPath(roundedRect: NSRect(
+            x: targetRect.maxX - 112,
+            y: targetRect.minY + 18,
+            width: 72,
+            height: 14
+        ), xRadius: 7, yRadius: 7).fill()
+    }
+
     private func drawVisualFreshnessMarker() {
-        let cellSize = CGFloat(BenchmarkVisualFreshnessMarker.markerPointCellSize)
+        let cellSize: CGFloat = 40
         let nibbles = BenchmarkVisualFreshnessMarker.nibbles(for: frameIndex)
         let markerWidth = CGFloat(BenchmarkVisualFreshnessMarker.markerCellCount) * cellSize
         let inset: CGFloat = 12

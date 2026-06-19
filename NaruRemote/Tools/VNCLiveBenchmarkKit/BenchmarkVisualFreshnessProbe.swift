@@ -98,7 +98,7 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
 
         for cellSize in cellSizes {
             for band in bands where band.width >= markerCellCount * cellSize && band.height >= cellSize {
-                let step = max(cellSize, 6)
+                let step = cellSize <= 24 ? max(cellSize / 2, 4) : max(cellSize, 6)
                 let maxX = band.maxX - markerCellCount * cellSize
                 let maxY = band.maxY - cellSize
                 guard maxX >= band.minX, maxY >= band.minY else {

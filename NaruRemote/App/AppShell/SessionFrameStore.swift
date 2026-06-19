@@ -33,9 +33,18 @@ public enum SessionFrameDeliveryPriority: Equatable, Sendable {
 
 @MainActor
 public final class SessionFrameStore: ObservableObject {
-    static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(16)
-    static let viewportNavigationFrameDeliveryCoalescingDelay: Duration = .milliseconds(50)
-    static let textInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(100)
+    // Publish-side coalescing windows. The application worker
+    // (`SessionFrameApplicationWorkerPacing`) is the upstream rate
+    // authority — it already caps how often content frames reach this
+    // store and coalesces to the newest — so these windows only need to
+    // merge a burst that lands inside a single run-loop tick before the
+    // SwiftUI publish. They are kept near-zero (latency-priority): a
+    // larger window here is pure redundant latency on top of the worker
+    // cap. The earlier 16/50/100 ms windows stacked a second rate cap and
+    // were the dominant self-inflicted delay while typing.
+    static let steadyFrameDeliveryCoalescingDelay: Duration = .milliseconds(4)
+    static let viewportNavigationFrameDeliveryCoalescingDelay: Duration = .milliseconds(8)
+    static let textInputFrameDeliveryCoalescingDelay: Duration = .milliseconds(8)
 
     public private(set) var state: SessionFrameState
 

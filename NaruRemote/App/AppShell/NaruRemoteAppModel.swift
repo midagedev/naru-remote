@@ -46,8 +46,16 @@ struct SessionFrameApplicationWorkerPacing: Equatable, Sendable {
     static let visualContentFrameMinimumInterval: TimeInterval = 1.0 / 60.0
     static let viewportNavigationContentFrameMinimumInterval: TimeInterval =
         StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds
-    static let textInputContentFrameMinimumInterval: TimeInterval =
-        StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds
+    // Frame application cadence while the user is composing text. This is
+    // the single rate authority that also feeds the request loop's
+    // `activeInputPacingInterval`, so it governs both how often we request
+    // *and* apply frames during typing. Latency-priority: a 30 Hz-class
+    // floor keeps remote echo responsive while typing instead of the old
+    // 10 Hz cap that pinned typing-time screen updates to ~100 ms. The
+    // Core `textInputContentFrameIntervalSeconds` constant stays at its
+    // documented 10 Hz-class value for the benchmark/pressure-threshold
+    // mirror; this worker floor is intentionally decoupled from it.
+    static let textInputContentFrameMinimumInterval: TimeInterval = 1.0 / 30.0
     static let defaultContentFrameMinimumInterval: TimeInterval =
         visualContentFrameMinimumInterval
 
@@ -768,9 +776,19 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let mainActorResponsivenessProbeInterval: Duration = .milliseconds(250)
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
     static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
-    private static let streamPacingWakePollIntervalSeconds: TimeInterval = 0.05
-    public static let defaultActiveFrameInterval: TimeInterval =
-        StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds
+    // Wake granularity while a pacing delay is pending. Kept near one
+    // display refresh so an input nudge (pointer/keystroke) re-arms the
+    // request loop within a frame instead of waiting up to a coarse poll.
+    private static let streamPacingWakePollIntervalSeconds: TimeInterval = 1.0 / 60.0
+    // Active content-frame request backpressure. `0` = "request the next
+    // frame as fast as the round-trip + decode allow" — the fluid
+    // macOS-Screen-Sharing-like path. The application worker
+    // (`SessionFrameApplicationWorkerPacing`) is the single rate
+    // authority that caps how often decoded frames are *applied*, so the
+    // request loop no longer needs its own steady-state floor; stacking a
+    // second cap here only added latency. Thermal/pressure pacing can
+    // still raise this dynamically.
+    public static let defaultActiveFrameInterval: TimeInterval = 0
     public static let defaultIdleFrameInterval: TimeInterval = 0.05
     public static let defaultFrameStreamConfiguration = RFBFramePumpConfiguration(
         requestTimeout: 8,
@@ -782,7 +800,15 @@ public final class NaruRemoteAppModel: ObservableObject {
         // Opportunistic only: the pump stays on request/response until
         // adaptive SetEncodings advertises ContinuousUpdates and the
         // transport reports that message 150 is safe for this session.
-        updateMode: .continuousUpdates
+        updateMode: .continuousUpdates,
+        // When ContinuousUpdates is unavailable (e.g. Apple Screen
+        // Sharing), keep 3 incremental requests parked on the server so it
+        // never idles during the request→response round-trip. Live
+        // 127.0.0.1 Screen Sharing benchmarks: depth 1 → 67 ms avg /
+        // 218 ms p95 update, 3.2 content fps; depth 3 → 27 ms avg /
+        // 175 ms p95, 5.2 content fps. Ignored once ContinuousUpdates
+        // negotiates (that transport already decouples request/response).
+        requestPipelineDepth: 3
     )
     private var reachabilityProbeTask: Task<Void, Never>?
     private var reachabilityProbeGeneration = UUID()
@@ -3714,7 +3740,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                         requestTimeout: requestTimeout,
                         updateMode: configuration.updateMode,
                         requestRegion: requestRegion,
-                        initialRequestRegion: initialRequestRegion
+                        initialRequestRegion: initialRequestRegion,
+                        requestPipelineDepth: configuration.requestPipelineDepth
                     )
                     let roundTripMilliseconds = Date().timeIntervalSince(requestStart) * 1000
                     guard let frame = maybeFrame else {

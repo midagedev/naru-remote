@@ -8,15 +8,15 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
-    func testDefaultFrameStreamConfigurationCapsActiveCadenceForSustainedPhoneUse() {
+    func testDefaultFrameStreamConfigurationLetsWorkerOwnActiveCadence() {
         let configuration = NaruRemoteAppModel.defaultFrameStreamConfiguration
 
         XCTAssertEqual(configuration.requestTimeout, 8)
         XCTAssertEqual(
             configuration.frameInterval,
-            StreamPressurePacingDefaults.balancedContentFrameIntervalSeconds,
+            0,
             accuracy: 0.0001,
-            "Default live sessions should cap active frame requests at the benchmark-backed sustained cadence."
+            "The application worker is the single content-rate authority; the request loop should not stack a second steady-state cap, so the active request floor is 0 (request as fast as the round-trip allows)."
         )
         XCTAssertEqual(configuration.idleFrameInterval, 0.05)
         XCTAssertEqual(configuration.updateMode, .continuousUpdates)
@@ -360,12 +360,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(
             SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .viewportNavigation),
-            0.05,
+            1.0 / 24.0,
             accuracy: 0.0001
         )
         XCTAssertEqual(
             SessionFrameApplicationWorkerPacing.contentFrameMinimumInterval(for: .textInput),
-            0.10,
+            1.0 / 30.0,
             accuracy: 0.0001
         )
         XCTAssertEqual(
@@ -376,9 +376,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 contentFrameMinimumInterval: SessionFrameApplicationWorkerPacing
                     .contentFrameMinimumInterval(for: .textInput)
             ),
-            0.099,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval - 0.001,
             accuracy: 0.0001,
-            "Focused Compose should cap MainActor frame application at a 10fps-class cadence while keeping only the latest pending frame."
+            "Focused Compose should pace MainActor frame application at the 30fps-class text-input cadence while keeping only the latest pending frame."
         )
     }
 
@@ -6264,7 +6264,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await frameApplicationGate.waitForWaitCount(1)
         let frameApplicationDelays = await frameApplicationGate.delays
         let firstFrameApplicationDelay = try XCTUnwrap(frameApplicationDelays.first)
-        XCTAssertGreaterThanOrEqual(firstFrameApplicationDelay, 0.09)
+        XCTAssertGreaterThan(
+            firstFrameApplicationDelay,
+            SessionFrameApplicationWorkerPacing.visualContentFrameMinimumInterval,
+            "Compose focus must pace frame application at the slower text-input cadence, not the visual cadence."
+        )
         XCTAssertLessThanOrEqual(
             firstFrameApplicationDelay,
             SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval
@@ -6351,9 +6355,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         delays = await pacingGate.delays
         XCTAssertEqual(
             try XCTUnwrap(delays.dropFirst().first),
-            StreamPressurePacingDefaults.textInputContentFrameIntervalSeconds,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval,
             accuracy: 0.0001,
-            "Focused Compose must lower VNC request/decode cadence before frames can compete with UIKit IME."
+            "Focused Compose must lower VNC request/decode cadence to the text-input floor (the single worker rate authority) before frames can compete with UIKit IME."
         )
         XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
 

@@ -6,9 +6,11 @@ import NaruRemoteCore
 @MainActor
 final class SessionFrameStoreTests: XCTestCase {
     func testSteadyFrameDeliveryCoalescingUsesDisplayCadence() {
+        // The application worker is the rate authority; the store only
+        // merges a same-tick burst, so the steady window is near-zero.
         XCTAssertEqual(
             SessionFrameStore.steadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            .milliseconds(4)
         )
     }
 
@@ -17,21 +19,21 @@ final class SessionFrameStoreTests: XCTestCase {
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
 
         store.setDeliveryPriority(.viewportNavigation)
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(50)
+            SessionFrameStore.viewportNavigationFrameDeliveryCoalescingDelay
         )
 
         store.setDeliveryPriority(.textInput)
 
         XCTAssertEqual(
             store.currentSteadyFrameDeliveryCoalescingDelay,
-            .milliseconds(100)
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay
         )
     }
 
@@ -234,15 +236,15 @@ final class SessionFrameStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             store.pendingFrameDeliveryCoalescingDelayForTesting,
-            .milliseconds(16)
+            SessionFrameStore.steadyFrameDeliveryCoalescingDelay
         )
 
         store.setDeliveryPriority(.textInput)
 
         XCTAssertEqual(
             store.pendingFrameDeliveryCoalescingDelayForTesting,
-            .milliseconds(100),
-            "Entering text input should move already pending steady frames to the IME-friendly cadence."
+            SessionFrameStore.textInputFrameDeliveryCoalescingDelay,
+            "Entering text input should move already pending steady frames to the text-input cadence."
         )
         XCTAssertEqual(frameEvents.map(\.framebuffer?.pixels.first?.red), [1])
 

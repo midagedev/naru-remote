@@ -315,6 +315,7 @@ enum VNCLiveBenchmark {
         let firstFrameResult: RFBFramebufferUpdateResult
         do {
             firstFrameResult = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+            debugDumpPointerHoverFrameIfRequested(firstFrameResult.framebuffer)
         } catch {
             return BenchmarkPointerHoverProbeReport(
                 status: .failed,
@@ -922,6 +923,22 @@ enum VNCLiveBenchmark {
             }
         }
         return nil
+    }
+
+    private static func debugDumpPointerHoverFrameIfRequested(_ framebuffer: RFBRawFramebuffer) {
+        guard let path = ProcessInfo.processInfo.environment["NARU_DEBUG_POINTER_HOVER_FRAME_PPM"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !path.isEmpty else {
+            return
+        }
+        var data = Data("P6\n\(framebuffer.width) \(framebuffer.height)\n255\n".utf8)
+        data.reserveCapacity(data.count + framebuffer.pixels.count * 3)
+        for pixel in framebuffer.pixels {
+            data.append(pixel.red)
+            data.append(pixel.green)
+            data.append(pixel.blue)
+        }
+        try? data.write(to: URL(fileURLWithPath: path), options: [.atomic])
     }
 
     private static func textKeystrokeObservationTargetScale(
