@@ -138,6 +138,32 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
+    func testTrackpadViewportGestureBurstThenComposeAcceptsKoreanUnderStreamPressure() {
+        let app = launchAppWithTrackpadViewportGestureFixture()
+
+        let viewportSurface = waitForViewportInteractionSurface(in: app)
+        performViewportDragBurst(on: viewportSurface)
+
+        let editor = composeEditor(in: app)
+        let keyboard = app.keyboards.firstMatch
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+
+        editor.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+
+        editor.typeText("입")
+        waitForEditor(editor, toContain: "입")
+
+        editor.typeText("력")
+        waitForEditor(editor, toContain: "입력")
+
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 2),
+            "A real trackpad viewport drag burst under stream pressure must not leave the focused Korean/CJK Compose input frozen."
+        )
+    }
+
     func testFocusedActiveSessionComposeKeepsEditorInstanceDuringFullInteractionStorm() {
         let app = launchAppWithActiveSessionConfirmationUnavailableFixture(
             trackpadCursorStorm: true,
@@ -449,14 +475,77 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         return app
     }
 
+    private func launchAppWithTrackpadViewportGestureFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-trackpad-cursor"
+        app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
+        app.launchEnvironment["NARU_TEST_FRAMEBUFFER_FLOOD"] = "1"
+        app.launch()
+        return app
+    }
+
     private func launchAppWithConnectingDelayedFirstFrameFixture() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-connecting-delayed-first-frame"
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
-        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "250"
+        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "1500"
         app.launch()
         return app
+    }
+
+    private func waitForViewportInteractionSurface(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 8,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let identifiers = [
+            "naru.session.metalFramebuffer",
+            "naru.session.helperVideoHotInputOverlay",
+            "naru.session.trackpadSurface",
+            "naru.session.framebufferPreview",
+            "naru.session.viewport"
+        ]
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            for identifier in identifiers {
+                let element = app.descendants(matching: .any)[identifier].firstMatch
+                if element.exists && element.isHittable {
+                    return element
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail(
+            "Viewport interaction surface is missing. accessibilityTree=\(String(app.debugDescription.prefix(8_000)))",
+            file: file,
+            line: line
+        )
+        return app.descendants(matching: .any)["naru.session.viewport"].firstMatch
+    }
+
+    private func performViewportDragBurst(
+        on surface: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(surface.exists, "Viewport surface must exist before dragging.", file: file, line: line)
+        XCTAssertTrue(surface.isHittable, "Viewport surface must be hittable before dragging.", file: file, line: line)
+
+        let paths: [(CGVector, CGVector)] = [
+            (CGVector(dx: 0.50, dy: 0.50), CGVector(dx: 0.66, dy: 0.48)),
+            (CGVector(dx: 0.62, dy: 0.52), CGVector(dx: 0.42, dy: 0.58)),
+            (CGVector(dx: 0.48, dy: 0.46), CGVector(dx: 0.55, dy: 0.64))
+        ]
+
+        for (startOffset, endOffset) in paths {
+            let start = surface.coordinate(withNormalizedOffset: startOffset)
+            let end = surface.coordinate(withNormalizedOffset: endOffset)
+            start.press(forDuration: 0.03, thenDragTo: end)
+        }
     }
 
     private func openFirstConnectionCardIfPresent(app: XCUIApplication) {

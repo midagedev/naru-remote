@@ -7,6 +7,67 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
     private let pairingSecret = "test-pairing-secret"
     private let profileFingerprint = "sha256:test-profile"
 
+    func testNetworkClientRejectsUnprotectedTransportBeforeConnecting() async throws {
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: 1,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            transportProtection: .unprotected,
+            timeout: 0.1
+        )
+
+        do {
+            _ = try await client.startStream()
+            XCTFail("Expected unprotected helper-video frame transport to be rejected.")
+        } catch {
+            XCTAssertEqual(
+                error as? HelperVideoStreamNetworkClientError,
+                .transportProtectionRequired
+            )
+        }
+    }
+
+    func testNetworkEventStreamRejectsUnprotectedTransportBeforeConnecting() async throws {
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: 1,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            transportProtection: .unprotected,
+            timeout: 0.1
+        )
+
+        var iterator = client.streamEvents().makeAsyncIterator()
+        do {
+            _ = try await iterator.next()
+            XCTFail("Expected unprotected helper-video frame transport to be rejected.")
+        } catch {
+            XCTAssertEqual(
+                error as? HelperVideoStreamNetworkClientError,
+                .transportProtectionRequired
+            )
+        }
+    }
+
+    func testNetworkServerRejectsUnprotectedTransportBeforeListening() throws {
+        let pipeline = makePipeline(
+            source: NaruHelperVideoStaticAccessUnitSource(accessUnits: [])
+        )
+
+        XCTAssertThrowsError(
+            try NaruHelperVideoStreamNetworkServer(
+                pipeline: pipeline,
+                transportProtection: .unprotected
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? HelperVideoStreamNetworkServerError,
+                .transportProtectionRequired
+            )
+        }
+    }
+
     func testNetworkClientReceivesStartResponseAndAccessUnitsFromHelperServer() async throws {
         let parameterSetPayload = Data([0x00, 0x00, 0x00, 0x01, 0x67])
         let keyframePayload = Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
@@ -32,6 +93,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         let result = try await client.startStream(maxServerFrames: 3)
@@ -74,6 +136,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         var events: [HelperVideoStreamNetworkEvent] = []
@@ -124,6 +187,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 0.35
         )
         var events: [HelperVideoStreamNetworkEvent] = []
@@ -179,6 +243,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         var iterator = client.streamEvents().makeAsyncIterator()
@@ -233,6 +298,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         var iterator = client.streamEvents().makeAsyncIterator()
@@ -284,6 +350,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 0.2
         )
         do {
@@ -298,6 +365,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 0.2
         )
         let partial = try await partialClient.startStream(
@@ -322,6 +390,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         let result = try await client.startStream(maxServerFrames: 2)
@@ -348,6 +417,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         let result = try await client.startStream(maxServerFrames: 2)
@@ -378,6 +448,7 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
             port: port,
             profileFingerprint: profileFingerprint,
             pairingSecret: "wrong-secret",
+            transportProtection: .authenticatedPrivateProfile,
             timeout: 3
         )
         let result = try await client.startStream(maxServerFrames: 2)
@@ -397,6 +468,15 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
     private func makeServer(
         source: any NaruHelperVideoAccessUnitSource
     ) throws -> NaruHelperVideoStreamNetworkServer {
+        try NaruHelperVideoStreamNetworkServer(
+            pipeline: makePipeline(source: source),
+            transportProtection: .authenticatedPrivateProfile
+        )
+    }
+
+    private func makePipeline(
+        source: any NaruHelperVideoAccessUnitSource
+    ) -> NaruHelperVideoStreamFramePipeline {
         let requestHandler = NaruHelperVideoTransportRequestHandler(
             expectedPairingSecret: pairingSecret,
             expectedProfileFingerprint: profileFingerprint,
@@ -409,11 +489,10 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
                 )
             }
         )
-        let pipeline = NaruHelperVideoStreamFramePipeline(
+        return NaruHelperVideoStreamFramePipeline(
             requestHandler: requestHandler,
             accessUnitSource: source
         )
-        return try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
     }
 
     private func waitForPort(

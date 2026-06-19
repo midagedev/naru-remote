@@ -59,6 +59,7 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
     public var displayableFrameCount: Int
     public var droppedAccessUnitCount: Int
     public var fallbackFailureCode: HelperVideoFailureCode?
+    public var fallbackStallReason: HelperVideoStreamStallReason?
     public var finalHealth: HelperVideoStreamHealth
 
     public init(
@@ -68,7 +69,8 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
         displayableFrameCount: Int,
         droppedAccessUnitCount: Int = 0,
         fallbackFailureCode: HelperVideoFailureCode? = nil,
-        finalHealth: HelperVideoStreamHealth
+        finalHealth: HelperVideoStreamHealth,
+        fallbackStallReason: HelperVideoStreamStallReason? = nil
     ) {
         self.startAccepted = startAccepted
         self.selectedVisualTransport = selectedVisualTransport
@@ -76,6 +78,7 @@ public struct HelperVideoStreamSessionOutcome: Equatable, Sendable {
         self.displayableFrameCount = max(displayableFrameCount, 0)
         self.droppedAccessUnitCount = max(droppedAccessUnitCount, 0)
         self.fallbackFailureCode = fallbackFailureCode
+        self.fallbackStallReason = fallbackStallReason
         self.finalHealth = finalHealth
     }
 }
@@ -170,16 +173,17 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         do {
             result = try await startStream(requestBody, maxServerFrames)
         } catch {
+            let failureCode = helperVideoFailureCode(for: error, startAccepted: false)
             guard await isCurrentSession(sessionID: sessionID, profileID: profileID, model: model) else {
                 return await ignoreStaleResult(
                     startAccepted: false,
                     receivedAccessUnitCount: 0,
-                    fallbackFailureCode: .transportFailed,
+                    fallbackFailureCode: failureCode,
                     model: model
                 )
             }
             return await failBeforeStart(
-                failureCode: .transportFailed,
+                failureCode: failureCode,
                 sessionID: sessionID,
                 profileID: profileID,
                 model: model
@@ -343,7 +347,8 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                         displayableFrameCount: displayableFrameCount,
                         droppedAccessUnitCount: droppedAccessUnitCount,
                         fallbackFailureCode: .streamStalled,
-                        finalHealth: await helperVideoStreamHealth(model: model)
+                        finalHealth: await helperVideoStreamHealth(model: model),
+                        fallbackStallReason: stall.body.reason
                     )
                 }
             }
@@ -352,11 +357,14 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 return await ignoreStaleResult(
                     startAccepted: startAccepted,
                     receivedAccessUnitCount: receivedAccessUnitCount,
-                    fallbackFailureCode: .transportFailed,
+                    fallbackFailureCode: helperVideoFailureCode(
+                        for: error,
+                        startAccepted: startAccepted
+                    ),
                     model: model
                 )
             }
-            let failureCode: HelperVideoFailureCode = startAccepted ? .streamStalled : .transportFailed
+            let failureCode = helperVideoFailureCode(for: error, startAccepted: startAccepted)
             let health = fallbackHealth(for: failureCode)
             await renderer.flush()
             await model.updateHelperVideoStreamHealth(
@@ -518,7 +526,8 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 displayableFrameCount: displayableFrameCount,
                 droppedAccessUnitCount: droppedAccessUnitCount,
                 fallbackFailureCode: .streamStalled,
-                finalHealth: await helperVideoStreamHealth(model: model)
+                finalHealth: await helperVideoStreamHealth(model: model),
+                fallbackStallReason: stall.body.reason
             )
         }
 
@@ -704,7 +713,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
             return .revoked
         case .privateNetworkRequired:
             return .privateNetworkRequired
-        case .transportFailed:
+        case .transportFailed, .transportProtectionRequired:
             return .unreachable
         case .authFailed, .streamStalled, .decoderRejected, .fallbackToVNC:
             return .failed
@@ -746,7 +755,8 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 fallbackCountBucket: .one
             )
         case .permissionMissing, .codecUnsupported, .privateNetworkRequired, .notConfigured,
-             .disabled, .revoked, .authFailed, .transportFailed, .fallbackToVNC:
+             .disabled, .revoked, .authFailed, .transportFailed, .transportProtectionRequired,
+             .fallbackToVNC:
             return HelperVideoStreamHealth(
                 state: .fallbackToVNC,
                 startupBand: .failed,
@@ -755,5 +765,18 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 fallbackCountBucket: .one
             )
         }
+    }
+
+    private func helperVideoFailureCode(
+        for error: any Error,
+        startAccepted: Bool
+    ) -> HelperVideoFailureCode {
+        #if canImport(Network)
+        if let clientError = error as? HelperVideoStreamNetworkClientError,
+           clientError == .transportProtectionRequired {
+            return .transportProtectionRequired
+        }
+        #endif
+        return startAccepted ? .streamStalled : .transportFailed
     }
 }

@@ -47,19 +47,21 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
         arguments: [String],
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> NaruHelperVideoListenConfiguration {
-        let pairingSecret = try requiredSensitiveOptionValue(
-            after: "--token",
+        let pairingSecret = try requiredEnvironmentOptionValue(
+            directArgument: "--token",
             environmentNameAfter: "--token-env",
             in: arguments,
             environment: environment,
+            directArgumentError: .directTokenArgumentUnsupported,
             missingValueError: .missingToken
         )
 
-        let profileFingerprint = try requiredSensitiveOptionValue(
-            after: "--profile-fingerprint",
+        let profileFingerprint = try requiredEnvironmentOptionValue(
+            directArgument: "--profile-fingerprint",
             environmentNameAfter: "--profile-fingerprint-env",
             in: arguments,
             environment: environment,
+            directArgumentError: .directProfileFingerprintArgumentUnsupported,
             missingValueError: .missingProfileFingerprint
         )
 
@@ -94,30 +96,16 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
         )
     }
 
-    private static func requiredOptionValue(
-        after name: String,
-        in arguments: [String]
-    ) -> String? {
-        guard let value = optionValue(after: name, in: arguments),
-              isConcreteArgumentValue(value)
-        else {
-            return nil
-        }
-        return value
-    }
-
-    private static func requiredSensitiveOptionValue(
-        after name: String,
+    private static func requiredEnvironmentOptionValue(
+        directArgument: String,
         environmentNameAfter environmentName: String,
         in arguments: [String],
         environment: [String: String],
+        directArgumentError: NaruHelperVideoListenConfigurationError,
         missingValueError: NaruHelperVideoListenConfigurationError
     ) throws -> String {
-        if let value = requiredOptionValue(after: name, in: arguments) {
-            return value
-        }
-        if arguments.contains(name) {
-            throw missingValueError
+        if arguments.contains(directArgument) {
+            throw directArgumentError
         }
 
         guard let environmentVariableName = try optionalOptionValue(
@@ -194,6 +182,8 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
 public enum NaruHelperVideoListenConfigurationError: Error, Equatable, Sendable {
     case missingToken
     case missingProfileFingerprint
+    case directTokenArgumentUnsupported
+    case directProfileFingerprintArgumentUnsupported
     case invalidPort
     case invalidSourceMode
     case invalidFrameCount
@@ -234,11 +224,15 @@ public struct NaruHelperVideoListenRuntime: Sendable {
         )
 
         if configuration.port == 0 {
-            return try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
+            return try NaruHelperVideoStreamNetworkServer(
+                pipeline: pipeline,
+                transportProtection: .authenticatedPrivateProfile
+            )
         }
         return try NaruHelperVideoStreamNetworkServer(
             port: configuration.port,
-            pipeline: pipeline
+            pipeline: pipeline,
+            transportProtection: .authenticatedPrivateProfile
         )
     }
 

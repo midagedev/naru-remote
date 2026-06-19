@@ -12,8 +12,12 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
     public init(
         port: UInt16,
         pipeline: NaruHelperVideoStreamFramePipeline,
+        transportProtection: HelperVideoTransportProtection,
         queue: DispatchQueue = DispatchQueue(label: "com.naruremote.helper-video-stream-server")
     ) throws {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            throw HelperVideoStreamNetworkServerError.transportProtectionRequired
+        }
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw HelperVideoStreamNetworkServerError.invalidPort
         }
@@ -24,8 +28,12 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
 
     public init(
         pipeline: NaruHelperVideoStreamFramePipeline,
+        transportProtection: HelperVideoTransportProtection,
         queue: DispatchQueue = DispatchQueue(label: "com.naruremote.helper-video-stream-server")
     ) throws {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            throw HelperVideoStreamNetworkServerError.transportProtectionRequired
+        }
         self.pipeline = pipeline
         self.queue = queue
         self.listener = try NWListener(using: .tcp)
@@ -157,5 +165,6 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
 
 public enum HelperVideoStreamNetworkServerError: Error, Equatable, Sendable {
     case invalidPort
+    case transportProtectionRequired
 }
 #endif

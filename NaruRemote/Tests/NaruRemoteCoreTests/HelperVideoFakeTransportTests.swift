@@ -34,6 +34,33 @@ final class HelperVideoFakeTransportTests: XCTestCase {
         XCTAssertFalse(harness.lastServerJSONPayload.contains("height"))
     }
 
+    func testCodecDecodesAccessUnitFromSplitJSONAndBinaryFrames() throws {
+        let payload = Data([0x00, 0x00, 0x00, 0x01, 0x65, 0x88])
+        let envelope = HelperVideoWireEnvelope(
+            messageType: .videoAccessUnit,
+            profileFingerprint: "sha256:test-pairing",
+            body: HelperVideoAccessUnitBody(sequence: 7, kind: .keyframe)
+        )
+        let frame = try HelperVideoWireCodec.frameAccessUnit(envelope, binaryPayload: payload)
+        let jsonLength = try HelperVideoWireCodec.jsonPayloadLength(
+            from: Data(frame.prefix(HelperVideoWireCodec.headerByteCount))
+        )
+        let jsonEnd = HelperVideoWireCodec.headerByteCount + jsonLength
+        let binaryHeaderEnd = jsonEnd + HelperVideoWireCodec.headerByteCount
+
+        let decoded = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
+            fromJSONFrame: frame.subdata(in: 0..<jsonEnd),
+            binaryHeader: frame.subdata(in: jsonEnd..<binaryHeaderEnd),
+            binaryPayload: frame.subdata(in: binaryHeaderEnd..<frame.count)
+        )
+
+        XCTAssertEqual(decoded.envelope.messageType, .videoAccessUnit)
+        XCTAssertEqual(decoded.envelope.body.sequence, 7)
+        XCTAssertEqual(decoded.envelope.body.kind, .keyframe)
+        XCTAssertEqual(decoded.binaryPayload, payload)
+    }
+
     func testFakeHarnessRoutesStallMessageToVNCFallbackHealth() throws {
         let harness = FakeHelperVideoStreamHarness(profileFingerprint: "sha256:test-pairing")
 

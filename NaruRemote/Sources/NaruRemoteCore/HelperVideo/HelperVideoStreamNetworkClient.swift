@@ -7,6 +7,7 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     public let host: String
     public let port: UInt16
     public let profileFingerprint: String
+    public let transportProtection: HelperVideoTransportProtection
 
     private static let streamEventBufferLimit = 8
     private static let streamEventBackpressureDelay: DispatchTimeInterval = .milliseconds(24)
@@ -20,12 +21,14 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         port: UInt16,
         profileFingerprint: String,
         pairingSecret: String,
+        transportProtection: HelperVideoTransportProtection,
         timeout: TimeInterval = 3
     ) {
         self.host = host
         self.port = port
         self.profileFingerprint = profileFingerprint
         self.pairingSecret = pairingSecret
+        self.transportProtection = transportProtection
         self.timeout = timeout
     }
 
@@ -34,6 +37,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         maxServerFrames: Int = 16,
         allowsPartialResultOnTimeout: Bool = false
     ) async throws -> HelperVideoStreamNetworkStartResult {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            throw HelperVideoStreamNetworkClientError.transportProtectionRequired
+        }
         guard let port = NWEndpoint.Port(rawValue: port) else {
             throw HelperVideoStreamNetworkClientError.invalidPort
         }
@@ -103,6 +109,11 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
     public func streamEvents(
         _ requestBody: HelperVideoStartStreamRequestBody = HelperVideoStartStreamRequestBody()
     ) -> HelperVideoStreamNetworkEvents {
+        guard transportProtection.allowsEncodedFramePayloads else {
+            return HelperVideoStreamNetworkEvents(
+                failure: HelperVideoStreamNetworkClientError.transportProtectionRequired
+            )
+        }
         guard let port = NWEndpoint.Port(rawValue: port) else {
             return HelperVideoStreamNetworkEvents(failure: HelperVideoStreamNetworkClientError.invalidPort)
         }
@@ -304,7 +315,11 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                     return
                 }
 
-                completion.recordAccessUnit(jsonFrame + binaryHeader + binaryPayload)
+                completion.recordAccessUnit(
+                    jsonFrame: jsonFrame,
+                    binaryHeader: binaryHeader,
+                    binaryPayload: binaryPayload
+                )
                 receiveNextFrameIfNeeded(on: connection, completion: completion)
             }
         }
@@ -474,8 +489,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
                 do {
                     let accessUnit = try HelperVideoWireCodec.decodeFrame(
                         HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                        from: jsonFrame + binaryHeader + binaryPayload,
-                        expectsBinaryPayload: true
+                        fromJSONFrame: jsonFrame,
+                        binaryHeader: binaryHeader,
+                        binaryPayload: binaryPayload
                     )
                     let result = eventStream.yield(.accessUnit(accessUnit))
                     receiveNextEventFrame(
@@ -613,6 +629,7 @@ public struct HelperVideoStreamNetworkStartResult: Equatable, Sendable {
 
 public enum HelperVideoStreamNetworkClientError: Error, Equatable, Sendable {
     case invalidPort
+    case transportProtectionRequired
     case unreachable
     case timedOut
     case malformedFrame
@@ -669,13 +686,13 @@ private struct HelperVideoStreamNetworkEventYieldResult: Sendable {
 }
 
 private struct HelperVideoStreamNetworkEventMailboxOfferResult: Sendable {
-    var didApplyBackpressure: Bool
+    var shouldDelayReceive: Bool
 
     static let enqueued = HelperVideoStreamNetworkEventMailboxOfferResult(
-        didApplyBackpressure: false
+        shouldDelayReceive: false
     )
     static let backpressured = HelperVideoStreamNetworkEventMailboxOfferResult(
-        didApplyBackpressure: true
+        shouldDelayReceive: true
     )
 }
 
@@ -778,27 +795,24 @@ private final class HelperVideoStreamNetworkEventMailbox: @unchecked Sendable {
     private func appendBufferedEventLocked(
         _ event: HelperVideoStreamNetworkEvent
     ) -> HelperVideoStreamNetworkEventMailboxOfferResult {
-        var didApplyBackpressure = false
+        var shouldDelayReceive = false
 
+        // Sync/control replacement keeps only the newest useful state, but
+        // delaying the next read here can let an older sync pair escape before
+        // the newest parameter/keyframe pair arrives.
         switch event.bufferRole {
         case .startResponse, .stall, .endOfStream:
-            didApplyBackpressure = removeBufferedEventsLocked(matching: event.bufferRole)
-                || didApplyBackpressure
+            _ = removeBufferedEventsLocked(matching: event.bufferRole)
         case .parameterSet:
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .parameterSet)
-                || didApplyBackpressure
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .keyframe)
-                || didApplyBackpressure
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
-                || didApplyBackpressure
+            _ = removeBufferedEventsLocked(matching: .parameterSet)
+            _ = removeBufferedEventsLocked(matching: .keyframe)
+            _ = removeBufferedEventsLocked(matching: .delta)
         case .keyframe:
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .keyframe)
-                || didApplyBackpressure
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
-                || didApplyBackpressure
+            _ = removeBufferedEventsLocked(matching: .keyframe)
+            _ = removeBufferedEventsLocked(matching: .delta)
         case .delta:
-            didApplyBackpressure = removeBufferedEventsLocked(matching: .delta)
-                || didApplyBackpressure
+            shouldDelayReceive = removeBufferedEventsLocked(matching: .delta)
+                || shouldDelayReceive
         }
 
         bufferedEvents.append(event)
@@ -806,17 +820,17 @@ private final class HelperVideoStreamNetworkEventMailbox: @unchecked Sendable {
         while bufferedEvents.count > maxBufferedEvents {
             if let deltaIndex = bufferedEvents.firstIndex(where: { $0.bufferRole == .delta }) {
                 bufferedEvents.remove(at: deltaIndex)
-                didApplyBackpressure = true
+                shouldDelayReceive = true
                 continue
             }
             guard bufferedEvents.count > 1 else {
                 break
             }
             bufferedEvents.remove(at: 1)
-            didApplyBackpressure = true
+            shouldDelayReceive = true
         }
 
-        return didApplyBackpressure ? .backpressured : .enqueued
+        return shouldDelayReceive ? .backpressured : .enqueued
     }
 
     private func removeBufferedEventsLocked(
@@ -869,7 +883,7 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
         }
         refreshTimeout()
         let result = mailbox.offer(event)
-        return result.didApplyBackpressure ? .backpressured : .enqueued
+        return result.shouldDelayReceive ? .backpressured : .enqueued
     }
 
     func scheduleNextReceive(
@@ -1001,12 +1015,17 @@ private final class HelperVideoStreamNetworkCompletion: @unchecked Sendable {
         }
     }
 
-    func recordAccessUnit(_ frame: Data) {
+    func recordAccessUnit(
+        jsonFrame: Data,
+        binaryHeader: Data,
+        binaryPayload: Data
+    ) {
         do {
             let accessUnit = try HelperVideoWireCodec.decodeFrame(
                 HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
-                from: frame,
-                expectsBinaryPayload: true
+                fromJSONFrame: jsonFrame,
+                binaryHeader: binaryHeader,
+                binaryPayload: binaryPayload
             )
             lock.withLock {
                 receivedFrameCount += 1

@@ -142,36 +142,38 @@ public struct NaruRemoteAppShell: View {
             // filling viewport merely shrinks instead of being crushed to a
             // sliver.  Pre-connect / disconnected keeps the historical
             // scrollable stack so the diagnostics summary stays reachable.
-            Group {
-                if isEmptyHome {
-                    EmptyHomeView(onAddProfile: { showsProfileEditor = true })
-                } else if showsConnectionGrid {
-                    ConnectionGridView(
-                        cards: snapshot.connectionGridCards,
-                        onSelect: { id in
-                            model.selectProfile(id: id)
-                            showsSelectedProfileDetail = true
-                            preferredCompactColumn = .detail
-                        },
-                        onAddProfile: { showsProfileEditor = true }
-                    )
-                    .navigationBarBackButtonHidden(true)
-                } else if usesLiveSessionLayout {
-                    sessionViewport(fillsAvailableHeight: true)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .naruLiveSessionChromeHidden()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            sessionViewport(fillsAvailableHeight: false)
+            ZStack {
+                Group {
+                    if isEmptyHome {
+                        EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                    } else if showsConnectionGrid {
+                        ConnectionGridView(
+                            cards: snapshot.connectionGridCards,
+                            onSelect: { id in
+                                model.selectProfile(id: id)
+                                showsSelectedProfileDetail = true
+                                preferredCompactColumn = .detail
+                            },
+                            onAddProfile: { showsProfileEditor = true }
+                        )
+                        .navigationBarBackButtonHidden(true)
+                    } else if usesLiveSessionLayout {
+                        sessionViewport(fillsAvailableHeight: true)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .naruLiveSessionChromeHidden()
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                sessionViewport(fillsAvailableHeight: false)
 
-                            DiagnosticSummaryView(
-                                rows: snapshot.diagnosticRows,
-                                shareTextProvider: { [buildVersion] in
-                                    model.makeDiagnosticExport()
-                                        .renderSharePayload(buildVersion: buildVersion)
-                                }
-                            )
+                                DiagnosticSummaryView(
+                                    rows: snapshot.diagnosticRows,
+                                    shareTextProvider: { [buildVersion] in
+                                        model.makeDiagnosticExport()
+                                            .renderSharePayload(buildVersion: buildVersion)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -212,6 +214,7 @@ public struct NaruRemoteAppShell: View {
                             onTextChange: { model.updateComposeDraftText($0) },
                             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
                             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+                            onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
                             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
                             onHardwareKey: { keysym, modifiers, isDown in
                                 Task {
@@ -267,14 +270,29 @@ public struct NaruRemoteAppShell: View {
             // fallback gated on `dockBadgeIsVisible == false`.
             .background(NaruColors.canvas)
             .overlay(alignment: .topLeading) {
-                if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
-                   snapshot.session?.hasReceivedFrame == true {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("First frame received")
-                        .accessibilityIdentifier("naru.test.session.firstFrameReceived")
-                        .allowsHitTesting(false)
+                ZStack(alignment: .topLeading) {
+                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
+                       snapshot.session?.hasReceivedFrame == true {
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("First frame received")
+                            .accessibilityIdentifier("naru.test.session.firstFrameReceived")
+                            .allowsHitTesting(false)
+                    }
+
+                    if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_DIAGNOSTIC_EXPORT_RELAY"] == "1",
+                       let payload = model.diagnosticExportRelayForTesting {
+                        Text("Diagnostic export captured")
+                            .font(.caption2)
+                            .frame(width: 1, height: 1)
+                            .clipped()
+                            .opacity(0.01)
+                            .accessibilityIdentifier("naru.test.diagnosticExportRelay")
+                            .accessibilityLabel("Diagnostic export captured")
+                            .accessibilityValue(payload)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
@@ -474,6 +492,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onTextChange: (String) -> Void
     var onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
     var onToggleDirectMode: () -> Void
+    var onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     var onTapDirectKey: (DirectKey) -> Void
     var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     var onComposeQuickKey: (ComposeQuickKey) -> Void
@@ -498,6 +517,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             showsCompactStatusText: state.showsCompactStatusText,
             showsComposeQuickKeys: state.showsComposeQuickKeys,
             onToggleDirectMode: onToggleDirectMode,
+            onSetDirectInputSurface: onSetDirectInputSurface,
             onTapDirectKey: onTapDirectKey,
             onHardwareKey: onHardwareKey,
             onComposeQuickKey: onComposeQuickKey,

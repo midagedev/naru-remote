@@ -374,7 +374,10 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
             requestHandler: requestHandler,
             accessUnitSource: NaruHelperVideoStaticAccessUnitSource(accessUnits: accessUnits)
         )
-        return try NaruHelperVideoStreamNetworkServer(pipeline: pipeline)
+        return try NaruHelperVideoStreamNetworkServer(
+            pipeline: pipeline,
+            transportProtection: .authenticatedPrivateProfile
+        )
     }
 
     private static func waitForPort(
@@ -581,7 +584,10 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
                     port: port,
                     profileFingerprint: pairingFingerprint,
                     pairingSecret: pairingSecret,
-                    timeout: 3
+                    transportProtection: .authenticatedPrivateProfile,
+                    timeout: networkBootstrapClientTimeout(
+                        forExpectedDisplayableFrameCount: expectedDisplayableFrameCount
+                    )
                 )
                 return try await client.startStream(requestBody, maxServerFrames: maxServerFrames)
             },
@@ -608,7 +614,10 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
         let outcome = try await waitForHelperVideoOutcome(outcomeRecorder)
         XCTAssertTrue(outcome.startAccepted)
         XCTAssertTrue(outcome.selectedVisualTransport)
-        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertNil(
+            outcome.fallbackFailureCode,
+            "failure=\(String(describing: outcome.fallbackFailureCode)) stallReason=\(String(describing: outcome.fallbackStallReason))"
+        )
         XCTAssertGreaterThanOrEqual(
             outcome.displayableFrameCount,
             expectedDisplayableFrameCount
@@ -621,6 +630,12 @@ final class HelperVideoAppRunnerBenchmarkTests: XCTestCase {
         forExpectedDisplayableFrameCount expectedDisplayableFrameCount: Int
     ) -> Int {
         max(expectedDisplayableFrameCount, 1) + 2
+    }
+
+    private nonisolated static func networkBootstrapClientTimeout(
+        forExpectedDisplayableFrameCount expectedDisplayableFrameCount: Int
+    ) -> TimeInterval {
+        max(3, Double(max(expectedDisplayableFrameCount, 1)) / 15.0 + 3.0)
     }
 
     private static func waitForHelperVideoOutcome(

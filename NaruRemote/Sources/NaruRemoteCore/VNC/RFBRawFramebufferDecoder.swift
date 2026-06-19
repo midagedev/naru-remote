@@ -25,6 +25,36 @@ public struct RFBRawFramebuffer: Codable, Equatable, Sendable {
         self.pixels = Array(repeating: fill, count: self.width * self.height)
     }
 
+    public init(
+        width: Int,
+        height: Int,
+        pixels: [RFBColor],
+        fill: RFBColor = RFBColor(red: 0, green: 0, blue: 0)
+    ) {
+        let safeWidth = max(width, 0)
+        let safeHeight = max(height, 0)
+        guard safeWidth == 0 || safeHeight <= Int.max / safeWidth else {
+            self.width = 0
+            self.height = 0
+            self.pixels = []
+            return
+        }
+
+        self.width = safeWidth
+        self.height = safeHeight
+        let expectedCount = self.width * self.height
+        if pixels.count == expectedCount {
+            self.pixels = pixels
+        } else if pixels.count > expectedCount {
+            self.pixels = Array(pixels.prefix(expectedCount))
+        } else {
+            self.pixels = pixels + Array(
+                repeating: fill,
+                count: expectedCount - pixels.count
+            )
+        }
+    }
+
     public subscript(x: Int, y: Int) -> RFBColor? {
         guard x >= 0, y >= 0, x < width, y < height else {
             return nil

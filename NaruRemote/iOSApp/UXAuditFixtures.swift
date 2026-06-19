@@ -341,11 +341,11 @@ enum UXAuditFixtures {
     /// Active session carrying a 16:9 framebuffer so the session
     /// viewport renders the remote screen at the server's true aspect
     /// ratio (spec 003 FR-001 — screen-first).  A real desktop is
-    /// 16:9 / 16:10; before this change the container hardcoded 4:3
-    /// and double-letterboxed widescreen frames into a small box.  The
-    /// framebuffer is a solid fill (the public `RFBRawFramebuffer`
-    /// init only takes one color) — the point of the fixture is the
-    /// container *shape*, which a solid wide rectangle makes obvious.
+    /// 16:9 / 16:10; before this fixture existed the container
+    /// hardcoded 4:3 and double-letterboxed widescreen frames into a
+    /// small box.  Keep the framebuffer synthetic and non-secret, but
+    /// include representative window structure and readable terminal
+    /// text so UX audit screenshots prove more than a flat rectangle.
     private static func sessionActiveWidescreenSnapshot(
         serverCursor: RFBServerCursor? = nil
     ) -> NaruRemoteAppSnapshot {
@@ -355,13 +355,7 @@ enum UXAuditFixtures {
             state: .active,
             lastFrameAt: fixedDate(offsetSeconds: 5)
         )
-        // 1600×900 = 16:9.  Mid-slate fill so it reads as a real
-        // screen against the dark container, not an empty black box.
-        let framebuffer = RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
-        )
+        let framebuffer = activeSessionDesktopFramebuffer()
         return NaruRemoteAppSnapshot(
             profiles: [profile],
             selectedProfileID: profile.id,
@@ -378,11 +372,7 @@ enum UXAuditFixtures {
             state: .active,
             lastFrameAt: fixedDate(offsetSeconds: 5)
         )
-        let framebuffer = RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
-        )
+        let framebuffer = activeSessionDesktopFramebuffer()
         let draft = ComposeDraft(sessionID: session.id, text: "")
         let attempt = TextInjectionAttempt(
             draftID: draft.id,
@@ -422,12 +412,465 @@ enum UXAuditFixtures {
     }
 
     static func sampleWidescreenFramebuffer() -> RFBRawFramebuffer {
-        RFBRawFramebuffer(
-            width: 1600,
-            height: 900,
-            fill: RFBColor(red: 0x1E, green: 0x2A, blue: 0x38)
+        return activeSessionDesktopFramebuffer()
+    }
+
+    private static func activeSessionDesktopFramebuffer() -> RFBRawFramebuffer {
+        let width = 640
+        let height = 360
+        var pixels = Array(
+            repeating: RFBColor(red: 0x11, green: 0x1B, blue: 0x26),
+            count: width * height
+        )
+
+        func fillRect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
+            let minX = max(x, 0)
+            let minY = max(y, 0)
+            let maxX = min(x + rectWidth, width)
+            let maxY = min(y + rectHeight, height)
+            guard minX < maxX, minY < maxY else {
+                return
+            }
+            for row in minY..<maxY {
+                let base = row * width
+                for column in minX..<maxX {
+                    pixels[base + column] = color
+                }
+            }
+        }
+
+        func strokeRect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
+            fillRect(x: x, y: y, width: rectWidth, height: 2, color: color)
+            fillRect(x: x, y: y + rectHeight - 2, width: rectWidth, height: 2, color: color)
+            fillRect(x: x, y: y, width: 2, height: rectHeight, color: color)
+            fillRect(x: x + rectWidth - 2, y: y, width: 2, height: rectHeight, color: color)
+        }
+
+        func drawTextPixels(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
+            var cursorX = x
+            let advance = 6 * scale
+            for character in text {
+                let glyph = framebufferGlyphs[character] ?? framebufferGlyphs["?"]!
+                for (rowIndex, row) in glyph.enumerated() {
+                    for (columnIndex, bit) in row.enumerated() where bit == "1" {
+                        fillRect(
+                            x: cursorX + columnIndex * scale,
+                            y: y + rowIndex * scale,
+                            width: scale,
+                            height: scale,
+                            color: color
+                        )
+                    }
+                }
+                cursorX += advance
+            }
+        }
+
+        func drawText(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
+            drawTextPixels(
+                text,
+                x: x + max(scale / 2, 1),
+                y: y + max(scale / 2, 1),
+                scale: scale,
+                color: RFBColor(red: 0x03, green: 0x07, blue: 0x10)
+            )
+            drawTextPixels(text, x: x, y: y, scale: scale, color: color)
+        }
+
+        for y in 0..<height {
+            let lift = UInt8(min(34, y / 11))
+            let color = RFBColor(
+                red: 0x10,
+                green: UInt8(0x1A + Int(lift) / 2),
+                blue: UInt8(0x27 + Int(lift))
+            )
+            fillRect(x: 0, y: y, width: width, height: 1, color: color)
+        }
+
+        fillRect(x: 0, y: 0, width: width, height: 28, color: RFBColor(red: 0x0B, green: 0x12, blue: 0x1D))
+        fillRect(x: 0, y: 28, width: width, height: 2, color: RFBColor(red: 0x1E, green: 0x3A, blue: 0x4D))
+        drawText("STUDIO MAC", x: 250, y: 8, scale: 2, color: RFBColor(red: 0xB8, green: 0xC7, blue: 0xD7))
+
+        fillRect(x: 54, y: 62, width: 138, height: 108, color: RFBColor(red: 0x18, green: 0x25, blue: 0x34))
+        strokeRect(x: 54, y: 62, width: 138, height: 108, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
+        drawText("FILES", x: 76, y: 84, scale: 2, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
+        fillRect(x: 76, y: 118, width: 92, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
+        fillRect(x: 76, y: 138, width: 70, height: 8, color: RFBColor(red: 0x73, green: 0x90, blue: 0xA8))
+
+        fillRect(x: 454, y: 62, width: 132, height: 108, color: RFBColor(red: 0x18, green: 0x25, blue: 0x34))
+        strokeRect(x: 454, y: 62, width: 132, height: 108, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
+        drawText("WATCH", x: 484, y: 84, scale: 2, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
+        fillRect(x: 486, y: 120, width: 68, height: 10, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
+        fillRect(x: 486, y: 142, width: 48, height: 10, color: RFBColor(red: 0xF5, green: 0xB9, blue: 0x42))
+
+        fillRect(x: 200, y: 48, width: 244, height: 266, color: RFBColor(red: 0x07, green: 0x0D, blue: 0x16))
+        strokeRect(x: 200, y: 48, width: 244, height: 266, color: RFBColor(red: 0x47, green: 0x75, blue: 0x8F))
+        fillRect(x: 202, y: 50, width: 240, height: 26, color: RFBColor(red: 0x15, green: 0x26, blue: 0x35))
+        fillRect(x: 216, y: 60, width: 8, height: 8, color: RFBColor(red: 0xFF, green: 0x6B, blue: 0x6B))
+        fillRect(x: 232, y: 60, width: 8, height: 8, color: RFBColor(red: 0xF5, green: 0xB9, blue: 0x42))
+        fillRect(x: 248, y: 60, width: 8, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
+        drawText("TERMINAL", x: 278, y: 56, scale: 2, color: RFBColor(red: 0xC7, green: 0xD7, blue: 0xEA))
+
+        drawText("NARU REMOTE", x: 218, y: 92, scale: 3, color: RFBColor(red: 0xE6, green: 0xF0, blue: 0xFA))
+        drawText("BUILD PASSED", x: 214, y: 140, scale: 3, color: RFBColor(red: 0x69, green: 0xE0, blue: 0xB0))
+        drawText("TAILNET READY", x: 208, y: 188, scale: 3, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
+        drawText("NO SECRET DATA", x: 202, y: 236, scale: 3, color: RFBColor(red: 0xF2, green: 0xD0, blue: 0x7A))
+
+        fillRect(x: 218, y: 288, width: 206, height: 8, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
+        fillRect(x: 218, y: 288, width: 142, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
+        drawText("CPU 18  NET 2", x: 236, y: 326, scale: 2, color: RFBColor(red: 0xA8, green: 0xB8, blue: 0xCA))
+
+        return RFBRawFramebuffer(
+            width: width,
+            height: height,
+            pixels: pixels
         )
     }
+
+    private static let framebufferGlyphs: [Character: [String]] = [
+        " ": [
+            "00000",
+            "00000",
+            "00000",
+            "00000",
+            "00000",
+            "00000",
+            "00000"
+        ],
+        "?": [
+            "01110",
+            "10001",
+            "00001",
+            "00010",
+            "00100",
+            "00000",
+            "00100"
+        ],
+        "0": [
+            "01110",
+            "10001",
+            "10011",
+            "10101",
+            "11001",
+            "10001",
+            "01110"
+        ],
+        "1": [
+            "00100",
+            "01100",
+            "00100",
+            "00100",
+            "00100",
+            "00100",
+            "01110"
+        ],
+        "2": [
+            "01110",
+            "10001",
+            "00001",
+            "00010",
+            "00100",
+            "01000",
+            "11111"
+        ],
+        "3": [
+            "11110",
+            "00001",
+            "00001",
+            "01110",
+            "00001",
+            "00001",
+            "11110"
+        ],
+        "4": [
+            "00010",
+            "00110",
+            "01010",
+            "10010",
+            "11111",
+            "00010",
+            "00010"
+        ],
+        "5": [
+            "11111",
+            "10000",
+            "10000",
+            "11110",
+            "00001",
+            "00001",
+            "11110"
+        ],
+        "6": [
+            "01110",
+            "10000",
+            "10000",
+            "11110",
+            "10001",
+            "10001",
+            "01110"
+        ],
+        "7": [
+            "11111",
+            "00001",
+            "00010",
+            "00100",
+            "01000",
+            "01000",
+            "01000"
+        ],
+        "8": [
+            "01110",
+            "10001",
+            "10001",
+            "01110",
+            "10001",
+            "10001",
+            "01110"
+        ],
+        "9": [
+            "01110",
+            "10001",
+            "10001",
+            "01111",
+            "00001",
+            "00001",
+            "01110"
+        ],
+        "A": [
+            "01110",
+            "10001",
+            "10001",
+            "11111",
+            "10001",
+            "10001",
+            "10001"
+        ],
+        "B": [
+            "11110",
+            "10001",
+            "10001",
+            "11110",
+            "10001",
+            "10001",
+            "11110"
+        ],
+        "C": [
+            "01111",
+            "10000",
+            "10000",
+            "10000",
+            "10000",
+            "10000",
+            "01111"
+        ],
+        "D": [
+            "11110",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "11110"
+        ],
+        "E": [
+            "11111",
+            "10000",
+            "10000",
+            "11110",
+            "10000",
+            "10000",
+            "11111"
+        ],
+        "F": [
+            "11111",
+            "10000",
+            "10000",
+            "11110",
+            "10000",
+            "10000",
+            "10000"
+        ],
+        "G": [
+            "01111",
+            "10000",
+            "10000",
+            "10011",
+            "10001",
+            "10001",
+            "01111"
+        ],
+        "H": [
+            "10001",
+            "10001",
+            "10001",
+            "11111",
+            "10001",
+            "10001",
+            "10001"
+        ],
+        "I": [
+            "11111",
+            "00100",
+            "00100",
+            "00100",
+            "00100",
+            "00100",
+            "11111"
+        ],
+        "J": [
+            "00111",
+            "00010",
+            "00010",
+            "00010",
+            "10010",
+            "10010",
+            "01100"
+        ],
+        "K": [
+            "10001",
+            "10010",
+            "10100",
+            "11000",
+            "10100",
+            "10010",
+            "10001"
+        ],
+        "L": [
+            "10000",
+            "10000",
+            "10000",
+            "10000",
+            "10000",
+            "10000",
+            "11111"
+        ],
+        "M": [
+            "10001",
+            "11011",
+            "10101",
+            "10101",
+            "10001",
+            "10001",
+            "10001"
+        ],
+        "N": [
+            "10001",
+            "11001",
+            "10101",
+            "10011",
+            "10001",
+            "10001",
+            "10001"
+        ],
+        "O": [
+            "01110",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "01110"
+        ],
+        "P": [
+            "11110",
+            "10001",
+            "10001",
+            "11110",
+            "10000",
+            "10000",
+            "10000"
+        ],
+        "Q": [
+            "01110",
+            "10001",
+            "10001",
+            "10001",
+            "10101",
+            "10010",
+            "01101"
+        ],
+        "R": [
+            "11110",
+            "10001",
+            "10001",
+            "11110",
+            "10100",
+            "10010",
+            "10001"
+        ],
+        "S": [
+            "01111",
+            "10000",
+            "10000",
+            "01110",
+            "00001",
+            "00001",
+            "11110"
+        ],
+        "T": [
+            "11111",
+            "00100",
+            "00100",
+            "00100",
+            "00100",
+            "00100",
+            "00100"
+        ],
+        "U": [
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "01110"
+        ],
+        "V": [
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "10001",
+            "01010",
+            "00100"
+        ],
+        "W": [
+            "10001",
+            "10001",
+            "10001",
+            "10101",
+            "10101",
+            "10101",
+            "01010"
+        ],
+        "X": [
+            "10001",
+            "10001",
+            "01010",
+            "00100",
+            "01010",
+            "10001",
+            "10001"
+        ],
+        "Y": [
+            "10001",
+            "10001",
+            "01010",
+            "00100",
+            "00100",
+            "00100",
+            "00100"
+        ],
+        "Z": [
+            "11111",
+            "00001",
+            "00010",
+            "00100",
+            "01000",
+            "10000",
+            "11111"
+        ]
+    ]
 
     private static func serverCursorArrow() -> RFBServerCursor {
         let width = 24

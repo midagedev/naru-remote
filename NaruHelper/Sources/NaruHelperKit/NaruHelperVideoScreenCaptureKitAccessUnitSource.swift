@@ -6,6 +6,10 @@ public enum NaruHelperVideoScreenCaptureKitAccessUnitSourceError: Error, Equatab
     case screenRecordingPermissionMissing
     case captureSourceUnavailable
     case captureTimedOut
+    case captureNoOutputCallbacks
+    case captureNonScreenOutputCallbacks
+    case captureNonDisplayableScreenFrames
+    case captureInsufficientDisplayableFrames
     case captureFailed
     case capturedFrameMissingImageBuffer
     case noCapturedFrames
@@ -16,6 +20,7 @@ public enum NaruHelperVideoScreenCaptureKitAccessUnitSourceError: Error, Equatab
 @preconcurrency import CoreGraphics
 @preconcurrency import CoreMedia
 @preconcurrency import CoreVideo
+import IOKit.pwr_mgt
 @preconcurrency import ScreenCaptureKit
 import VideoToolbox
 
@@ -484,16 +489,63 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
     }
 }
 
+private final class NaruHelperVideoScreenCaptureKitDisplayWakeAssertion {
+    private var userActivityAssertionID: IOPMAssertionID = 0
+    private var noDisplaySleepAssertionID: IOPMAssertionID = 0
+    private var isReleased = false
+
+    init() {
+        let reason = "Naru Remote helper video stream" as CFString
+
+        var userActivityID: IOPMAssertionID = 0
+        if IOPMAssertionDeclareUserActivity(
+            reason,
+            kIOPMUserActiveLocal,
+            &userActivityID
+        ) == kIOReturnSuccess {
+            userActivityAssertionID = userActivityID
+        }
+
+        var displaySleepID: IOPMAssertionID = 0
+        if IOPMAssertionCreateWithName(
+            kIOPMAssertionTypeNoDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason,
+            &displaySleepID
+        ) == kIOReturnSuccess {
+            noDisplaySleepAssertionID = displaySleepID
+        }
+    }
+
+    func release() {
+        guard !isReleased else {
+            return
+        }
+        isReleased = true
+        if userActivityAssertionID != 0 {
+            IOPMAssertionRelease(userActivityAssertionID)
+            userActivityAssertionID = 0
+        }
+        if noDisplaySleepAssertionID != 0 {
+            IOPMAssertionRelease(noDisplaySleepAssertionID)
+            noDisplaySleepAssertionID = 0
+        }
+    }
+
+    deinit {
+        release()
+    }
+}
+
 private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
     var frameLimit: Int
     var frameRateBucket: HelperVideoFrameRateBucket
     var qualityBucket: HelperVideoQualityBucket
 
     func capture() async throws -> [CapturedPixelBuffer] {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: true
-        )
+        let displayWakeAssertion = NaruHelperVideoScreenCaptureKitDisplayWakeAssertion()
+        defer { displayWakeAssertion.release() }
+        let content = try await Self.shareableContentAfterDisplayWake()
         guard let target = Self.captureTarget(from: content) else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .captureSourceUnavailable
@@ -563,6 +615,22 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
                 }
             }
         }
+    }
+
+    fileprivate static func shareableContentAfterDisplayWake() async throws -> SCShareableContent {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
+        guard content.displays.isEmpty else {
+            return content
+        }
+
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        return try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: true
+        )
     }
 
     fileprivate static func captureDisplay(from content: SCShareableContent) -> SCDisplay? {
@@ -685,10 +753,10 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
     let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
 
     func captureUntilFinished() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: true
-        )
+        let displayWakeAssertion = NaruHelperVideoScreenCaptureKitDisplayWakeAssertion()
+        defer { displayWakeAssertion.release() }
+        let content = try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture
+            .shareableContentAfterDisplayWake()
         guard let target = LiveNaruHelperVideoScreenCaptureKitFiniteCapture
             .captureTarget(from: content)
         else {
@@ -726,14 +794,25 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
         try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.start(stream)
 
         do {
-            try await withTaskCancellationHandler {
-                try await collector.waitUntilFinished(
-                    timeout: frameLimit.map {
-                        frameRateBucket.screenCaptureFrameCollectionTimeout(frameLimit: $0)
-                    }
-                )
-            } onCancel: {
-                collector.cancelWait()
+            if let frameLimit {
+                try await withTaskCancellationHandler {
+                    try await collector.waitUntilFinished(
+                        timeout: frameRateBucket.screenCaptureFrameCollectionTimeout(
+                            frameLimit: frameLimit
+                        )
+                    )
+                } onCancel: {
+                    collector.cancelWait()
+                }
+            } else {
+                try await withTaskCancellationHandler {
+                    try await collector.waitForFirstFrame(
+                        timeout: frameRateBucket.screenCaptureFirstFrameTimeout
+                    )
+                    try await collector.waitUntilFinished()
+                } onCancel: {
+                    collector.cancelWait()
+                }
             }
             try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.stop(stream)
         } catch {
@@ -754,6 +833,7 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
     private let semaphore = DispatchSemaphore(value: 0)
     private var frames: [CapturedPixelBuffer] = []
     private var stoppedWithError = false
+    private var noFrameDiagnostics = LiveNaruHelperVideoScreenCaptureKitNoFrameDiagnostics()
 
     init(frameLimit: Int) {
         self.frameLimit = max(frameLimit, 1)
@@ -761,7 +841,9 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
 
     func waitForFrames(timeout: TimeInterval) throws -> [CapturedPixelBuffer] {
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+            throw lock.withLock {
+                noFrameDiagnostics.timeoutError
+            }
         }
         return try lock.withLock {
             if stoppedWithError {
@@ -779,10 +861,21 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
-        guard type == .screen,
-              Self.isDisplayableScreenFrame(sampleBuffer),
-              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        else {
+        let isScreenOutput = type == .screen
+        let imageBuffer = isScreenOutput ? CMSampleBufferGetImageBuffer(sampleBuffer) : nil
+        let isDisplayable = isScreenOutput && Self.isDisplayableScreenFrame(
+            sampleBuffer,
+            hasImageBuffer: imageBuffer != nil
+        )
+        lock.withLock {
+            noFrameDiagnostics.record(
+                isScreenOutput: isScreenOutput,
+                isDisplayableScreenFrame: isDisplayable,
+                hasImageBuffer: imageBuffer != nil
+            )
+        }
+
+        guard isScreenOutput, isDisplayable, let imageBuffer else {
             return
         }
 
@@ -804,19 +897,41 @@ private final class LiveNaruHelperVideoScreenCaptureKitFrameCollector:
         semaphore.signal()
     }
 
-    fileprivate static func isDisplayableScreenFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+    fileprivate static func isDisplayableScreenFrame(
+        _ sampleBuffer: CMSampleBuffer,
+        hasImageBuffer: Bool
+    ) -> Bool {
+        NaruHelperVideoScreenCaptureKitFrameSamplePolicy.isDisplayableScreenFrame(
+            rawStatus: NaruHelperVideoScreenCaptureKitFrameSamplePolicy.rawStatus(
+                from: sampleBuffer
+            ),
+            hasImageBuffer: hasImageBuffer
+        )
+    }
+}
+
+struct NaruHelperVideoScreenCaptureKitFrameSamplePolicy {
+    static func rawStatus(from sampleBuffer: CMSampleBuffer) -> Int? {
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(
             sampleBuffer,
             createIfNecessary: false
         ) as? [[SCStreamFrameInfo: Any]],
-              let first = attachments.first,
-              let rawStatus = first[SCStreamFrameInfo.status] as? Int,
+              let first = attachments.first
+        else {
+            return nil
+        }
+
+        return first[SCStreamFrameInfo.status] as? Int
+    }
+
+    static func isDisplayableScreenFrame(rawStatus: Int?, hasImageBuffer: Bool) -> Bool {
+        guard let rawStatus,
               let status = SCFrameStatus(rawValue: rawStatus)
         else {
             return true
         }
 
-        return status == .complete || status == .started
+        return status == .complete || (status == .started && hasImageBuffer)
     }
 }
 
@@ -830,6 +945,8 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
     private let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
     private let lock = NSLock()
     private var emittedFrameCount = 0
+    private var noFrameDiagnostics = LiveNaruHelperVideoScreenCaptureKitNoFrameDiagnostics()
+    private var firstFrameContinuation: CheckedContinuation<Void, any Error>?
     private var waitContinuation: CheckedContinuation<Void, any Error>?
     private var completion: Result<Void, any Error>?
 
@@ -841,22 +958,20 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         self.continuation = continuation
     }
 
-    func waitUntilFinished(timeout: TimeInterval? = nil) async throws {
-        guard let timeout else {
-            try await waitUntilFinishedWithoutTimeout()
-            return
-        }
+    func waitUntilFinished() async throws {
+        try await waitUntilFinishedWithoutTimeout()
+    }
 
+    func waitUntilFinished(timeout: TimeInterval) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 try await self.waitUntilFinishedWithoutTimeout()
             }
             group.addTask {
                 try await Self.sleep(seconds: timeout)
-                self.cancelWait(
-                    NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
-                )
-                throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.captureTimedOut
+                let error = self.noFrameTimeoutError()
+                self.cancelWait(error)
+                throw error
             }
 
             defer {
@@ -866,6 +981,46 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
                 return
             }
             return result
+        }
+    }
+
+    func waitForFirstFrame(timeout: TimeInterval) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await self.waitForFirstFrameWithoutTimeout()
+            }
+            group.addTask {
+                try await Self.sleep(seconds: timeout)
+                let error = self.noFrameTimeoutError()
+                self.cancelWait(error)
+                throw error
+            }
+
+            defer {
+                group.cancelAll()
+            }
+            guard let result = try await group.next() else {
+                return
+            }
+            return result
+        }
+    }
+
+    private func waitForFirstFrameWithoutTimeout() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let resultToResume: Result<Void, any Error>? = lock.withLock {
+                if emittedFrameCount > 0 {
+                    return .success(())
+                }
+                if let completion {
+                    return completion
+                }
+                firstFrameContinuation = continuation
+                return nil
+            }
+            if let resultToResume {
+                continuation.resume(with: resultToResume)
+            }
         }
     }
 
@@ -884,6 +1039,12 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         }
     }
 
+    private func noFrameTimeoutError() -> NaruHelperVideoScreenCaptureKitAccessUnitSourceError {
+        lock.withLock {
+            noFrameDiagnostics.timeoutError
+        }
+    }
+
     private static func sleep(seconds: TimeInterval) async throws {
         let clampedSeconds = max(seconds, 0)
         let nanoseconds = UInt64(clampedSeconds * 1_000_000_000)
@@ -899,21 +1060,43 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
-        guard type == .screen,
-              LiveNaruHelperVideoScreenCaptureKitFrameCollector
-                  .isDisplayableScreenFrame(sampleBuffer),
-              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        else {
+        let isScreenOutput = type == .screen
+        let imageBuffer = isScreenOutput ? CMSampleBufferGetImageBuffer(sampleBuffer) : nil
+        let isDisplayable = isScreenOutput
+            && LiveNaruHelperVideoScreenCaptureKitFrameCollector
+                .isDisplayableScreenFrame(
+                    sampleBuffer,
+                    hasImageBuffer: imageBuffer != nil
+                )
+        lock.withLock {
+            noFrameDiagnostics.record(
+                isScreenOutput: isScreenOutput,
+                isDisplayableScreenFrame: isDisplayable,
+                hasImageBuffer: imageBuffer != nil
+            )
+        }
+
+        guard isScreenOutput, isDisplayable, let imageBuffer else {
             return
         }
 
-        let shouldFinish: Bool = lock.withLock {
+        let firstFrameContinuationToResume: CheckedContinuation<Void, any Error>?
+        let shouldFinish: Bool
+        (firstFrameContinuationToResume, shouldFinish) = lock.withLock {
             guard completion == nil else {
-                return false
+                return (nil, false)
             }
             emittedFrameCount += 1
-            return frameLimit.map { emittedFrameCount >= $0 } ?? false
+            let firstFrameContinuation = emittedFrameCount == 1
+                ? self.firstFrameContinuation
+                : nil
+            self.firstFrameContinuation = nil
+            return (
+                firstFrameContinuation,
+                frameLimit.map { emittedFrameCount >= $0 } ?? false
+            )
         }
+        firstFrameContinuationToResume?.resume()
         nonisolated(unsafe) let transferableImageBuffer = imageBuffer
         continuation.yield(transferableImageBuffer)
         if shouldFinish {
@@ -928,16 +1111,63 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
     }
 
     private func complete(_ result: Result<Void, any Error>) {
-        let continuationToResume: CheckedContinuation<Void, any Error>? = lock.withLock {
+        let continuationsToResume:
+            (
+                firstFrame: CheckedContinuation<Void, any Error>?,
+                wait: CheckedContinuation<Void, any Error>?
+            ) = lock.withLock {
             guard completion == nil else {
-                return nil
+                return (nil, nil)
             }
             completion = result
+            let firstFrameContinuation = self.firstFrameContinuation
+            self.firstFrameContinuation = nil
             let continuation = waitContinuation
             waitContinuation = nil
-            return continuation
+            return (firstFrameContinuation, continuation)
         }
-        continuationToResume?.resume(with: result)
+        continuationsToResume.firstFrame?.resume(with: result)
+        continuationsToResume.wait?.resume(with: result)
+    }
+}
+
+struct LiveNaruHelperVideoScreenCaptureKitNoFrameDiagnostics {
+    private var observedOutputCallback = false
+    private var observedScreenOutputCallback = false
+    private var observedDisplayableScreenFrame = false
+    private var observedMissingImageBuffer = false
+
+    mutating func record(
+        isScreenOutput: Bool,
+        isDisplayableScreenFrame: Bool,
+        hasImageBuffer: Bool
+    ) {
+        observedOutputCallback = true
+        if isScreenOutput {
+            observedScreenOutputCallback = true
+        }
+        if isDisplayableScreenFrame {
+            observedDisplayableScreenFrame = true
+            if !hasImageBuffer {
+                observedMissingImageBuffer = true
+            }
+        }
+    }
+
+    var timeoutError: NaruHelperVideoScreenCaptureKitAccessUnitSourceError {
+        guard observedOutputCallback else {
+            return .captureNoOutputCallbacks
+        }
+        guard observedScreenOutputCallback else {
+            return .captureNonScreenOutputCallbacks
+        }
+        if observedMissingImageBuffer {
+            return .capturedFrameMissingImageBuffer
+        }
+        guard observedDisplayableScreenFrame else {
+            return .captureNonDisplayableScreenFrames
+        }
+        return .captureInsufficientDisplayableFrames
     }
 }
 
@@ -999,6 +1229,10 @@ extension HelperVideoFrameRateBucket {
 
     func screenCaptureProviderTimeout(frameLimit: Int) -> TimeInterval {
         min(screenCaptureFrameCollectionTimeout(frameLimit: frameLimit) + 2.0, 12.0)
+    }
+
+    var screenCaptureFirstFrameTimeout: TimeInterval {
+        screenCaptureFrameCollectionTimeout(frameLimit: 1)
     }
 
     var nominalFrameRate: CMTimeScale {

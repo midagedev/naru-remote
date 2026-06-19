@@ -4,6 +4,21 @@ import CryptoKit
 public let naruHelperVideoStreamSchemaVersion = 1
 public let naruHelperVideoStreamDefaultPort = 5975
 
+public enum HelperVideoTransportProtection: String, Codable, Equatable, CaseIterable, Sendable {
+    case encrypted
+    case authenticatedPrivateProfile
+    case unprotected
+
+    public var allowsEncodedFramePayloads: Bool {
+        switch self {
+        case .encrypted, .authenticatedPrivateProfile:
+            return true
+        case .unprotected:
+            return false
+        }
+    }
+}
+
 public enum HelperVideoMessageType: String, Codable, Equatable, CaseIterable, Sendable {
     case capabilityRequest
     case startStream
@@ -36,6 +51,11 @@ public enum HelperVideoStreamStallReason: String, Codable, Equatable, CaseIterab
     case encoderUnavailable
     case screenCaptureSourceUnavailable
     case screenCaptureTimedOut
+    case screenCaptureNoOutputCallbacks
+    case screenCaptureNonScreenCallbacks
+    case screenCaptureNonDisplayableFrames
+    case screenCaptureMissingImageBuffer
+    case screenCaptureInsufficientDisplayableFrames
     case screenCaptureFailed
     case transportBackpressure
     case unknown
@@ -338,6 +358,41 @@ public enum HelperVideoWireCodec {
         return HelperVideoDecodedFrame(
             envelope: envelope,
             binaryPayload: frame.subdata(in: binaryStart..<binaryEnd)
+        )
+    }
+
+    public static func decodeFrame<Envelope: Decodable & Equatable & Sendable>(
+        _ type: Envelope.Type,
+        fromJSONFrame jsonFrame: Data,
+        binaryHeader: Data,
+        binaryPayload: Data
+    ) throws -> HelperVideoDecodedFrame<Envelope> {
+        guard jsonFrame.count >= headerByteCount else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+
+        let jsonLength = try jsonPayloadLength(from: jsonFrame.prefixData(headerByteCount))
+        let jsonStart = headerByteCount
+        let jsonEnd = jsonStart + jsonLength
+        guard jsonFrame.count >= jsonEnd else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard jsonFrame.count == jsonEnd else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+
+        let binaryLength = try binaryPayloadLength(from: binaryHeader)
+        guard binaryPayload.count >= binaryLength else {
+            throw HelperVideoWireCodecError.truncatedFrame
+        }
+        guard binaryPayload.count == binaryLength else {
+            throw HelperVideoWireCodecError.unexpectedBinaryPayload
+        }
+
+        let jsonPayload = jsonFrame.subdata(in: jsonStart..<jsonEnd)
+        return HelperVideoDecodedFrame(
+            envelope: try JSONDecoder().decode(type, from: jsonPayload),
+            binaryPayload: binaryPayload
         )
     }
 

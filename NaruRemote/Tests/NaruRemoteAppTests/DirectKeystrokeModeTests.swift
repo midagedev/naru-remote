@@ -13,7 +13,25 @@ final class DirectKeystrokeModeTests: XCTestCase {
         let model = NaruRemoteAppModel()
         XCTAssertFalse(model.directKeystrokeMode.isActive)
         XCTAssertEqual(model.directKeystrokeMode.page, .qwerty)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .customKeyboard)
         XCTAssertFalse(model.directKeystrokeMode.hasShownEntryWarningThisSession)
+    }
+
+    func testDirectKeystrokeModeDecodesLegacyPayloadWithCustomKeyboardSurface() throws {
+        let payload = """
+        {
+          "isActive": true,
+          "page": "special",
+          "hasShownEntryWarningThisSession": true
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(DirectKeystrokeMode.self, from: payload)
+
+        XCTAssertTrue(decoded.isActive)
+        XCTAssertEqual(decoded.page, .special)
+        XCTAssertEqual(decoded.inputSurface, .customKeyboard)
+        XCTAssertTrue(decoded.hasShownEntryWarningThisSession)
     }
 
     // MARK: - toggleDirectKeystrokeMode
@@ -57,19 +75,52 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertFalse(model.directKeystrokeMode.hasShownEntryWarningThisSession)
     }
 
+    func testTogglePreservesSelectedInputSurfaceWithinSession() {
+        let model = NaruRemoteAppModel()
+        model.setDirectKeystrokeInputSurface(.systemKeyboard)
+
+        model.toggleDirectKeystrokeMode()
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .systemKeyboard)
+
+        model.toggleDirectKeystrokeMode()
+        model.toggleDirectKeystrokeMode()
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .systemKeyboard)
+    }
+
     // MARK: - setDirectKeystrokePage
 
     func testSetPageUpdatesPageOnly() {
         let model = NaruRemoteAppModel()
         model.toggleDirectKeystrokeMode()
+        model.setDirectKeystrokeInputSurface(.hardwareKeyboard)
 
         model.setDirectKeystrokePage(.special)
         XCTAssertEqual(model.directKeystrokeMode.page, .special)
         XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .hardwareKeyboard)
 
         model.setDirectKeystrokePage(.qwerty)
         XCTAssertEqual(model.directKeystrokeMode.page, .qwerty)
         XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .hardwareKeyboard)
+    }
+
+    // MARK: - setDirectKeystrokeInputSurface
+
+    func testSetInputSurfaceUpdatesSurfaceOnly() {
+        let model = NaruRemoteAppModel()
+        model.toggleDirectKeystrokeMode()
+        model.setDirectKeystrokePage(.special)
+        model.dismissDirectModeEntryWarning()
+
+        model.setDirectKeystrokeInputSurface(.hardwareKeyboard)
+
+        XCTAssertTrue(model.directKeystrokeMode.isActive)
+        XCTAssertEqual(model.directKeystrokeMode.page, .special)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .hardwareKeyboard)
+        XCTAssertTrue(model.directKeystrokeMode.hasShownEntryWarningThisSession)
     }
 
     // MARK: - dismissDirectModeEntryWarning
@@ -77,16 +128,53 @@ final class DirectKeystrokeModeTests: XCTestCase {
     func testDismissEntryWarningSetsFlag() {
         let model = NaruRemoteAppModel()
         model.toggleDirectKeystrokeMode()
+        model.setDirectKeystrokeInputSurface(.systemKeyboard)
         XCTAssertFalse(model.directKeystrokeMode.hasShownEntryWarningThisSession)
 
         model.dismissDirectModeEntryWarning()
         XCTAssertTrue(model.directKeystrokeMode.hasShownEntryWarningThisSession)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .systemKeyboard)
 
         // Subsequent toggle off / on within the same session
         // keeps the flag set.
         model.toggleDirectKeystrokeMode()
         model.toggleDirectKeystrokeMode()
         XCTAssertTrue(model.directKeystrokeMode.hasShownEntryWarningThisSession)
+        XCTAssertEqual(model.directKeystrokeMode.inputSurface, .systemKeyboard)
+    }
+
+    // MARK: - iOS system keyboard surface mapping
+
+    func testSystemKeyboardTextMapsPrintableAsciiToDirectCharacters() {
+        XCTAssertEqual(
+            RemoteInputDockView.directKeys(fromSystemKeyboardText: "ab Z1"),
+            [
+                .character("a"),
+                .character("b"),
+                .character(" "),
+                .character("Z"),
+                .character("1")
+            ]
+        )
+    }
+
+    func testSystemKeyboardTextMapsReturnAndTabToNamedKeys() {
+        XCTAssertEqual(
+            RemoteInputDockView.directKeys(fromSystemKeyboardText: "\n\t"),
+            [
+                .named(.return),
+                .named(.tab)
+            ]
+        )
+    }
+
+    func testSystemKeyboardTextDropsNonAsciiDirectInput() {
+        XCTAssertEqual(
+            RemoteInputDockView.directKeys(fromSystemKeyboardText: "가🙂a"),
+            [
+                .character("a")
+            ]
+        )
     }
 
     // MARK: - tapDirectKey

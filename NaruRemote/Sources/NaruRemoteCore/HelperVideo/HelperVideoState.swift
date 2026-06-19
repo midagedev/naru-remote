@@ -25,6 +25,7 @@ public enum HelperVideoFailureCode: String, Codable, Equatable, CaseIterable, Se
     case transportFailed = "helperVideo.transportFailed"
     case fallbackToVNC = "helperVideo.fallbackToVNC"
     case privateNetworkRequired = "helperVideo.privateNetworkRequired"
+    case transportProtectionRequired = "helperVideo.transportProtectionRequired"
 }
 
 public enum HelperVideoLastCheckedBucket: String, Codable, Equatable, CaseIterable, Sendable {
