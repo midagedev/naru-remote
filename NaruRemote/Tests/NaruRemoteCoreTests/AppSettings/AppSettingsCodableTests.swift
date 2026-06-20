@@ -38,6 +38,28 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, AppSettings())
     }
 
+    func testComposeDeliveryDefaultsToClipboardPasteAndOmitsFromJSON() throws {
+        XCTAssertEqual(AppSettings().composeDelivery, .clipboardPaste)
+
+        // Default value must not be written, keeping the canonical empty
+        // file `{}` (forward-compat policy).
+        let data = try JSONEncoder().encode(AppSettings())
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNil(object?["composeDelivery"])
+    }
+
+    func testComposeDeliveryKeystrokeStreamRoundTripsAndEncodes() throws {
+        var settings = AppSettings()
+        settings.composeDelivery = .keystrokeStream
+
+        let data = try JSONEncoder().encode(settings)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(object?["composeDelivery"] as? String, "keystroke-stream")
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(decoded.composeDelivery, .keystrokeStream)
+    }
+
     func testStreamPowerModeDecodesWhenPresent() throws {
         let json = """
         {

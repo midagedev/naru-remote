@@ -117,7 +117,7 @@ public struct NaruRemoteAppShell: View {
     private func remoteInputDockHost(state: RemoteInputDockRenderState) -> some View {
         RemoteInputDockEquatableHost(
             state: state,
-            onSend: { model.sendComposedText($0) },
+            onSend: { model.sendComposedTextUsingPreferredDelivery($0) },
             onTextChange: { model.updateComposeDraftText($0) },
             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
@@ -799,6 +799,10 @@ private struct SessionViewportFrameBridge: View {
             streamPowerMode: model.appSettings.streamPowerMode,
             onToggleStreamPowerMode: {
                 model.toggleStreamPowerMode()
+            },
+            composeDelivery: model.appSettings.composeDelivery,
+            onToggleComposeDeliveryMode: {
+                model.toggleComposeDeliveryMode()
             },
             streamEncodingMode: model.appSettings.streamEncodingMode,
             onToggleStreamEncodingMode: {

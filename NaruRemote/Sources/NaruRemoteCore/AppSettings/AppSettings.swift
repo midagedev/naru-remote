@@ -104,6 +104,34 @@ public enum StreamEncodingMode: String, Codable, Equatable, Sendable, CaseIterab
     }
 }
 
+/// How a finished Compose draft is delivered to the remote on Send.
+///
+/// Composition is always local (IME, multilingual, voice). Only the
+/// transport to the remote differs:
+///
+/// - `clipboardPaste`: set the remote clipboard and paste (⌘V). Most
+///   reliable for multilingual text because paste bypasses the remote
+///   keyboard layout / IME entirely — the exact characters land. Cost:
+///   it touches the remote clipboard.
+/// - `keystrokeStream`: type the finished text as a stream of key events
+///   (the proven Direct Keystroke transport). Never touches the remote
+///   clipboard. ASCII/Latin is exact; non-ASCII rides X11 Unicode keysyms
+///   whose acceptance is server/IME-dependent, so multilingual fidelity is
+///   the user's call.
+public enum ComposeDeliveryMode: String, Codable, Equatable, Sendable, CaseIterable {
+    case clipboardPaste = "clipboard-paste"
+    case keystrokeStream = "keystroke-stream"
+
+    public var toggled: ComposeDeliveryMode {
+        switch self {
+        case .clipboardPaste:
+            return .keystrokeStream
+        case .keystrokeStream:
+            return .clipboardPaste
+        }
+    }
+}
+
 /// App-level user preferences that are not tied to a single
 /// `ConnectionProfile` and never carry secrets.  Stored as plain
 /// JSON via `AppSettingsPersisting` (no Keychain).
@@ -124,17 +152,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var streamEncodingMode: StreamEncodingMode
     public var startupPreflightMode: StreamStartupPreflightMode
     public var startupGlanceScaleMode: StreamStartupGlanceScaleMode
+    public var composeDelivery: ComposeDeliveryMode
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
         streamEncodingMode: StreamEncodingMode = .standard,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
-        startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045
+        startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
+        composeDelivery: ComposeDeliveryMode = .clipboardPaste
     ) {
         self.streamPowerMode = streamPowerMode
         self.streamEncodingMode = streamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.startupGlanceScaleMode = startupGlanceScaleMode
+        self.composeDelivery = composeDelivery
     }
 
     public init(from decoder: Decoder) throws {
@@ -155,11 +186,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
             StreamStartupGlanceScaleMode.self,
             forKey: .startupGlanceScaleMode
         ) ?? .standard045
+        let composeDelivery = try container.decodeIfPresent(
+            ComposeDeliveryMode.self,
+            forKey: .composeDelivery
+        ) ?? .clipboardPaste
         self.init(
             streamPowerMode: streamPowerMode,
             streamEncodingMode: streamEncodingMode,
             startupPreflightMode: startupPreflightMode,
-            startupGlanceScaleMode: startupGlanceScaleMode
+            startupGlanceScaleMode: startupGlanceScaleMode,
+            composeDelivery: composeDelivery
         )
     }
 
@@ -177,6 +213,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if startupGlanceScaleMode != .standard045 {
             try container.encode(startupGlanceScaleMode, forKey: .startupGlanceScaleMode)
         }
+        if composeDelivery != .clipboardPaste {
+            try container.encode(composeDelivery, forKey: .composeDelivery)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -184,5 +223,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case streamEncodingMode
         case startupPreflightMode
         case startupGlanceScaleMode
+        case composeDelivery
     }
 }

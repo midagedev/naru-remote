@@ -213,7 +213,7 @@ public struct RemoteInputDockView: View {
     }
 
     private var standardBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 ViewThatFits(in: .horizontal) {
                     Label("Remote Input Dock", systemImage: "keyboard")
@@ -233,6 +233,13 @@ public struct RemoteInputDockView: View {
 
                 Spacer()
 
+                // Mission control / Mac window controls collapse into a
+                // single header menu so they no longer occupy a full row
+                // above the editor (frees vertical space for typing).
+                if showsMacSessionControls, !directKeystrokeMode.isActive {
+                    compactMacControlMenu
+                }
+
                 if !directKeystrokeMode.isActive {
                     statusBlock
                 }
@@ -243,16 +250,12 @@ public struct RemoteInputDockView: View {
             if directKeystrokeMode.isActive {
                 directKeyboard
             } else {
-                if showsMacSessionControls {
-                    macSessionControlStrip
-                }
-                if showsComposeQuickKeys {
-                    composeQuickKeyStrip
-                }
                 composeRow
+                composeActionRow
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(NaruColors.dock)
         .overlay(alignment: .top) {
             // UX punch-list #203: the system `Divider()` rendered
@@ -336,10 +339,6 @@ public struct RemoteInputDockView: View {
             if showsMacSessionControls {
                 compactMacControlMenu
             }
-
-            if showsComposeQuickKeys {
-                quickKeyMenu
-            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -355,27 +354,34 @@ public struct RemoteInputDockView: View {
     }
 
     private var compactComposeRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                onToggleDirectMode()
-            } label: {
-                Label("Direct mode", systemImage: "keyboard")
-                    .labelStyle(.iconOnly)
-                    .frame(width: 40, height: 40)
-            }
-            .buttonStyle(.plain)
-            .background(NaruColors.surfaceMuted)
-            .clipShape(Circle())
-            .accessibilityIdentifier("naru.input.direct-toggle")
+        VStack(spacing: 8) {
+            // Mission control row on top — Direct toggle + Mac window
+            // controls — so the editor + action row below own the space.
+            HStack(spacing: 10) {
+                Button {
+                    onToggleDirectMode()
+                } label: {
+                    Label("Direct mode", systemImage: "keyboard")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .background(NaruColors.surfaceMuted)
+                .clipShape(Circle())
+                .accessibilityIdentifier("naru.input.direct-toggle")
 
-            if showsMacSessionControls {
-                compactMacControlMenu
+                if showsMacSessionControls {
+                    compactMacControlMenu
+                }
+
+                Spacer(minLength: 0)
             }
 
             if showsCompactComposeEditor {
                 composeTextEditor
                     .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
-                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                     .padding(.horizontal, 12)
                     .background(NaruColors.surfaceEditor)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -389,28 +395,9 @@ public struct RemoteInputDockView: View {
                     })
                     .composeEditorShellAccessibility()
 
-                if showsComposeQuickKeys {
-                    quickKeyMenu
-                }
-
-                Button {
-                    sendCurrentComposeText()
-                } label: {
-                    Label("Send", systemImage: "paperplane.fill")
-                        .labelStyle(.iconOnly)
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 44, height: 40)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isComposeSendDisabled)
-                .help("Send composed text")
-                .accessibilityIdentifier("naru.input.send")
+                composeActionRow
             } else {
                 compactComposeRevealButton
-
-                if showsComposeQuickKeys {
-                    quickKeyMenu
-                }
             }
         }
     }
@@ -554,22 +541,6 @@ public struct RemoteInputDockView: View {
             .accessibilityIdentifier("naru.input.compact-status")
     }
 
-    private var quickKeyMenu: some View {
-        Menu {
-            ForEach(ComposeQuickKey.allCases, id: \.self) { key in
-                Button(key.label) {
-                    onComposeQuickKey(key)
-                }
-            }
-        } label: {
-            Label("Quick keys", systemImage: "command")
-                .labelStyle(.iconOnly)
-                .frame(width: 38, height: 38)
-        }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("naru.input.quickkeys.menu")
-    }
-
     /// Segmented picker that switches between Compose and Direct
     /// modes. The binding reads `directKeystrokeMode.isActive` and
     /// every change dispatches `onToggleDirectMode` — the model is
@@ -652,47 +623,6 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.mac-controls.menu")
     }
 
-    /// Inline terminal-control strip shown above the Compose editor
-    /// while a session is active (spec 003 US5 / FR-013).  Lets a
-    /// multilingual-composing user fire Esc / Tab / ⌃C / arrows once
-    /// without switching to Direct mode.  Each button dispatches a
-    /// discrete `KeyEvent` through the model's `sendComposeQuickKey`
-    /// path; the compose draft is never modified.
-    private var composeQuickKeyStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(ComposeQuickKey.allCases, id: \.self) { key in
-                    Button {
-                        onComposeQuickKey(key)
-                    } label: {
-                        // UX (GRD-parity #5): the tiles read as flat
-                        // low-contrast text on the mint dock surface.
-                        // Give each a `surfaceKey` fill (one tier above
-                        // the dock), a Hairline stroke, and a ≥40pt tap
-                        // target so they read as tappable terminal keys.
-                        Text(key.label)
-                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .frame(minWidth: 44, minHeight: 40)
-                            .padding(.horizontal, 12)
-                            .background(NaruColors.surfaceKey)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(NaruColors.hairline, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .accessibilityLabel(key.accessibilityLabel)
-                    .accessibilityIdentifier("naru.input.quickkey.\(key.rawValue)")
-                }
-            }
-            .padding(.vertical, 2)
-        }
-        .accessibilityIdentifier("naru.input.quickkeys")
-    }
-
     /// Standard-layout compose editor height: slim when there is
     /// nothing to compose yet (disconnected / idle), full multi-line
     /// height once focused or holding a draft.
@@ -709,52 +639,90 @@ public struct RemoteInputDockView: View {
             || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var composeRow: some View {
-        // UX punch-list #204: bumped HStack spacing 12 → 16 and
-        // padded the editor's trailing inset so the Send paperplane
-        // no longer sits flush against the editor stroke.  Also
-        // gives the disabled-state Send button visible breathing
-        // room in static screenshots.
-        HStack(alignment: .bottom, spacing: 16) {
-            composeTextEditor
-                // Pre-compose, the editor sits slim so the standard dock
-                // does not dominate the disconnected detail screen (and
-                // hide the diagnostics beneath it).  It grows to the full
-                // multi-line height as soon as the field is focused or
-                // holds a draft, preserving the compose-ahead affordance.
-                .frame(
-                    minHeight: standardComposeEditorMinHeight,
-                    maxHeight: standardComposeEditorMaxHeight
-                )
-                // UX punch-list #302: was `Color.white.opacity(0.74)`
-                // which rendered as a stark bright rectangle on the
-                // dark canvas.  Adaptive `NaruColors.surfaceEditor`
-                // (BRANDING.md §7 `Surface`) reads as paper on light,
-                // slate on dark.  Opacity dropped — the system color
-                // already has the right contrast at full alpha.
-                .background(NaruColors.surfaceEditor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.black.opacity(0.10), lineWidth: 1)
-                )
-                .padding(.trailing, 4)
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-                .simultaneousGesture(TapGesture().onEnded {
-                    focusComposeEditor()
-                })
-                .composeEditorShellAccessibility()
+    /// The always-visible Compose action row: remote ⌫ / ↵ on the left
+    /// and the prominent Send on the right. Backspace/Enter dispatch
+    /// discrete remote `KeyEvent`s (compose a command → Send types it →
+    /// Enter runs it); they need a live session, so they disable pre-
+    /// connect. Per product direction the terminal shortcut strip
+    /// (Esc/Tab/⌃C/arrows) is NOT here — those live on the Direct
+    /// (virtual keyboard) special page.
+    private var composeActionRow: some View {
+        HStack(spacing: 10) {
+            composeRemoteKeyButton(.backspace, systemImage: "delete.left")
+            composeRemoteKeyButton(.enter, systemImage: "return")
+
+            Spacer(minLength: 8)
 
             Button {
                 sendCurrentComposeText()
             } label: {
                 Label("Send", systemImage: "paperplane.fill")
+                    .font(.body.weight(.semibold))
+                    .frame(minHeight: 40)
+                    .padding(.horizontal, 8)
             }
             .buttonStyle(.borderedProminent)
             .disabled(isComposeSendDisabled)
             .help("Send composed text")
             .accessibilityIdentifier("naru.input.send")
         }
+    }
+
+    private func composeRemoteKeyButton(
+        _ key: ComposeQuickKey,
+        systemImage: String
+    ) -> some View {
+        Button {
+            onComposeQuickKey(key)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 50, height: 40)
+                .background(NaruColors.surfaceKey)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        // Remote keys need a live session; stay visible but inert pre-connect.
+        .disabled(!showsComposeQuickKeys)
+        .accessibilityLabel(key.accessibilityLabel)
+        .accessibilityIdentifier("naru.input.compose-action.\(key.rawValue)")
+    }
+
+    private var composeRow: some View {
+        // UX punch-list #204: bumped HStack spacing 12 → 16 and
+        // padded the editor's trailing inset so the Send paperplane
+        // no longer sits flush against the editor stroke.  Also
+        // gives the disabled-state Send button visible breathing
+        // room in static screenshots.
+        composeTextEditor
+            // The editor now owns the dock's vertical space: the Send /
+            // backspace / enter actions sit in `composeActionRow` below,
+            // and the terminal strip + Mac controls no longer stack above
+            // it, so the field can breathe without the dock growing tall.
+            .frame(
+                minHeight: standardComposeEditorMinHeight,
+                maxHeight: standardComposeEditorMaxHeight
+            )
+            .frame(maxWidth: .infinity)
+            // UX punch-list #302: adaptive `NaruColors.surfaceEditor`
+            // (BRANDING.md §7 `Surface`) reads as paper on light, slate
+            // on dark.
+            .background(NaruColors.surfaceEditor)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .simultaneousGesture(TapGesture().onEnded {
+                focusComposeEditor()
+            })
+            .composeEditorShellAccessibility()
     }
 
     /// Direct-mode body: hides the Compose TextEditor + Send and

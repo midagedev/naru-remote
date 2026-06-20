@@ -15,6 +15,12 @@ public enum ComposeQuickKey: String, Sendable, Equatable, CaseIterable, Codable 
     case controlC
     case up
     case down
+    /// Remote BackSpace — a primary Compose action (delete one character
+    /// on the remote), not a terminal-strip convenience.
+    case backspace
+    /// Remote Return/Enter — submit on the remote (run the command you
+    /// just sent), a primary Compose action.
+    case enter
 
     /// Short user-facing label for the strip button.
     public var label: String {
@@ -24,6 +30,8 @@ public enum ComposeQuickKey: String, Sendable, Equatable, CaseIterable, Codable 
         case .controlC: return "⌃C"
         case .up: return "↑"
         case .down: return "↓"
+        case .backspace: return "⌫"
+        case .enter: return "↵"
         }
     }
 
@@ -35,6 +43,8 @@ public enum ComposeQuickKey: String, Sendable, Equatable, CaseIterable, Codable 
         case .controlC: return "Control C"
         case .up: return "Up arrow"
         case .down: return "Down arrow"
+        case .backspace: return "Backspace"
+        case .enter: return "Enter"
         }
     }
 
@@ -57,6 +67,18 @@ public enum ComposeQuickKey: String, Sendable, Equatable, CaseIterable, Codable 
             return (KeysymMapping.keysym(for: .up), [])
         case .down:
             return (KeysymMapping.keysym(for: .down), [])
+        case .backspace:
+            return (KeysymMapping.keysym(for: .backspace), [])
+        case .enter:
+            return (KeysymMapping.keysym(for: .return), [])
         }
     }
+
+    /// The discrete terminal-strip keys (Esc / Tab / ⌃C / arrows). These
+    /// are the keys that, per product direction, belong in the Direct
+    /// (virtual keyboard) surface rather than cluttering Compose — so the
+    /// Compose action row renders `backspace` / `enter` only.
+    public static let terminalStripKeys: [ComposeQuickKey] = [
+        .escape, .tab, .controlC, .up, .down,
+    ]
 }
