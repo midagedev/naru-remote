@@ -16,12 +16,16 @@ import NaruRemoteCore
 final class TrackpadModeModelTests: XCTestCase {
     private func makeModel(
         connector: TrackpadPointerCapturingConnector,
+        frameStreamConfiguration: RFBFramePumpConfiguration = RFBFramePumpConfiguration(
+            maxFrames: 1,
+            frameInterval: 0
+        ),
         outboundInputEventTimeout: Duration = .milliseconds(2_500)
     ) throws -> NaruRemoteAppModel {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         return NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
-            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            frameStreamConfiguration: frameStreamConfiguration,
             connectorFactory: { connector },
             outboundInputEventTimeout: outboundInputEventTimeout
         )
@@ -291,6 +295,33 @@ final class TrackpadModeModelTests: XCTestCase {
         let request = try XCTUnwrap(connector.recordedFramebufferUpdateRequests.first)
         XCTAssertTrue(request.incremental)
         XCTAssertNil(request.region)
+    }
+
+    func testTrackpadHardwareHoverDoesNotAddOutOfBandNudgeWhenRequestPipelineIsSelfPriming() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(
+            connector: connector,
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 1,
+                frameInterval: 0,
+                requestPipelineDepth: 3
+            )
+        )
+        try await connect(model)
+
+        model.togglePointerControlMode()
+        model.handleTrackpadGesture(
+            .hoverMoved(viewPoint: CGPoint(x: 150, y: 70)),
+            viewSize: CGSize(width: 200, height: 100)
+        )
+
+        XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            connector.recordedFramebufferUpdateRequests.count,
+            0,
+            "A self-priming request pipeline should already have incremental requests outstanding; out-of-band hover nudges would create untracked request backlog."
+        )
     }
 
     func testRepeatedTrackpadHardwareHoverNudgesAreRateLimitedToLatestRequest() async throws {

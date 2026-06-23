@@ -7365,6 +7365,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?
     ) {
+        guard shouldSendOutOfBandPointerInputFramebufferUpdateNudge else {
+            return
+        }
         guard let sender = activeFramebufferUpdateRequestSender,
               let streamID,
               let sessionID,
@@ -7398,6 +7401,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         sendPointerInputFramebufferUpdateNudge(pendingNudge, requestedAt: now)
+    }
+
+    private var shouldSendOutOfBandPointerInputFramebufferUpdateNudge: Bool {
+        frameStreamConfiguration.requestPipelineDepth <= 1
     }
 
     private func schedulePointerInputFramebufferUpdateNudge(after delay: TimeInterval) {
