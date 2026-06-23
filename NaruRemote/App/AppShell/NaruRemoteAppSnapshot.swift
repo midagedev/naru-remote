@@ -1127,6 +1127,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         switch attempt.path {
         case .helperTextBridge:
             return "Inserted via Naru Helper"
+        case .keystrokeStream:
+            return attempt.payloadEncoding == .utf8ExtensionRequired
+                ? "Typed as keystrokes (Unicode)"
+                : "Typed as keystrokes"
         case .vncClipboardPaste:
             return attempt.payloadEncoding == .utf8ExtensionRequired
                 ? "Sent as UTF-8 clipboard"

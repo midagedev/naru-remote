@@ -79,14 +79,18 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         XCTAssertEqual(command.dropFirst(24).prefix(8), Data([4, 0, 0, 0, 0, 0, 0xff, 0xe3]))
     }
 
-    func testCommandVPasteUsesMacAltLeftMapping() {
+    func testCommandVPasteUsesMacMetaLeftMapping() {
+        // macOS Screen Sharing maps Meta_L (0xFFE7) to ⌘. This must match
+        // the Command keysym the Direct Keystroke and Mac session-control
+        // paths already send (KeysymMapping R-4); the earlier Alt_L choice
+        // mapped to Option, so ⌘V never pasted on current macOS.
         let command = RFBClientMessageEncoder.pasteCommand(.commandV)
 
         XCTAssertEqual(command.count, 32)
-        XCTAssertEqual(command.prefix(8), Data([4, 1, 0, 0, 0, 0, 0xff, 0xe9]))
+        XCTAssertEqual(command.prefix(8), Data([4, 1, 0, 0, 0, 0, 0xff, 0xe7]))
         XCTAssertEqual(command.dropFirst(8).prefix(8), Data([4, 1, 0, 0, 0, 0, 0, 0x76]))
         XCTAssertEqual(command.dropFirst(16).prefix(8), Data([4, 0, 0, 0, 0, 0, 0, 0x76]))
-        XCTAssertEqual(command.dropFirst(24).prefix(8), Data([4, 0, 0, 0, 0, 0, 0xff, 0xe9]))
+        XCTAssertEqual(command.dropFirst(24).prefix(8), Data([4, 0, 0, 0, 0, 0, 0xff, 0xe7]))
     }
 
     func testEncodePointerEventEmitsSixByteRFC6143Frame() {

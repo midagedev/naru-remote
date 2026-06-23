@@ -761,6 +761,34 @@ public final class NaruRemoteAppModel: ObservableObject {
         setStreamPowerMode(appSettings.streamPowerMode.toggled)
     }
 
+    public func setComposeDeliveryMode(_ mode: ComposeDeliveryMode) {
+        var updated = appSettings
+        updated.composeDelivery = mode
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    public func toggleComposeDeliveryMode() {
+        setComposeDeliveryMode(appSettings.composeDelivery.toggled)
+    }
+
+    /// Single entry point the Compose & Send UI calls. Routes the finished
+    /// draft through the user-selected delivery transport (Settings →
+    /// Compose delivery): clipboard-paste (multilingual-stable) or
+    /// keystroke-stream (no clipboard touch, user owns multilingual).
+    public func sendComposedTextUsingPreferredDelivery(_ text: String) {
+        switch appSettings.composeDelivery {
+        case .clipboardPaste:
+            sendComposedText(text)
+        case .keystrokeStream:
+            sendComposedTextAsKeystrokes(text)
+        }
+    }
+
     public func setStreamEncodingMode(_ mode: StreamEncodingMode) {
         var updated = appSettings
         updated.streamEncodingMode = mode
@@ -5845,6 +5873,108 @@ public final class NaruRemoteAppModel: ObservableObject {
         latestComposeSendPreparation = report
     }
 
+    /// Deliver the finished Compose draft as a stream of `KeyEvent`s
+    /// instead of clobbering the remote clipboard with a paste.
+    ///
+    /// This is the default Compose & Send delivery: local composition
+    /// (IME, multilingual, voice, etc.) is unchanged — only the transport
+    /// to the remote switches from "set clipboard + ⌘V" to "type the
+    /// finished text". It reuses the exact proven `KeystrokeEmitter`
+    /// transport the Direct Keystroke keyboard uses (so what lands is what
+    /// already lands for on-screen keys), and never touches the remote
+    /// clipboard.
+    ///
+    /// Falls back to `sendComposedText` (clipboard / helper routing) when
+    /// there is no active key-event transport, or when the text contains a
+    /// scalar the transcoder can't represent as a keysym — so configured
+    /// Helper bridges and edge-case payloads still work.
+    ///
+    /// Residual risk: non-ASCII scalars ride the X11 Unicode keysym
+    /// convention (`0x01000000 | scalar`); whether a given server renders
+    /// them is server-dependent and must be verified per target.
+    public func sendComposedTextAsKeystrokes(_ text: String) {
+        guard var draft = composeDraft else {
+            return
+        }
+        guard draft.sendState != .sending else {
+            return
+        }
+
+        isFocusedInputSendFeedbackClearPending = false
+        draft.updateText(text)
+        let now = Date()
+        let payloadEncoding = TextInjectionPayloadEncoding.classify(draft.text)
+
+        guard !draft.text.isEmpty else {
+            let message = TextInjectionError.emptyDraft.localizedDescription
+            draft.markFailed(reason: message, at: now)
+            composeDraft = draft
+            latestInjectionAttempt = TextInjectionAttempt(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                path: .keystrokeStream,
+                payloadEncoding: payloadEncoding,
+                startedAt: now,
+                finishedAt: now,
+                status: .failed,
+                safeMessage: message
+            )
+            return
+        }
+
+        // No key-event transport (or a Helper is the configured route) —
+        // defer to the existing clipboard/helper routing unchanged.
+        guard let emitter = keystrokeEmitter else {
+            sendComposedText(text)
+            return
+        }
+
+        // The transcoder owns text → keysym mapping (Return/Tab + the X11
+        // Unicode convention). A control scalar it can't represent drops to
+        // the clipboard path rather than silently losing characters.
+        let transcoding = TextKeystrokeTranscoder.transcode(draft.text)
+        guard transcoding.canEmit, !transcoding.events.isEmpty else {
+            sendComposedText(text)
+            return
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        markTransientFrameDeliveryInteractionActivity()
+        draft.markSending(path: .keystrokeStream, at: now)
+        composeDraft = draft
+
+        for event in transcoding.events {
+            enqueueKeyEventEmission(
+                emitter: emitter,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) {
+                try await emitter.emit(keysym: event.keysym, modifiers: [])
+            }
+        }
+
+        // Key events are enqueued reliably on the wire; remote rendering of
+        // Unicode keysyms is unconfirmable, so report like the paste path:
+        // dispatched, not confirmed.
+        let message = "Typed \(transcoding.usesUnicodeKeysyms ? "as keystrokes (Unicode)" : "as keystrokes")"
+        draft.markUnknown(message: message, clearAfterSend: false, at: now)
+        composeDraft = draft
+        latestInjectionAttempt = TextInjectionAttempt(
+            draftID: draft.id,
+            sessionID: draft.sessionID,
+            path: .keystrokeStream,
+            payloadEncoding: payloadEncoding,
+            startedAt: now,
+            finishedAt: now,
+            status: .unknown,
+            safeMessage: message
+        )
+    }
+
     public func sendComposedText(_ text: String, pasteCommand: PasteCommand = .commandV) {
         guard var draft = composeDraft else {
             return
@@ -7235,6 +7365,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         sessionID: RemoteSession.ID?,
         profileID: ConnectionProfile.ID?
     ) {
+        guard shouldSendOutOfBandPointerInputFramebufferUpdateNudge else {
+            return
+        }
         guard let sender = activeFramebufferUpdateRequestSender,
               let streamID,
               let sessionID,
@@ -7268,6 +7401,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         sendPointerInputFramebufferUpdateNudge(pendingNudge, requestedAt: now)
+    }
+
+    private var shouldSendOutOfBandPointerInputFramebufferUpdateNudge: Bool {
+        frameStreamConfiguration.requestPipelineDepth <= 1
     }
 
     private func schedulePointerInputFramebufferUpdateNudge(after delay: TimeInterval) {

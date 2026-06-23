@@ -3,6 +3,12 @@ import Foundation
 public enum TextInjectionPath: String, Codable, Equatable, CaseIterable, Sendable {
     case vncClipboardPaste
     case helperTextBridge
+    /// Composed text delivered as a stream of `KeyEvent`s (the same proven
+    /// transport the Direct Keystroke keyboard uses), so finished local
+    /// composition reaches the remote without touching the remote clipboard.
+    /// Avoids clipboard pollution and the macOS paste-shortcut/ clipboard-sync
+    /// fragility; multilingual scalars ride the X11 Unicode keysym convention.
+    case keystrokeStream
 }
 
 public enum PasteCommand: String, Codable, Equatable, CaseIterable, Sendable {

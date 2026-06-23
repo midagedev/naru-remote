@@ -115,6 +115,76 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         )
     }
 
+    /// Connects to the live Mac, composes a known multilingual string,
+    /// and taps Send. The host-side harness reads `pbpaste` afterwards to
+    /// confirm whether `setClipboardText` actually crossed to the Mac
+    /// pasteboard (the clipboard half of Compose & Send is focus-loop
+    /// immune, unlike the paste keystroke). The composed marker is fixed
+    /// and privacy-safe so it can be asserted from outside the sandbox.
+    func testComposeSend_setsRemoteClipboard() throws {
+        guard let password = correctPassword else {
+            throw XCTSkip("NARU_E2E_PASSWORD not set — skipping live compose/send test")
+        }
+
+        let profileID = UUID()
+        let credentialRef = "vnc-password:\(profileID.uuidString)"
+        let app = launch(
+            seedProfileID: profileID,
+            credentialRef: credentialRef,
+            password: password,
+            extraEnvironment: ["NARU_TEST_FORCE_INPUT_DOCK": "1"]
+        )
+
+        openFirstConnectionCardIfPresent(app: app)
+
+        let connect = app.buttons["naru.session.connect"].exists
+            ? app.buttons["naru.session.connect"]
+            : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
+        XCTAssertTrue(connect.waitForExistence(timeout: 8))
+        connect.tap()
+
+        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if activeBadge.exists { break }
+            usleep(250_000)
+        }
+        XCTAssertTrue(activeBadge.exists, "Session must be Active before composing")
+        try saveScreen(named: "09-active.png")
+
+        // In a live session the dock shows the floating "Compose" reveal
+        // first; tap it to surface the editor before typing.
+        let reveal = app.buttons["naru.input.compose-reveal"]
+        if reveal.waitForExistence(timeout: 5) {
+            reveal.tap()
+        }
+        try saveScreen(named: "09b-after-reveal.png")
+
+        var editor = app.textViews["Remote input text"]
+        if !editor.waitForExistence(timeout: 6) {
+            editor = app.textViews.firstMatch
+        }
+        XCTAssertTrue(editor.waitForExistence(timeout: 6), "Compose editor must be present once Active")
+
+        editor.tap()
+        // Fixed, privacy-safe marker spanning ASCII + Hangul so the host
+        // harness can detect both clipboard delivery and encoding fidelity.
+        let marker = "NARUSIM_한글_END"
+        editor.typeText(marker)
+
+        try saveScreen(named: "10-compose-typed.png")
+
+        let send = app.buttons["naru.input.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 4))
+        send.tap()
+
+        try saveScreen(named: "11-after-send.png")
+
+        // Hold so the host-side pbpaste read and the paste keystroke have
+        // time to land before teardown.
+        sleep(4)
+    }
+
     func testWrongPassword_showsActionableAuthDiagnostic() throws {
         let profileID = UUID()
         let credentialRef = "vnc-password:\(profileID.uuidString)"
@@ -143,7 +213,8 @@ final class LocalMacConnectE2EUITests: XCTestCase {
     private func launch(
         seedProfileID: UUID,
         credentialRef: String,
-        password: String
+        password: String,
+        extraEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
 
@@ -169,6 +240,9 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         // credential without an editor flow.
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_REF"] = credentialRef
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"] = password
+        for (key, value) in extraEnvironment {
+            app.launchEnvironment[key] = value
+        }
         app.launch()
         return app
     }

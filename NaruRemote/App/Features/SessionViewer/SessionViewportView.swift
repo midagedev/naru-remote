@@ -93,6 +93,10 @@ public struct SessionViewportView: View {
     private let streamPowerMode: StreamPowerMode
     /// Persists the next `streamPowerMode` through the app model.
     private let onToggleStreamPowerMode: (() -> Void)?
+    /// Compose & Send delivery transport (clipboard paste vs keystroke
+    /// stream); a user preference persisted through the app model.
+    private let composeDelivery: ComposeDeliveryMode
+    private let onToggleComposeDeliveryMode: (() -> Void)?
     private let streamEncodingMode: StreamEncodingMode
     private let onToggleStreamEncodingMode: (() -> Void)?
     private let startupPreflightMode: StreamStartupPreflightMode
@@ -221,6 +225,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        composeDelivery: ComposeDeliveryMode = .clipboardPaste,
+        onToggleComposeDeliveryMode: (() -> Void)? = nil,
         streamEncodingMode: StreamEncodingMode = .standard,
         onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
@@ -267,6 +273,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.composeDelivery = composeDelivery
+        self.onToggleComposeDeliveryMode = onToggleComposeDeliveryMode
         self.streamEncodingMode = streamEncodingMode
         self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
@@ -320,6 +328,8 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
+        composeDelivery: ComposeDeliveryMode = .clipboardPaste,
+        onToggleComposeDeliveryMode: (() -> Void)? = nil,
         streamEncodingMode: StreamEncodingMode = .standard,
         onToggleStreamEncodingMode: (() -> Void)? = nil,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
@@ -364,6 +374,8 @@ public struct SessionViewportView: View {
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
         self.onToggleStreamPowerMode = onToggleStreamPowerMode
+        self.composeDelivery = composeDelivery
+        self.onToggleComposeDeliveryMode = onToggleComposeDeliveryMode
         self.streamEncodingMode = streamEncodingMode
         self.onToggleStreamEncodingMode = onToggleStreamEncodingMode
         self.startupPreflightMode = startupPreflightMode
@@ -602,6 +614,18 @@ public struct SessionViewportView: View {
                 .disabled(onRunChecks == nil)
                 .accessibilityIdentifier("naru.session.tools.checks")
             }
+
+            Button {
+                onToggleComposeDeliveryMode?()
+            } label: {
+                Label(
+                    composeDeliveryModeLabelText,
+                    systemImage: composeDelivery == .keystrokeStream
+                        ? "keyboard" : "doc.on.clipboard"
+                )
+            }
+            .disabled(onToggleComposeDeliveryMode == nil)
+            .accessibilityIdentifier("naru.session.tools.composeDeliveryMode")
 
             Button {
                 onToggleStreamPowerMode?()
@@ -858,6 +882,15 @@ public struct SessionViewportView: View {
         streamPowerMode == .powerSaver
             ? "Power saver stream — tap to use balanced pacing"
             : "Balanced stream — tap to reduce heat"
+    }
+
+    private var composeDeliveryModeLabelText: String {
+        switch composeDelivery {
+        case .clipboardPaste:
+            return "Send: Clipboard paste — tap to type keystrokes instead"
+        case .keystrokeStream:
+            return "Send: Keystrokes — tap to use clipboard paste instead"
+        }
     }
 
     private var showsStreamEncodingModeButton: Bool {

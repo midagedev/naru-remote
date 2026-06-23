@@ -282,6 +282,52 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertFalse(events[3].isDown)
     }
 
+    func testComposeKeystrokeDeliveryTypesFinishedDraftIncludingHangul() async throws {
+        // Compose & Send with the keystroke-stream delivery mode types the
+        // finished draft over the same proven KeyEvent transport the Direct
+        // keyboard uses — ASCII directly, Hangul via the X11 Unicode keysym
+        // convention — and never touches the remote clipboard.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = KeyCapturingStreamingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 80,
+                height: 60,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForConnectedDirectSession(model)
+
+        // A live session seeds an empty compose draft; fill it locally
+        // (composition is unchanged) then send via the keystroke path.
+        model.updateComposeDraftText("Na한")
+        model.sendComposedTextAsKeystrokes("Na한")
+
+        // N, a → ASCII keysyms; 한 (U+D55C) → 0x0100_0000 | 0xD55C. Each
+        // scalar is one down + one up.
+        try await waitForKeyEvents(connector, count: 6, timeout: 2)
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.keysym },
+            [0x004E, 0x004E, 0x0061, 0x0061, 0x0100_D55C, 0x0100_D55C]
+        )
+        XCTAssertEqual(
+            connector.recordedKeyEvents.map { $0.isDown },
+            [true, false, true, false, true, false]
+        )
+        // Recorded as the keystroke path, not clipboard paste — the whole
+        // point of this delivery mode.
+        XCTAssertEqual(model.composeDraft?.lastInjectionPath, .keystrokeStream)
+    }
+
     func testTrackpadMoveBacklogDoesNotBlockDirectKeyLane() async throws {
         // Live-device regression: trackpad movement can backlog while
         // the user starts typing. Buttonless pointer moves may be
