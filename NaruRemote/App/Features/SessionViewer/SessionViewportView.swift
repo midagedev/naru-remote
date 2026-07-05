@@ -403,7 +403,6 @@ public struct SessionViewportView: View {
                 standardBody
             }
         }
-        .accessibilityIdentifier("naru.session.viewport")
     }
 
     private var standardBody: some View {
@@ -558,6 +557,7 @@ public struct SessionViewportView: View {
                     .accessibilityIdentifier("naru.session.reconnectBadge")
             }
         }
+        .accessibilityIdentifier("naru.session.viewport")
     }
 
     private var viewportCornerRadius: CGFloat {
@@ -605,7 +605,6 @@ public struct SessionViewportView: View {
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
-        .accessibilityIdentifier("naru.session.controlBar")
     }
 
     /// Secondary session commands stay one tap away without widening the
@@ -686,18 +685,19 @@ public struct SessionViewportView: View {
             .accessibilityIdentifier("naru.session.tools.pipWatch")
         } label: {
             if iconOnly {
-                Image(systemName: "ellipsis.circle")
+                Label("Session tools", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
                     .frame(width: 38, height: 34)
-                    .accessibilityHidden(true)
+                    .accessibilityIdentifier("naru.session.tools.menu")
             } else {
                 Label("Session tools", systemImage: "ellipsis.circle")
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("naru.session.tools.menu")
             }
         }
         .buttonStyle(.bordered)
         .help("Session tools")
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Session tools")
         .accessibilityIdentifier("naru.session.tools.menu")
     }

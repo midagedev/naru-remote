@@ -467,10 +467,13 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Active-session compact compose affordance must be reachable"
         )
         revealSessionControlsIfNeeded(app: app)
-        _ = waitForStableElement(
-            in: app,
-            identifier: "naru.session.tools.menu",
-            timeout: 1
+        XCTAssertTrue(
+            waitForStableElement(
+                in: app,
+                identifier: "naru.session.tools.menu",
+                timeout: 4
+            ).exists,
+            "Active-session immersive controls must expose secondary stream and PiP controls from one Session tools menu"
         )
         XCTAssertFalse(
             app.buttons["naru.session.checks"].exists,
