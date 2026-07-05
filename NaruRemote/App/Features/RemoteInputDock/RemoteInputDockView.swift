@@ -78,6 +78,19 @@ public struct RemoteInputDockView: View {
     private let onComposeQuickKey: (ComposeQuickKey) -> Void
     private let onDismissDirectModeWarning: () -> Void
     private let onComposeFocusChange: (Bool) -> Void
+    /// Whether Live type-through is the active dock mode (spec 009). Live and
+    /// Compose share the editor surface; this flips the editor's commit hook
+    /// to type-through dispatch, hides Send, and re-targets ⌫/↵.
+    private let liveTypeThroughActive: Bool
+    /// Persistent Live transport/latency disclosure (FR-014). Fixed strings.
+    private let liveTransportDisclosureText: String
+    /// Per-window Live delivery status line (FR-013). Fixed catalog copy.
+    private let liveStatusText: String?
+    private let onSelectMode: (NaruRemoteAppModel.RemoteInputDockMode) -> Void
+    /// Committed-text snapshot hook for Live mode: `(committedText, hasMarkedText)`.
+    private let onLiveCommit: (String, Bool) -> Void
+    private let onLiveDeleteBackward: () -> Void
+    private let onLiveNewline: () -> Void
 
     public init(
         initialText: String,
@@ -92,13 +105,20 @@ public struct RemoteInputDockView: View {
         showsCompactStatusText: Bool = false,
         showsMacSessionControls: Bool = false,
         showsComposeQuickKeys: Bool = false,
+        liveTypeThroughActive: Bool = false,
+        liveTransportDisclosureText: String = "",
+        liveStatusText: String? = nil,
         onToggleDirectMode: @escaping () -> Void = {},
+        onSelectMode: @escaping (NaruRemoteAppModel.RemoteInputDockMode) -> Void = { _ in },
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onSetDirectInputSurface: @escaping (DirectKeystrokeInputSurface) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
         onMacSessionControl: @escaping (MacSessionControl) -> Void = { _ in },
         onComposeQuickKey: @escaping (ComposeQuickKey) -> Void = { _ in },
+        onLiveCommit: @escaping (String, Bool) -> Void = { _, _ in },
+        onLiveDeleteBackward: @escaping () -> Void = {},
+        onLiveNewline: @escaping () -> Void = {},
         onDismissDirectModeWarning: @escaping () -> Void = {},
         onComposeFocusChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -117,15 +137,30 @@ public struct RemoteInputDockView: View {
         self.showsCompactStatusText = showsCompactStatusText
         self.showsMacSessionControls = showsMacSessionControls
         self.showsComposeQuickKeys = showsComposeQuickKeys
+        self.liveTypeThroughActive = liveTypeThroughActive
+        self.liveTransportDisclosureText = liveTransportDisclosureText
+        self.liveStatusText = liveStatusText
         self.onToggleDirectMode = onToggleDirectMode
+        self.onSelectMode = onSelectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onSetDirectInputSurface = onSetDirectInputSurface
         self.onTapDirectKey = onTapDirectKey
         self.onHardwareKey = onHardwareKey
         self.onMacSessionControl = onMacSessionControl
         self.onComposeQuickKey = onComposeQuickKey
+        self.onLiveCommit = onLiveCommit
+        self.onLiveDeleteBackward = onLiveDeleteBackward
+        self.onLiveNewline = onLiveNewline
         self.onDismissDirectModeWarning = onDismissDirectModeWarning
         self.onComposeFocusChange = onComposeFocusChange
+    }
+
+    /// The dock mode derived from the two mutually exclusive flags. Compose is
+    /// the default; Live and Direct are opt-ins (FR-001/FR-016).
+    private var currentDockMode: NaruRemoteAppModel.RemoteInputDockMode {
+        if directKeystrokeMode.isActive { return .direct }
+        if liveTypeThroughActive { return .live }
+        return .compose
     }
 
     public var body: some View {
@@ -144,6 +179,10 @@ public struct RemoteInputDockView: View {
             crossingPulseOverlay
         }
         .onChange(of: initialText) { _, newValue in
+            if liveTypeThroughActive {
+                applyLiveExternalText(newValue)
+                return
+            }
             guard shouldApplyExternalComposeText(newValue) else {
                 return
             }
@@ -156,7 +195,11 @@ public struct RemoteInputDockView: View {
             text = newValue
         }
         .onChange(of: text) { _, newValue in
-            scheduleComposeTextPropagationIfNeeded(newValue)
+            if liveTypeThroughActive {
+                handleLiveTextChange(newValue)
+            } else {
+                scheduleComposeTextPropagationIfNeeded(newValue)
+            }
         }
         .task(id: pendingComposeTextPropagation) {
             await runPendingComposeTextPropagation()
@@ -250,8 +293,10 @@ public struct RemoteInputDockView: View {
             if directKeystrokeMode.isActive {
                 directKeyboard
             } else {
+                liveDisclosureBadge
                 composeRow
                 composeActionRow
+                liveStatusLine
             }
         }
         .padding(.horizontal, 16)
@@ -315,6 +360,8 @@ public struct RemoteInputDockView: View {
             .clipShape(Circle())
             .accessibilityIdentifier("naru.input.direct-toggle")
 
+            liveModeToggleButton(diameter: 38)
+
             Button {
                 compactComposeEditorRequested = true
                 Task { @MainActor in
@@ -353,9 +400,31 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.floating-accessory")
     }
 
+    /// Compact/floating Live-mode toggle (spec 009 FR-001), sitting beside the
+    /// Direct toggle so Live is one tap away on the phone-first live-session
+    /// accessory where the segmented mode picker does not render.
+    private func liveModeToggleButton(diameter: CGFloat) -> some View {
+        Button {
+            onSelectMode(liveTypeThroughActive ? .compose : .live)
+        } label: {
+            Label("Live type-through", systemImage: "dot.radiowaves.left.and.right")
+                .labelStyle(.iconOnly)
+                .frame(width: diameter, height: diameter)
+        }
+        .buttonStyle(.plain)
+        .background(NaruColors.surfaceMuted)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(liveTypeThroughActive ? Color.accentColor : Color.clear, lineWidth: 2)
+        )
+        .accessibilityLabel(liveTypeThroughActive ? "Exit Live type-through" : "Live type-through")
+        .accessibilityIdentifier("naru.input.live-toggle")
+    }
+
     private var compactComposeRow: some View {
         VStack(spacing: 8) {
-            // Mission control row on top — Direct toggle + Mac window
+            // Mission control row on top — Direct + Live toggles + Mac window
             // controls — so the editor + action row below own the space.
             HStack(spacing: 10) {
                 Button {
@@ -370,12 +439,16 @@ public struct RemoteInputDockView: View {
                 .clipShape(Circle())
                 .accessibilityIdentifier("naru.input.direct-toggle")
 
+                liveModeToggleButton(diameter: 36)
+
                 if showsMacSessionControls {
                     compactMacControlMenu
                 }
 
                 Spacer(minLength: 0)
             }
+
+            liveDisclosureBadge
 
             if showsCompactComposeEditor {
                 composeTextEditor
@@ -396,6 +469,7 @@ public struct RemoteInputDockView: View {
                     .composeEditorShellAccessibility()
 
                 composeActionRow
+                liveStatusLine
             } else {
                 compactComposeRevealButton
             }
@@ -541,27 +615,65 @@ public struct RemoteInputDockView: View {
             .accessibilityIdentifier("naru.input.compact-status")
     }
 
-    /// Segmented picker that switches between Compose and Direct
-    /// modes. The binding reads `directKeystrokeMode.isActive` and
-    /// every change dispatches `onToggleDirectMode` — the model is
-    /// the single source of truth for mode state.
+    /// Segmented picker that switches among the three coexisting dock modes
+    /// (spec 009 FR-001): Compose & Send (default), Live type-through, and
+    /// Direct Keystroke. The model is the single source of truth for mode
+    /// state; every change dispatches `onSelectMode`.
     private var modePicker: some View {
         Picker(
             "Input mode",
-            selection: Binding<Bool>(
-                get: { directKeystrokeMode.isActive },
+            selection: Binding<NaruRemoteAppModel.RemoteInputDockMode>(
+                get: { currentDockMode },
                 set: { newValue in
-                    if newValue != directKeystrokeMode.isActive {
-                        onToggleDirectMode()
+                    if newValue != currentDockMode {
+                        onSelectMode(newValue)
                     }
                 }
             )
         ) {
-            Text("Compose").tag(false)
-            Text("Direct").tag(true)
+            Text("Compose").tag(NaruRemoteAppModel.RemoteInputDockMode.compose)
+            Text("Live").tag(NaruRemoteAppModel.RemoteInputDockMode.live)
+            Text("Direct").tag(NaruRemoteAppModel.RemoteInputDockMode.direct)
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("naru.input.mode-picker")
+    }
+
+    /// Persistent Live transport/latency disclosure badge (spec 009 FR-014),
+    /// peer to Direct's "IME off" badge. Shown whenever Live is active so the
+    /// degraded/observed transport is never misrepresented.
+    @ViewBuilder
+    private var liveDisclosureBadge: some View {
+        if liveTypeThroughActive, !liveTransportDisclosureText.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.caption2)
+                Text(liveTransportDisclosureText)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(NaruColors.surfaceMuted)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("naru.input.live-disclosure")
+        }
+    }
+
+    @ViewBuilder
+    private var liveStatusLine: some View {
+        if liveTypeThroughActive, let liveStatusText, !liveStatusText.isEmpty {
+            Text(liveStatusText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("naru.input.live-status")
+        }
     }
 
     /// Mac-aware session controls similar to the buttons users
@@ -653,18 +765,21 @@ public struct RemoteInputDockView: View {
 
             Spacer(minLength: 8)
 
-            Button {
-                sendCurrentComposeText()
-            } label: {
-                Label("Send", systemImage: "paperplane.fill")
-                    .font(.body.weight(.semibold))
-                    .frame(minHeight: 40)
-                    .padding(.horizontal, 8)
+            // Live type-through has no Send — commit is the trigger (FR-002).
+            if !liveTypeThroughActive {
+                Button {
+                    sendCurrentComposeText()
+                } label: {
+                    Label("Send", systemImage: "paperplane.fill")
+                        .font(.body.weight(.semibold))
+                        .frame(minHeight: 40)
+                        .padding(.horizontal, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isComposeSendDisabled)
+                .help("Send composed text")
+                .accessibilityIdentifier("naru.input.send")
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isComposeSendDisabled)
-            .help("Send composed text")
-            .accessibilityIdentifier("naru.input.send")
         }
     }
 
@@ -673,7 +788,16 @@ public struct RemoteInputDockView: View {
         systemImage: String
     ) -> some View {
         Button {
-            onComposeQuickKey(key)
+            // In Live mode ⌫/↵ drive the editing window so the local mirror
+            // and the remote stay in step (D1); in Compose they emit a
+            // discrete remote KeyEvent.
+            if liveTypeThroughActive, key == .backspace {
+                onLiveDeleteBackward()
+            } else if liveTypeThroughActive, key == .enter {
+                onLiveNewline()
+            } else {
+                onComposeQuickKey(key)
+            }
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
@@ -903,7 +1027,8 @@ public struct RemoteInputDockView: View {
             text: $text,
             onFocusChange: updateComposeFocus(_:),
             onMarkedTextCommit: handleMarkedComposeTextCommit(_:),
-            commitController: composeCommitController
+            commitController: composeCommitController,
+            liveModeActive: liveTypeThroughActive
         )
         #else
         ComposeTextEditingView(
@@ -917,6 +1042,12 @@ public struct RemoteInputDockView: View {
         guard !directKeystrokeMode.isActive else {
             return
         }
+        // Live mode delivers each committed unit as it commits (FR-002/FR-003):
+        // the marked→committed boundary is exactly the trigger.
+        if liveTypeThroughActive {
+            onLiveCommit(committedText, false)
+            return
+        }
         #if os(iOS) && canImport(UIKit)
         composeSendNeedsMarkedCommitStabilization = true
         #endif
@@ -927,6 +1058,35 @@ public struct RemoteInputDockView: View {
             text = committedText
         }
         scheduleComposeTextPropagationIfNeeded(committedText)
+    }
+
+    /// Live-mode editor change: feed the committed-text snapshot (marked range
+    /// excluded) to the model on each non-composing change. Marked/composing
+    /// text is never dispatched (FR-002) — it delivers at the commit boundary
+    /// via `handleMarkedComposeTextCommit`.
+    private func handleLiveTextChange(_ newValue: String) {
+        #if os(iOS) && canImport(UIKit)
+        guard !composeCommitController.hasMarkedText else {
+            return
+        }
+        #endif
+        onLiveCommit(newValue, false)
+    }
+
+    /// Live-mode external text application: the model owns the authoritative
+    /// line mirror (`liveFieldText`) and drives clears on Return/seal. Apply
+    /// the model's value even while focused, but never during IME composition
+    /// so the candidate window is not disrupted (T015 protection).
+    private func applyLiveExternalText(_ newValue: String) {
+        #if os(iOS) && canImport(UIKit)
+        guard !composeCommitController.hasMarkedText else {
+            return
+        }
+        #endif
+        lastAppliedInitialText = newValue
+        if text != newValue {
+            text = newValue
+        }
     }
 
     private func focusComposeEditor() {
@@ -1188,9 +1348,16 @@ public struct RemoteInputDockView: View {
         resolvedText: String,
         currentBindingText: String,
         hasMarkedText: Bool = false,
-        isFirstResponder: Bool = false
+        isFirstResponder: Bool = false,
+        liveModeActive: Bool = false
     ) -> Bool {
-        !isFirstResponder && !hasMarkedText && resolvedText != currentBindingText
+        // Compose keeps the model out of the IME loop by only adopting UIKit
+        // text when unfocused. Live type-through must see every committed
+        // change (including ASCII while focused) so it can dispatch as-you-type,
+        // so it adopts while focused too — but never during composition.
+        (liveModeActive || !isFirstResponder)
+            && !hasMarkedText
+            && resolvedText != currentBindingText
     }
 
     nonisolated static func composeSendDisabled(
@@ -1212,10 +1379,18 @@ public struct RemoteInputDockView: View {
         isFirstResponder: Bool,
         proposedText: String,
         lastAppliedBindingText: String,
-        currentUIKitText: String
+        currentUIKitText: String,
+        liveModeActive: Bool = false
     ) -> Bool {
         if hasMarkedText {
             return true
+        }
+
+        // Live type-through: the model owns the authoritative line mirror and
+        // must be able to clear it on Return/seal even while the field is
+        // focused. Only in-composition writes are deferred (handled above).
+        if liveModeActive {
+            return false
         }
 
         if isFirstResponder,
@@ -1350,6 +1525,66 @@ public struct RemoteInputDockView: View {
                 stabilizedText: snapshot
             )
         }
+    }
+
+    /// Event-driven exit test for the Compose Send stabilization loop
+    /// (QW1). The fixed 30×16ms poll was pure latency for the common case
+    /// (already-committed text). We stop early once the IME has released
+    /// its marked range *and* two consecutive raw snapshots agree — at that
+    /// point further polling cannot change the resolved text. While marked
+    /// text is still in flight we never exit, which preserves the
+    /// delayed-Korean-commit guarantee; the caller's snapshot count remains
+    /// the upper bound safety net.
+    nonisolated static func composeStabilizationShouldExitEarly(
+        hasMarkedText: Bool,
+        previousSnapshot: String?,
+        currentSnapshot: String
+    ) -> Bool {
+        guard !hasMarkedText else { return false }
+        guard let previousSnapshot else { return false }
+        return previousSnapshot == currentSnapshot
+    }
+
+    struct ComposeStabilizationOutcome: Equatable {
+        var text: String
+        var snapshotsTaken: Int
+    }
+
+    /// Pure driver mirroring `ComposeTextCommitController.readStabilizedCurrentText`
+    /// over a pre-recorded snapshot sequence, so the early-exit policy is
+    /// testable without a live `UITextView`. `snapshots` are the
+    /// `(text, hasMarkedText)` reads in the order the loop would observe
+    /// them; `snapshotCount` is the upper bound.
+    nonisolated static func simulateComposeStabilization(
+        fallback: String,
+        snapshotCount: Int,
+        snapshots: [(text: String, hasMarkedText: Bool)]
+    ) -> ComposeStabilizationOutcome {
+        var resolved = fallback
+        var previousSnapshot: String?
+        var taken = 0
+        let upperBound = max(1, snapshotCount)
+        for index in 0..<upperBound {
+            // If the recording runs short, keep reading the last observed
+            // value — the live loop would re-read the same steady text.
+            let snapshot = index < snapshots.count
+                ? snapshots[index]
+                : (snapshots.last ?? (text: resolved, hasMarkedText: false))
+            taken += 1
+            resolved = resolvedStabilizedComposeText(
+                immediateText: resolved,
+                stabilizedSnapshots: [snapshot.text]
+            )
+            if composeStabilizationShouldExitEarly(
+                hasMarkedText: snapshot.hasMarkedText,
+                previousSnapshot: previousSnapshot,
+                currentSnapshot: snapshot.text
+            ) {
+                break
+            }
+            previousSnapshot = snapshot.text
+        }
+        return ComposeStabilizationOutcome(text: resolved, snapshotsTaken: taken)
     }
 
     nonisolated static func shouldShowCompactStatusText(
@@ -1506,6 +1741,7 @@ private struct ComposeTextEditingView: View {
     #if os(iOS) && canImport(UIKit)
     let onMarkedTextCommit: (String) -> Void
     let commitController: ComposeTextCommitController
+    var liveModeActive: Bool = false
     #endif
 
     var body: some View {
@@ -1514,7 +1750,8 @@ private struct ComposeTextEditingView: View {
             text: $text,
             onFocusChange: onFocusChange,
             onMarkedTextCommit: onMarkedTextCommit,
-            commitController: commitController
+            commitController: commitController,
+            liveModeActive: liveModeActive
         )
         #else
         TextEditor(text: $text)
@@ -1590,6 +1827,7 @@ final class ComposeTextCommitController {
         snapshotDelayNanoseconds: UInt64 = 0
     ) async -> String {
         var resolved = fallback
+        var previousSnapshot: String?
         for _ in 0..<max(1, snapshotCount) {
             if snapshotDelayNanoseconds > 0 {
                 try? await Task.sleep(nanoseconds: snapshotDelayNanoseconds)
@@ -1601,6 +1839,14 @@ final class ComposeTextCommitController {
                 immediateText: resolved,
                 stabilizedSnapshots: [next]
             )
+            if RemoteInputDockView.composeStabilizationShouldExitEarly(
+                hasMarkedText: hasMarkedText,
+                previousSnapshot: previousSnapshot,
+                currentSnapshot: next
+            ) {
+                break
+            }
+            previousSnapshot = next
         }
         return resolved
     }
@@ -1642,6 +1888,7 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
     let onFocusChange: (Bool) -> Void
     let onMarkedTextCommit: (String) -> Void
     let commitController: ComposeTextCommitController
+    var liveModeActive: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -1739,7 +1986,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 resolvedText: resolvedText,
                 currentBindingText: parent.text,
                 hasMarkedText: textView.markedTextRange != nil,
-                isFirstResponder: textView.isFirstResponder
+                isFirstResponder: textView.isFirstResponder,
+                liveModeActive: parent.liveModeActive
             ) {
                 parent.text = resolvedText
             }
@@ -1758,7 +2006,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 resolvedText: resolvedText,
                 currentBindingText: parent.text,
                 hasMarkedText: textView.markedTextRange != nil,
-                isFirstResponder: textView.isFirstResponder
+                isFirstResponder: textView.isFirstResponder,
+                liveModeActive: parent.liveModeActive
             ) {
                 parent.text = resolvedText
             }
@@ -1785,7 +2034,8 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
                 isFirstResponder: textView.isFirstResponder,
                 proposedText: proposedText,
                 lastAppliedBindingText: lastAppliedBindingText,
-                currentUIKitText: textView.text ?? ""
+                currentUIKitText: textView.text ?? "",
+                liveModeActive: parent.liveModeActive
             )
         }
 

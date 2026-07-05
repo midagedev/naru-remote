@@ -121,6 +121,7 @@ public struct NaruRemoteAppShell: View {
             onTextChange: { model.updateComposeDraftText($0) },
             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },
+            onSelectMode: { model.setRemoteInputDockMode($0) },
             onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
             onHardwareKey: { keysym, modifiers, isDown in
@@ -136,6 +137,11 @@ public struct NaruRemoteAppShell: View {
                 Task { await model.sendMacSessionControl(control) }
             },
             onComposeQuickKey: { key in Task { await model.sendComposeQuickKey(key) } },
+            onLiveCommit: { committedText, hasMarkedText in
+                model.liveCommit(committedText: committedText, hasMarkedText: hasMarkedText)
+            },
+            onLiveDeleteBackward: { model.liveDeleteBackward() },
+            onLiveNewline: { model.liveNewline() },
             onDismissDirectModeWarning: { model.dismissDirectModeEntryWarning() },
             onComposeFocusChange: { focused in
                 let focusedSessionID = model.snapshot.session?.id
@@ -428,6 +434,14 @@ public struct NaruRemoteAppShell: View {
                 }
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if isLiveSession, SessionPerformanceHUDGate.isEnabled {
+                SessionPerformanceHUDView(model: model)
+                    .padding(.top, 8)
+                    .padding(.trailing, 8)
+                    .allowsHitTesting(true)
+            }
+        }
         .onChange(of: currentSessionID) { _, newSessionID in
             if liveSessionLayoutSessionID != newSessionID {
                 liveSessionLayoutSessionID = nil
@@ -471,6 +485,12 @@ public struct NaruRemoteAppShell: View {
                         port: port,
                         password: password
                     )
+                },
+                // Helper-handshake test needs a persisted profile (spec 010
+                // FR-013); the add sheet keeps host reachability only until
+                // the profile is saved.
+                onTestHelper: {
+                    await model.testHelperTextBridge(for: editing.profile.id).availability
                 },
                 onSave: { profile, credentials in
                     Task {
@@ -522,6 +542,9 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     var statusText: String
     var helperStatusText: String?
     var directKeystrokeMode: DirectKeystrokeMode
+    var liveTypeThroughMode: LiveTypeThroughMode
+    var liveTransportDisclosureText: String
+    var liveStatusText: String?
     var stickyModifierState: StickyModifierState
     var layoutStyle: RemoteInputDockLayoutStyle
     var showsCompactStatusText: Bool
@@ -535,7 +558,14 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         isComposeFieldFocused: Bool = false
     ) {
         self.directKeystrokeMode = snapshot.directKeystrokeMode
-        self.initialText = snapshot.composeDraft?.text ?? ""
+        self.liveTypeThroughMode = snapshot.liveTypeThroughMode
+        // In Live mode the editor renders the model's authoritative line mirror
+        // so a sealed/committed line can be cleared by the model (spec 009).
+        self.initialText = snapshot.liveTypeThroughMode.isActive
+            ? snapshot.liveFieldText
+            : (snapshot.composeDraft?.text ?? "")
+        self.liveTransportDisclosureText = snapshot.liveTransportDisclosureText
+        self.liveStatusText = snapshot.liveStatusText
         self.statusText = isLiveSession ? "" : snapshot.inputStatusText
         self.helperStatusText = isLiveSession ? nil : snapshot.inputHelperStatusText
         self.stickyModifierState = snapshot.stickyModifierState
@@ -586,21 +616,23 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         guard lhs.directKeystrokeMode == rhs.directKeystrokeMode,
+              lhs.liveTypeThroughMode == rhs.liveTypeThroughMode,
               lhs.isComposeFieldFocused == rhs.isComposeFieldFocused
         else {
             return false
         }
 
+        // The compose focus-freeze keeps the UITextView bridge stable while
+        // UIKit owns IME focus. Live type-through is excluded: its transport
+        // disclosure, per-window status, and model-driven line clears must
+        // repaint even while the field is focused (spec 009 FR-013/FR-014).
         let freezeModelMirroredComposeFields = lhs.isComposeFieldFocused
             && rhs.isComposeFieldFocused
             && !lhs.directKeystrokeMode.isActive
             && !rhs.directKeystrokeMode.isActive
+            && !lhs.liveTypeThroughMode.isActive
+            && !rhs.liveTypeThroughMode.isActive
         if freezeModelMirroredComposeFields {
-            // While UIKit owns IME focus, model-mirrored compose text is
-            // advisory. Status/helper chrome is now rendered by a sibling
-            // line, so the input host can keep the UITextView bridge stable
-            // even when previous send state, helper state, or frame liveness
-            // changes under the active keyboard.
             return true
         }
 
@@ -615,6 +647,8 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         return lhs.initialText == rhs.initialText
             && lhs.statusText == rhs.statusText
             && lhs.helperStatusText == rhs.helperStatusText
+            && lhs.liveTransportDisclosureText == rhs.liveTransportDisclosureText
+            && lhs.liveStatusText == rhs.liveStatusText
             && lhs.showsCompactStatusText == rhs.showsCompactStatusText
     }
 }
@@ -683,11 +717,15 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onTextChange: (String) -> Void
     var onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
     var onToggleDirectMode: () -> Void
+    var onSelectMode: (NaruRemoteAppModel.RemoteInputDockMode) -> Void
     var onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     var onTapDirectKey: (DirectKey) -> Void
     var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     var onMacSessionControl: (MacSessionControl) -> Void
     var onComposeQuickKey: (ComposeQuickKey) -> Void
+    var onLiveCommit: (String, Bool) -> Void
+    var onLiveDeleteBackward: () -> Void
+    var onLiveNewline: () -> Void
     var onDismissDirectModeWarning: () -> Void
     var onComposeFocusChange: (Bool) -> Void
 
@@ -709,12 +747,19 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             showsCompactStatusText: state.showsCompactStatusText,
             showsMacSessionControls: state.showsMacSessionControls,
             showsComposeQuickKeys: state.showsComposeQuickKeys,
+            liveTypeThroughActive: state.liveTypeThroughMode.isActive,
+            liveTransportDisclosureText: state.liveTransportDisclosureText,
+            liveStatusText: state.liveStatusText,
             onToggleDirectMode: onToggleDirectMode,
+            onSelectMode: onSelectMode,
             onSetDirectInputSurface: onSetDirectInputSurface,
             onTapDirectKey: onTapDirectKey,
             onHardwareKey: onHardwareKey,
             onMacSessionControl: onMacSessionControl,
             onComposeQuickKey: onComposeQuickKey,
+            onLiveCommit: onLiveCommit,
+            onLiveDeleteBackward: onLiveDeleteBackward,
+            onLiveNewline: onLiveNewline,
             onDismissDirectModeWarning: onDismissDirectModeWarning,
             onComposeFocusChange: onComposeFocusChange
         )

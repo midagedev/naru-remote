@@ -105,6 +105,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// but give the remote clipboard enough time to adopt the payload
     /// before the paste shortcut arrives.
     private static let remoteClipboardPasteSettleDelay: TimeInterval = 0.30
+
+    /// Fixed positive status shown when the helper text bridge natively
+    /// inserted the composed text and reported it landed (QW3). The
+    /// clipboard/keystroke paths cannot confirm delivery, so they keep the
+    /// honest `.unknown` "confirmation unavailable" copy; only a
+    /// `nativeInsert` result with a `.sent` status earns this. Fixed string
+    /// (never composed content), so DiagnosticExport still relies on the
+    /// enum-`rawValue` safe catalog rather than this message.
+    nonisolated static let helperNativeInsertConfirmedMessage = "Inserted into the remote app."
     @Published public private(set) var profiles: [ConnectionProfile]
     @Published public var selectedProfileID: ConnectionProfile.ID?
     @Published public private(set) var session: RemoteSession?
@@ -179,6 +188,39 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// fresh connect, profile change, and `toggleDirectKeystrokeMode`
     /// off all clear the state (FR-012).
     @Published public private(set) var stickyModifierState: StickyModifierState = .init()
+
+    /// Live type-through mode state (spec 009). Peer to
+    /// `directKeystrokeMode`; resets to the Compose default on every
+    /// fresh session (FR-016) and seals on the FR-011 transitions.
+    @Published public private(set) var liveTypeThroughMode: LiveTypeThroughMode = .init()
+
+    /// Authoritative local mirror of the current Live editing line
+    /// (spec 009). The dock editor renders from this in Live mode; the
+    /// model clears it on a sealed/committed line so the next line starts
+    /// clean. Memory-only, never exported (SP-002).
+    @Published public private(set) var liveFieldText: String = ""
+
+    /// Fixed content-free hint that the most recent Live backspace was
+    /// clamped at the start of the current window (FR-011). Cleared on the
+    /// next commit.
+    @Published public private(set) var liveReachedWindowStart: Bool = false
+
+    /// The in-memory reconciliation mirror for the open Live editing
+    /// window (spec 009 `LiveEditingWindow`). Pure value type; sealed and
+    /// discarded on the FR-011 events. Raw delivered text is process-local
+    /// and never persisted or exported (SP-002).
+    private var liveWindow = LiveTypeThroughWindow()
+
+    /// Whether a Live delivery chunk is in flight. Single-in-flight per
+    /// window (FR-008): while set, further commits coalesce into the
+    /// window's pending buffer and drain when the chunk completes.
+    private var liveChunkInFlight = false
+
+    /// `liveWindow.deliveredText` as it was immediately before the in-flight
+    /// chunk's optimistic `takePending()` fold. On a failed async delivery the
+    /// window is rolled back to this baseline so the failed chunk re-enters the
+    /// retained tail instead of silently vanishing (FR-015).
+    private var liveInFlightBaseline: String?
 
     /// Coarse connection-quality bucket (Good / Fair / Poor) derived
     /// from frame round-trip latency while a session is active
@@ -892,6 +934,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             helperVideoStreamHealth: helperVideoStreamHealth,
             helperVideoVisualSelectionFailureReason: helperVideoVisualSelectionFailureReason,
             directKeystrokeMode: directKeystrokeMode,
+            liveTypeThroughMode: liveTypeThroughMode,
+            liveFieldText: liveFieldText,
+            liveReachedWindowStart: liveReachedWindowStart,
             stickyModifierState: stickyModifierState,
             lastDiagnosticVerdict: lastDiagnosticVerdict
         )
@@ -1245,6 +1290,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetLiveTypeThroughState()
             resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
@@ -1346,6 +1392,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetLiveTypeThroughState()
             resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
@@ -2069,6 +2116,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetLiveTypeThroughState()
             resetPointerControl()
             lastEmittedDragCoord = nil
             activeStreamProfile = nil
@@ -3115,6 +3163,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             keystrokeEmitter = nil
             directKeystrokeMode = .init()
             stickyModifierState = .init()
+            resetLiveTypeThroughState()
             resetPointerControl()
             lastEmittedDragCoord = nil
             cancelOutboundInputEventQueues()
@@ -3954,6 +4003,12 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     public func setComposeInputEditingActive(_ isActive: Bool) {
         setFrameDeliveryInteractionReason(.composeFocus, active: isActive)
+        // Local keyboard focus loss seals the open Live window (FR-011): the
+        // mirror is only valid while the field owns focus, so resumed typing
+        // opens a fresh forward-only window and no delete crosses the seal.
+        if !isActive, liveTypeThroughMode.isActive {
+            sealLiveWindow(reason: .focusLost)
+        }
     }
 
     func markTransientFrameDeliveryInteractionActivityForTesting() {
@@ -4795,6 +4850,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
         stickyModifierState = .init()
+        resetLiveTypeThroughState()
         resetPointerControl()
         lastEmittedDragCoord = nil
         cancelOutboundInputEventQueues()
@@ -5061,6 +5117,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         keystrokeEmitter = nil
         directKeystrokeMode = .init()
         stickyModifierState = .init()
+        resetLiveTypeThroughState()
         lastEmittedDragCoord = nil
         activeStreamProfile = nil
         activeStreamCredential = nil
@@ -5508,6 +5565,638 @@ public final class NaruRemoteAppModel: ObservableObject {
             inputSurface: directKeystrokeMode.inputSurface,
             hasShownEntryWarningThisSession: true
         )
+    }
+
+    // MARK: - Live type-through mode (spec 009)
+
+    /// The three coexisting Remote Input Dock modes (spec 009 FR-001):
+    /// Compose & Send (default), Live type-through, Direct Keystroke.
+    public enum RemoteInputDockMode: String, Sendable, Equatable, CaseIterable {
+        case compose
+        case live
+        case direct
+    }
+
+    /// The currently active dock mode, derived from the mutually
+    /// exclusive mode flags. Compose is the default when neither Direct
+    /// nor Live is active (constitution §I / FR-016).
+    public var remoteInputDockMode: RemoteInputDockMode {
+        if directKeystrokeMode.isActive { return .direct }
+        if liveTypeThroughMode.isActive { return .live }
+        return .compose
+    }
+
+    /// One-tap switch among the three dock modes (FR-001). Switching is
+    /// non-destructive (FR-012): the Compose draft is untouched, Direct
+    /// sticky state clears on exit, and leaving Live seals its window so
+    /// no delete crosses the seal (FR-011). Resets the per-window Live
+    /// state when entering Live.
+    public func setRemoteInputDockMode(_ mode: RemoteInputDockMode) {
+        guard mode != remoteInputDockMode else { return }
+        markTransientFrameDeliveryInteractionActivity()
+
+        // Leaving Live seals the current window; delivered text stays at the
+        // remote and only marked/uncommitted text is discarded (FR-011/FR-012).
+        if liveTypeThroughMode.isActive, mode != .live {
+            sealLiveWindow(reason: .modeSwitch)
+            deactivateLiveTypeThroughMode()
+        }
+
+        switch mode {
+        case .compose:
+            if directKeystrokeMode.isActive {
+                deactivateDirectKeystrokeModeClearingStickyState()
+            }
+        case .live:
+            if directKeystrokeMode.isActive {
+                deactivateDirectKeystrokeModeClearingStickyState()
+            }
+            activateLiveTypeThroughMode()
+        case .direct:
+            if !directKeystrokeMode.isActive {
+                directKeystrokeMode = DirectKeystrokeMode(
+                    isActive: true,
+                    page: .qwerty,
+                    inputSurface: directKeystrokeMode.inputSurface,
+                    hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
+                )
+            }
+        }
+    }
+
+    private func deactivateDirectKeystrokeModeClearingStickyState() {
+        directKeystrokeMode = DirectKeystrokeMode(
+            isActive: false,
+            page: .qwerty,
+            inputSurface: directKeystrokeMode.inputSurface,
+            hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
+        )
+        // FR-012 (spec 002): sticky modifiers never survive a mode change.
+        stickyModifierState = .init()
+    }
+
+    private func activateLiveTypeThroughMode() {
+        liveWindow = LiveTypeThroughWindow()
+        liveChunkInFlight = false
+        liveInFlightBaseline = nil
+        liveReachedWindowStart = false
+        liveFieldText = ""
+        liveTypeThroughMode = LiveTypeThroughMode(
+            isActive: true,
+            selectedTier: nil,
+            lastStatus: .idle,
+            lastSealReason: nil,
+            hasShownEntryDisclosureThisSession: liveTypeThroughMode.hasShownEntryDisclosureThisSession
+        )
+    }
+
+    private func deactivateLiveTypeThroughMode() {
+        liveWindow = LiveTypeThroughWindow()
+        liveChunkInFlight = false
+        liveInFlightBaseline = nil
+        liveReachedWindowStart = false
+        liveFieldText = ""
+        liveTypeThroughMode = LiveTypeThroughMode(
+            isActive: false,
+            selectedTier: nil,
+            lastStatus: liveTypeThroughMode.lastStatus,
+            lastSealReason: liveTypeThroughMode.lastSealReason,
+            hasShownEntryDisclosureThisSession: liveTypeThroughMode.hasShownEntryDisclosureThisSession
+        )
+    }
+
+    /// Full reset to the Compose default (FR-016) applied at every fresh
+    /// session start / disconnect / profile change, in lockstep with the
+    /// Direct-mode reset. Also drops any open Live window.
+    private func resetLiveTypeThroughState() {
+        liveWindow = LiveTypeThroughWindow()
+        liveChunkInFlight = false
+        liveInFlightBaseline = nil
+        liveReachedWindowStart = false
+        liveFieldText = ""
+        liveTypeThroughMode = .composeDefault
+    }
+
+    /// Marks the per-session Live transport disclosure as shown (peer to
+    /// Direct's one-time-per-session entry warning). Reset on new session.
+    public func markLiveTypeThroughEntryDisclosureShown() {
+        guard !liveTypeThroughMode.hasShownEntryDisclosureThisSession else { return }
+        liveTypeThroughMode.hasShownEntryDisclosureThisSession = true
+    }
+
+    /// Feed a committed-text snapshot from the Live editor (marked/composing
+    /// range already excluded — FR-002) plus whether marked text is present.
+    /// Reconciles the current window and dispatches the resulting insert /
+    /// delete deltas (US1/US3). No Send tap — commit is the trigger.
+    public func liveCommit(committedText: String, hasMarkedText: Bool) {
+        guard liveTypeThroughMode.isActive, session?.state == .active else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        liveReachedWindowStart = false
+        openFreshLiveWindowIfSealed()
+        liveWindow.commit(committedText: committedText, hasMarkedText: hasMarkedText)
+        // Keep the model's authoritative line mirror in step with the editor
+        // when not composing, so a later model-driven clear has a correct
+        // baseline. Never rewrite the field while marked text is present —
+        // that would disrupt the IME (T015 protection).
+        if !hasMarkedText, liveFieldText != committedText {
+            liveFieldText = committedText
+        }
+        dispatchLivePendingWork()
+    }
+
+    /// Delete one grapheme backward from the current Live line (the reused
+    /// ⌫ action button, D1). A backspace at the window start is clamped and
+    /// reported — no delete crosses a seal into previously delivered text
+    /// (FR-011).
+    public func liveDeleteBackward() {
+        guard liveTypeThroughMode.isActive, session?.state == .active else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        openFreshLiveWindowIfSealed()
+        guard !liveFieldText.isEmpty else {
+            liveReachedWindowStart = true
+            return
+        }
+        liveReachedWindowStart = false
+        liveFieldText = String(liveFieldText.dropLast())
+        liveWindow.commit(committedText: liveFieldText, hasMarkedText: false)
+        dispatchLivePendingWork()
+    }
+
+    /// Commit a line boundary (the reused ↵ action button, or a Return from
+    /// the soft keyboard). Flushes pending inserts, delivers a remote Return
+    /// key, seals the window, and opens a fresh window for the next line
+    /// (FR-010).
+    public func liveNewline() {
+        guard liveTypeThroughMode.isActive, session?.state == .active else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        liveReachedWindowStart = false
+        openFreshLiveWindowIfSealed()
+        liveWindow.commit(committedText: liveFieldText, hasMarkedText: false)
+        liveWindow.newline()
+        dispatchLivePendingWork()
+    }
+
+    private func openFreshLiveWindowIfSealed() {
+        guard liveWindow.isSealed else { return }
+        liveWindow = LiveTypeThroughWindow()
+        liveTypeThroughMode.selectedTier = nil
+    }
+
+    /// Seal the current Live window on an FR-011 event. Retains any
+    /// not-yet-delivered tail locally so nothing is lost (FR-015); the
+    /// delivered portion stays at the remote and a fresh forward-only window
+    /// opens on the next commit.
+    public func sealLiveWindow(reason: LiveWindowSealReason, status: LiveDeliveryStatus? = nil) {
+        guard liveTypeThroughMode.isActive, !liveWindow.isSealed else {
+            return
+        }
+        let retainedTail = liveWindow.retainedTail
+        liveWindow.seal(reason: reason)
+        liveTypeThroughMode.lastSealReason = reason
+        if let status {
+            liveTypeThroughMode.lastStatus = status
+        }
+        liveFieldText = retainedTail
+    }
+
+    /// Seal the Live window on a pointer/trackpad interaction that could move
+    /// the remote insertion point (FR-011). Called from the pointer send
+    /// entrypoints.
+    private func sealLiveWindowForPointerInteraction() {
+        guard liveTypeThroughMode.isActive, !liveWindow.isSealed else {
+            return
+        }
+        sealLiveWindow(reason: .pointerInteraction)
+    }
+
+    private func currentLiveCapabilities() -> LiveDeliveryLadder.Capabilities {
+        let profileID = session?.profileID ?? selectedProfileID
+        let helperState = helperTextBridgeState(for: profileID)
+        let helperReachable: Bool
+        if let helperState,
+           let helperTextInsertClient,
+           Self.canRouteThroughHelperTextBridge(state: helperState, client: helperTextInsertClient) {
+            helperReachable = true
+        } else {
+            helperReachable = false
+        }
+        let utf8Confirmed = activeTextClient?.utf8ClipboardSupport == .supported
+        return LiveDeliveryLadder.Capabilities(
+            helperReachable: helperReachable,
+            utf8ClipboardConfirmed: utf8Confirmed
+        )
+    }
+
+    private func isCurrentLiveTarget(
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) -> Bool {
+        liveTypeThroughMode.isActive
+            && activeFrameStreamID == streamID
+            && session?.id == sessionID
+            && selectedProfileID == profileID
+    }
+
+    /// Drain the coalesced pending batch and deliver it: deletes and the
+    /// line boundary ride the VNC key lane (FR-005/FR-009/FR-010); the
+    /// insert delta rides the window's locked insert tier (FR-004/FR-006).
+    /// Single-in-flight for the async helper/clipboard tiers (FR-008).
+    private func dispatchLivePendingWork() {
+        guard liveTypeThroughMode.isActive, !liveChunkInFlight, liveWindow.hasPendingWork else {
+            return
+        }
+
+        let pendingOps = liveWindow.pendingOperations
+        let insertPayload = pendingOps.reduce(into: "") { accumulator, op in
+            if case let .insert(text) = op {
+                accumulator += text
+            }
+        }
+
+        var insertTier: LiveTypeThroughAdapterTier?
+        if !insertPayload.isEmpty {
+            let kind = LiveInsertPayloadKind.classify(insertPayload)
+            if let locked = liveTypeThroughMode.selectedTier {
+                if locked == .keyEvent, kind == .unicode {
+                    // Locked to the ASCII last resort but a Unicode unit arrived —
+                    // no mid-window insert-adapter switch (FR-006). Seal + retain.
+                    sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
+                    return
+                }
+                insertTier = locked
+            } else if let chosen = LiveDeliveryLadder.insertTier(
+                for: kind,
+                capabilities: currentLiveCapabilities()
+            ) {
+                insertTier = chosen
+                liveTypeThroughMode.selectedTier = chosen
+            } else {
+                // Unicode with neither a helper nor a confirmed UTF-8 clipboard —
+                // never emit Unicode keysyms (FR-005). Retain the text (US4.2).
+                sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
+                return
+            }
+        }
+
+        // Snapshot the pre-fold mirror: a failed async delivery rolls back to
+        // this baseline so the failed chunk is retained, not vanished (FR-015).
+        let preFoldBaseline = liveWindow.deliveredText
+        let ops = liveWindow.takePending()
+        var deleteCount = 0
+        var insertText = ""
+        var hasNewline = false
+        for op in ops {
+            switch op {
+            case let .deleteBackward(count):
+                deleteCount += count
+            case let .insert(text):
+                insertText += text
+            case .newline:
+                hasNewline = true
+            }
+        }
+
+        let streamID = activeFrameStreamID
+        let sessionID = session?.id
+        let profileID = selectedProfileID
+
+        // Deletes ride the VNC key lane, ahead of any insert (FR-007).
+        if deleteCount > 0 {
+            emitLiveControlKey(
+                .backspace,
+                repeatCount: deleteCount,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+        }
+
+        switch insertTier {
+        case .helperNativeInsert:
+            liveInFlightBaseline = preFoldBaseline
+            fireLiveAsyncInsertAfterKeyLaneDeletes(
+                deleteCount: deleteCount,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) { [weak self] in
+                self?.deliverLiveInsertThroughHelper(
+                    insertText,
+                    emitReturnAfter: hasNewline,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            }
+        case .clipboardChunk:
+            liveInFlightBaseline = preFoldBaseline
+            fireLiveAsyncInsertAfterKeyLaneDeletes(
+                deleteCount: deleteCount,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) { [weak self] in
+                self?.deliverLiveInsertThroughClipboard(
+                    insertText,
+                    emitReturnAfter: hasNewline,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            }
+        case .keyEvent:
+            deliverLiveInsertThroughKeyEvents(
+                insertText,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+            finishLiveKeyLaneBatch(
+                hasNewline: hasNewline,
+                status: .asciiLastResort,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+        case .none:
+            // Delete-only and/or newline-only batch: no insert tier involved.
+            finishLiveKeyLaneBatch(
+                hasNewline: hasNewline,
+                status: liveTypeThroughMode.lastStatus,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+        }
+    }
+
+    private func finishLiveKeyLaneBatch(
+        hasNewline: Bool,
+        status: LiveDeliveryStatus,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        if hasNewline {
+            emitLiveControlKey(
+                .return,
+                repeatCount: 1,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+        }
+        liveTypeThroughMode.lastStatus = status
+        if hasNewline {
+            openFreshLiveWindowAfterNewline()
+        } else {
+            dispatchLivePendingWork()
+        }
+    }
+
+    private func openFreshLiveWindowAfterNewline() {
+        liveWindow = LiveTypeThroughWindow()
+        liveTypeThroughMode.selectedTier = nil
+        liveFieldText = ""
+    }
+
+    /// Cross-lane order barrier: a same-batch async insert (helper/clipboard)
+    /// must not overtake the batch's BackSpaces, which ride the serialized key
+    /// lane and can stall behind MainActor work. When the batch carried
+    /// deletes, hold the single-in-flight gate and fire the insert from a
+    /// no-op key-lane entry that runs only after every previously enqueued
+    /// key event has flushed to the socket (FR-007).
+    private func fireLiveAsyncInsertAfterKeyLaneDeletes(
+        deleteCount: Int,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?,
+        fire: @escaping @MainActor () -> Void
+    ) {
+        guard deleteCount > 0 else {
+            fire()
+            return
+        }
+        liveChunkInFlight = true
+        liveTypeThroughMode.lastStatus = .delivering
+        keyInputDispatcher.enqueue(
+            operation: {
+                await MainActor.run { fire() }
+            },
+            validate: { [weak self, streamID, sessionID, profileID] in
+                await MainActor.run {
+                    guard let self else {
+                        return false
+                    }
+                    return self.activeFrameStreamID == streamID
+                        && self.session?.id == sessionID
+                        && self.selectedProfileID == profileID
+                }
+            },
+            record: { _, _, _ in },
+            handleFailure: { _, _, _ in }
+        )
+    }
+
+    private func emitLiveControlKey(
+        _ named: KeysymMapping.NamedKey,
+        repeatCount: Int,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let emitter = keystrokeEmitter, repeatCount > 0 else {
+            return
+        }
+        let keysym = KeysymMapping.keysym(for: named)
+        for _ in 0..<repeatCount {
+            enqueueKeyEventEmission(
+                emitter: emitter,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) {
+                try await emitter.emit(keysym: keysym, modifiers: [])
+            }
+        }
+    }
+
+    /// ASCII last-resort insert tier: each printable ASCII scalar rides the
+    /// VNC key lane as its identity keysym (FR-004 tier 3). Unicode never
+    /// reaches this path — the ladder routes it to helper/clipboard or
+    /// retains it (FR-005).
+    private func deliverLiveInsertThroughKeyEvents(
+        _ text: String,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let emitter = keystrokeEmitter, !text.isEmpty else {
+            return
+        }
+        for character in text {
+            guard let keysym = KeysymMapping.keysym(for: character) else {
+                continue
+            }
+            enqueueKeyEventEmission(
+                emitter: emitter,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            ) {
+                try await emitter.emit(keysym: keysym, modifiers: [])
+            }
+        }
+    }
+
+    /// Primary insert tier: helper `nativeInsert` (the only path with
+    /// observed delivery confirmation, FR-004/FR-013). One request per
+    /// coalesced chunk; single-in-flight so further commits coalesce.
+    private func deliverLiveInsertThroughHelper(
+        _ text: String,
+        emitReturnAfter: Bool,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let helperTextInsertClient, let sessionID else {
+            sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
+            return
+        }
+        liveChunkInFlight = true
+        liveTypeThroughMode.lastStatus = .delivering
+        let helperBox = HelperTextInsertClientBox(client: helperTextInsertClient)
+        let metadata = HelperTextInsertRequestMetadata(
+            sessionID: sessionID,
+            payloadEncoding: TextInjectionPayloadEncoding.classify(text),
+            payloadSizeBucket: HelperTextPayloadSizeBucket.bucket(utf8ByteCount: text.utf8.count)
+        )
+        Task.detached(priority: .userInitiated) { [weak self, helperBox, metadata, text] in
+            do {
+                let result = try await helperBox.client.insertText(text, metadata: metadata)
+                await self?.completeLiveInsert(
+                    succeeded: result.status == .sent,
+                    status: .deliveredObserved,
+                    emitReturnAfter: emitReturnAfter,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            } catch {
+                await self?.completeLiveInsert(
+                    succeeded: false,
+                    status: .deliveredObserved,
+                    emitReturnAfter: emitReturnAfter,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            }
+        }
+    }
+
+    /// Disclosed degraded insert tier (founder D2): chunked VNC clipboard +
+    /// paste. Overwrites the remote general clipboard and carries the
+    /// ~0.30 s settle; single-in-flight with coalescing (FR-008/FR-014).
+    private func deliverLiveInsertThroughClipboard(
+        _ text: String,
+        emitReturnAfter: Bool,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let activeTextClient else {
+            sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
+            return
+        }
+        liveChunkInFlight = true
+        liveTypeThroughMode.lastStatus = .delivering
+        let clientBox = RemoteClipboardTextClientBox(client: activeTextClient)
+        let settleDelay = Self.remoteClipboardPasteSettleDelay
+        Task.detached(priority: .userInitiated) { [weak self, clientBox, text] in
+            do {
+                try clientBox.client.setClipboardText(text)
+                if settleDelay > 0 {
+                    let nanoseconds = UInt64((settleDelay * 1_000_000_000).rounded())
+                    try? await Task.sleep(nanoseconds: nanoseconds)
+                }
+                try clientBox.client.sendPasteCommand(.commandV)
+                await self?.completeLiveInsert(
+                    succeeded: true,
+                    status: .unconfirmedClipboard,
+                    emitReturnAfter: emitReturnAfter,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            } catch {
+                await self?.completeLiveInsert(
+                    succeeded: false,
+                    status: .unconfirmedClipboard,
+                    emitReturnAfter: emitReturnAfter,
+                    streamID: streamID,
+                    sessionID: sessionID,
+                    profileID: profileID
+                )
+            }
+        }
+    }
+
+    private func completeLiveInsert(
+        succeeded: Bool,
+        status: LiveDeliveryStatus,
+        emitReturnAfter: Bool,
+        streamID: UUID?,
+        sessionID: RemoteSession.ID?,
+        profileID: ConnectionProfile.ID?
+    ) {
+        liveChunkInFlight = false
+        let preFoldBaseline = liveInFlightBaseline
+        liveInFlightBaseline = nil
+        guard isCurrentLiveTarget(streamID: streamID, sessionID: sessionID, profileID: profileID) else {
+            return
+        }
+        guard succeeded else {
+            // Insert-adapter failure: the dispatch fold optimistically counted
+            // this chunk as delivered — roll the mirror back to the pre-fold
+            // baseline first so the failed chunk re-enters the retained tail
+            // (FR-015), then seal and surface a safe failure rather than
+            // silently retrying on another tier (FR-006).
+            if let preFoldBaseline {
+                liveWindow.rollBackDelivery(toPreDispatchBaseline: preFoldBaseline)
+            }
+            if liveWindow.isSealed {
+                // A pointer/focus seal landed while this chunk was in flight
+                // and its retention trusted the fold. Re-retain against the
+                // rolled-back mirror and surface the failure the seal masked.
+                liveFieldText = liveWindow.retainedTail
+                liveTypeThroughMode.lastStatus = .retainedFailure
+            } else {
+                sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
+            }
+            return
+        }
+        liveTypeThroughMode.lastStatus = status
+        if emitReturnAfter {
+            emitLiveControlKey(
+                .return,
+                repeatCount: 1,
+                streamID: streamID,
+                sessionID: sessionID,
+                profileID: profileID
+            )
+            openFreshLiveWindowAfterNewline()
+            return
+        }
+        // Drain any commits that coalesced while this chunk was in flight.
+        dispatchLivePendingWork()
     }
 
     /// Drive a logical key event from the custom soft keyboard.
@@ -6376,7 +7065,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                         status: .failed,
                         safeFailureCode: .insertRejected
                     )
-                let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
+                let message = Self.helperInsertResultMessage(for: result)
                 attempt.finishedAt = Date()
                 attempt.status = result.status
                 attempt.helperStrategyUsed = result.strategyUsed
@@ -6614,7 +7303,7 @@ public final class NaruRemoteAppModel: ObservableObject {
 
             do {
                 let result = try await client.insertText(draft.text, metadata: metadata)
-                let message = HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
+                let message = Self.helperInsertResultMessage(for: result)
                 attempt.finishedAt = Date()
                 attempt.status = result.status
                 attempt.helperStrategyUsed = result.strategyUsed
@@ -6999,6 +7688,21 @@ public final class NaruRemoteAppModel: ObservableObject {
             return .notAttempted
         }
         return result.safeFailureCode == .restoreFailed ? .failed : .succeeded
+    }
+
+    /// Status copy for a helper insert result (QW3). A confirmed native
+    /// insert (`nativeInsert` + `.sent`) is the one delivery route that can
+    /// honestly claim the text landed, so it gets the positive fixed
+    /// message; every other outcome keeps the fixed safe-catalog copy.
+    nonisolated private static func helperInsertResultMessage(
+        for result: HelperTextInsertResult
+    ) -> String {
+        if result.status == .sent,
+           result.strategyUsed == .nativeInsert,
+           result.safeFailureCode == HelperTextBridgeFailureCode.none {
+            return helperNativeInsertConfirmedMessage
+        }
+        return HelperTextBridgeError.safeMessage(for: result.safeFailureCode)
     }
 
     private enum TextInjectionCurrentness {
@@ -7633,6 +8337,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// infer remote screen contents, so they stay confined to the
     /// outgoing `PointerEvent` bytes.
     public func sendTapAt(viewPoint: CGPoint, viewSize: CGSize) {
+        sealLiveWindowForPointerInteraction()
         guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
@@ -7674,6 +8379,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// coordinates are NOT logged anywhere persistent and the
     /// diagnostic safe-detail catalog is unaffected.
     public func sendRightClickAt(viewPoint: CGPoint, viewSize: CGSize) {
+        sealLiveWindowForPointerInteraction()
         guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
@@ -7736,6 +8442,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         deltaY: CGFloat,
         threshold: CGFloat = scrollTickThreshold
     ) {
+        sealLiveWindowForPointerInteraction()
         guard let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient
         else {
@@ -7803,6 +8510,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     ///   - no streaming pointer client
     ///   - the drag start falls in the letterbox/pillarbox bands
     public func sendPointerDownAt(viewPoint: CGPoint, viewSize: CGSize) async {
+        sealLiveWindowForPointerInteraction()
         guard !explicitlyDisconnected,
               let coordinateSpace = currentInputCoordinateSpace(),
               let pointerClient = activePointerClient

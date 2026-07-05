@@ -6,7 +6,7 @@ import NaruRemoteCore
 private enum NaruHelperCLI {
     static func run() async throws {
         if CommandLine.arguments.contains("--listen") {
-            try listen()
+            try await listen()
             return
         }
 
@@ -118,9 +118,24 @@ private enum NaruHelperCLI {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private static func listen() throws {
-        guard let token = optionValue(after: "--token"), !token.isEmpty else {
-            FileHandle.standardError.write(Data("NaruHelper listen requires --token.\n".utf8))
+    private static func listen() async throws {
+        // The pairing secret must ride env indirection: a direct --token value
+        // lands in argv and stays visible to every local user via `ps` for the
+        // listener's whole lifetime. Mirrors --video-listen's contract.
+        if CommandLine.arguments.contains("--token") {
+            FileHandle.standardError.write(
+                Data("NaruHelper listen does not accept --token; use --token-env VAR_NAME.\n".utf8)
+            )
+            Darwin.exit(2)
+        }
+        guard let tokenVariable = optionValue(after: "--token-env"),
+              !tokenVariable.isEmpty,
+              let token = ProcessInfo.processInfo.environment[tokenVariable],
+              !token.isEmpty
+        else {
+            FileHandle.standardError.write(
+                Data("NaruHelper listen requires --token-env VAR_NAME with the pairing secret exported in that variable.\n".utf8)
+            )
             Darwin.exit(2)
         }
 
@@ -138,7 +153,14 @@ private enum NaruHelperCLI {
         )
         let server = try NaruHelperNetworkServer(port: port, handler: handler)
         server.start()
-        RunLoop.main.run()
+        // NWListener schedules on a dispatch queue, not the run loop, so
+        // `RunLoop.main.run()` returns immediately (no sources) and the
+        // process exits before serving anything. Park the task the same way
+        // the (proven-alive) --video-listen runtime does.
+        while true {
+            _ = server.port
+            try await Task.sleep(for: .seconds(3_600))
+        }
     }
 
     private static func listenVideo() async throws {

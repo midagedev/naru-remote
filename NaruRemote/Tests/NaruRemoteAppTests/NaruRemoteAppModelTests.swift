@@ -4751,7 +4751,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
-        XCTAssertEqual(model.snapshot.composeDraft?.lastStatusMessage, "Text sent through helper.")
+        XCTAssertEqual(model.snapshot.composeDraft?.lastStatusMessage, "Inserted into the remote app.")
         XCTAssertEqual(
             model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode,
             HelperTextBridgeFailureCode.none
@@ -4783,6 +4783,172 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertFalse(json.contains("한글과 English"))
         XCTAssertFalse(json.contains("😊"))
         XCTAssertFalse(json.contains("helper-pairing"))
+    }
+
+    // QW3: a confirmed helper native insert reports a distinct positive
+    // status ("Inserted into the remote app.") rather than the unknown
+    // "confirmation unavailable" copy the clipboard path is stuck with.
+    func testHelperNativeInsertReportsConfirmedPositiveStatus() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("한글과 English 😊")
+        model.sendComposedText("한글과 English 😊")
+        try await waitForHelperInsertRequests(helper, count: 1)
+        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
+        XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Inserted into the remote app."
+        )
+        XCTAssertEqual(model.snapshot.inputStatusText, "Inserted into the remote app.")
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+
+        // The fixed positive copy must not leak composed content into the
+        // diagnostic export, which stays on the enum-rawValue safe catalog.
+        let json = model.makeDiagnosticExport().renderCollectionJSON(
+            buildVersion: "test",
+            now: Date(timeIntervalSince1970: 1_714_521_600)
+        )
+        XCTAssertFalse(json.contains("Inserted into the remote app"))
+        XCTAssertFalse(json.contains("한글과 English"))
+    }
+
+    // QW3: a non-confirming helper result (e.g. pasteboard fallback that
+    // could not confirm restore) keeps the honest safe-catalog copy rather
+    // than claiming a confirmed insert.
+    func testHelperNonNativeInsertKeepsSafeCatalogStatus() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient(
+            result: HelperTextInsertResult(
+                requestID: UUID(),
+                strategyUsed: .pasteboardPasteWithRestore,
+                status: .unknown,
+                safeFailureCode: .restoreFailed
+            ),
+            stampRequestID: true
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("status")
+        model.sendComposedText("status")
+        try await waitForHelperInsertRequests(helper, count: 1)
+        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            "Inserted into the remote app.",
+            "Only a confirmed native insert may claim the text landed."
+        )
+        XCTAssertEqual(
+            model.snapshot.latestInjectionAttempt?.safeMessage,
+            HelperTextBridgeError.safeMessage(for: .restoreFailed)
+        )
+    }
+
+    // QW2: the 0.30s clipboard settle exists only so the remote clipboard
+    // adopts the payload before Cmd-V. The helper native-insert route never
+    // touches the clipboard, so its attempt must complete without paying
+    // that latency.
+    func testHelperNativeInsertRouteSkipsClipboardPasteSettleDelay() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let helper = FakeHelperTextInsertClient()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                helperTextBridgeState: [
+                    profile.id: HelperTextBridgeProfileState(
+                        isEnabled: true,
+                        pairingFingerprint: "sha256:helper-pairing",
+                        availability: .reachable,
+                        lastFailureCode: nil,
+                        lastCheckedBucket: .recent
+                    )
+                ]
+            ),
+            connectorFactory: { connector },
+            helperTextInsertClient: helper
+        )
+
+        await model.connectSelectedProfile()
+        for _ in 0..<20 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+
+        model.updateComposeDraftText("status")
+        model.sendComposedText("status")
+        try await waitForHelperInsertRequests(helper, count: 1)
+        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let attempt = try XCTUnwrap(model.snapshot.latestInjectionAttempt)
+        XCTAssertEqual(attempt.path, .helperTextBridge)
+        XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+        let finished = try XCTUnwrap(attempt.finishedAt)
+        XCTAssertLessThan(
+            finished.timeIntervalSince(attempt.startedAt),
+            0.25,
+            "Helper native insert must not pay the 0.30s clipboard settle delay."
+        )
     }
 
     func testReachableHelperWithoutNativeInsertPermissionDoesNotReceiveComposePayload() async throws {
@@ -7659,17 +7825,20 @@ private final class FakeHelperTextInsertClient: HelperTextInsertClient {
     private let recording = OSAllocatedUnfairLock(initialState: Recording())
     let availability: HelperTextBridgeAvailability
     private let result: HelperTextInsertResult?
+    private let stampRequestID: Bool
     private let error: Error?
     private let insertDelayNanoseconds: UInt64
 
     init(
         availability: HelperTextBridgeAvailability = .reachable,
         result: HelperTextInsertResult? = nil,
+        stampRequestID: Bool = false,
         error: Error? = nil,
         insertDelayNanoseconds: UInt64 = 0
     ) {
         self.availability = availability
         self.result = result
+        self.stampRequestID = stampRequestID
         self.error = error
         self.insertDelayNanoseconds = insertDelayNanoseconds
     }
@@ -7697,7 +7866,15 @@ private final class FakeHelperTextInsertClient: HelperTextInsertClient {
             try await Task.sleep(nanoseconds: insertDelayNanoseconds)
         }
         if let result {
-            return result
+            guard stampRequestID else {
+                return result
+            }
+            return HelperTextInsertResult(
+                requestID: metadata.id,
+                strategyUsed: result.strategyUsed,
+                status: result.status,
+                safeFailureCode: result.safeFailureCode
+            )
         }
         return HelperTextInsertResult(
             requestID: metadata.id,

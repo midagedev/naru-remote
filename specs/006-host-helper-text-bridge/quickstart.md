@@ -143,7 +143,8 @@ Run after adding the macOS helper target:
 swift test --filter NaruHelper
 swift test --filter NaruHelperNetwork
 swift run NaruHelper --capability
-swift run NaruHelper --listen --port 5974 --token '<manual-pairing-token>'
+export NARU_HELPER_TOKEN='<manual-pairing-token>'
+swift run NaruHelper --listen --port 5974 --token-env NARU_HELPER_TOKEN
 xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' test
 ```
 

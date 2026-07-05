@@ -195,6 +195,19 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
   `UXAuditScreenshotsUITests` state; the focused UI run hung in the simulator
   execution phase after test build succeeded, so screenshot capture remains a
   follow-up evidence gap. **Done.**
+- [x] T015bq [B] Compose smoothness quick wins (2026-07-05): (1) make
+  Compose Send marked-text stabilization event-driven — exit as soon as the
+  IME clears its marked range and two consecutive snapshots agree, keeping the
+  ~480 ms window only as an upper bound so already-committed text no longer
+  pays the fixed 30×16 ms poll (common case now settles in two reads);
+  (2) confirm the 0.30 s clipboard settle is paid only on the clipboard+paste
+  path, never on the helper native-insert or keystroke-stream routes, with a
+  regression test; (3) surface a distinct positive status ("Inserted into the
+  remote app.") when the helper text bridge reports a `nativeInsert` + `sent`
+  result, while clipboard/keystroke keep the honest `.unknown` copy. Fixed
+  status strings only — DiagnosticExport still uses the enum-`rawValue` safe
+  catalog. Preserves the T015y/T015ad delayed-Korean-commit guarantee. Covered
+  by `RemoteInputDockSyncPolicyTests` and `NaruRemoteAppModelTests`. **Done.**
 - [x] T016 [B][VISUAL] Screenshots: trackpad cursor visible, direct mode (no cursor), mode toggle. **Done.** Direct mode/no-cursor is covered by `16-session-active-widescreen-iphone-{light,dark}.png`; trackpad/server-cursor overlay is covered by `18-session-active-trackpad-cursor-iphone-{light,dark}.png`.
 
 ## Stage C — Connection quality + compose quick keys

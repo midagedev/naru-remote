@@ -73,6 +73,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.app
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Device signing proven on physical iPhone 2026-07-05 (team XEF9KH7N43,
+        # -allowProvisioningUpdates). Automatic style keeps simulator builds working.
+        DEVELOPMENT_TEAM: XEF9KH7N43
+        CODE_SIGN_STYLE: Automatic
   NaruRemoteUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -86,6 +90,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.uitests
         TEST_TARGET_NAME: NaruRemote
+        DEVELOPMENT_TEAM: XEF9KH7N43
+        CODE_SIGN_STYLE: Automatic
   NaruRemoteBenchmarkTests:
     type: bundle.unit-test
     platform: iOS
@@ -99,6 +105,8 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.benchmarks
+        DEVELOPMENT_TEAM: XEF9KH7N43
+        CODE_SIGN_STYLE: Automatic
 schemes:
   NaruRemote:
     build:

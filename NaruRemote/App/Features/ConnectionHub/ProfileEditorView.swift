@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import NaruRemoteCore
 import SwiftUI
@@ -53,6 +52,9 @@ public struct ProfileEditorView: View {
     @State private var testOutcome: ProfileEditorTestOutcome?
     @State private var isTesting: Bool = false
 
+    /// Presents the guided Naru Helper onboarding sheet (spec 010).
+    @State private var showsHelperOnboarding: Bool = false
+
     private let editingProfile: ConnectionProfile?
     private let hasExistingCredential: Bool
     private let hasExistingHelperPairingSecret: Bool
@@ -64,6 +66,13 @@ public struct ProfileEditorView: View {
     /// Optional so `#Preview` and prior call sites that did not need
     /// the Test affordance can omit it (the button hides when `nil`).
     private let onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)?
+    /// Optional in-flow helper-handshake test for the onboarding verify
+    /// step (spec 010 FR-013).  Absent today: the shell passes the
+    /// editor only closures and there is no view-reachable single-profile
+    /// helper probe wired yet.  When wired it returns the profile's
+    /// helper availability so the verify step can reflect pairing +
+    /// permission state, not just host reachability.
+    private let onTestHelper: (@MainActor () async -> HelperTextBridgeAvailability)?
 
     private enum Field: Hashable {
         case displayName
@@ -80,6 +89,7 @@ public struct ProfileEditorView: View {
     /// box, when non-empty, becomes the new keychain credential.
     public init(
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
+        onTestHelper: (@MainActor () async -> HelperTextBridgeAvailability)? = nil,
         onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     ) {
         self.editingProfile = nil
@@ -88,6 +98,7 @@ public struct ProfileEditorView: View {
         self.hasExistingHelperVideoPairingSecret = false
         self.onSave = onSave
         self.onTest = onTest
+        self.onTestHelper = onTestHelper
         _formState = State(initialValue: ProfileEditorFormState())
         _password = State(initialValue: "")
         _helperPairingSecret = State(initialValue: "")
@@ -117,6 +128,7 @@ public struct ProfileEditorView: View {
         editing profile: ConnectionProfile,
         hasExistingCredential: Bool,
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
+        onTestHelper: (@MainActor () async -> HelperTextBridgeAvailability)? = nil,
         onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
     ) {
         self.editingProfile = profile
@@ -125,6 +137,7 @@ public struct ProfileEditorView: View {
         self.hasExistingHelperVideoPairingSecret = profile.helperVideo?.pairingSecretRef != nil
         self.onSave = onSave
         self.onTest = onTest
+        self.onTestHelper = onTestHelper
         let helperConfig = profile.helperTextBridge
         _formState = State(initialValue: ProfileEditorFormState(
             displayName: profile.displayName,
@@ -216,6 +229,20 @@ public struct ProfileEditorView: View {
                         Text("Advanced public").tag(ConnectionProfile.HostKind.advancedManualPublicEndpoint)
                     }
                     Toggle("Allow PiP Watch", isOn: $allowsPiPWatch)
+                }
+
+                if hostKind != .advancedManualPublicEndpoint {
+                    Section("Naru Helper") {
+                        Text("Fast video, confirmed Korean text, and Live type-through need a small helper on your Mac. Basic viewing works without it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            showsHelperOnboarding = true
+                        } label: {
+                            Label("Set up Naru Helper", systemImage: "wand.and.stars")
+                        }
+                        .accessibilityIdentifier("naru.profile.editor.helper.setup")
+                    }
                 }
 
                 Section("Helper text bridge") {
@@ -334,6 +361,16 @@ public struct ProfileEditorView: View {
                 if !isEditing {
                     focusedField = .host
                 }
+            }
+            .sheet(isPresented: $showsHelperOnboarding) {
+                HelperOnboardingView(
+                    host: formState.host,
+                    port: formState.parsedPort ?? 5900,
+                    existingFingerprint: editingProfile?.helperTextBridge?.pairingFingerprint,
+                    onTestReachability: onTest,
+                    onTestHelper: onTestHelper,
+                    onApply: applyHelperOnboarding
+                )
             }
         }
         .accessibilityIdentifier("naru.profile.editor")
@@ -489,6 +526,24 @@ public struct ProfileEditorView: View {
         // automatically — assigning after a dismiss is a no-op).
         testOutcome = outcome
         isTesting = false
+    }
+
+    /// Stage the secret the onboarding generated into the editor's
+    /// existing fields so the next Save persists it through the normal
+    /// `ProfileEditorCredentialUpdate` → Keychain path (spec 010 FR-012;
+    /// constitution §IV — the secret never touches `ConnectionProfile`
+    /// or the file store).  In v1 one secret pairs both text and video.
+    private func applyHelperOnboarding(_ result: HelperOnboardingResult) {
+        if result.capabilities.text {
+            helperPairingSecret = result.secret
+            formState.helperTextBridgeEnabled = true
+            replaceHelperPairingSecret = true
+        }
+        if result.capabilities.video {
+            helperVideoPairingSecret = result.secret
+            formState.helperVideoEnabled = true
+            replaceHelperVideoPairingSecret = true
+        }
     }
 
     private func resolveHelperTextBridge(
@@ -705,8 +760,10 @@ public struct ProfileEditorView: View {
     }
 
     private static func pairingFingerprint(for secret: String) -> String {
-        let digest = SHA256.hash(data: Data(secret.utf8))
-        return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
+        // Single source of truth with the onboarding flow (spec 010
+        // FR-005): the fingerprint shown during setup must equal the one
+        // persisted here for the same secret.
+        HelperPairingSecret.fingerprint(for: secret)
     }
 }
 

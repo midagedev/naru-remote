@@ -8176,10 +8176,10 @@ physical_iphone_gate_print_report() {
   physical_iphone_gate_print_diagnostic_summary "$diagnostic_file"
   printf ',\n'
   printf '  "issueCodes": '
-  json_string_array "${PHYSICAL_GATE_ISSUE_CODES[@]}"
+  json_string_array ${PHYSICAL_GATE_ISSUE_CODES[@]+"${PHYSICAL_GATE_ISSUE_CODES[@]}"}
   printf ',\n'
   printf '  "setupActionLabels": '
-  json_string_array "${PHYSICAL_GATE_SETUP_ACTIONS[@]}"
+  json_string_array ${PHYSICAL_GATE_SETUP_ACTIONS[@]+"${PHYSICAL_GATE_SETUP_ACTIONS[@]}"}
   printf '\n}\n'
 }
 
@@ -8344,11 +8344,11 @@ physical_iphone_helper_video_gate_self_test() {
 
   physical_iphone_gate_collect_configuration_issues
   local missing_status="failed"
-  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-host-missing "* &&
-        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-password-missing "* &&
-        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-helper-video-listener-unavailable "* &&
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-e2e-host-missing "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-e2e-password-missing "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-e2e-helper-video-listener-unavailable "* &&
         "$(physical_iphone_gate_helper_video_profile_mode)" == "generated" &&
-        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-e2e-stream-encoding-mode "* ]]; then
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]-} " == *" set-physical-e2e-stream-encoding-mode "* ]]; then
     missing_status="passed"
   fi
 
@@ -8390,8 +8390,8 @@ physical_iphone_helper_video_gate_self_test() {
   export NARU_HELPER_EXECUTABLE="/bin/echo"
   physical_iphone_gate_collect_configuration_issues
   local port_status="failed"
-  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-e2e-port-invalid "* &&
-        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-e2e-port "* ]]; then
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-e2e-port-invalid "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]-} " == *" set-physical-e2e-port "* ]]; then
     port_status="passed"
   fi
 
@@ -8421,8 +8421,8 @@ physical_iphone_helper_video_gate_self_test() {
   PHYSICAL_GATE_SETUP_ACTIONS=()
   local target_class_status="failed"
   if ! physical_iphone_gate_validate_target_class "ipad" >/dev/null &&
-    [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-iphone-target-class-required "* ]] &&
-    [[ " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" set-physical-ios-device-class-to-iphone "* ]]; then
+    [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-iphone-target-class-required "* ]] &&
+    [[ " ${PHYSICAL_GATE_SETUP_ACTIONS[*]-} " == *" set-physical-ios-device-class-to-iphone "* ]]; then
     PHYSICAL_GATE_ISSUE_CODES=()
     PHYSICAL_GATE_SETUP_ACTIONS=()
     if physical_iphone_gate_validate_target_class "iphone" >/dev/null &&
@@ -8507,10 +8507,10 @@ LOG
   PHYSICAL_GATE_SETUP_ACTIONS=()
   physical_iphone_gate_classify_xcodebuild_failure "$test_runner_log_file" "failed"
   local test_runner_status="failed"
-  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]} " == *" physical-ios-test-runner-communication-invalidated "* &&
-        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" reconnect-physical-ios-device "* &&
-        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]} " == *" inspect-xcode-physical-test-runner "* &&
-        " ${PHYSICAL_GATE_ISSUE_CODES[*]} " != *" physical-iphone-helper-video-gate-failed "* ]]; then
+  if [[ " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " == *" physical-ios-test-runner-communication-invalidated "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]-} " == *" reconnect-physical-ios-device "* &&
+        " ${PHYSICAL_GATE_SETUP_ACTIONS[*]-} " == *" inspect-xcode-physical-test-runner "* &&
+        " ${PHYSICAL_GATE_ISSUE_CODES[*]-} " != *" physical-iphone-helper-video-gate-failed "* ]]; then
     test_runner_status="passed"
   fi
   rm -f "$test_runner_log_file"

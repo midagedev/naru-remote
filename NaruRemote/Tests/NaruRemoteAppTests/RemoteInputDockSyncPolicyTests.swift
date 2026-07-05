@@ -635,6 +635,105 @@ final class RemoteInputDockSyncPolicyTests: XCTestCase {
         )
     }
 
+    // QW1: event-driven stabilization. Already-committed text (no marked
+    // range, steady snapshots) must exit after just two reads instead of
+    // draining the full ~480ms window — near-zero added latency for the
+    // common Compose Send.
+    func testComposeStabilizationExitsEarlyOnAlreadyCommittedText() {
+        let outcome = RemoteInputDockView.simulateComposeStabilization(
+            fallback: "입력느낌",
+            snapshotCount: RemoteInputDockView.composeSendStabilizationSnapshotCount,
+            snapshots: Array(
+                repeating: (text: "입력느낌", hasMarkedText: false),
+                count: RemoteInputDockView.composeSendStabilizationSnapshotCount
+            )
+        )
+
+        XCTAssertEqual(outcome.text, "입력느낌")
+        XCTAssertEqual(
+            outcome.snapshotsTaken,
+            2,
+            "Committed text with no marked range settles after two identical reads."
+        )
+    }
+
+    func testComposeStabilizationExitEarlyDecisionRequiresNoMarkedTextAndTwoIdenticalSnapshots() {
+        XCTAssertFalse(
+            RemoteInputDockView.composeStabilizationShouldExitEarly(
+                hasMarkedText: true,
+                previousSnapshot: "입력느낌",
+                currentSnapshot: "입력느낌"
+            ),
+            "Marked text still in flight must never exit early."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.composeStabilizationShouldExitEarly(
+                hasMarkedText: false,
+                previousSnapshot: nil,
+                currentSnapshot: "입력느낌"
+            ),
+            "A single snapshot is not enough to confirm the text stopped changing."
+        )
+        XCTAssertFalse(
+            RemoteInputDockView.composeStabilizationShouldExitEarly(
+                hasMarkedText: false,
+                previousSnapshot: "입력느",
+                currentSnapshot: "입력느낌"
+            ),
+            "Two differing snapshots mean the text is still moving."
+        )
+        XCTAssertTrue(
+            RemoteInputDockView.composeStabilizationShouldExitEarly(
+                hasMarkedText: false,
+                previousSnapshot: "입력느낌",
+                currentSnapshot: "입력느낌"
+            )
+        )
+    }
+
+    // QW1 guardrail (preserves the T015y/T015ad delayed-IME-commit
+    // guarantee): while the marked range is live we keep polling, and a
+    // commit that lands late within the window is still captured, not lost.
+    func testComposeStabilizationKeepsPollingWhileMarkedTextRemainsThenCapturesDelayedCommit() {
+        var snapshots: [(text: String, hasMarkedText: Bool)] = Array(
+            repeating: (text: "입력느", hasMarkedText: true),
+            count: 5
+        )
+        snapshots.append((text: "입력느낌", hasMarkedText: false))
+        snapshots.append((text: "입력느낌", hasMarkedText: false))
+
+        let outcome = RemoteInputDockView.simulateComposeStabilization(
+            fallback: "입력느",
+            snapshotCount: RemoteInputDockView.composeSendStabilizationSnapshotCount,
+            snapshots: snapshots
+        )
+
+        XCTAssertEqual(outcome.text, "입력느낌")
+        XCTAssertEqual(
+            outcome.snapshotsTaken,
+            7,
+            "Five marked reads never exit; the commit lands on read 6 and settles on read 7."
+        )
+    }
+
+    func testComposeStabilizationNeverExceedsSnapshotCountUpperBound() {
+        // Text that changes every read (never two identical in a row) must
+        // still terminate at the upper bound rather than spin forever.
+        let churningSnapshots = (0..<40).map { index in
+            (text: "입력\(index)", hasMarkedText: false)
+        }
+        let outcome = RemoteInputDockView.simulateComposeStabilization(
+            fallback: "입력",
+            snapshotCount: RemoteInputDockView.composeSendStabilizationSnapshotCount,
+            snapshots: churningSnapshots
+        )
+
+        XCTAssertEqual(
+            outcome.snapshotsTaken,
+            RemoteInputDockView.composeSendStabilizationSnapshotCount
+        )
+    }
+
     func testComposeSendPreparationPlanUsesFastPathWhenNoMarkedTextWasActive() {
         let plan = RemoteInputDockView.composeSendPreparationPlan(hadMarkedTextBeforeSend: false)
 

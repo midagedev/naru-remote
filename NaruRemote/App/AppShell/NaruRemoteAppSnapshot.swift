@@ -1010,6 +1010,22 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// endpoint, token, timing, frame, or profile identity data.
     public var helperVideoVisualSelectionFailureReason: HelperVideoVisualSelectionFailureReason?
     public var directKeystrokeMode: DirectKeystrokeMode
+    /// Live type-through mode state (spec 009).  Peer to
+    /// `directKeystrokeMode`; carries the active flag, the insert
+    /// adapter tier chosen for the open window, and the last fixed
+    /// delivery/seal labels for the persistent transport disclosure.
+    /// In-memory only (SP-002) — resets to the Compose default on
+    /// every fresh session (FR-016).
+    public var liveTypeThroughMode: LiveTypeThroughMode
+    /// Authoritative local mirror of the current Live editing line
+    /// (spec 009).  The dock editor renders from this in Live mode so
+    /// a sealed/committed line can be cleared by the model.  Memory-only
+    /// and never exported — raw typed content stays process-local (SP-002).
+    public var liveFieldText: String
+    /// Fixed hint that the most recent Live backspace was clamped at the
+    /// start of the current editing window (no remote delete crossed the
+    /// seal, FR-011).  Content-free; memory-only.
+    public var liveReachedWindowStart: Bool
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
     /// pattern — pure value type carried on the snapshot so views
@@ -1049,6 +1065,9 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         helperVideoStreamHealth: HelperVideoStreamHealth = HelperVideoStreamHealth(),
         helperVideoVisualSelectionFailureReason: HelperVideoVisualSelectionFailureReason? = nil,
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
+        liveTypeThroughMode: LiveTypeThroughMode = LiveTypeThroughMode(),
+        liveFieldText: String = "",
+        liveReachedWindowStart: Bool = false,
         stickyModifierState: StickyModifierState = StickyModifierState(),
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     ) {
@@ -1074,6 +1093,9 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.helperVideoStreamHealth = helperVideoStreamHealth
         self.helperVideoVisualSelectionFailureReason = helperVideoVisualSelectionFailureReason
         self.directKeystrokeMode = directKeystrokeMode
+        self.liveTypeThroughMode = liveTypeThroughMode
+        self.liveFieldText = liveFieldText
+        self.liveReachedWindowStart = liveReachedWindowStart
         self.stickyModifierState = stickyModifierState
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
     }
@@ -1229,6 +1251,55 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             return "Helper pairing revoked"
         case .versionUnsupported:
             return "Helper version unsupported"
+        }
+    }
+
+    /// Persistent transport/latency disclosure for the Live surface
+    /// (spec 009 FR-014 / IN-004 / D2), peer to Direct's "IME off" badge.
+    /// Fixed English strings only — never typed content (SP-005). The tier
+    /// is chosen once per window, so this stays stable while a line is
+    /// composed; it falls back to a capability-based hint before the first
+    /// insert locks a tier.
+    public var liveTransportDisclosureText: String {
+        guard liveTypeThroughMode.isActive else {
+            return ""
+        }
+        if let tier = liveTypeThroughMode.selectedTier {
+            switch tier {
+            case .helperNativeInsert:
+                return "Live via Naru Helper — delivery observed."
+            case .clipboardChunk:
+                return "Live via clipboard — remote clipboard is overwritten, ~0.3s settle."
+            case .keyEvent:
+                return "Live via keystrokes — ASCII only, no Korean/CJK/emoji."
+            }
+        }
+        return "Live type-through — committed text flows as you type."
+    }
+
+    /// Per-window Live delivery status line (spec 009 FR-013). Fixed
+    /// catalog copy; the retained-failure and clamp states surface here so
+    /// the user is never told a failed delivery "landed".
+    public var liveStatusText: String? {
+        guard liveTypeThroughMode.isActive else {
+            return nil
+        }
+        if liveReachedWindowStart {
+            return "Reached the start of the Live window."
+        }
+        switch liveTypeThroughMode.lastStatus {
+        case .idle:
+            return nil
+        case .delivering:
+            return "Delivering…"
+        case .deliveredObserved:
+            return "Inserted into the remote app."
+        case .unconfirmedClipboard:
+            return "Sent via clipboard; confirmation unavailable."
+        case .asciiLastResort:
+            return "Typed as ASCII keystrokes."
+        case .retainedFailure:
+            return "Couldn't deliver; your text is kept here to retry."
         }
     }
 
