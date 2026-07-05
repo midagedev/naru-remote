@@ -2,7 +2,7 @@
 
 **Feature Branch**: `002-direct-keystroke-mode`
 **Created**: 2026-05-02
-**Status**: Draft
+**Status**: Implemented v1 (PRs #28–#35: custom soft keyboard, sticky modifiers, hardware passthrough). Reconciled 2026-07-05 — tasks.md checkboxes were not maintained during implementation (see reconciliation note there); residual: physical-device manual tests T045 (vim) / T046 (BT Magic Keyboard).
 **Product**: Naru Remote
 **Input**: Founder workflow signal — sustained AI-coding from iPhone over VNC requires terminal-grade per-keystroke input (Tab, Esc, Ctrl combos, arrows). PRODUCT_SPEC.md §6.3.6 names the mode; this feature spec replaces the §6.3.6 assumption that iOS's system keyboard would be the only Direct input path. Founder explicitly chose Chrome Remote Desktop Android's pattern as the default: a custom in-app soft keyboard with two pages (QWERTY + special keys), bottom-docked, with sticky modifiers. A later polish pass adds explicit Direct input surfaces for (a) native iOS ASCII keyboard feel and (b) hardware-keyboard-only use where software keyboards must stay out of the way.
 

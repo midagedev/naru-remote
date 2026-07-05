@@ -38,67 +38,175 @@ symlinked Codex paths below instead of creating a second copy.
 
 # Naru Remote Agent Instructions
 
+Shared entry point for coding agents (Codex, Claude Code, etc.). `CLAUDE.md`
+carries the same rules for Claude Code — when one changes, keep the other in
+sync. Cross-feature priorities and residual work live in `NEXT_STEPS.md`;
+read it before picking up work.
+
 ## Project
 
-This repository is the planning and implementation workspace for `Naru Remote`,
-an iPhone/iPad VNC viewer for private networks. Its differentiator is reliable
-local composition of multilingual text, voice, images, and files before sending
-the finished input to a remote computer.
+Naru Remote is an iPhone/iPad VNC viewer for private networks
+(Tailscale-friendly). Its differentiator is reliable **local composition** of
+multilingual text, voice, images, and files before sending finished input to
+the remote computer, plus an optional macOS host helper (`NaruHelper`) that
+unlocks Chrome-Remote-Desktop-level type-through input and a hardware-codec
+video stream.
 
-Read these documents before architecture or implementation work:
+Read before architecture or implementation work: `BRANDING.md`,
+`PRODUCT_SPEC.md`, `PRODUCT_RESEARCH.md`, `AGENTIC_DEVELOPMENT_METHODOLOGY.md`,
+`SPEC_DRIVEN_DEVELOPMENT.md`, `.specify/memory/constitution.md`. For current
+performance/parity ground truth read `PERFORMANCE_PARITY_ANALYSIS.md`.
 
-- `BRANDING.md`
-- `PRODUCT_SPEC.md`
-- `PRODUCT_RESEARCH.md`
-- `AGENTIC_DEVELOPMENT_METHODOLOGY.md`
-- `SPEC_DRIVEN_DEVELOPMENT.md`
-- `.specify/memory/constitution.md`
+## Spec-Driven Workflow (non-negotiable)
 
-## Spec-Driven Workflow
+This repo runs Spec Kit. Treat `.specify/memory/constitution.md` as the
+highest project rule after explicit user instructions.
 
-Use Spec Kit for feature work:
-
-- `$speckit-constitution`: update governing rules.
-- `$speckit-specify`: create or revise a feature spec.
-- `$speckit-clarify`: resolve ambiguous scope/security/UX questions.
-- `$speckit-plan`: generate technical plan and design artifacts.
-- `$speckit-tasks`: generate executable tasks.
-- `$speckit-implement`: implement only after spec, plan, and tasks are ready.
+- Do not implement a feature that lacks a `specs/<n>-<slug>/spec.md`. If a
+  request would add new behavior with no spec, stop and ask, or run
+  `$speckit-specify` first.
+- Workflow phases: `$speckit-constitution` → `$speckit-specify` →
+  `$speckit-clarify` → `$speckit-plan` → `$speckit-tasks` →
+  `$speckit-implement`.
+- The active feature is pinned in `.specify/feature.json`. `plan.md`,
+  `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and
+  `quickstart.md` for that feature are authoritative — update them when
+  implementation behavior changes.
+- Every `specs/<n>-<slug>/spec.md` carries a **Status** line — trust it over
+  roadmap prose.
+- Tasks must be small and independently testable, and declare file
+  ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/007-host-helper-video-stream` (spec / plan / tasks ready; implementation not yet started; the prior MVP feature `specs/001-naru-remote-mvp/`, RFB performance feature `specs/004-rfb-encodings/`, and helper text feature `specs/006-host-helper-text-bridge/` remain reference baselines).
+Current active feature: `specs/009-live-type-through` (implemented
+2026-07-05; physical gates T021–T025 residual). Feature index —
+001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
+(PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
+implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
+Bridge: implemented v1 · 007 Helper Video Stream: implemented, real-screen
+gate residual · 008 ARD Native Support: partial · 009 Live Type-Through:
+implemented, physical gates residual · 010 Helper Onboarding: implemented.
 <!-- SPECKIT END -->
 
-## Development Rules
+## Architecture
 
-- Do not implement a feature that lacks a `specs/*/spec.md`.
-- Treat `.specify/memory/constitution.md` as the highest project rule after
-  explicit user instructions.
-- Keep tasks small and independently testable; declare file ownership when
-  delegating or parallelizing.
-- For iOS/UI/input work, include XCTest, XCUITest, fake-server, screenshot, or
-  manual-device verification as appropriate.
-- For VNC/RFB work, use protocol fixtures or fake servers before claiming
-  compatibility.
-- For helper or agent bridge work, specify trust boundaries, permissions,
-  revocation, logging, and failure behavior before coding.
-- Avoid public-internet-first UX and avoid implying official Tailscale
-  affiliation.
+Three layers, enforced by the SwiftPM target graph in `Package.swift`
+(dependency rule: `iOSApp → NaruRemoteApp → NaruRemoteCore`):
+
+- **`NaruRemoteCore`** (`NaruRemote/Sources/NaruRemoteCore/`) — pure logic,
+  no SwiftUI/UIKit. Subdomains: `ConnectionHub`, `Diagnostics`, `Onboarding`,
+  `RemoteInputDock` (compose draft, `TextInjectionAdapter`, Live
+  type-through window/ladder, Direct keystroke), `SessionViewer`
+  (`RemoteSession` state machine), `PiPWatchMode`, `VNC` (RFB boundary),
+  `AppleRemoteDesktop`.
+- **`NaruRemoteApp`** (`NaruRemote/App/`) — SwiftUI shell.
+  `AppShell/NaruRemoteAppModel` is a `@MainActor` `ObservableObject` owning
+  session lifecycle, frame streaming, PiP wiring, persistence, and text
+  injection. `Features/*` are presentation-only views.
+- **`NaruRemote`** (`NaruRemote/iOSApp/`) — installable entry point; only
+  this layer wires concrete persistence/Keychain/PiP implementations.
+- **`NaruHelper`** (`NaruHelper/Sources/`, targets in the root
+  `Package.swift`) — optional macOS host helper CLI. Text bridge
+  `--listen` (port 5974, Accessibility permission) and video stream
+  `--video-listen` (port 5975, Screen Recording permission), HMAC-SHA256
+  pairing. The MVP viewer + text path must keep working without it
+  (constitution §V).
+
+RFB capability protocols live in
+`Sources/NaruRemoteCore/VNC/RFBClientBoundary.swift`. `NaruRemoteAppModel`
+takes a `connectorFactory` and downcasts to the most capable protocol — this
+is how production (`RFBNetworkClient`) and tests (`FakeRFBServer` fixtures +
+`FakeRFBServerKit`) share one code path. Extend a boundary protocol; never
+call `RFBNetworkClient` concretely from the app model.
+
+Swift 6.0 / Swift 6 concurrency, iOS 17+, macOS 14+. Long-running RFB work
+runs on `Task.detached` and re-enters `@MainActor`. Frame streams are guarded
+by `streamID`/`sessionID`/`profileID` triple checks (`isCurrentStream`) —
+keep that pattern in new async flows.
 
 ## Build And Test Commands
 
-Current foundation is a Swift Package with `NaruRemoteCore` and
-`NaruRemoteApp` shell targets plus an XcodeGen-generated installable iOS/iPadOS
-app target.
+Two parallel build systems on purpose: SwiftPM for the fast inner loop,
+XcodeGen for the installable app. Never hand-edit `.xcodeproj` — regenerate.
+iPhone is the canonical verification target (constitution §VI); iPad is the
+graceful-scaling secondary.
 
-- Build and unit tests: `swift test`
-- Package build only: `swift build`
-- Generate Xcode project: `xcodegen generate --spec project.yml`
-- iPad simulator app build: `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' build`
-- iPad simulator UI test: `xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' test`
-- Fake RFB server: `swift run FakeRFBServer --fixture TestFixtures/FakeRFBServer/Fixtures/noauth-first-frame.hex --port 5901`
+```bash
+# Fast inner loop (Core + App + fake server + NaruHelper)
+swift build
+swift test
 
-Remaining command categories:
+# Single test case
+swift test --filter NaruRemoteCoreTests.RemoteSessionTests/testMarkFirstFrameReceived
 
-- macOS helper tests
-- lint/format checks
+# Regenerate the Xcode project after touching project.yml or app-target files
+xcodegen generate --spec project.yml
+
+# iPhone simulator build / test (canonical target; iOS 26.2)
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' build
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' test
+
+# iPad simulator build / test (secondary)
+xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=26.2' build
+
+# Deterministic fake RFB server for manual integration
+swift run FakeRFBServer --fixture TestFixtures/FakeRFBServer/Fixtures/noauth-first-frame.hex --port 5901
+
+# macOS host helper (dev): secrets via env indirection only, never argv
+swift build -c release
+NARU_HELPER_TOKEN=<secret> .build/release/NaruHelper --listen --token-env NARU_HELPER_TOKEN --port 5974
+
+# Live-verification probes/gates against a real Mac + physical iPhone
+bash scripts/run-naru-live-benchmark.sh help
+```
+
+UI work iterates via iPhone simulator screenshots judged against the spec
+(founder workflow). Benchmark/probe evidence goes to `artifacts/benchmarks/`
+and `artifacts/screenshots/` with privacy-safe summaries only.
+
+## Development Rules
+
+- Input is composed locally (constitution §I). Remote key events are a
+  compatibility fallback; every input feature names its injection adapter
+  and its blocked-paste/lost-focus behavior.
+- Tailnet-native, public-internet-optional. No public-internet-first UX, no
+  implied Tailscale affiliation — enforced in user-visible strings too.
+- Verification before confidence: compiling is not done. Plans declare a
+  verification matrix (XCTest, fake RFB server, XCUITest/screenshot, manual
+  device) with an iPhone path before any iPad path.
+- Security boundaries are product behavior: anything crossing local→remote
+  defines what crosses, retention, trust boundary, permission, revocation.
+  Logs avoid user-entered content by default.
+- For VNC/RFB work, prove behavior with `FakeRFBServer` fixtures or
+  `FakeRFBServerKit` before claiming compatibility — real servers do not
+  match the spec.
+
+## Empirical Facts That Override Assumptions
+
+Hard-won, live-measured; do not re-litigate without new measurements:
+
+- **Unicode X11 keysyms never arrive on macOS Screen Sharing** (measured
+  `no-input`). Korean/CJK/emoji must cross via helper `nativeInsert` or
+  clipboard-paste — never as KeyEvents. ASCII and control keys (BackSpace
+  0xFF08, Return 0xFF0D) do work on the key lane.
+- **⌘V paste requires Meta_L (0xffe7)**, not Alt_L — Alt_L fails silently
+  (fixed in commit `0e5d16ea`).
+- **Apple Screen Sharing serves ZRLE only** and does not support
+  ContinuousUpdates; its ~5.6 content-fps produce rate is the VNC framerate
+  ceiling. The client pipeline is not the bottleneck
+  (`PERFORMANCE_PARITY_ANALYSIS.md`); helper video is the structural path.
+- **Perf instrumentation already exists**: `SessionStreamStats` + the DEBUG
+  `SessionPerformanceHUDView`. Read it; don't add new timing.
+- **Diagnostic exports use a fixed safe-detail catalog** — never pipe raw
+  error strings or composed text into `DiagnosticExport`.
+- **Credentials live in Keychain via `credentialRef`** — never on
+  `ConnectionProfile` or in the file-backed store. Helper/VNC test secrets
+  go through environment variables only.
+- **PiP Watch is watch-only** — it must not become an input surface.
+- **The Remote Input Dock is a session-only surface** — hidden pre-connect
+  by design; its absence on the home screen is not a bug.
+- **macOS ships bash 3.2**: in `set -u` scripts, guard empty-array expansion
+  (`${ARR[@]+"${ARR[@]}"}`).

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `004-rfb-encodings`
 **Created**: 2026-05-31
-**Status**: Draft
+**Status**: Implemented (CopyRect/Hextile/ZRLE + pseudo-encoding negotiation; live-verified against macOS Screen Sharing, which serves ZRLE only). Reconciled 2026-07-05.
 **Product**: Naru Remote
 **Input**: Goal — make Naru Remote's VNC streaming as good as it can possibly be ("할수있는한 최고의 vnc 스트리밍"). The MVP renders **Raw** encoding only: every framebuffer update ships uncompressed 32-bit pixels. A 1920×1080 desktop is ~8.3 MB per full frame and re-sends every changed region as raw pixels. Over a phone's cellular link — the canonical ICP scenario (sustained terminal/AI-CLI sessions from an iPhone, constitution §VI) — Raw is unusable: a single full repaint is ~66 Mbit. Real VNC servers (macOS Screen Sharing, TigerVNC/TurboVNC, RealVNC, x11vnc, TightVNC) default to **Hextile / ZRLE / Tight** and pseudo-encodings (CopyRect for scroll, DesktopSize for resize, Cursor for client-side pointer). Naru currently sends no `SetEncodings`, so servers fall back to Raw, and the client *rejects* any non-Raw rectangle it receives. This feature makes Naru a real RFB client: it negotiates encodings, decodes the efficient ones, and adapts quality to the link. It is the **protocol layer**; it does not change the viewport/pointer presentation layer (that is `specs/003-session-experience`, shipped).
 

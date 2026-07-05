@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-apple-remote-desktop-native-support`
 **Created**: 2026-06-17
-**Status**: Draft
+**Status**: Partially implemented (reconciled 2026-07-05 — MacSessionControl landed; open: diagnostics-catalog integration T011–T012, helper action docs T016, transport labels/benchmark evidence T019–T020, quickstart checks).
 **Product**: Naru Remote
 **Input**: User description: "Can we add more support for Apple Remote Desktop native features?"
 

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-naru-remote-mvp`  
 **Created**: 2026-04-29  
-**Status**: Draft  
+**Status**: Implemented (MVP shipped; reference baseline). Reconciled 2026-07-05 — only T029 (iPad IME manual checklist) remains open in tasks.md.  
 **Product**: Naru Remote  
 **Input**: Product direction from `PRODUCT_SPEC.md`, branding decision `Naru Remote`, and spec-driven setup request.
 

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `006-host-helper-text-bridge`  
 **Created**: 2026-06-05  
-**Status**: Draft  
+**Status**: Implemented v1 (helper text bridge; nativeInsert live-verified with Korean against a real Mac 2026-07-05). Open: T028 helper-side revoke, physical evidence recording, security-review checklist.  
 **Product**: Naru Remote  
 **Input**: Founder feedback: Compose & Send must reliably insert Korean/CJK/emoji text into a remote Mac from iPhone; Apple Screen Sharing did not adopt legacy VNC `ClientCutText` in local probes, so a helper-native path is needed for the founder's sustained iPhone workspace.
 

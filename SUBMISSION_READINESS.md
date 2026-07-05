@@ -41,8 +41,10 @@
 
 ## 3. 제출 전 사람이 해야 할 단계 (Apple 계정 필요 — 코드로 불가)
 
-1. **서명/팀**: Apple Developer Program 가입 후 `project.yml`의 app 타깃에
-   `DEVELOPMENT_TEAM` + 자동 서명 설정. 현재는 미설정(로컬 시뮬레이터 빌드만).
+1. ~~**서명/팀**: Apple Developer Program 가입 후 `project.yml`의 app 타깃에
+   `DEVELOPMENT_TEAM` + 자동 서명 설정.~~ ✅ **해소(2026-07-05)** — `project.yml`
+   app/UITests/Benchmark 타깃에 `DEVELOPMENT_TEAM: XEF9KH7N43` +
+   `CODE_SIGN_STYLE: Automatic` 반영. 실기기 서명은 같은 팀으로 실증됨(§5 참조).
 2. **App Store Connect 레코드 생성**: 번들 ID `com.naruremote.app` 등록,
    앱 이름 `Naru Remote` 예약(브랜딩 문서상 이름 충돌 가능성 확인 권장),
    subtitle `Private Network Remote Desktop`.
@@ -62,3 +64,54 @@
 - **Background audio 모드**: PiP Watch 때문에 선언됨 — 리뷰 노트에 PiP 용도 명시.
 - **Tailscale 비제휴**: 설명/스크린샷에서 Tailscale 공식 제휴로 오인될 표현 금지
   (헌법 §II).
+
+## 5. 2026-07-05 갱신 — 빠른 1.0 출시 재점검
+
+2026-06-19 이후 이동한 항목을 현재 리포지토리 기준으로 재감사했다.
+
+### 5.1 코드/에셋 게이트 재확인 (여전히 존재)
+
+| 항목 | 상태 | 위치 |
+| --- | --- | --- |
+| App icon (1024² 불투명) | ✅ | `Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
+| AccentColor (브랜드 teal) | ✅ | `Assets.xcassets/AccentColor.colorset` |
+| LaunchBackground 컬러셋 | ✅ | `Assets.xcassets/LaunchBackground.colorset` (`UILaunchScreen.UIColorName`) |
+| Export compliance | ✅ | `project.yml` `ITSAppUsesNonExemptEncryption: false` |
+| **PrivacyInfo.xcprivacy** | ✅ 이미 존재·번들 포함 | `NaruRemote/iOSApp/PrivacyInfo.xcprivacy` (앱 타깃 소스 디렉터리 → 리소스로 자동 포함). no-tracking / no-collection / no-required-reason-API 선언 |
+| 마케팅 버전 | ✅ `1.0.0 (build 1)` | `project.yml` |
+| 스토어 리스팅 초안 | ✅ (PR #490) | `APP_STORE_LISTING.md` (이름/부제/키워드/설명 한·영) |
+| 풀스크린 빈 홈 + 브랜드 폴리시 | ✅ (#489/#492) | 화면 인벤토리 §2 유효 |
+
+### 5.2 실기기 서명 실증 (§3.1 차단 해소)
+
+- 물리 iPhone 15 Pro Max(UDID `00008130-000C15D80C43001C`)에서
+  `DEVELOPMENT_TEAM=XEF9KH7N43 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`로
+  **build + test 성공**. 이에 따라 `project.yml` app/UITests/Benchmark 타깃에
+  동일 설정을 고정했다. Automatic 스타일이라 시뮬레이터 빌드는 그대로 동작.
+
+### 5.3 실기기 helper-video 게이트 최초 통과 (합성 소스)
+
+- `artifacts/benchmarks/2026-07-05-physical-iphone-release-hud-and-helper-gate-summary.md`
+  참조. Release 빌드, iPhone 15 Pro Max, `NaruHelper --video-listen
+  --video-source synthetic-encoded`(Screen Recording 권한 불요 변형), 120s
+  sustained 게이트 `"status": "passed"`. 종전 `xcode-account-missing` /
+  `ios-provisioning-profile-missing` 차단이 해소됨(spec 007 T030 잔여 리스크).
+- per-stage HUD 실측 결과 폰 CPU/GPU/입력은 병목 아님(지배 항목 = network/server
+  read). VNC visual path fps 천장은 Apple Screen Sharing 서버 측(~5fps대)으로 재증명.
+- 잔여: (a) 실화면(ScreenCaptureKit) 소스 게이트는 Screen Recording 권한 부여 후
+  별도 실행, (b) PiP Watch 렌더러/컨트롤러 실기기 검증(§2 #8).
+
+### 5.4 남은 사람 단계 (App Store Connect — 코드로 불가)
+
+1. **App Store Connect 레코드 생성**: 번들 ID `com.naruremote.app` 등록, 앱 이름
+   `Naru Remote` 예약, 부제 `Private Network Remote Desktop`. 메타데이터는
+   `APP_STORE_LISTING.md` 그대로 붙여넣기.
+2. **스크린샷 업로드**: 6.9"/6.7" iPhone + 13" iPad 세트. `artifacts/release-audit/`
+   캡처 기반 마케팅 프레임.
+3. **개인정보 처리방침 URL**: 필수. 앱은 no-tracking/no-collection
+   (`PrivacyInfo.xcprivacy`) — 그 사실을 반영한 정책 페이지 1장.
+4. **연령 등급 / 카테고리**: Productivity(주) / Utilities(부), 4+.
+5. **TestFlight 내부 테스트** 1회 후 심사 제출.
+
+> 요약: 코드/서명/에셋 게이트는 이 리포지토리에서 모두 닫혔다. 남은 것은
+> App Store Connect 계정 작업(레코드·스크린샷·정책 URL·TestFlight)뿐이다.

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `005-connection-grid-diagnostics`
 **Created**: 2026-06-02
-**Status**: Draft
+**Status**: Implemented (connection grid + staged diagnostics shipped). Reconciled 2026-07-05.
 **Product**: Naru Remote
 **Input**: Goal - fix light/dark theme visibility issues, make the app open by default to a grid of saved connections, show each connection's most recent screen capture on the grid, show online/reachable status when the app opens, and make problem diagnostics easy for the Naru team to collect without leaking sensitive content.
 

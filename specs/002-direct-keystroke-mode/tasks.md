@@ -8,6 +8,14 @@ description: "Tasks: Direct Keystroke Streaming Mode"
 **Prerequisites**: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/keystroke-emitter.md`
 **Product**: Naru Remote
 
+> **Reconciliation note (2026-07-05)**: this feature shipped via PRs #28–#35
+> (custom soft keyboard, sticky modifiers, hardware passthrough — see
+> `spec.md` Status and `ROADMAP.md` Phase 9), but the checkboxes below were
+> not maintained during implementation. Treat unchecked Phase2/US1 items as
+> DONE unless code inspection says otherwise; the genuinely open residuals
+> are the physical-device manual tests T045 (vim) and T046 (Bluetooth Magic
+> Keyboard).
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel because files and dependencies are disjoint.

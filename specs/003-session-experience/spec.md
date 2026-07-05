@@ -2,7 +2,7 @@
 
 **Feature Branch**: `003-session-experience`
 **Created**: 2026-05-31
-**Status**: Draft
+**Status**: Implemented (session-experience baseline shipped). Reconciled 2026-07-05 — residual: physical-device manual tasks T032/T033.
 **Product**: Naru Remote
 **Input**: Goal — raise Naru Remote usability to **Google Remote Desktop** level. A phone-first user driving a remote desktop needs the remote screen to be the hero of the view, smooth and precise pointer control (a trackpad mode with a visible cursor, not finger-stab-only), and the ability to zoom in on small text and pan around — all without the current "control-panel" chrome (title + Checks/Connect/PiP pills + diagnostics panel + 4:3 letterbox inside a `ScrollView`). This feature replaces the presentation/interaction layer of `SessionViewportView`; it does **not** change the RFB protocol layer (encodings are tracked separately under `specs/004-rfb-encodings`).
 
