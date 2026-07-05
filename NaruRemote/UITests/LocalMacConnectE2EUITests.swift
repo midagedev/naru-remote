@@ -154,16 +154,32 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         // In a live session the dock shows the floating "Compose" reveal
         // first; tap it to surface the editor before typing.
-        let reveal = app.buttons["naru.input.compose-reveal"]
-        if reveal.waitForExistence(timeout: 5) {
+        //
+        // Instrumented (2026-07-05): the immersive top bar auto-hides
+        // ~2.4s after connect, and its relayout can race the tap. Let the
+        // chrome settle first, then tap with a FRESH query each attempt
+        // and record whether the first tap actually surfaced the editor —
+        // if a retry is needed that is itself a product finding (a real
+        // finger hits the same race).
+        sleep(3)
+        var revealTapsNeeded = 0
+        var editor = app.textViews["Remote input text"]
+        for attempt in 1...3 {
+            let reveal = app.buttons["naru.input.compose-reveal"].firstMatch
+            guard reveal.waitForExistence(timeout: 5) else { break }
             reveal.tap()
+            revealTapsNeeded = attempt
+            editor = app.textViews["Remote input text"]
+            if editor.waitForExistence(timeout: 3) { break }
+            editor = app.textViews.firstMatch
+            if editor.waitForExistence(timeout: 1) { break }
+            try saveScreen(named: String(format: "09b-reveal-miss-%d.png", attempt))
         }
         try saveScreen(named: "09b-after-reveal.png")
-
-        var editor = app.textViews["Remote input text"]
-        if !editor.waitForExistence(timeout: 6) {
-            editor = app.textViews.firstMatch
+        if revealTapsNeeded > 1 {
+            XCTContext.runActivity(named: "FINDING: compose reveal needed \(revealTapsNeeded) taps") { _ in }
         }
+
         XCTAssertTrue(editor.waitForExistence(timeout: 6), "Compose editor must be present once Active")
 
         editor.tap()

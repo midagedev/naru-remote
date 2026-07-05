@@ -51,7 +51,6 @@ public struct RemoteInputDockView: View {
     /// its own keyboard, so the focus signal is only meaningful for
     /// the Compose path.
     @State private var composeFieldFocused: Bool = false
-    @State private var compactComposeEditorRequested: Bool = false
 
     private let initialText: String
     private let statusText: String
@@ -91,6 +90,14 @@ public struct RemoteInputDockView: View {
     private let onLiveCommit: (String, Bool) -> Void
     private let onLiveDeleteBackward: () -> Void
     private let onLiveNewline: () -> Void
+    /// Hoisted compose-expansion request (compose-reveal fix, 2026-07-05).
+    /// Tapping the floating "Compose" reveal flips the dock's *placement*
+    /// in the app shell (floating overlay → pinned safe-area inset), which
+    /// recreates this view. Local `@State` died with the old instance, so
+    /// the editor collapsed before the keyboard ever rose — the request
+    /// must live in the shell and arrive back as a prop.
+    private let composeExpansionRequested: Bool
+    private let onRequestComposeExpansion: (Bool) -> Void
 
     public init(
         initialText: String,
@@ -120,7 +127,9 @@ public struct RemoteInputDockView: View {
         onLiveDeleteBackward: @escaping () -> Void = {},
         onLiveNewline: @escaping () -> Void = {},
         onDismissDirectModeWarning: @escaping () -> Void = {},
-        onComposeFocusChange: @escaping (Bool) -> Void = { _ in }
+        onComposeFocusChange: @escaping (Bool) -> Void = { _ in },
+        composeExpansionRequested: Bool = false,
+        onRequestComposeExpansion: @escaping (Bool) -> Void = { _ in }
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
@@ -153,6 +162,8 @@ public struct RemoteInputDockView: View {
         self.onLiveNewline = onLiveNewline
         self.onDismissDirectModeWarning = onDismissDirectModeWarning
         self.onComposeFocusChange = onComposeFocusChange
+        self.composeExpansionRequested = composeExpansionRequested
+        self.onRequestComposeExpansion = onRequestComposeExpansion
     }
 
     /// The dock mode derived from the two mutually exclusive flags. Compose is
@@ -220,8 +231,21 @@ public struct RemoteInputDockView: View {
             if isDirect {
                 flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
                 composeFieldFocused = false
-                compactComposeEditorRequested = false
+                onRequestComposeExpansion(false)
                 onComposeFocusChange(false)
+            }
+        }
+        // Compose-reveal fix (2026-07-05): the expansion request is
+        // hoisted to the shell, and granting it can swap the dock's
+        // placement (floating overlay → pinned inset), recreating this
+        // view. The recreated instance owns the editor, so it — not the
+        // tapped instance — takes first responder.
+        .onAppear {
+            focusComposeEditorForGrantedExpansionIfNeeded()
+        }
+        .onChange(of: composeExpansionRequested) { _, requested in
+            if requested {
+                focusComposeEditorForGrantedExpansionIfNeeded()
             }
         }
         .onDisappear {
@@ -358,16 +382,14 @@ public struct RemoteInputDockView: View {
             .buttonStyle(.plain)
             .background(NaruColors.surfaceMuted)
             .clipShape(Circle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Direct mode")
             .accessibilityIdentifier("naru.input.direct-toggle")
 
             liveModeToggleButton(diameter: 38)
 
             Button {
-                compactComposeEditorRequested = true
-                Task { @MainActor in
-                    await Task.yield()
-                    focusComposeEditor()
-                }
+                onRequestComposeExpansion(true)
             } label: {
                 // Primary action of the idle live HUD: tap to type.
                 // Labelled (not icon-only) so the floating pill reads
@@ -381,6 +403,8 @@ public struct RemoteInputDockView: View {
             }
             .buttonStyle(.borderedProminent)
             .clipShape(Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Compose")
             .accessibilityIdentifier("naru.input.compose-reveal")
 
             if showsMacSessionControls {
@@ -397,7 +421,6 @@ public struct RemoteInputDockView: View {
         )
         .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 4)
         .padding(.bottom, 8)
-        .accessibilityIdentifier("naru.input.floating-accessory")
     }
 
     /// Compact/floating Live-mode toggle (spec 009 FR-001), sitting beside the
@@ -418,6 +441,7 @@ public struct RemoteInputDockView: View {
             Circle()
                 .stroke(liveTypeThroughActive ? Color.accentColor : Color.clear, lineWidth: 2)
         )
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(liveTypeThroughActive ? "Exit Live type-through" : "Live type-through")
         .accessibilityIdentifier("naru.input.live-toggle")
     }
@@ -480,7 +504,7 @@ public struct RemoteInputDockView: View {
         Self.shouldShowCompactComposeEditor(
             isFocused: composeFieldFocused,
             text: text,
-            expansionRequested: compactComposeEditorRequested
+            expansionRequested: composeExpansionRequested
         )
     }
 
@@ -488,8 +512,24 @@ public struct RemoteInputDockView: View {
         Self.compactComposeEditorMaxHeight(
             isFocused: composeFieldFocused,
             text: text,
-            expansionRequested: compactComposeEditorRequested
+            expansionRequested: composeExpansionRequested
         )
+    }
+
+    /// Focus the compose editor after the shell granted an expansion
+    /// request (see `composeExpansionRequested`). Called from both
+    /// `onAppear` (placement swap recreated the dock) and the request's
+    /// `onChange` (same instance kept). The yield lets the editor mount
+    /// before first responder is requested.
+    private func focusComposeEditorForGrantedExpansionIfNeeded() {
+        guard composeExpansionRequested,
+              !directKeystrokeMode.isActive,
+              !composeFieldFocused
+        else { return }
+        Task { @MainActor in
+            await Task.yield()
+            focusComposeEditor()
+        }
     }
 
     nonisolated static func shouldShowCompactComposeEditor(
@@ -517,11 +557,7 @@ public struct RemoteInputDockView: View {
 
     private var compactComposeRevealButton: some View {
         Button {
-            compactComposeEditorRequested = true
-            Task { @MainActor in
-                await Task.yield()
-                focusComposeEditor()
-            }
+            onRequestComposeExpansion(true)
         } label: {
             Label("Compose", systemImage: "text.cursor")
                 .font(.body.weight(.semibold))
@@ -536,17 +572,23 @@ public struct RemoteInputDockView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(NaruColors.hairline, lineWidth: 1)
         )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Compose")
         .accessibilityIdentifier("naru.input.compose-reveal")
     }
 
     private var compactDirectHeader: some View {
         ViewThatFits(in: .horizontal) {
-            compactDirectHeaderRow(showsComposeTitle: true)
-            compactDirectHeaderRow(showsComposeTitle: false)
+            compactDirectHeaderRow(showsComposeTitle: true, usesShortSurfaceLabel: false)
+            compactDirectHeaderRow(showsComposeTitle: false, usesShortSurfaceLabel: false)
+            compactDirectHeaderRow(showsComposeTitle: false, usesShortSurfaceLabel: true)
         }
     }
 
-    private func compactDirectHeaderRow(showsComposeTitle: Bool) -> some View {
+    private func compactDirectHeaderRow(
+        showsComposeTitle: Bool,
+        usesShortSurfaceLabel: Bool
+    ) -> some View {
         HStack(spacing: 8) {
             Button {
                 onToggleDirectMode()
@@ -561,13 +603,15 @@ public struct RemoteInputDockView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Compose")
             .accessibilityIdentifier("naru.input.compose-toggle")
 
             if showsMacSessionControls {
                 compactMacControlMenu
             }
 
-            directInputSurfaceControl
+            directInputSurfaceControl(usesShortLabel: usesShortSurfaceLabel)
 
             Spacer(minLength: 0)
 
@@ -726,11 +770,12 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
             }
         } label: {
-            Label("Mac controls", systemImage: "rectangle.3.group")
-                .labelStyle(.iconOnly)
+            Image(systemName: "rectangle.3.group")
                 .frame(width: 38, height: 38)
+                .accessibilityHidden(true)
         }
         .buttonStyle(.bordered)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Mac controls")
         .accessibilityIdentifier("naru.input.mac-controls.menu")
     }
@@ -863,7 +908,7 @@ public struct RemoteInputDockView: View {
                     Text("Keyboard")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    directInputSurfaceControl
+                    directInputSurfaceControl()
                     Spacer(minLength: 0)
                 }
             }
@@ -891,7 +936,7 @@ public struct RemoteInputDockView: View {
     /// a second segmented control under Compose|Direct: a user now
     /// reads "Naru keyboard ▾" and the menu spells out each option in
     /// full, instead of guessing what three abbreviations mean.
-    private var directInputSurfaceControl: some View {
+    private func directInputSurfaceControl(usesShortLabel: Bool = false) -> some View {
         Menu {
             ForEach(DirectKeystrokeInputSurface.allCases, id: \.self) { surface in
                 Button {
@@ -905,9 +950,12 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.direct.input-surface-menu.\(surface.rawValue)")
             }
         } label: {
+            let surfaceLabel = usesShortLabel
+                ? Self.directInputSurfaceShortLabel(for: directKeystrokeMode.inputSurface)
+                : Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface)
             HStack(spacing: 6) {
                 Image(systemName: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface))
-                Text(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))
+                Text(surfaceLabel)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
@@ -1004,7 +1052,7 @@ public struct RemoteInputDockView: View {
             let currentText = currentComposeTextSnapshot()
             flushComposeTextToModelIfNeeded(currentText, force: true)
             if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                compactComposeEditorRequested = false
+                onRequestComposeExpansion(false)
             }
         }
     }

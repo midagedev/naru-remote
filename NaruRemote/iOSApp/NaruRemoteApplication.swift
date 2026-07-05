@@ -21,7 +21,6 @@ struct NaruRemoteApplication: App {
                 buildVersion: Self.bundleBuildVersion(),
                 startsOnSelectedProfileDetail: Self.testStartsOnSelectedProfileDetail()
             )
-                .accessibilityIdentifier("naru.app.shell")
                 .preferredColorScheme(Self.testOverrideColorScheme())
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase != .active else {

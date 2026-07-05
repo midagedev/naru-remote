@@ -166,6 +166,13 @@ public struct SessionViewportView: View {
     @State private var directTouchDragStarted: Bool = false
     @State private var directTouchDragMovedFar: Bool = false
 
+    /// Short-lived local click-acknowledgement pulses (founder feedback
+    /// 2026-07-05): the remote frame echo can lag well behind the wire,
+    /// so a dispatched click/tap must confirm *locally* at the moment it
+    /// goes out — an expanding ring at the click point plus a haptic.
+    /// Purely presentational; never hit-testable, never an RFB message.
+    @State private var pointerFeedbackPulses: [PointerFeedbackPulse] = []
+
     /// Drives the title vs. action-row split.  iPhone (`.compact`)
     /// drops the action pills onto their own row below the title so
     /// each Label keeps a horizontal icon+text silhouette and the
@@ -441,23 +448,25 @@ public struct SessionViewportView: View {
     }
 
     private var immersiveBody: some View {
-        viewportSurface
-            .modifier(ViewportSizing(fill: true, aspectRatio: containerAspectRatio))
-            .overlay(alignment: .top) {
-                Group {
-                    if showsImmersiveControlBar {
-                        immersiveControlBar
-                            .padding(.horizontal, 10)
-                            .padding(.top, 8)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    } else {
-                        controlRevealHandle
-                            .padding(.top, 8)
-                            .transition(.opacity)
-                    }
+        ZStack(alignment: .top) {
+            viewportSurface
+                .modifier(ViewportSizing(fill: true, aspectRatio: containerAspectRatio))
+
+            Group {
+                if showsImmersiveControlBar {
+                    immersiveControlBar
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else {
+                    controlRevealHandle
+                        .padding(.top, 8)
+                        .transition(.opacity)
                 }
-                .animation(.easeInOut(duration: 0.2), value: showsImmersiveControlBar)
             }
+            .animation(.easeInOut(duration: 0.2), value: showsImmersiveControlBar)
+            .zIndex(100)
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .task(id: immersiveControlAutoHideToken) {
@@ -677,9 +686,9 @@ public struct SessionViewportView: View {
             .accessibilityIdentifier("naru.session.tools.pipWatch")
         } label: {
             if iconOnly {
-                Label("Session tools", systemImage: "ellipsis.circle")
-                    .labelStyle(.iconOnly)
+                Image(systemName: "ellipsis.circle")
                     .frame(width: 38, height: 34)
+                    .accessibilityHidden(true)
             } else {
                 Label("Session tools", systemImage: "ellipsis.circle")
                     .lineLimit(1)
@@ -688,6 +697,7 @@ public struct SessionViewportView: View {
         }
         .buttonStyle(.bordered)
         .help("Session tools")
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Session tools")
         .accessibilityIdentifier("naru.session.tools.menu")
     }
@@ -698,9 +708,9 @@ public struct SessionViewportView: View {
                 showsImmersiveControlBar = true
             }
         } label: {
-            Image(systemName: "chevron.down")
+            Text("Show session controls")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(.white.opacity(0.86))
+                .foregroundStyle(.clear)
                 .frame(width: 52, height: 24)
                 .background(Color.black.opacity(0.42))
                 .clipShape(Capsule())
@@ -708,8 +718,15 @@ public struct SessionViewportView: View {
                     Capsule()
                         .stroke(Color.white.opacity(0.16), lineWidth: 1)
                 )
+                .overlay {
+                    Image(systemName: "chevron.down")
+                        .foregroundStyle(.white.opacity(0.86))
+                        .accessibilityHidden(true)
+                }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .zIndex(100)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Show session controls")
         .accessibilityIdentifier("naru.session.controls.reveal")
@@ -1063,7 +1080,7 @@ public struct SessionViewportView: View {
                                 onFramebufferPointerMove?(value.location, size)
                             } else {
                                 directTouchDragStarted = true
-                                onFramebufferPointerDown?(value.location, size)
+                                feedbackFramebufferPointerDown?(value.location, size)
                             }
                         }
                         .onEnded { value in
@@ -1072,7 +1089,7 @@ public struct SessionViewportView: View {
                                 directTouchDragMovedFar = false
                             }
                             guard directTouchDragMovedFar else {
-                                onFramebufferTap?(value.location, size)
+                                feedbackFramebufferTap?(value.location, size)
                                 return
                             }
                             onFramebufferPointerUp?(value.location, size)
@@ -1080,6 +1097,84 @@ public struct SessionViewportView: View {
                 )
         }
         .accessibilityIdentifier("naru.session.directTouchSurface")
+    }
+
+    // MARK: - Local pointer-press acknowledgement (founder feedback 2026-07-05)
+
+    /// Record a pulse + haptic at `point` (local coordinates of the fitted
+    /// framebuffer container — the shared space of every input overlay and
+    /// of `pointerFeedbackOverlay()`).
+    private func emitPointerFeedback(at point: CGPoint, kind: PointerFeedbackPulse.Kind) {
+        let pulse = PointerFeedbackPulse(point: point, kind: kind)
+        pointerFeedbackPulses.append(pulse)
+        switch kind {
+        case .click:      NaruHaptics.pointerClick()
+        case .press:      NaruHaptics.pointerDown()
+        case .rightClick: NaruHaptics.rightClick()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            pointerFeedbackPulses.removeAll { $0.id == pulse.id }
+        }
+    }
+
+    /// Feedback-wrapped handlers. Every input path — the SwiftUI gesture
+    /// surfaces AND the UIKit/Metal-hosted recognizers — must route taps,
+    /// right-clicks, and drag-starts through these so the local pulse
+    /// fires exactly where and when the event goes to the wire.
+    private var feedbackFramebufferTap: SessionFramebufferTapHandler? {
+        guard let onFramebufferTap else { return nil }
+        return { point, size in
+            emitPointerFeedback(at: point, kind: .click)
+            onFramebufferTap(point, size)
+        }
+    }
+
+    private var feedbackFramebufferRightClick: SessionFramebufferRightClickHandler? {
+        guard let onFramebufferRightClick else { return nil }
+        return { point, size in
+            emitPointerFeedback(at: point, kind: .rightClick)
+            onFramebufferRightClick(point, size)
+        }
+    }
+
+    private var feedbackFramebufferPointerDown: SessionFramebufferPointerDownHandler? {
+        guard let onFramebufferPointerDown else { return nil }
+        return { point, size in
+            emitPointerFeedback(at: point, kind: .press)
+            onFramebufferPointerDown(point, size)
+        }
+    }
+
+    /// Trackpad-mode counterpart: a `.tap` gesture clicks at the *cursor*,
+    /// not at the finger, so the pulse maps the cursor's framebuffer
+    /// position through the live viewport transform.
+    private func forwardTrackpadGesture(
+        _ gesture: PointerGesture,
+        transform: ViewportTransform,
+        cursor: TrackpadCursor
+    ) -> SessionViewportTrackpadGestureResult? {
+        if case .tap = gesture {
+            emitPointerFeedback(
+                at: transform.viewPoint(fromFramebufferPoint: cursor.position),
+                kind: .click
+            )
+        }
+        return onTrackpadGesture?(gesture, transform, cursor)
+    }
+
+    /// Renders the active pulses. Attached as a sibling overlay of the
+    /// input surfaces so it shares their coordinate space; never
+    /// hit-testable so it cannot eat gestures.
+    @ViewBuilder
+    private func pointerFeedbackOverlay() -> some View {
+        ZStack {
+            ForEach(pointerFeedbackPulses) { pulse in
+                PointerFeedbackPulseView(pulse: pulse)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func dispatchTrackpadGesture(
@@ -1090,7 +1185,7 @@ public struct SessionViewportView: View {
     ) {
         collapseImmersiveControlsForTrackpadGesture(gesture)
         let transform = currentViewportTransform(coordinateSpace: coordinateSpace, viewSize: viewSize)
-        let updatedTransform = onTrackpadGesture?(gesture, transform, trackpadCursor)?.transform ?? transform
+        let updatedTransform = forwardTrackpadGesture(gesture, transform: transform, cursor: trackpadCursor)?.transform ?? transform
         applyViewportTransform(
             updatedTransform,
             coordinateSpace: coordinateSpace,
@@ -1272,6 +1367,11 @@ public struct SessionViewportView: View {
                         cursorOverlay(framebuffer: framebuffer)
                     }
                 }
+                // Local click-acknowledgement pulses — same coordinate
+                // space as the input overlays above.
+                .overlay {
+                    pointerFeedbackOverlay()
+                }
                 .clipped()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: framebufferAlignment)
                 .onAppear {
@@ -1418,8 +1518,8 @@ public struct SessionViewportView: View {
             zoomScale: zoomScale,
             panOffset: panOffset,
             minimumZoomScale: minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace),
-            onTap: onFramebufferTap,
-            onRightClick: onFramebufferRightClick,
+            onTap: feedbackFramebufferTap,
+            onRightClick: feedbackFramebufferRightClick,
             onScroll: onFramebufferScroll,
             onPinch: { newScale, anchor, viewSize in
                 applyZoomScale(
@@ -1430,7 +1530,7 @@ public struct SessionViewportView: View {
                     viewSize: viewSize
                 )
             },
-            onPointerDown: onFramebufferPointerDown,
+            onPointerDown: feedbackFramebufferPointerDown,
             onPointerMove: onFramebufferPointerMove,
             onPointerUp: onFramebufferPointerUp,
             onPan: { newOffset, viewSize in
@@ -1462,7 +1562,7 @@ public struct SessionViewportView: View {
             serverCursor: serverCursor,
             onTrackpadGesture: { gesture, transform, cursor in
                 collapseImmersiveControlsForTrackpadGesture(gesture)
-                return onTrackpadGesture?(gesture, transform, cursor)
+                return forwardTrackpadGesture(gesture, transform: transform, cursor: cursor)
             },
             onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
             onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
@@ -1556,6 +1656,9 @@ public struct SessionViewportView: View {
                 directTouchGestureSurface()
             }
         }
+        .overlay {
+            pointerFeedbackOverlay()
+        }
     }
     #else
     private func helperVideoLayerPreviewWithoutFramebuffer() -> some View {
@@ -1588,8 +1691,8 @@ public struct SessionViewportView: View {
                 zoomScale: zoomScale,
                 panOffset: panOffset,
                 minimumZoomScale: minimumZoomScale,
-                onTap: onFramebufferTap,
-                onRightClick: onFramebufferRightClick,
+                onTap: feedbackFramebufferTap,
+                onRightClick: feedbackFramebufferRightClick,
                 onScroll: onFramebufferScroll,
                 onPinch: { newScale, anchor, viewSize in
                     // Constitution §I: pinch is a LOCAL view
@@ -1601,7 +1704,7 @@ public struct SessionViewportView: View {
                         viewSize: viewSize
                     )
                 },
-                onPointerDown: onFramebufferPointerDown,
+                onPointerDown: feedbackFramebufferPointerDown,
                 onPointerMove: onFramebufferPointerMove,
                 onPointerUp: onFramebufferPointerUp,
                 onPan: { newOffset, viewSize in
@@ -1626,7 +1729,7 @@ public struct SessionViewportView: View {
                     // Updating SwiftUI state on every pointer sample makes
                     // physical iPhone drags fight the fast UIKit path.
                     collapseImmersiveControlsForTrackpadGesture(gesture)
-                    return onTrackpadGesture?(gesture, transform, cursor)
+                    return forwardTrackpadGesture(gesture, transform: transform, cursor: cursor)
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
@@ -2416,5 +2519,59 @@ private extension RFBColor {
             blue: Double(blue) / 255.0,
             opacity: Double(alpha) / 255.0
         )
+    }
+}
+
+/// One local click/press acknowledgement (founder feedback 2026-07-05).
+/// `point` is in the fitted framebuffer container's coordinate space —
+/// the shared space of every input overlay.
+private struct PointerFeedbackPulse: Identifiable {
+    enum Kind {
+        case click
+        case press
+        case rightClick
+    }
+
+    let id = UUID()
+    let point: CGPoint
+    let kind: Kind
+}
+
+/// Expanding-and-fading ring drawn at the acknowledged point. A right
+/// click carries a filled center dot so primary vs. secondary reads
+/// differently at a glance; a drag-start (`press`) uses a smaller,
+/// dimmer ring so sustained drags don't flash like clicks.
+private struct PointerFeedbackPulseView: View {
+    let pulse: PointerFeedbackPulse
+    @State private var expanded = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(NaruColors.signalBlue, lineWidth: 2)
+                .frame(width: diameter, height: diameter)
+                .scaleEffect(expanded ? 1.25 : 0.35)
+                .opacity(expanded ? 0 : baseOpacity)
+            if pulse.kind == .rightClick {
+                Circle()
+                    .fill(NaruColors.signalBlue)
+                    .frame(width: 6, height: 6)
+                    .opacity(expanded ? 0 : 0.9)
+            }
+        }
+        .position(pulse.point)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.45)) {
+                expanded = true
+            }
+        }
+    }
+
+    private var diameter: CGFloat {
+        pulse.kind == .press ? 30 : 42
+    }
+
+    private var baseOpacity: Double {
+        pulse.kind == .press ? 0.6 : 0.9
     }
 }

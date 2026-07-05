@@ -82,7 +82,9 @@ struct ModifierKeyButton: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Pressed tint + haptic on touch-down (founder feedback
+        // 2026-07-05) — layered so idle/armed/locked fills stay intact.
+        .buttonStyle(DirectModifierKeyButtonStyle())
         .frame(width: widthUnits * unitWidth)
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityValue(slot.rawValue)

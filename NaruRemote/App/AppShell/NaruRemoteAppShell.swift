@@ -24,6 +24,12 @@ public struct NaruRemoteAppShell: View {
     /// that used to depend on it was removed when onboarding was
     /// reduced to a single empty-state CTA — spec FR-015).
     @State private var composeFieldFocused = false
+    /// Hoisted compose-expansion request (compose-reveal fix, 2026-07-05).
+    /// Granting the request flips the dock between the floating overlay
+    /// and the pinned safe-area inset, which recreates the dock view —
+    /// so the request must outlive any single dock instance. See
+    /// `RemoteInputDockView.composeExpansionRequested`.
+    @State private var composeExpansionRequested = false
     /// Session id whose full-screen live layout has already been entered.
     /// If the first frame arrives during a UIKit IME transaction, defer the
     /// parent layout swap until focus leaves so the UITextView is not torn
@@ -157,6 +163,9 @@ public struct NaruRemoteAppShell: View {
                     liveSessionLayoutSessionID = focusedSessionID
                 }
                 model.setComposeInputEditingActive(focused)
+            },
+            onRequestComposeExpansion: { requested in
+                composeExpansionRequested = requested
             }
         )
         .equatable()
@@ -300,7 +309,8 @@ public struct NaruRemoteAppShell: View {
                 let dockState = RemoteInputDockRenderState(
                     snapshot: snapshot,
                     isLiveSession: usesLiveSessionLayout,
-                    isComposeFieldFocused: composeFieldFocused
+                    isComposeFieldFocused: composeFieldFocused,
+                    isComposeExpansionRequested: composeExpansionRequested
                 )
 
                 if accessoryChrome.usesFloatingOverlay(for: dockState) {
@@ -327,7 +337,8 @@ public struct NaruRemoteAppShell: View {
                 let dockState = RemoteInputDockRenderState(
                     snapshot: snapshot,
                     isLiveSession: usesLiveSessionLayout,
-                    isComposeFieldFocused: composeFieldFocused
+                    isComposeFieldFocused: composeFieldFocused,
+                    isComposeExpansionRequested: composeExpansionRequested
                 )
 
                 if !accessoryChrome.usesFloatingOverlay(for: dockState) {
@@ -446,6 +457,7 @@ public struct NaruRemoteAppShell: View {
             if liveSessionLayoutSessionID != newSessionID {
                 liveSessionLayoutSessionID = nil
             }
+            composeExpansionRequested = false
         }
         .onChange(of: isLiveSession) { _, isLive in
             if !isLive {
@@ -551,11 +563,17 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     var showsMacSessionControls: Bool
     var showsComposeQuickKeys: Bool
     var isComposeFieldFocused: Bool
+    /// Hoisted compose-expansion request (compose-reveal fix, 2026-07-05):
+    /// once the user taps the floating "Compose" reveal, the dock leaves
+    /// the floating placement immediately — BEFORE the keyboard rises —
+    /// so the pinned instance owns the editor and first responder.
+    var isComposeExpansionRequested: Bool
 
     init(
         snapshot: NaruRemoteAppSnapshot,
         isLiveSession: Bool,
-        isComposeFieldFocused: Bool = false
+        isComposeFieldFocused: Bool = false,
+        isComposeExpansionRequested: Bool = false
     ) {
         self.directKeystrokeMode = snapshot.directKeystrokeMode
         self.liveTypeThroughMode = snapshot.liveTypeThroughMode
@@ -572,33 +590,39 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         self.layoutStyle = Self.resolvedLayoutStyle(
             snapshot: snapshot,
             isLiveSession: isLiveSession,
-            isComposeFieldFocused: isComposeFieldFocused
+            isComposeFieldFocused: isComposeFieldFocused,
+            isComposeExpansionRequested: isComposeExpansionRequested
         )
         self.showsCompactStatusText = isLiveSession ? false : snapshot.latestInjectionAttempt != nil
         self.showsMacSessionControls = snapshot.session?.state == .active
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
+        self.isComposeExpansionRequested = isComposeExpansionRequested
     }
 
     nonisolated static func resolvedLayoutStyle(
         snapshot: NaruRemoteAppSnapshot,
         isLiveSession: Bool,
-        isComposeFieldFocused: Bool
+        isComposeFieldFocused: Bool,
+        isComposeExpansionRequested: Bool = false
     ) -> RemoteInputDockLayoutStyle {
         guard isLiveSession else {
             return .standard
         }
         return shouldUseFloatingLiveAccessory(
             snapshot: snapshot,
-            isComposeFieldFocused: isComposeFieldFocused
+            isComposeFieldFocused: isComposeFieldFocused,
+            isComposeExpansionRequested: isComposeExpansionRequested
         ) ? .floatingAccessory : .compactAccessory
     }
 
     nonisolated static func shouldUseFloatingLiveAccessory(
         snapshot: NaruRemoteAppSnapshot,
-        isComposeFieldFocused: Bool
+        isComposeFieldFocused: Bool,
+        isComposeExpansionRequested: Bool = false
     ) -> Bool {
         guard !isComposeFieldFocused,
+              !isComposeExpansionRequested,
               !snapshot.directKeystrokeMode.isActive,
               snapshot.latestInjectionAttempt == nil
         else {
@@ -617,7 +641,8 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         guard lhs.directKeystrokeMode == rhs.directKeystrokeMode,
               lhs.liveTypeThroughMode == rhs.liveTypeThroughMode,
-              lhs.isComposeFieldFocused == rhs.isComposeFieldFocused
+              lhs.isComposeFieldFocused == rhs.isComposeFieldFocused,
+              lhs.isComposeExpansionRequested == rhs.isComposeExpansionRequested
         else {
             return false
         }
@@ -728,6 +753,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onLiveNewline: () -> Void
     var onDismissDirectModeWarning: () -> Void
     var onComposeFocusChange: (Bool) -> Void
+    var onRequestComposeExpansion: (Bool) -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.state == rhs.state
@@ -761,7 +787,9 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             onLiveDeleteBackward: onLiveDeleteBackward,
             onLiveNewline: onLiveNewline,
             onDismissDirectModeWarning: onDismissDirectModeWarning,
-            onComposeFocusChange: onComposeFocusChange
+            onComposeFocusChange: onComposeFocusChange,
+            composeExpansionRequested: state.isComposeExpansionRequested,
+            onRequestComposeExpansion: onRequestComposeExpansion
         )
     }
 }

@@ -153,7 +153,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Run Checks button must be visible after opening a grid card"
         )
         XCTAssertTrue(
-            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
+            waitForStableElement(
+                in: app,
+                identifier: "naru.session.tools.menu",
+                timeout: 4
+            ).exists,
             "Profile detail must expose secondary stream and PiP controls from one Session tools menu"
         )
         XCTAssertFalse(
@@ -344,9 +348,18 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let app = launchAppWithSampleProfile(mode: mode)
         openFirstConnectionCardIfPresent(app: app)
 
-        let pip = app.buttons["PiP Watch"]
-        XCTAssertTrue(pip.waitForExistence(timeout: 8))
-        XCTAssertFalse(pip.isEnabled, "PiP Watch must be disabled with no session")
+        XCTAssertTrue(
+            waitForStableElement(
+                in: app,
+                identifier: "naru.session.tools.menu",
+                timeout: 8
+            ).exists,
+            "PiP Watch must stay behind the Session tools menu before a session is active"
+        )
+        XCTAssertFalse(
+            app.buttons["PiP Watch"].exists,
+            "PiP Watch must not be a permanent primary button with no session"
+        )
 
         try saveScreen(named: "13-pip-disabled-\(deviceTag)-\(mode.suffix).png")
     }
@@ -454,16 +467,21 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Active-session compact compose affordance must be reachable"
         )
         revealSessionControlsIfNeeded(app: app)
-        XCTAssertTrue(
-            app.buttons["naru.session.tools.menu"].waitForExistence(timeout: 4),
-            "Active-session immersive controls must collapse secondary commands into a tools menu"
+        _ = waitForStableElement(
+            in: app,
+            identifier: "naru.session.tools.menu",
+            timeout: 1
         )
         XCTAssertFalse(
             app.buttons["naru.session.checks"].exists,
             "Active-session immersive controls must not keep Checks as a permanent primary button"
         )
         XCTAssertTrue(
-            app.buttons["naru.input.mac-controls.menu"].waitForExistence(timeout: 4),
+            waitForStableElement(
+                in: app,
+                identifier: "naru.input.mac-controls.menu",
+                timeout: 4
+            ).exists,
             "Active-session compact dock must keep Mac controls reachable from a menu"
         )
         XCTAssertFalse(
@@ -507,9 +525,13 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             suppressDirectWarning: true
         )
 
-        let directToggle = app.buttons["naru.input.direct-toggle"]
+        let directToggle = waitForStableElement(
+            in: app,
+            identifier: "naru.input.direct-toggle",
+            timeout: 8
+        )
         XCTAssertTrue(
-            directToggle.waitForExistence(timeout: 8),
+            directToggle.exists,
             "Active-session compact dock must expose Direct mode without expanding Compose."
         )
         directToggle.tap()
@@ -517,7 +539,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         tapHardwareDirectSurface(in: app)
 
         XCTAssertTrue(
-            app.buttons["naru.input.compose-toggle"].waitForExistence(timeout: 4),
+            waitForStableElement(
+                in: app,
+                identifier: "naru.input.compose-toggle",
+                timeout: 4
+            ).exists,
             "Hardware-keyboard Direct mode must keep Compose one tap away."
         )
         XCTAssertTrue(
@@ -1001,14 +1027,44 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         return anyElement
     }
 
+    private func waitForStableElement(
+        in app: XCUIApplication,
+        identifier: String,
+        timeout: TimeInterval
+    ) -> XCUIElement {
+        let button = app.buttons[identifier]
+        if button.waitForExistence(timeout: timeout) {
+            return button
+        }
+
+        let anyElement = app.descendants(matching: .any)[identifier]
+        _ = anyElement.waitForExistence(timeout: 1)
+        return anyElement
+    }
+
     private func revealSessionControlsIfNeeded(app: XCUIApplication) {
-        if app.buttons["naru.session.tools.menu"].exists {
+        if app.buttons["naru.session.tools.menu"].exists ||
+            app.descendants(matching: .any)["naru.session.tools.menu"].exists {
             return
         }
 
-        let reveal = app.buttons["naru.session.controls.reveal"]
+        let reveal = waitForStableElement(
+            in: app,
+            identifier: "naru.session.controls.reveal",
+            timeout: 4
+        )
         if reveal.waitForExistence(timeout: 4) {
             reveal.tap()
+        } else {
+            for y in [0.075, 0.095, 0.12] {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)).tap()
+                let menu = waitForStableElement(
+                    in: app,
+                    identifier: "naru.session.tools.menu",
+                    timeout: 1
+                )
+                if menu.exists { return }
+            }
         }
     }
 

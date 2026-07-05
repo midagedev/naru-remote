@@ -1,19 +1,15 @@
 import NaruRemoteCore
 import SwiftUI
 
-/// Gate for the live performance HUD. Always available in DEBUG; in
-/// release it is opt-in via the `NARU_PERF_HUD` launch environment
-/// variable so we can profile representative (optimized) builds on a real
-/// device or simulator without shipping the overlay to production users.
+/// Gate for the live performance HUD. It is opt-in via the
+/// `NARU_PERF_HUD` launch environment variable in every configuration so
+/// normal simulator UX audits and founder walkthroughs don't carry a
+/// development overlay.
 enum SessionPerformanceHUDGate {
     static let isEnabled: Bool = {
-        #if DEBUG
-        return true
-        #else
         let raw = ProcessInfo.processInfo.environment["NARU_PERF_HUD"]
         guard let raw, !raw.isEmpty else { return false }
         return raw != "0" && raw.lowercased() != "false"
-        #endif
     }()
 }
 

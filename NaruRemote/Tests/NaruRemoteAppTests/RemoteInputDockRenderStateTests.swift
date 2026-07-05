@@ -63,6 +63,62 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
+    /// Compose-reveal fix (2026-07-05): tapping the floating "Compose"
+    /// reveal hoists an expansion request into the shell, which must pin
+    /// the dock (leave the floating overlay) BEFORE the keyboard rises.
+    /// The historical bug: the placement flipped only when focus landed,
+    /// destroying the dock instance mid-focus, so the editor collapsed on
+    /// every tap and Compose never opened in a live session.
+    func testComposeExpansionRequestLeavesFloatingAccessory() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let activeSession = RemoteSession(profileID: profile.id, state: .active)
+        let snapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: activeSession
+        )
+
+        // Idle live session → floating strip.
+        XCTAssertTrue(
+            RemoteInputDockRenderState.shouldUseFloatingLiveAccessory(
+                snapshot: snapshot,
+                isComposeFieldFocused: false
+            )
+        )
+        // Expansion requested (reveal tapped, keyboard not yet up) →
+        // pinned immediately.
+        XCTAssertFalse(
+            RemoteInputDockRenderState.shouldUseFloatingLiveAccessory(
+                snapshot: snapshot,
+                isComposeFieldFocused: false,
+                isComposeExpansionRequested: true
+            )
+        )
+        XCTAssertEqual(
+            RemoteInputDockRenderState.resolvedLayoutStyle(
+                snapshot: snapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: false,
+                isComposeExpansionRequested: true
+            ),
+            .compactAccessory
+        )
+        // And the render state carries the request so the EquatableView
+        // host re-renders when it changes.
+        XCTAssertNotEqual(
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: true,
+                isComposeExpansionRequested: true
+            ),
+            RemoteInputDockRenderState(
+                snapshot: snapshot,
+                isLiveSession: true,
+                isComposeExpansionRequested: false
+            )
+        )
+    }
+
     func testMacSessionControlsOnlyShowForActiveSessions() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connectingSession = RemoteSession(profileID: profile.id, state: .connecting)

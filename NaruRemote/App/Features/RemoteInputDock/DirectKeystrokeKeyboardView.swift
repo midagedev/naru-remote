@@ -129,16 +129,11 @@ struct DirectKeystrokeKeyboardView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DirectKeyButtonStyle(
+            fill: (isClear && clearFlashing) ? Color.accentColor : backgroundFor(role: descriptor.role),
+            popLabel: descriptor.role == .standard ? descriptor.label : nil
+        ))
         .frame(width: descriptor.widthUnits * unitWidth)
-        .background(
-            (isClear && clearFlashing) ? Color.accentColor : backgroundFor(role: descriptor.role)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.black.opacity(0.10), lineWidth: 0.5)
-        )
         .accessibilityLabel(accessibilityLabel(for: descriptor))
         .accessibilityIdentifier("naru.direct.key.\(accessibilityIdentifier(for: descriptor))")
     }
@@ -204,5 +199,91 @@ struct DirectKeystrokeKeyboardView: View {
         case .modifier(let m):      return "modifier.\(m.rawValue)"
         case .clearModifiers:       return "clearModifiers"
         }
+    }
+}
+
+/// Pressed-state feedback for Direct-mode keys (founder feedback
+/// 2026-07-05): the remote screen echo can lag behind the wire, so the
+/// key itself must acknowledge the press *instantly* — an accent tint on
+/// touch-down (no animation in, quick fade out on release), a light
+/// haptic, and an iOS-keyboard-style magnified pop bubble on character
+/// keys so the eye catches which key registered without looking away
+/// from the remote screen.
+struct DirectKeyButtonStyle: ButtonStyle {
+    let fill: Color
+    var popLabel: String?
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(fill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(configuration.isPressed ? 0.32 : 0))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.black.opacity(0.10), lineWidth: 0.5)
+            )
+            // The pop is applied AFTER `clipShape` so it can escape the
+            // key bounds. Rows are laid out top-to-bottom, so a lower
+            // row's pop paints over the row above it.
+            .overlay(alignment: .top) {
+                if configuration.isPressed, let popLabel {
+                    DirectKeyPopBubble(label: popLabel)
+                        .offset(y: -52)
+                }
+            }
+            .animation(
+                configuration.isPressed ? nil : .easeOut(duration: 0.12),
+                value: configuration.isPressed
+            )
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { NaruHaptics.keyPress() }
+            }
+    }
+}
+
+/// Sticky-modifier variant: `ModifierKeyButton` draws its own fill /
+/// stroke state machine, so this style only layers the pressed tint and
+/// haptic on top without disturbing the idle / armed / locked visuals.
+struct DirectModifierKeyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(configuration.isPressed ? 0.30 : 0))
+            )
+            .animation(
+                configuration.isPressed ? nil : .easeOut(duration: 0.12),
+                value: configuration.isPressed
+            )
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { NaruHaptics.keyPress() }
+            }
+    }
+}
+
+/// Magnified key-echo bubble shown above a pressed character key —
+/// the same local-confirmation idiom as the iOS system keyboard.
+struct DirectKeyPopBubble: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 26, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .frame(minWidth: 44)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 6)
+            .background(NaruColors.surfaceKey)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.22), radius: 6, x: 0, y: 2)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
