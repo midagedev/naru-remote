@@ -316,6 +316,66 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         )
     }
 
+    // MARK: - Compose & Send default: Korean types through as Unicode keysyms
+
+    func testComposeDefaultTypesKoreanAsUnicodeKeysymsWithoutClipboard() async throws {
+        let connector = LiveRoutingConnector(width: 80, height: 60, name: "Desk")
+        let model = try await makeConnectedModel(
+            connector: connector,
+            helper: nil,
+            helperReachable: false
+        )
+
+        // The product default is keystroke type-through (no helper needed).
+        XCTAssertEqual(model.appSettings.composeDelivery, .keystrokeStream)
+
+        model.setRemoteInputDockMode(.compose)
+        model.updateComposeDraftText("안녕")
+        model.sendComposedTextUsingPreferredDelivery("안녕")
+
+        // 안 = U+C548 → keysym 0x0100C548, 녕 = U+B155 → 0x0100B155
+        // (X11 Unicode keysym convention), verified to render on macOS.
+        try await waitFor {
+            connector.recordedKeyEvents.contains { $0.keysym == 0x0100_C548 } &&
+            connector.recordedKeyEvents.contains { $0.keysym == 0x0100_B155 }
+        }
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty, "Keystroke default must not touch the clipboard")
+        XCTAssertTrue(connector.pasteCommands.isEmpty)
+    }
+
+    // MARK: - Clipboard mode + Korean auto-routes to keystroke (no failure)
+
+    func testClipboardModeKoreanAutoRoutesToKeystrokeInsteadOfFailing() async throws {
+        // A server that never negotiated UTF-8 clipboard (macOS Screen
+        // Sharing): the clipboard cannot carry Korean, so Compose & Send must
+        // route to the keystroke path rather than surfacing a blocking error.
+        let connector = LiveRoutingConnector(
+            width: 80,
+            height: 60,
+            name: "Desk",
+            utf8ClipboardSupport: .unsupported
+        )
+        let model = try await makeConnectedModel(
+            connector: connector,
+            helper: nil,
+            helperReachable: false
+        )
+
+        model.setComposeDeliveryMode(.clipboardPaste)
+        model.setRemoteInputDockMode(.compose)
+        model.updateComposeDraftText("안녕")
+        model.sendComposedTextUsingPreferredDelivery("안녕")
+
+        try await waitFor {
+            connector.recordedKeyEvents.contains { $0.keysym == 0x0100_C548 }
+        }
+        XCTAssertTrue(
+            connector.clipboardPayloads.isEmpty,
+            "Clipboard can't carry Korean to this server — must fall back to keystroke, not paste"
+        )
+        XCTAssertNotEqual(model.composeDraft?.sendState, .failed)
+    }
+
     // MARK: - Helpers
 
     private func makeConnectedModel(

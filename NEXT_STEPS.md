@@ -51,8 +51,22 @@ same PR.
   physical iPhone, T033 physical Korean IME retest.
 - **Accessibility / large-text device pass** — VoiceOver navigation for the
   session controls and connection grid, plus the complete light/dark Dynamic
-  Type screenshot matrix. Unit policy and simulator builds are green; the
-  current local XCUITest accessibility service failed before test execution.
+  Type screenshot matrix. Unit policy and simulator builds are green.
+  2026-07-12 finding (fixed): `.accessibilityElement(children: .ignore)` on
+  seven interactive dock/session controls dropped their `.isButton` trait —
+  VoiceOver read them as plain labels and XCUI `buttons[...]` queries missed
+  them (this is what broke the live compose E2E, not the compose logic).
+  Fixed by re-adding `.accessibilityAddTraits(.isButton)`; the live-Mac
+  compose E2E passes again. Residual: a real-device VoiceOver walk-through
+  still pending.
+  2026-07-12 follow-up (fixed): the full `UXAuditScreenshotsUITests` suite
+  is green again (was 21/34 after the Operation rework). Product fix: a
+  chevron-revealed immersive control bar no longer races its own 2.4 s
+  auto-hide timer (user reveal pins it; viewport interaction collapses it).
+  Harness fixes: diagnostics rows are asserted through the corner-capsule
+  sheet, the sticky-modifier capture uses the sessionless detail-start
+  path (a fast connect failure was wiping the prelocked modifier), and
+  compose typing waits for the keyboard before `typeText`.
 - **Korean localization** — String Catalog; founder ICP is Korean-first
   (`ROADMAP.md` ship-readiness list).
 
@@ -75,9 +89,15 @@ same PR.
 - Secrets: Keychain `credentialRef` only; helper token via `--token-env`
   environment indirection; test passwords via env vars; never in argv,
   source, committed files, or logs.
-- Unicode/multilingual text never goes out as VNC KeyEvents on macOS —
-  measured `no-input` (see `PERFORMANCE_PARITY_ANALYSIS.md`); use helper
-  nativeInsert or clipboard-paste.
+- Multilingual text delivery on macOS Screen Sharing: **X11 Unicode keysyms
+  (`0x01000000 | codepoint`) DO render** — verified live 2026-07-13 (Korean/CJK
+  land regardless of the remote IME; astral-plane emoji excepted). This
+  overturns the earlier `no-input` measurement. Compose default is now
+  `keystrokeStream` (Unicode-keysym type-through). Clipboard-paste is Latin-1
+  on macOS and drops Korean, so it is a fallback only. **Pending founder D3:
+  formally amend constitution §I and spec `009` FR-005 / gate T023 (which
+  still assert the old `no-input` rule) to match this evidence before treating
+  the keystroke path as constitutionally blessed.**
 - iPhone before iPad in every verification matrix (constitution §VI).
 - Diagnostic exports use the fixed safe-detail catalog — no raw errors, no
   composed text.

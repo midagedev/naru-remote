@@ -38,8 +38,10 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, AppSettings())
     }
 
-    func testComposeDeliveryDefaultsToClipboardPasteAndOmitsFromJSON() throws {
-        XCTAssertEqual(AppSettings().composeDelivery, .clipboardPaste)
+    func testComposeDeliveryDefaultsToKeystrokeStreamAndOmitsFromJSON() throws {
+        // Keystroke type-through is the verified multilingual path on macOS
+        // Screen Sharing (Unicode keysyms), so it is the product default.
+        XCTAssertEqual(AppSettings().composeDelivery, .keystrokeStream)
 
         // Default value must not be written, keeping the canonical empty
         // file `{}` (forward-compat policy).
@@ -48,15 +50,21 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertNil(object?["composeDelivery"])
     }
 
-    func testComposeDeliveryKeystrokeStreamRoundTripsAndEncodes() throws {
+    func testComposeDeliveryClipboardPasteRoundTripsAndEncodes() throws {
         var settings = AppSettings()
-        settings.composeDelivery = .keystrokeStream
+        settings.composeDelivery = .clipboardPaste
 
         let data = try JSONEncoder().encode(settings)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        XCTAssertEqual(object?["composeDelivery"] as? String, "keystroke-stream")
+        XCTAssertEqual(object?["composeDelivery"] as? String, "clipboard-paste")
 
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(decoded.composeDelivery, .clipboardPaste)
+    }
+
+    func testLegacyFileMissingComposeDeliveryDecodesAsKeystrokeStream() throws {
+        // A file written before the default flip has no key → new default.
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         XCTAssertEqual(decoded.composeDelivery, .keystrokeStream)
     }
 

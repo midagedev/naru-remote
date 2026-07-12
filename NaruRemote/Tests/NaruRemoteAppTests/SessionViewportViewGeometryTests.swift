@@ -254,6 +254,29 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         )
     }
 
+    /// 2026-07-12 finding: a bar the user explicitly revealed via the
+    /// chevron must not race its own 2.4s auto-hide timer — the finger is
+    /// still travelling toward a control. Pinned bars collapse only via
+    /// viewport interaction.
+    func testImmersiveControlsDoNotAutoHideWhenPinnedByUserReveal() {
+        XCTAssertFalse(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: true,
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: false,
+                isPinnedByUser: true
+            )
+        )
+        XCTAssertTrue(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: true,
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: false,
+                isPinnedByUser: false
+            )
+        )
+    }
+
     func testImmersiveControlsDoNotAutoHideWhileVoiceOverIsRunning() {
         XCTAssertFalse(
             SessionViewportView.allowsImmersiveControlAutoHide(

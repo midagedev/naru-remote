@@ -225,6 +225,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        // Focus the editor and wait for the system keyboard BEFORE typing —
+        // typeText raced the async first-responder handoff on the reworked
+        // Operation surface (2026-07-12 flake).
+        editor.tap()
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
         enterStoreComposeText(
             "안녕하세요 · Hello · こんにちは",
             into: editor,
@@ -347,8 +352,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func runStickyModifierLocked(mode: ColorMode, deviceTag: String) throws {
+        // Deliberately NO card tap: opening a card starts a real connect,
+        // and both the profile switch and a fast DNS failure reset
+        // `directKeystrokeMode`/`stickyModifierState` — wiping the launch
+        // prelock before the screenshot (2026-07-12 audit failure: the
+        // element dump showed the Operation Retry card where the keyboard
+        // should be). The legacy detail-start key forces the dock without
+        // a session, which is the focused-input-dock path this capture needs.
         let app = launchAppPrelockingControlWithSampleProfile(mode: mode)
-        openFirstConnectionCardIfPresent(app: app)
 
         XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 8))
 
@@ -442,9 +453,27 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // DNS-failed result.
         let app = launchAppWithFixture(.diagnosticErrorDNS, mode: mode)
 
+        // The Operation rework moved stage rows off the first paint and
+        // behind the persistent corner capsule — the failed row now lives
+        // in the medium-detent diagnostics sheet the capsule presents.
+        let corner = app.buttons["naru.session.diagnostics.corner"].firstMatch
         XCTAssertTrue(
-            app.staticTexts["MagicDNS did not resolve"].waitForExistence(timeout: 8),
-            "Failed-stage row must be visible"
+            corner.waitForExistence(timeout: 8),
+            "Diagnostics corner must be mounted on the Operation surface"
+        )
+        corner.tap()
+
+        // Sheet rows use `.accessibilityElement(children: .combine)`, so the
+        // title is never a standalone static text — match by containment.
+        let failedRow = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "MagicDNS did not resolve")
+        ).firstMatch
+        XCTAssertTrue(
+            failedRow.waitForExistence(timeout: 8) ||
+            app.otherElements.matching(
+                NSPredicate(format: "label CONTAINS %@", "MagicDNS did not resolve")
+            ).firstMatch.waitForExistence(timeout: 4),
+            "Failed-stage row must be visible in the diagnostics sheet"
         )
 
         try saveScreen(named: "15-diagnostic-error-dns-\(deviceTag)-\(mode.suffix).png")
@@ -794,6 +823,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                     openFirstConnectionCardIfPresent(app: app)
                     let editor = app.textViews["Remote input text"]
                     XCTAssertTrue(editor.waitForExistence(timeout: 8))
+                    // Same stabilization as runComposeDockWithText — typeText
+                    // raced the async first-responder handoff on the reworked
+                    // Operation surface (2026-07-12 flake).
+                    editor.tap()
+                    _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
                     enterStoreComposeText(
                         "안녕하세요 · Hello · こんにちは",
                         into: editor,
@@ -969,6 +1003,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = "control"
+        // Detail-start + forced dock: the prelock keyboard must be
+        // screenshot-able WITHOUT starting a real connect, because any
+        // session reset wipes the locked modifier state.
+        app.launchEnvironment["NARU_TEST_START_PROFILE_DETAIL"] = "1"
         try? writeSeedProfiles(
             [SeedProfile(displayName: "Studio Mac", host: "studio.tailnet.ts.net")],
             to: storeURL
@@ -1159,28 +1197,34 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     }
 
     private func revealSessionControlsIfNeeded(app: XCUIApplication) {
+        // The immersive bar mounts VISIBLE and auto-hides 2.4 s later, so a
+        // bare "tools menu exists" check can pass during the bar's dismiss
+        // transition and leave the caller waiting on chrome that is already
+        // gone (2026-07-12 widescreen audit failure).  The deterministic
+        // sequence is the opposite: wait for the auto-hide to produce the
+        // reveal handle, then tap it — a user-explicit reveal pins the bar
+        // open (no auto-hide timer), which is exactly what a screenshot needs.
+        let reveal = app.buttons["naru.session.controls.reveal"].firstMatch
+        if reveal.waitForExistence(timeout: 6) {
+            reveal.tap()
+            return
+        }
+
+        // Reveal never appeared: the bar is being held open (VoiceOver or
+        // an interaction suppressed the timer). If the menu is there, done;
+        // otherwise fall back to coordinate taps along the top strip.
         if app.buttons["naru.session.tools.menu"].exists ||
             app.descendants(matching: .any)["naru.session.tools.menu"].exists {
             return
         }
-
-        let reveal = waitForStableElement(
-            in: app,
-            identifier: "naru.session.controls.reveal",
-            timeout: 4
-        )
-        if reveal.waitForExistence(timeout: 4) {
-            reveal.tap()
-        } else {
-            for y in [0.075, 0.095, 0.12] {
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)).tap()
-                let menu = waitForStableElement(
-                    in: app,
-                    identifier: "naru.session.tools.menu",
-                    timeout: 1
-                )
-                if menu.exists { return }
-            }
+        for y in [0.075, 0.095, 0.12] {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)).tap()
+            let menu = waitForStableElement(
+                in: app,
+                identifier: "naru.session.tools.menu",
+                timeout: 1
+            )
+            if menu.exists { return }
         }
     }
 

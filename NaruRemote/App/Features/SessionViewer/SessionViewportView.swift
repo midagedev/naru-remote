@@ -148,6 +148,11 @@ public struct SessionViewportView: View {
     /// then collapses to a tiny top handle so the remote screen is the
     /// default visual state.
     @State private var showsImmersiveControlBar: Bool = true
+    /// True while the control bar is showing because the USER tapped the
+    /// reveal chevron. A pinned bar never auto-hides on the 2.4s timer —
+    /// it collapses only via viewport interaction (2026-07-12 finding:
+    /// the timer raced the finger travelling from chevron to a control).
+    @State private var immersiveBarPinnedByUser: Bool = false
     /// Local mirror of the UIKit/Metal viewport gesture lifecycle.  The
     /// app model also receives this signal for frame coalescing; keeping
     /// a view-local copy lets the immersive chrome avoid animating itself
@@ -237,7 +242,7 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
-        composeDelivery: ComposeDeliveryMode = .clipboardPaste,
+        composeDelivery: ComposeDeliveryMode = .keystrokeStream,
         onToggleComposeDeliveryMode: (() -> Void)? = nil,
         streamEncodingMode: StreamEncodingMode = .standard,
         onToggleStreamEncodingMode: (() -> Void)? = nil,
@@ -342,7 +347,7 @@ public struct SessionViewportView: View {
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
         onToggleStreamPowerMode: (() -> Void)? = nil,
-        composeDelivery: ComposeDeliveryMode = .clipboardPaste,
+        composeDelivery: ComposeDeliveryMode = .keystrokeStream,
         onToggleComposeDeliveryMode: (() -> Void)? = nil,
         streamEncodingMode: StreamEncodingMode = .standard,
         onToggleStreamEncodingMode: (() -> Void)? = nil,
@@ -480,14 +485,16 @@ public struct SessionViewportView: View {
                 guard Self.allowsImmersiveControlAutoHide(
                     showsControlBar: showsImmersiveControlBar,
                     isViewportInteractionActive: isViewportInteractionActive,
-                    isVoiceOverEnabled: accessibilityVoiceOverEnabled
+                    isVoiceOverEnabled: accessibilityVoiceOverEnabled,
+                    isPinnedByUser: immersiveBarPinnedByUser
                 ) else { return }
                 try? await Task.sleep(nanoseconds: 2_400_000_000)
                 guard !Task.isCancelled,
                       Self.allowsImmersiveControlAutoHide(
                         showsControlBar: showsImmersiveControlBar,
                         isViewportInteractionActive: isViewportInteractionActive,
-                        isVoiceOverEnabled: accessibilityVoiceOverEnabled
+                        isVoiceOverEnabled: accessibilityVoiceOverEnabled,
+                        isPinnedByUser: immersiveBarPinnedByUser
                       )
                 else { return }
                 withAnimation(immersiveChromeAnimation) {
@@ -506,6 +513,7 @@ public struct SessionViewportView: View {
         (showsImmersiveControlBar ? 1 : 0)
             | (isViewportInteractionActive ? 2 : 0)
             | (accessibilityVoiceOverEnabled ? 4 : 0)
+            | (immersiveBarPinnedByUser ? 8 : 0)
     }
 
     private var immersiveChromeAnimation: Animation? {
@@ -737,6 +745,7 @@ public struct SessionViewportView: View {
 
     private var controlRevealHandle: some View {
         Button {
+            immersiveBarPinnedByUser = true
             withAnimation(immersiveChromeAnimation) {
                 showsImmersiveControlBar = true
             }
@@ -2135,6 +2144,7 @@ public struct SessionViewportView: View {
             isViewportInteractionActive: isActive,
             isVoiceOverEnabled: accessibilityVoiceOverEnabled
         ) {
+            immersiveBarPinnedByUser = false
             withAnimation(immersiveChromeAnimation) {
                 showsImmersiveControlBar = false
             }
@@ -2153,6 +2163,7 @@ public struct SessionViewportView: View {
         ) else {
             return
         }
+        immersiveBarPinnedByUser = false
         withAnimation(immersiveChromeAnimation) {
             showsImmersiveControlBar = false
         }
@@ -2405,9 +2416,14 @@ public struct SessionViewportView: View {
     nonisolated static func allowsImmersiveControlAutoHide(
         showsControlBar: Bool,
         isViewportInteractionActive: Bool,
-        isVoiceOverEnabled: Bool
+        isVoiceOverEnabled: Bool,
+        isPinnedByUser: Bool = false
     ) -> Bool {
-        showsControlBar && !isViewportInteractionActive && !isVoiceOverEnabled
+        // A bar the USER explicitly revealed (chevron tap) must not race
+        // its own 2.4s timer — the finger is still travelling toward a
+        // control (2026-07-12 audit finding). It stays until viewport
+        // interaction collapses it.
+        showsControlBar && !isViewportInteractionActive && !isVoiceOverEnabled && !isPinnedByUser
     }
 
     nonisolated static func collapsesImmersiveControlsOnViewportInteraction(

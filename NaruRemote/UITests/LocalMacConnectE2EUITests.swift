@@ -110,13 +110,14 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         )
     }
 
-    /// Connects to the live Mac, composes a known multilingual string,
-    /// and taps Send. The host-side harness reads `pbpaste` afterwards to
-    /// confirm whether `setClipboardText` actually crossed to the Mac
-    /// pasteboard (the clipboard half of Compose & Send is focus-loop
-    /// immune, unlike the paste keystroke). The composed marker is fixed
-    /// and privacy-safe so it can be asserted from outside the sandbox.
-    func testComposeSend_setsRemoteClipboard() throws {
+    /// Connects to the live Mac, composes a known multilingual string, and
+    /// taps Send. With the default keystroke delivery, Compose & Send types
+    /// the finished text through as X11 Unicode keysyms (verified to render
+    /// Korean/CJK on macOS Screen Sharing) — it does NOT touch the remote
+    /// clipboard. The host-side harness confirms the marker landed in the
+    /// focused app. The composed marker is fixed and privacy-safe so it can
+    /// be asserted from outside the sandbox.
+    func testComposeSend_typesThroughUnicodeKeysyms() throws {
         guard let password = correctPassword else {
             throw XCTSkip("NARU_E2E_PASSWORD not set — skipping live compose/send test")
         }
@@ -187,7 +188,7 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         editor.tap()
         // Fixed, privacy-safe marker spanning ASCII + Hangul so the host
-        // harness can detect both clipboard delivery and encoding fidelity.
+        // harness can confirm Unicode-keysym type-through lands both scripts.
         let marker = "NARUSIM_한글_END"
         editor.typeText(marker)
 
@@ -199,8 +200,8 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         try saveScreen(named: "11-after-send.png")
 
-        // Hold so the host-side pbpaste read and the paste keystroke have
-        // time to land before teardown.
+        // Hold so the host-side read has time to see the typed-through marker
+        // land in the focused app before teardown.
         sleep(4)
     }
 

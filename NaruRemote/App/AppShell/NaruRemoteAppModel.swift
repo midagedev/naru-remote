@@ -909,8 +909,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     /// Single entry point the Compose & Send UI calls. Routes the finished
     /// draft through the user-selected delivery transport (Settings →
-    /// Compose delivery): clipboard-paste (multilingual-stable) or
-    /// keystroke-stream (no clipboard touch, user owns multilingual).
+    /// Compose delivery): keystroke-stream (default — Unicode-keysym
+    /// type-through, the verified multilingual path on macOS Screen Sharing)
+    /// or clipboard-paste (only reliable where the server negotiated UTF-8
+    /// clipboard; Korean/CJK auto-falls back to keystroke otherwise).
     public func sendComposedTextUsingPreferredDelivery(_ text: String) {
         switch appSettings.composeDelivery {
         case .clipboardPaste:
@@ -6953,9 +6955,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// scalar the transcoder can't represent as a keysym — so configured
     /// Helper bridges and edge-case payloads still work.
     ///
-    /// Residual risk: non-ASCII scalars ride the X11 Unicode keysym
-    /// convention (`0x01000000 | scalar`); whether a given server renders
-    /// them is server-dependent and must be verified per target.
+    /// Non-ASCII scalars ride the X11 Unicode keysym convention
+    /// (`0x01000000 | scalar`). Verified live against macOS Screen Sharing:
+    /// Korean/CJK render regardless of the remote IME (astral-plane emoji,
+    /// e.g. U+1F600, is the known exception). Other servers are expected to
+    /// honor X11 Unicode keysyms but remain unverified per target.
     public func sendComposedTextAsKeystrokes(_ text: String) {
         guard var draft = composeDraft else {
             return
@@ -7153,6 +7157,25 @@ public final class NaruRemoteAppModel: ObservableObject {
                 status: .failed,
                 safeMessage: message
             )
+            return
+        }
+
+        // Clipboard cannot carry this payload to this server (Korean/CJK/emoji
+        // to a server without negotiated UTF-8 clipboard — e.g. macOS Screen
+        // Sharing, which decodes ClientCutText as Latin-1 and drops the text).
+        // The Unicode-keysym keystroke path DOES deliver it — verified live
+        // against macOS Screen Sharing that it renders `0x01000000 | codepoint`
+        // keysyms into the literal characters. Route there rather than failing,
+        // but only when the keystroke transport exists and can represent the
+        // whole payload; otherwise fall through to the honest error below.
+        // (No loop risk: `sendComposedTextAsKeystrokes` only falls back to this
+        // method when the emitter is absent or the transcoder can't emit, both
+        // of which are excluded by these guards.)
+        if payloadEncoding == .utf8ExtensionRequired,
+           utf8Support != .supported,
+           keystrokeEmitter != nil,
+           TextKeystrokeTranscoder.transcode(draft.text).canEmit {
+            sendComposedTextAsKeystrokes(text)
             return
         }
 

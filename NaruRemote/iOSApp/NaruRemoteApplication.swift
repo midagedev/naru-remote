@@ -686,15 +686,42 @@ struct NaruRemoteApplication: App {
             return
         }
 
+        let modifiers = raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .compactMap(StickyModifierState.Modifier.init(rawValue:))
+
+        applyStickyModifierPrelock(modifiers, to: model)
+
+        // Card-driven audits tap a connection card AFTER launch, and both
+        // `selectProfile` and the connect path reset `directKeystrokeMode`
+        // and `stickyModifierState` — wiping an init-time prelock before
+        // the test can screenshot it.  Poll for the first session (same
+        // pattern as the clipboard-storm hook above) and re-apply once the
+        // connect-path resets are behind us.
+        Task { @MainActor in
+            for _ in 0..<2000 {  // ~30 s at 15 ms per lap
+                guard !Task.isCancelled else { return }
+                if model.session != nil { break }
+                try? await Task.sleep(for: .milliseconds(15))
+            }
+            guard !Task.isCancelled, model.session != nil else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+            applyStickyModifierPrelock(modifiers, to: model)
+        }
+    }
+
+    @MainActor
+    private static func applyStickyModifierPrelock(
+        _ modifiers: [StickyModifierState.Modifier],
+        to model: NaruRemoteAppModel
+    ) {
         // Open Direct mode so the special-keys page is reachable
         // when the test takes the screenshot.
         if !model.directKeystrokeMode.isActive {
             model.toggleDirectKeystrokeMode()
         }
 
-        let names = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        for name in names {
-            guard let modifier = StickyModifierState.Modifier(rawValue: name) else { continue }
+        for modifier in modifiers {
             // Back-to-back taps in the same `Task` land < 400 ms
             // apart (same `@MainActor` continuation), which is the
             // double-tap window — idle → armed → locked.  Bypasses
