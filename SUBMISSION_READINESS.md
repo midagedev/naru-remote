@@ -57,8 +57,10 @@
    4+, Free, 175개 국가 또는 지역으로 설정했다.
 6. ~~**메타데이터 / Review Notes**~~ ✅ `APP_STORE_LISTING.md`의 영문 설명,
    키워드, 지원 URL과 사설망 심사 메모를 저장했다.
-7. **Distribution 검증**: App Store 배포용 archive/upload와 빌드 처리 확인,
-   스크린샷 웹 업로드, 계정의 EU DSA·대한민국 규정 선언 후 심사 제출.
+7. ~~**Distribution 검증**~~ ✅ Release archive의 버전/번들 ID/암호화 선언,
+   코드 서명, Privacy manifest·현지화 포함 여부와 테스트 표식 부재를 검증했다.
+   build 1 업로드 및 Apple 처리 후 버전 1.0.0 연결·저장까지 완료했다. 남은 것은
+   스크린샷 웹 업로드, 계정의 EU DSA·대한민국 규정 선언과 최종 심사 제출이다.
 
 ## 4. 심사 시 유의 (제품 특성)
 
@@ -91,9 +93,9 @@
   `DEVELOPMENT_TEAM=XEF9KH7N43 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`로
   **build + test 성공**. 이에 따라 `project.yml` app/UITests/Benchmark 타깃에
   동일 설정을 고정했다. Automatic 스타일이라 시뮬레이터 빌드는 그대로 동작.
-- 이 증거는 development signing 실증이다. App Store distribution archive,
-  export validation, TestFlight upload는 아직 실행하지 않았으므로 기계적 제출
-  readiness도 그 단계가 끝날 때까지 조건부다.
+- 이 증거에 더해 2026-07-12 App Store distribution archive와 자동 배포 서명,
+  App Store Connect upload가 성공했다. build 1은 Apple 처리 후 버전 1.0.0에
+  연결·저장되었다.
 
 ### 5.3 실기기 helper-video 게이트 최초 통과 (합성 소스)
 
@@ -157,11 +159,12 @@
 5. ✅ no-tracking/no-collection App Privacy 라벨 게시.
 6. ✅ 실제 개인 VNC 비밀번호 없이 재현 경로와 개인정보 경계를 Review Notes에
    기록.
-7. ⏳ Distribution archive/upload, 스크린샷 웹 업로드, EU DSA·대한민국 계정
-   규정 선언과 최종 심사 제출.
+7. ✅ Distribution archive 검증, App Store Connect build 1 업로드·처리,
+   버전 1.0.0 연결·저장.
+8. ⏳ 스크린샷 웹 업로드, EU DSA·대한민국 계정 규정 선언과 최종 심사 제출.
 
 > 요약: 코드/에셋과 UI 제출 자료는 Green이고 최종 `swift test`는 1,511 tests,
 > 26 skipped, 0 failures다. App Store Connect 레코드·메타데이터·개인정보·가격은
-> 완료됐다. 남은 제출 게이트는 distribution upload, 웹 스크린샷 업로드와
-> 계정 소유자의 법적 자격 선언이다. 장시간 물리 기기 품질 게이트는 §5.4처럼
-> 출시 후에도 계속 추적한다.
+> 완료됐고 distribution build 1도 버전 1.0.0에 연결됐다. 남은 제출 게이트는
+> 웹 스크린샷 업로드와 계정 소유자의 법적 자격 선언이다. 장시간 물리 기기
+> 품질 게이트는 §5.4처럼 출시 후에도 계속 추적한다.
