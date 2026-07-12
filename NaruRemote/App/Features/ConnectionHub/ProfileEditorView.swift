@@ -31,6 +31,8 @@ public struct ProfileEditorView: View {
     @State private var replaceHelperPairingSecret: Bool
     @State private var replaceHelperVideoPairingSecret: Bool
     @State private var validationMessage: String?
+    @State private var persistenceFailure: ProfilePersistenceFailure?
+    @State private var isSaving: Bool = false
 
     /// Bumped on every Save tap so the field-level captions appear
     /// after the user has at least once asked to commit the form,
@@ -59,7 +61,14 @@ public struct ProfileEditorView: View {
     private let hasExistingCredential: Bool
     private let hasExistingHelperPairingSecret: Bool
     private let hasExistingHelperVideoPairingSecret: Bool
-    private let onSave: (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
+    /// Returns a task so the existing shell wiring can hand back its
+    /// unstructured `Task { await model.add/editProfile(...) }` without owning
+    /// sheet dismissal. The editor awaits the task and dismisses only after a
+    /// successful durable profile write.
+    private let onSave: @MainActor (
+        ConnectionProfile,
+        ProfileEditorCredentialUpdate
+    ) -> Task<ProfilePersistenceResult, Never>
     /// Reachability-check runner injected by the SwiftUI wiring.  In
     /// production the shell passes
     /// `model.runProfileEditorReachabilityTest`; tests pass a stub.
@@ -90,7 +99,10 @@ public struct ProfileEditorView: View {
     public init(
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
         onTestHelper: (@MainActor () async -> HelperTextBridgeAvailability)? = nil,
-        onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
+        onSave: @escaping @MainActor (
+            ConnectionProfile,
+            ProfileEditorCredentialUpdate
+        ) -> Task<ProfilePersistenceResult, Never>
     ) {
         self.editingProfile = nil
         self.hasExistingCredential = false
@@ -129,7 +141,10 @@ public struct ProfileEditorView: View {
         hasExistingCredential: Bool,
         onTest: (@MainActor (String, Int, String?) async -> ProfileEditorTestOutcome)? = nil,
         onTestHelper: (@MainActor () async -> HelperTextBridgeAvailability)? = nil,
-        onSave: @escaping (ConnectionProfile, ProfileEditorCredentialUpdate) -> Void
+        onSave: @escaping @MainActor (
+            ConnectionProfile,
+            ProfileEditorCredentialUpdate
+        ) -> Task<ProfilePersistenceResult, Never>
     ) {
         self.editingProfile = profile
         self.hasExistingCredential = hasExistingCredential
@@ -334,20 +349,49 @@ public struct ProfileEditorView: View {
                             .foregroundStyle(NaruColors.coral)
                     }
                 }
+
+                if let persistenceFailure {
+                    Section("Save failed") {
+                        Label(
+                            persistenceFailure.safeMessage,
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(NaruColors.coral)
+                        .accessibilityIdentifier("naru.profile.editor.persistence.error")
+
+                        Button("Try Again") {
+                            Task { await save() }
+                        }
+                        .disabled(isSaving)
+                        .accessibilityIdentifier("naru.profile.editor.persistence.retry")
+                    }
+                }
             }
+            .disabled(isSaving)
             .navigationTitle(navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isSaving)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        save()
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityLabel("Saving profile")
+                        } else {
+                            Text("Save")
+                        }
                     }
-                    .disabled(!formState.isValid)
+                    .disabled(!formState.isValid || isSaving)
+                    .accessibilityIdentifier("naru.profile.editor.save")
                 }
             }
             .onChange(of: focusedField) { previous, _ in
@@ -373,6 +417,7 @@ public struct ProfileEditorView: View {
                 )
             }
         }
+        .interactiveDismissDisabled(isSaving)
         .accessibilityIdentifier("naru.profile.editor")
     }
 
@@ -653,11 +698,16 @@ public struct ProfileEditorView: View {
         )
     }
 
-    private func save() {
+    private func save() async {
+        guard !isSaving else {
+            return
+        }
         saveAttemptCount += 1
         guard formState.isValid, let portValue = formState.parsedPort else {
             return
         }
+        validationMessage = nil
+        persistenceFailure = nil
 
         do {
             let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -705,7 +755,7 @@ public struct ProfileEditorView: View {
                     helperTextBridge: helper.configuration,
                     helperVideo: helperVideo.configuration
                 )
-                onSave(
+                await persist(
                     profile,
                     ProfileEditorCredentialUpdate(
                         vncPassword: resolvedPassword,
@@ -713,7 +763,6 @@ public struct ProfileEditorView: View {
                         helperVideoPairingSecret: helperVideo.pairingSecretUpdate
                     )
                 )
-                dismiss()
                 return
             }
 
@@ -737,7 +786,7 @@ public struct ProfileEditorView: View {
                 helperTextBridge: helper.configuration,
                 helperVideo: helperVideo.configuration
             )
-            onSave(
+            await persist(
                 profile,
                 ProfileEditorCredentialUpdate(
                     vncPassword: trimmedPassword.isEmpty ? nil : trimmedPassword,
@@ -745,9 +794,26 @@ public struct ProfileEditorView: View {
                     helperVideoPairingSecret: helperVideo.pairingSecretUpdate
                 )
             )
-            dismiss()
         } catch {
             validationMessage = error.localizedDescription
+        }
+    }
+
+    private func persist(
+        _ profile: ConnectionProfile,
+        _ credentialUpdate: ProfileEditorCredentialUpdate
+    ) async {
+        isSaving = true
+        let result = await onSave(profile, credentialUpdate).value
+        isSaving = false
+
+        switch result {
+        case .succeeded:
+            dismiss()
+        case .failed(let failure):
+            // `failure` is a fixed catalog value from the app model. Never
+            // surface a raw persistence error, host, credential, or payload.
+            persistenceFailure = failure
         }
     }
 

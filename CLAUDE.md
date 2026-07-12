@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+`AGENTS.md` is the canonical, current shared agent rule set for this repository.
+Read it in full before work; if this shorter compatibility entry conflicts with
+it, `AGENTS.md` wins.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Product
@@ -11,7 +15,7 @@ Naru Remote is an iPhone/iPad VNC viewer for private networks (Tailscale-friendl
 This repo runs Spec Kit. Treat `.specify/memory/constitution.md` as the highest project rule after explicit user instructions.
 
 - **Do not implement a feature that lacks a `specs/<n>-<slug>/spec.md`.** If a request would add new behavior with no spec, stop and ask, or use `$speckit-specify` first.
-- The active feature is pinned in `.specify/feature.json` (currently `specs/009-live-type-through`). `plan.md`, `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and `quickstart.md` for that feature are authoritative — update them when implementation behavior changes.
+- The active feature is pinned in `.specify/feature.json` (currently `specs/005-connection-grid-diagnostics`). `plan.md`, `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and `quickstart.md` for that feature are authoritative — update them when implementation behavior changes.
 - Every `specs/<n>-<slug>/spec.md` carries a **Status** line — trust it over ROADMAP prose. Cross-feature priorities live in `NEXT_STEPS.md`; update it in the same PR when you finish or reprioritize work.
 - `AGENTS.md` is the equivalent entry point for non-Claude agents (e.g. Codex). When rules here change, keep `AGENTS.md` in sync.
 - Workflow phases: `$speckit-constitution` → `$speckit-specify` → `$speckit-clarify` → `$speckit-plan` → `$speckit-tasks` → `$speckit-implement`.
@@ -83,7 +87,10 @@ Toolchain: Swift 6.0 / Swift 6 concurrency, iOS 17+, macOS 14+. The app model is
 ## Things That Have Bitten This Codebase
 
 - **No public-internet-first UX, no Tailscale-affiliation language.** Constitution principle II is enforced in user-visible strings too.
-- **Don't treat key-event typing as sufficient for IME input.** Korean/CJK/emoji acceptance must go through clipboard or a future helper adapter. A user-toggled **Direct Keystroke Streaming Mode** is a planned post-MVP peer to Compose & Send (`PRODUCT_SPEC.md` §6.3.6, `ROADMAP.md` Phase 9) — that mode is explicitly allowed to ship without IME guarantees and must show a "IME may not work" warning. It does not change the rule that the *default* multilingual path is compose-and-send.
+- **Don't treat key-event typing as sufficient for IME input.** Korean/CJK/emoji
+  uses the implemented helper-native or clipboard path, never Unicode VNC
+  KeyEvents on macOS Screen Sharing. The implemented Compose / Live / Direct
+  modes have distinct purposes; Direct remains explicitly IME-off.
 - **Diagnostic exports use a fixed safe-detail catalog**, not caller-provided strings. Don't pipe raw error messages or composed text into `DiagnosticExport`.
 - **PiP Watch is watch-only.** It must not become an input surface, and the renderer/controller wiring needs physical-device verification before claims of full support.
 - **Credentials live in Keychain via `credentialRef`.** Don't store passwords on `ConnectionProfile` or in the file-backed profile store.

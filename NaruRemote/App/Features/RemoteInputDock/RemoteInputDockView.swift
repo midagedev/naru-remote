@@ -14,6 +14,7 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 public struct RemoteInputDockView: View {
     nonisolated static let compactComposeIdleMaxHeight: CGFloat = 44
     nonisolated static let compactComposeExpandedMaxHeight: CGFloat = 88
+    nonisolated static let minimumFloatingModeTargetDiameter: CGFloat = 44
     nonisolated static let composeSendFastSnapshotCount = 3
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
     nonisolated static let composeSendStabilizationSnapshotCount = 30
@@ -377,16 +378,24 @@ public struct RemoteInputDockView: View {
             } label: {
                 Label("Direct mode", systemImage: "keyboard")
                     .labelStyle(.iconOnly)
-                    .frame(width: 38, height: 38)
+                    .frame(
+                        width: Self.minimumFloatingModeTargetDiameter,
+                        height: Self.minimumFloatingModeTargetDiameter
+                    )
             }
             .buttonStyle(.plain)
             .background(NaruColors.surfaceMuted)
             .clipShape(Circle())
             .accessibilityElement(children: .ignore)
+            // `children: .ignore` synthesizes a NEW element that drops the
+            // Button's own trait — without re-adding `.isButton` VoiceOver
+            // reads a plain label and XCUI `buttons[...]` queries miss it
+            // (2026-07-12 compose-reveal E2E finding).
+            .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Direct mode")
             .accessibilityIdentifier("naru.input.direct-toggle")
 
-            liveModeToggleButton(diameter: 38)
+            liveModeToggleButton(diameter: Self.minimumFloatingModeTargetDiameter)
 
             Button {
                 onRequestComposeExpansion(true)
@@ -404,6 +413,7 @@ public struct RemoteInputDockView: View {
             .buttonStyle(.borderedProminent)
             .clipShape(Capsule())
             .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Compose")
             .accessibilityIdentifier("naru.input.compose-reveal")
 
@@ -442,6 +452,7 @@ public struct RemoteInputDockView: View {
                 .stroke(liveTypeThroughActive ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(liveTypeThroughActive ? "Exit Live type-through" : "Live type-through")
         .accessibilityIdentifier("naru.input.live-toggle")
     }
@@ -449,27 +460,31 @@ public struct RemoteInputDockView: View {
     private var compactComposeRow: some View {
         VStack(spacing: 8) {
             // Mission control row on top — Direct + Live toggles + Mac window
-            // controls — so the editor + action row below own the space.
+            // controls — so the editor + action row below own the space. Keep
+            // the controls trailing while the system keyboard is visible:
+            // iOS can place its AutoFill affordance over the leading edge above
+            // the keyboard, and that overlay must not cover the one-tap input
+            // mode switches required by spec 009 FR-001.
             HStack(spacing: 10) {
+                Spacer(minLength: 0)
+
                 Button {
                     onToggleDirectMode()
                 } label: {
                     Label("Direct mode", systemImage: "keyboard")
                         .labelStyle(.iconOnly)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
                 .background(NaruColors.surfaceMuted)
                 .clipShape(Circle())
                 .accessibilityIdentifier("naru.input.direct-toggle")
 
-                liveModeToggleButton(diameter: 36)
+                liveModeToggleButton(diameter: 44)
 
                 if showsMacSessionControls {
                     compactMacControlMenu
                 }
-
-                Spacer(minLength: 0)
             }
 
             liveDisclosureBadge
@@ -573,6 +588,7 @@ public struct RemoteInputDockView: View {
                 .stroke(NaruColors.hairline, lineWidth: 1)
         )
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Compose")
         .accessibilityIdentifier("naru.input.compose-reveal")
     }
@@ -604,6 +620,7 @@ public struct RemoteInputDockView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Compose")
             .accessibilityIdentifier("naru.input.compose-toggle")
 
@@ -776,6 +793,7 @@ public struct RemoteInputDockView: View {
         }
         .buttonStyle(.bordered)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Mac controls")
         .accessibilityIdentifier("naru.input.mac-controls.menu")
     }
@@ -2140,12 +2158,16 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
         }
 
         private static var exposesLifecycleIdentifier: Bool {
+#if DEBUG
             guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"],
                   !raw.isEmpty
             else {
                 return false
             }
             return raw != "0" && raw.lowercased() != "false"
+#else
+            false
+#endif
         }
     }
 }

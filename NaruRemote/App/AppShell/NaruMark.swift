@@ -1,92 +1,145 @@
 import SwiftUI
 
-/// The Naru identity mark, drawn from the same motif as the app icon
-/// (BRANDING.md §6.2/§6.3): remote nodes joined by thin lines, a horizontal
-/// input slot, and a Signal-Blue pulse crossing from the slot into the
-/// active node — "local input crossing into private remote nodes". Using
-/// this instead of a stock SF Symbol ties the in-app surfaces to the icon's
-/// identity.
+/// Naru's “Between Worlds” identity mark.
 ///
-/// `pulse` (0…1) advances the travelling packet from the dock up to the
-/// node, so the same mark can stand still in an empty state or animate the
-/// Compose & Send "crossing" moment.
+/// Two otherwise separate planes briefly become adjacent along a Signal-Blue
+/// seam. The small light tile is a completed thought crossing that boundary:
+/// local composition becoming remote action. The metaphor is intentionally
+/// abstract — no monitor, cursor, network topology, or upload arrow — so the
+/// same mark can represent text, voice, images, and files.
 struct NaruMark: View {
-    /// Travelling-packet position, 0 (at the dock) … 1 (arrived at node).
-    var pulse: Double = 1
-    /// Whether the active node reads as "lit" (Signal Blue) vs idle.
+    /// Position of the travelling thought along the seam, 0 (local) … 1
+    /// (remote). The resting identity state holds it at the threshold.
+    var pulse: Double = 0.5
     var isActive: Bool = true
 
     var body: some View {
         Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            // Geometry mirrors the app icon's proportions.
-            let nodeSide = w * 0.30
-            let activeSide = w * 0.345
-            let nA = CGPoint(x: w * 0.235, y: h * 0.235)
-            let nB = CGPoint(x: w * 0.765, y: h * 0.200)
-            let nActive = CGPoint(x: w * 0.500, y: h * 0.470)
+            let width = size.width
+            let height = size.height
+            let center = CGPoint(x: width / 2, y: height / 2)
+            let planeWidth = width * 0.49
+            let planeHeight = height * 0.41
+            let cornerRadius = min(planeWidth, planeHeight) * 0.19
+            let angle = -CGFloat.pi * 0.22
 
-            let laneEdge = Color(NaruColors.hairline)
-            let blue = Color(NaruColors.signalBlue)
-            let nodeFill = Color(NaruColors.surfaceMuted)
-            let core = Color(NaruColors.mutedInk)
-
-            func chip(_ center: CGPoint, _ side: CGFloat) -> Path {
-                Path(roundedRect: CGRect(x: center.x - side / 2, y: center.y - side / 2,
-                                         width: side, height: side),
-                     cornerRadius: side * 0.28)
+            func plane(center planeCenter: CGPoint) -> Path {
+                let rect = CGRect(
+                    x: planeCenter.x - planeWidth / 2,
+                    y: planeCenter.y - planeHeight / 2,
+                    width: planeWidth,
+                    height: planeHeight
+                )
+                let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
+                let transform = CGAffineTransform(
+                    translationX: planeCenter.x,
+                    y: planeCenter.y
+                )
+                .rotated(by: angle)
+                .translatedBy(x: -planeCenter.x, y: -planeCenter.y)
+                return path.applying(transform)
             }
 
-            // Links between nodes.
-            var links = Path()
-            links.move(to: nA); links.addLine(to: nB)
-            links.move(to: nA); links.addLine(to: nActive)
-            links.move(to: nB); links.addLine(to: nActive)
-            context.stroke(links, with: .color(laneEdge), lineWidth: w * 0.014)
+            let localCenter = CGPoint(x: width * 0.37, y: height * 0.35)
+            let remoteCenter = CGPoint(x: width * 0.63, y: height * 0.65)
+            let localPlane = plane(center: localCenter)
+            let remotePlane = plane(center: remoteCenter)
 
-            // Input slot / dock.
-            let laneRect = CGRect(x: w * 0.250, y: h * 0.760, width: w * 0.500, height: h * 0.085)
-            let lanePath = Path(roundedRect: laneRect, cornerRadius: laneRect.height / 2)
-            context.fill(lanePath, with: .color(nodeFill))
-            context.stroke(lanePath, with: .color(laneEdge), lineWidth: w * 0.008)
+            let graphiteNear = Color(
+                red: 0x3A / 255.0,
+                green: 0x42 / 255.0,
+                blue: 0x4F / 255.0
+            )
+            let graphiteFar = Color(
+                red: 0x26 / 255.0,
+                green: 0x2C / 255.0,
+                blue: 0x36 / 255.0
+            )
+            let edge = Color.white.opacity(0.17)
+            let signal = Color(NaruColors.signalBlue)
 
-            // Pulse beam from the dock up to the active node.
-            let beamTop = nActive.y + activeSide * 0.5
-            let beamBottom = laneRect.minY
-            var beam = Path()
-            beam.move(to: CGPoint(x: nActive.x, y: beamBottom))
-            beam.addLine(to: CGPoint(x: nActive.x, y: beamTop))
-            context.stroke(beam, with: .color(blue.opacity(0.30)),
-                           style: StrokeStyle(lineWidth: w * 0.026, lineCap: .round))
+            // The farther plane sits first. A restrained highlight keeps the
+            // impossible overlap legible on both light and dark canvases.
+            context.fill(remotePlane, with: .color(graphiteFar))
+            context.stroke(remotePlane, with: .color(edge), lineWidth: max(0.8, width * 0.010))
+            context.fill(localPlane, with: .color(graphiteNear))
+            context.stroke(localPlane, with: .color(edge), lineWidth: max(0.8, width * 0.010))
 
-            // Idle (muted) side nodes.
-            context.fill(chip(nA, nodeSide), with: .color(nodeFill))
-            context.stroke(chip(nA, nodeSide), with: .color(laneEdge), lineWidth: w * 0.010)
-            context.fill(chip(nB, nodeSide), with: .color(nodeFill))
-            context.stroke(chip(nB, nodeSide), with: .color(laneEdge), lineWidth: w * 0.010)
-            let coreSide = nodeSide * 0.30
-            context.fill(chip(nA, coreSide), with: .color(core))
-            context.fill(chip(nB, coreSide), with: .color(core))
-
-            // Travelling packet along the beam.
-            let packetY = beamBottom + (beamTop - beamBottom) * CGFloat(min(max(pulse, 0), 1))
-            let packetR = w * 0.030
-            context.fill(
-                Path(ellipseIn: CGRect(x: nActive.x - packetR, y: packetY - packetR,
-                                       width: packetR * 2, height: packetR * 2)),
-                with: .color(blue)
+            // The seam runs bottom-left → top-right: a single quiet boundary,
+            // not an arrow. Its width is deliberately bold enough to survive
+            // the 60-point home-screen icon reduction.
+            let seamStart = CGPoint(x: width * 0.24, y: height * 0.73)
+            let seamEnd = CGPoint(x: width * 0.76, y: height * 0.27)
+            var seam = Path()
+            seam.move(to: seamStart)
+            seam.addLine(to: seamEnd)
+            context.stroke(
+                seam,
+                with: .linearGradient(
+                    Gradient(colors: [signal.opacity(0.82), signal]),
+                    startPoint: seamStart,
+                    endPoint: seamEnd
+                ),
+                style: StrokeStyle(
+                    lineWidth: width * 0.075,
+                    lineCap: .round
+                )
             )
 
-            // Active node.
-            let activePath = chip(nActive, activeSide)
-            context.fill(activePath, with: .color(isActive ? blue : nodeFill))
-            if !isActive {
-                context.stroke(activePath, with: .color(laneEdge), lineWidth: w * 0.010)
-            }
-            let activeCoreSide = activeSide * 0.34
-            context.fill(chip(nActive, activeCoreSide),
-                         with: .color(isActive ? Color.white.opacity(0.92) : core))
+            // The thought travels on the same seam. Drawing it before the
+            // narrow blue crest lets the boundary visibly bisect the tile.
+            let clampedPulse = CGFloat(min(max(pulse, 0), 1))
+            let thoughtCenter = CGPoint(
+                x: seamStart.x + (seamEnd.x - seamStart.x) * clampedPulse,
+                y: seamStart.y + (seamEnd.y - seamStart.y) * clampedPulse
+            )
+            let thoughtSide = width * 0.20
+            let thought = Path(
+                roundedRect: CGRect(
+                    x: thoughtCenter.x - thoughtSide / 2,
+                    y: thoughtCenter.y - thoughtSide / 2,
+                    width: thoughtSide,
+                    height: thoughtSide
+                ),
+                cornerRadius: thoughtSide * 0.25
+            )
+            let thoughtColor = isActive
+                ? Color(red: 0xF3 / 255.0, green: 0xF5 / 255.0, blue: 0xF7 / 255.0)
+                : Color(NaruColors.mutedInk)
+            context.fill(
+                thought,
+                with: .color(thoughtColor)
+            )
+
+            var crest = Path()
+            crest.move(to: seamStart)
+            crest.addLine(to: seamEnd)
+            context.stroke(
+                crest,
+                with: .color(signal),
+                style: StrokeStyle(lineWidth: width * 0.022, lineCap: .round)
+            )
+
+            // A tiny crossing highlight is enough to suggest depth without
+            // turning the mark into glossy 3D artwork.
+            let highlightLength = width * 0.13
+            let direction = CGVector(dx: seamEnd.x - seamStart.x, dy: seamEnd.y - seamStart.y)
+            let magnitude = max(1, hypot(direction.dx, direction.dy))
+            let unit = CGVector(dx: direction.dx / magnitude, dy: direction.dy / magnitude)
+            var highlight = Path()
+            highlight.move(to: CGPoint(
+                x: center.x - unit.dx * highlightLength / 2,
+                y: center.y - unit.dy * highlightLength / 2
+            ))
+            highlight.addLine(to: CGPoint(
+                x: center.x + unit.dx * highlightLength / 2,
+                y: center.y + unit.dy * highlightLength / 2
+            ))
+            context.stroke(
+                highlight,
+                with: .color(Color.white.opacity(0.38)),
+                style: StrokeStyle(lineWidth: width * 0.010, lineCap: .round)
+            )
         }
         .accessibilityHidden(true)
     }

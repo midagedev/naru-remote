@@ -10,14 +10,23 @@ public struct NaruRemoteAppShell: View {
     #endif
 
     @StateObject private var model: NaruRemoteAppModel
-    @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
     @State private var showsProfileEditor = false
-    @State private var showsSelectedProfileDetail = false
+    /// Naru intentionally has only two primary surfaces: Connections and
+    /// Operation. This local route flips immediately on card tap so the UI
+    /// responds before any network await completes.
+    @State private var showsOperationSurface = false
+    @State private var pendingPublicConnection: ConnectionProfile?
+    @State private var showsDiagnosticDetail = false
     /// When non-nil, an "Edit Profile" sheet is presented for this
     /// profile.  Using `Identifiable` here means SwiftUI will tear
     /// down and re-create the editor's state on each invocation, so
     /// pre-filled fields always reflect the latest stored values.
     @State private var editingProfile: EditingProfile?
+    /// A profile-store delete can fail while leaving the sidebar row intact.
+    /// Keep only the typed, fixed-catalog failure plus the profile id needed
+    /// for an explicit retry; no raw persistence error crosses into the UI.
+    @State private var pendingProfileDeletionRetry: ProfileDeletionRetryState?
+    @State private var profileDeletionInFlightID: ConnectionProfile.ID?
     /// Mirrors the compose `TextEditor` focus state inside
     /// `RemoteInputDockView`.  Reserved for future keyboard-aware
     /// surfaces; today no overlay reads it (the first-run checklist
@@ -47,7 +56,7 @@ public struct NaruRemoteAppShell: View {
         startsOnSelectedProfileDetail: Bool = false
     ) {
         self._model = StateObject(wrappedValue: NaruRemoteAppModel(snapshot: snapshot))
-        self._showsSelectedProfileDetail = State(initialValue: startsOnSelectedProfileDetail)
+        self._showsOperationSurface = State(initialValue: startsOnSelectedProfileDetail)
         self.buildVersion = buildVersion
     }
 
@@ -57,16 +66,14 @@ public struct NaruRemoteAppShell: View {
         startsOnSelectedProfileDetail: Bool = false
     ) {
         self._model = StateObject(wrappedValue: model)
-        self._showsSelectedProfileDetail = State(initialValue: startsOnSelectedProfileDetail)
+        self._showsOperationSurface = State(initialValue: startsOnSelectedProfileDetail)
         self.buildVersion = buildVersion
     }
 
-    /// True once the session is streaming (or in the bounded
-    /// auto-reconnect window) or any frame has arrived — the cue that the
-    /// remote screen should become the dominant full-bleed hero (spec 003
-    /// FR-001) instead of a small aspect-fit box stacked above
-    /// diagnostics.  Pure local layout decision — constitution §I (no new
-    /// RFB message).
+    /// True once the session is streaming (or in bounded auto-reconnect) or
+    /// any frame has arrived. Operation is always full-height now; this flag
+    /// only selects live input-accessory behavior and test/performance chrome.
+    /// Pure local layout decision — constitution §I (no new RFB message).
     private var isLiveSession: Bool {
         let snapshot = model.snapshot
         if snapshot.latestFramebuffer != nil {
@@ -104,9 +111,7 @@ public struct NaruRemoteAppShell: View {
 
     /// The session viewport with all model wiring.  Extracted so the
     /// call site is not duplicated across the hero and scrollable layout
-    /// branches; `fillsAvailableHeight` switches the dark container
-    /// between the immersive full-height hero and the historical
-    /// width-driven aspect-fit box.
+    /// branches; Operation always requests the immersive full-height form.
     @ViewBuilder
     private func sessionViewport(fillsAvailableHeight: Bool) -> some View {
         let snapshot = model.snapshot
@@ -115,7 +120,8 @@ public struct NaruRemoteAppShell: View {
             snapshot: snapshot,
             frameStore: model.frameStore,
             trackpadCursorStore: model.trackpadCursorStore,
-            fillsAvailableHeight: fillsAvailableHeight
+            fillsAvailableHeight: fillsAvailableHeight,
+            onReturnToConnections: returnToConnections
         )
     }
 
@@ -171,36 +177,167 @@ public struct NaruRemoteAppShell: View {
         .equatable()
     }
 
-    @ViewBuilder
-    private func profileSidebar(snapshot: NaruRemoteAppSnapshot) -> some View {
-        ProfileListView(
-            profiles: snapshot.profiles,
-            selectedProfileID: snapshot.selectedProfile?.id,
-            verdicts: snapshot.lastDiagnosticVerdict,
-            onSelect: { id in
-                model.selectProfile(id: id)
-                showsSelectedProfileDetail = true
-                preferredCompactColumn = .detail
-            },
-            onEdit: { profile in
-                editingProfile = EditingProfile(
-                    profile: profile,
-                    hasExistingCredential: profile.credentialRef != nil
-                )
-            },
-            onDelete: { id in
-                Task { await model.deleteProfile(id: id) }
-            }
-        )
-        .navigationTitle("Naru Remote")
-        .toolbar {
-            Button {
-                showsProfileEditor = true
-            } label: {
-                Label("Add Profile", systemImage: "plus")
-            }
-            .accessibilityIdentifier("naru.profile.add")
+    private func performProfileDeletion(id: ConnectionProfile.ID) {
+        guard profileDeletionInFlightID == nil else { return }
+        pendingProfileDeletionRetry = nil
+        profileDeletionInFlightID = id
+        Task { @MainActor in
+            let result = await model.deleteProfile(id: id)
+            guard profileDeletionInFlightID == id else { return }
+            profileDeletionInFlightID = nil
+            pendingProfileDeletionRetry = Self.profileDeletionRetryState(
+                profileID: id,
+                result: result
+            )
         }
+    }
+
+    private func openConnection(id: ConnectionProfile.ID) {
+        guard let profile = model.snapshot.profiles.first(where: { $0.id == id }) else {
+            return
+        }
+
+        if Self.requiresPublicConnectionConfirmation(hostKind: profile.hostKind) {
+            pendingPublicConnection = profile
+            return
+        }
+
+        beginConnection(to: profile.id)
+    }
+
+    private func beginConnection(to profileID: ConnectionProfile.ID) {
+        // Apple-style direct manipulation: move to Operation synchronously,
+        // then let the model own the asynchronous profile-selection/connect
+        // intent. The attempt guard prevents late results from reviving a
+        // surface the user has already left.
+        showsOperationSurface = true
+        composeFieldFocused = false
+        composeExpansionRequested = false
+        Task { await model.connectProfile(id: profileID) }
+    }
+
+    private func editProfile(id: ConnectionProfile.ID) {
+        guard let profile = model.snapshot.profiles.first(where: { $0.id == id }) else {
+            return
+        }
+        editingProfile = EditingProfile(
+            profile: profile,
+            hasExistingCredential: profile.credentialRef != nil
+        )
+    }
+
+    private func returnToConnections() {
+        // Disconnect is also the cancellation path for connecting and
+        // authenticating. The model invalidates any late callback before the
+        // grid becomes visible again.
+        model.disconnect()
+        composeFieldFocused = false
+        composeExpansionRequested = false
+        liveSessionLayoutSessionID = nil
+        showsDiagnosticDetail = false
+        showsOperationSurface = false
+    }
+
+    @ViewBuilder
+    private func operationRecoveryCard(snapshot: NaruRemoteAppSnapshot) -> some View {
+        if Self.showsOperationRecovery(
+            sessionState: snapshot.session?.state,
+            hasFramebuffer: snapshot.latestFramebuffer != nil
+        ) {
+            VStack(spacing: 14) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(NaruColors.warning)
+
+                VStack(spacing: 4) {
+                    Text("Connection needs attention")
+                        .font(.headline)
+                        .accessibilityIdentifier("naru.operation.recovery")
+                    Text("Retry, update this computer, or inspect the safe diagnostic summary.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { operationRecoveryButtons }
+                    VStack(spacing: 8) { operationRecoveryButtons }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: 360)
+            .background(NaruColors.surface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(NaruColors.hairline, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
+            .padding(20)
+        }
+    }
+
+    @ViewBuilder
+    private var operationRecoveryButtons: some View {
+        Button {
+            Task { await model.connectSelectedProfile() }
+        } label: {
+            Label("Retry", systemImage: "arrow.clockwise")
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("naru.operation.retry")
+
+        Button {
+            if let profile = model.snapshot.selectedProfile {
+                editProfile(id: profile.id)
+            }
+        } label: {
+            Label("Edit", systemImage: "pencil")
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("naru.operation.edit")
+
+        Button {
+            showsDiagnosticDetail = true
+        } label: {
+            Label("Diagnostics", systemImage: "waveform.path.ecg")
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("naru.operation.diagnostics")
+
+        Button {
+            returnToConnections()
+        } label: {
+            Label("Connections", systemImage: "square.grid.2x2")
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("naru.operation.recovery.connections")
+    }
+
+    nonisolated static func showsOperationRecovery(
+        sessionState: RemoteSessionState?,
+        hasFramebuffer: Bool
+    ) -> Bool {
+        guard !hasFramebuffer, let sessionState else { return false }
+        switch sessionState {
+        case .failed, .closed:
+            return true
+        case .connecting, .authenticating, .active, .degraded, .reconnecting:
+            return false
+        }
+    }
+
+    nonisolated static func requiresPublicConnectionConfirmation(
+        hostKind: ConnectionProfile.HostKind
+    ) -> Bool {
+        hostKind == .advancedManualPublicEndpoint
     }
 
     /// The Remote Input Dock is a *session* surface, not a fixed part of
@@ -230,6 +367,35 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
+    nonisolated static func shouldShowConnectionGrid(
+        isEmptyHome: Bool,
+        isLiveSession: Bool,
+        showsOperationSurface: Bool
+    ) -> Bool {
+        !isEmptyHome && !isLiveSession && !showsOperationSurface
+    }
+
+    struct ProfileDeletionRetryState: Identifiable, Equatable, Sendable {
+        let profileID: ConnectionProfile.ID
+        let failure: ProfilePersistenceFailure
+
+        var id: ConnectionProfile.ID { profileID }
+        var message: String { failure.safeMessage }
+    }
+
+    nonisolated static func profileDeletionRetryState(
+        profileID: ConnectionProfile.ID,
+        result: ProfilePersistenceResult
+    ) -> ProfileDeletionRetryState? {
+        guard let failure = result.failure else {
+            return nil
+        }
+        return ProfileDeletionRetryState(
+            profileID: profileID,
+            failure: failure
+        )
+    }
+
     /// Focused input-dock UI tests drive the dock without a live RFB
     /// socket (they start on a selected profile and toggle Compose /
     /// Direct).  They opt in via `NARU_TEST_START_PROFILE_DETAIL`
@@ -237,6 +403,7 @@ public struct NaruRemoteAppShell: View {
     /// dedicated `NARU_TEST_FORCE_INPUT_DOCK` flag used by the
     /// grid-entry screenshot helpers.  Inert in production.
     private static var forcesInputDockForTesting: Bool {
+#if DEBUG
         let environment = ProcessInfo.processInfo.environment
         if environment["NARU_TEST_FORCE_INPUT_DOCK"] == "1" {
             return true
@@ -245,6 +412,9 @@ public struct NaruRemoteAppShell: View {
             return false
         }
         return raw != "0" && raw.lowercased() != "false"
+#else
+        false
+#endif
     }
 
     @ViewBuilder
@@ -254,13 +424,9 @@ public struct NaruRemoteAppShell: View {
         showsConnectionGrid: Bool,
         usesLiveSessionLayout: Bool
     ) -> some View {
-        // GRD-parity hero (spec 003 FR-001): during a live session the
-        // remote screen is the dominant full-bleed surface — no
-        // ScrollView wrapper, no diagnostics stacked beneath, so when
-        // the soft keyboard rises the bottom dock rises with it and the
-        // filling viewport merely shrinks instead of being crushed to a
-        // sliver. Pre-connect / disconnected keeps the historical
-        // scrollable stack so the diagnostics summary stays reachable.
+        // Connections and Operation are the only primary surfaces. Operation
+        // is full-height from the first connecting state; diagnostics use a
+        // corner capsule/sheet instead of a third, stacked detail layout.
         ZStack {
             Group {
                 if isEmptyHome {
@@ -268,34 +434,41 @@ public struct NaruRemoteAppShell: View {
                 } else if showsConnectionGrid {
                     ConnectionGridView(
                         cards: snapshot.connectionGridCards,
-                        onSelect: { id in
-                            model.selectProfile(id: id)
-                            showsSelectedProfileDetail = true
-                            preferredCompactColumn = .detail
-                        },
-                        onAddProfile: { showsProfileEditor = true }
+                        onSelect: openConnection,
+                        onAddProfile: { showsProfileEditor = true },
+                        onEdit: editProfile,
+                        onDelete: performProfileDeletion
                     )
                     .navigationBarBackButtonHidden(true)
-                } else if usesLiveSessionLayout {
+                } else {
                     sessionViewport(fillsAvailableHeight: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .naruLiveSessionChromeHidden()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            sessionViewport(fillsAvailableHeight: false)
-
-                            DiagnosticSummaryView(
-                                rows: snapshot.diagnosticRows,
-                                shareTextProvider: { [buildVersion] in
-                                    model.makeDiagnosticExport()
-                                        .renderSharePayload(buildVersion: buildVersion)
-                                }
-                            )
-                        }
-                        .frame(width: compactWindowWidth, alignment: .top)
-                    }
                 }
+            }
+        }
+        .overlay {
+            if !isEmptyHome && !showsConnectionGrid {
+                operationRecoveryCard(snapshot: snapshot)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if !isEmptyHome && !showsConnectionGrid {
+                SessionDiagnosticCornerView(
+                    session: snapshot.session,
+                    connectionQuality: model.connectionQuality,
+                    rows: snapshot.diagnosticRows,
+                    isDetailPresented: $showsDiagnosticDetail,
+                    shareTextProvider: { [buildVersion] in
+                        model.makeDiagnosticExport()
+                            .renderSharePayload(buildVersion: buildVersion)
+                    }
+                )
+                // The immersive action bar occupies the first row. Keeping
+                // health just beneath it prevents overlap while remaining a
+                // stable top-trailing landmark after the action bar hides.
+                .padding(.top, 66)
+                .padding(.trailing, 10)
             }
         }
         .overlay(alignment: .bottom) {
@@ -366,6 +539,7 @@ public struct NaruRemoteAppShell: View {
         // accessory strip below.
         .background(NaruColors.canvas)
         .overlay(alignment: .topLeading) {
+#if DEBUG
             ZStack(alignment: .topLeading) {
                 if ProcessInfo.processInfo.environment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] == "1",
                    snapshot.session?.hasReceivedFrame == true {
@@ -387,9 +561,12 @@ public struct NaruRemoteAppShell: View {
                         .accessibilityIdentifier("naru.test.diagnosticExportRelay")
                         .accessibilityLabel("Diagnostic export captured")
                         .accessibilityValue(payload)
-                        .allowsHitTesting(false)
+                    .allowsHitTesting(false)
                 }
             }
+#else
+            EmptyView()
+#endif
         }
     }
 
@@ -405,11 +582,14 @@ public struct NaruRemoteAppShell: View {
         let currentSessionID = snapshot.session?.id
         let usesLiveSessionLayout = isLiveSession
             && (!composeFieldFocused || liveSessionLayoutSessionID == currentSessionID)
-        let showsConnectionGrid = !isEmptyHome
-            && !isLiveSession
-            && !showsSelectedProfileDetail
-            && snapshot.session == nil
-            && snapshot.diagnosticRun == nil
+        let showsConnectionGrid = Self.shouldShowConnectionGrid(
+            isEmptyHome: isEmptyHome,
+            isLiveSession: isLiveSession,
+            showsOperationSurface: showsOperationSurface
+        )
+        // `showsOperationSurface` is the explicit second surface. A retained
+        // failed/closed session can remain available for diagnostics without
+        // becoming a third selected-profile navigation depth.
 
         Group {
             if isEmptyHome {
@@ -425,31 +605,20 @@ public struct NaruRemoteAppShell: View {
                 EmptyHomeView(onAddProfile: { showsProfileEditor = true })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(NaruColors.canvas)
-            } else if usesLiveSessionLayout {
+            } else {
                 sessionDetailSurface(
                     snapshot: snapshot,
                     isEmptyHome: isEmptyHome,
                     showsConnectionGrid: showsConnectionGrid,
                     usesLiveSessionLayout: usesLiveSessionLayout
                 )
-            } else {
-                NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-                    profileSidebar(snapshot: snapshot)
-                } detail: {
-                    sessionDetailSurface(
-                        snapshot: snapshot,
-                        isEmptyHome: isEmptyHome,
-                        showsConnectionGrid: showsConnectionGrid,
-                        usesLiveSessionLayout: usesLiveSessionLayout
-                    )
-                }
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             if isLiveSession, SessionPerformanceHUDGate.isEnabled {
                 SessionPerformanceHUDView(model: model)
                     .padding(.top, 8)
-                    .padding(.trailing, 8)
+                    .padding(.leading, 8)
                     .allowsHitTesting(true)
             }
         }
@@ -515,6 +684,57 @@ public struct NaruRemoteAppShell: View {
                     }
                 }
             )
+        }
+        .confirmationDialog(
+            "Connect to a public address?",
+            isPresented: Binding(
+                get: { pendingPublicConnection != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingPublicConnection = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingPublicConnection
+        ) { profile in
+            Button("Connect to Public Address") {
+                pendingPublicConnection = nil
+                beginConnection(to: profile.id)
+            }
+            .accessibilityIdentifier("naru.connection.public.confirm")
+
+            Button("Cancel", role: .cancel) {
+                pendingPublicConnection = nil
+            }
+            .accessibilityIdentifier("naru.connection.public.cancel")
+        } message: { _ in
+            Text("Public VNC endpoints bypass Naru’s private-network safety assumptions. Continue only if you trust and secure this server.")
+        }
+        .alert(
+            "Profile wasn’t deleted",
+            isPresented: Binding(
+                get: { pendingProfileDeletionRetry != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingProfileDeletionRetry = nil
+                    }
+                }
+            ),
+            presenting: pendingProfileDeletionRetry
+        ) { retryState in
+            Button("Retry Delete", role: .destructive) {
+                performProfileDeletion(id: retryState.profileID)
+            }
+            .accessibilityIdentifier("naru.profile.delete.retry")
+
+            Button("Cancel", role: .cancel) {
+                pendingProfileDeletionRetry = nil
+            }
+            .accessibilityIdentifier("naru.profile.delete.failure.cancel")
+        } message: { retryState in
+            Text(retryState.message)
+                .accessibilityIdentifier("naru.profile.delete.failure.message")
         }
         .task {
             await model.loadStoredProfiles()
@@ -800,6 +1020,7 @@ private struct SessionViewportFrameBridge: View {
     @ObservedObject var frameStore: SessionFrameStore
     @ObservedObject var trackpadCursorStore: TrackpadCursorStore
     let fillsAvailableHeight: Bool
+    let onReturnToConnections: () -> Void
 
     var body: some View {
         let frameState = frameStore.state
@@ -823,7 +1044,8 @@ private struct SessionViewportFrameBridge: View {
             helperVideoLayerHost: model.helperVideoLayerHost,
             onRunChecks: snapshot.selectedProfile == nil ? nil : { model.runConnectionChecks() },
             onConnect: snapshot.selectedProfile == nil ? nil : { Task { await model.connectSelectedProfile() } },
-            onDisconnect: snapshot.selectedProfile == nil ? nil : { model.disconnect() },
+            onDisconnect: snapshot.selectedProfile == nil ? nil : onReturnToConnections,
+            onReturnToConnections: onReturnToConnections,
             onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
             onFramebufferTap: { point, size in
                 model.sendTapAt(viewPoint: point, viewSize: size)

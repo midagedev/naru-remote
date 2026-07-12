@@ -138,7 +138,8 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertFalse(
             SessionViewportView.allowsImmersiveControlAutoHide(
                 showsControlBar: true,
-                isViewportInteractionActive: true
+                isViewportInteractionActive: true,
+                isVoiceOverEnabled: false
             )
         )
     }
@@ -147,19 +148,32 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertTrue(
             SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
                 showsControlBar: true,
-                isViewportInteractionActive: true
+                isViewportInteractionActive: true,
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertFalse(
             SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
                 showsControlBar: false,
-                isViewportInteractionActive: true
+                isViewportInteractionActive: true,
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertFalse(
             SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
                 showsControlBar: true,
-                isViewportInteractionActive: false
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: false
+            )
+        )
+    }
+
+    func testImmersiveControlsStayVisibleDuringViewportInteractionWithVoiceOver() {
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnViewportInteraction(
+                showsControlBar: true,
+                isViewportInteractionActive: true,
+                isVoiceOverEnabled: true
             )
         )
     }
@@ -168,14 +182,16 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertTrue(
             SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
                 showsControlBar: true,
-                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40))
+                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: false
             ),
             "Hardware pointer hover is remote-control intent, so live chrome should clear the desktop immediately instead of waiting for the idle auto-hide timer."
         )
         XCTAssertTrue(
             SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
                 showsControlBar: true,
-                gesture: .tap(viewPoint: CGPoint(x: 80, y: 40))
+                gesture: .tap(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertTrue(
@@ -184,19 +200,39 @@ final class SessionViewportViewGeometryTests: XCTestCase {
                 gesture: .dragChanged(
                     viewPoint: CGPoint(x: 80, y: 40),
                     translation: CGSize(width: 12, height: 0)
-                )
+                ),
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertFalse(
             SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
                 showsControlBar: true,
-                gesture: .dragEnded(viewPoint: CGPoint(x: 80, y: 40))
+                gesture: .dragEnded(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertFalse(
             SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
                 showsControlBar: false,
-                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40))
+                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: false
+            )
+        )
+    }
+
+    func testImmersiveControlsStayVisibleForTrackpadIntentWithVoiceOver() {
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .hoverMoved(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: true
+            )
+        )
+        XCTAssertFalse(
+            SessionViewportView.collapsesImmersiveControlsOnTrackpadGesture(
+                showsControlBar: true,
+                gesture: .tap(viewPoint: CGPoint(x: 80, y: 40)),
+                isVoiceOverEnabled: true
             )
         )
     }
@@ -205,14 +241,33 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertTrue(
             SessionViewportView.allowsImmersiveControlAutoHide(
                 showsControlBar: true,
-                isViewportInteractionActive: false
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: false
             )
         )
         XCTAssertFalse(
             SessionViewportView.allowsImmersiveControlAutoHide(
                 showsControlBar: false,
-                isViewportInteractionActive: false
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: false
             )
+        )
+    }
+
+    func testImmersiveControlsDoNotAutoHideWhileVoiceOverIsRunning() {
+        XCTAssertFalse(
+            SessionViewportView.allowsImmersiveControlAutoHide(
+                showsControlBar: true,
+                isViewportInteractionActive: false,
+                isVoiceOverEnabled: true
+            )
+        )
+    }
+
+    func testControlRevealHandleMeetsMinimumTouchTargetHeight() {
+        XCTAssertGreaterThanOrEqual(
+            SessionViewportView.controlRevealMinimumHitHeight,
+            44
         )
     }
 

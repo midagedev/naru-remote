@@ -132,9 +132,11 @@ because total session time exceeded the initial timeout value.
 The helper sender frames the authenticated start response before it opens the
 capture/encoder access-unit stream, then awaits each TCP send completion before
 consuming the next access unit. Continuous raw synthetic and ScreenCaptureKit
-pixel-buffer streams coalesce to the newest frame under pressure, while encoded
-H.264 access units keep their order so parameter sets and keyframes are not
-dropped.
+pixel-buffer streams coalesce to the newest frame under pressure. Encoded H.264
+access units instead keep a bounded contiguous oldest prefix (default capacity
+8); if that queue fills, the helper stream ends with a typed backpressure
+failure and the app falls back to VNC. It never drops an arbitrary parameter
+set/keyframe/delta and then continues a damaged reference chain.
 
 `--video-capability` emits only fixed catalog labels such as
 `permissionMissing`, `granted`, `notChecked`, `available`, or `unavailable`.
@@ -538,10 +540,12 @@ export NARU_HELPER_VIDEO_PROFILE_FINGERPRINT="sha256:<saved-profile-fingerprint>
 `--video-listen` starts the same authenticated helper-video TCP server used by
 the tests and benchmark probes. `--video-source synthetic-encoded` uses local
 VideoToolbox H.264 output for safe loopback smoke tests. `--video-source
-screen-capturekit` uses a finite ScreenCaptureKit batch and requires Screen
-Recording permission in the helper process context. This entrypoint is still a
-finite batch sender per `startStream` request, not the final long-lived adaptive
-desktop stream. Use `--token-env` and `--profile-fingerprint-env`; direct
+screen-capturekit` requires Screen Recording permission in the helper process
+context. The listener defaults to a sustained stream; the positive
+`--video-frame-count 2` in the example intentionally makes this smoke run
+finite. `0` or `continuous` runs until disconnect. This remains a fixed-rate v1
+stream rather than a final adaptive-bitrate desktop transport. Use `--token-env`
+and `--profile-fingerprint-env`; direct
 `--token` and `--profile-fingerprint` values are rejected so sensitive values
 are not exposed through helper process arguments. It must not print pairing
 secrets, endpoints, frame payloads, display dimensions, byte counts, host names,

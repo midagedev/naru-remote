@@ -2,7 +2,7 @@
 
 **Feature Branch**: `009-live-type-through`  
 **Created**: 2026-07-05  
-**Status**: Accepted (clarifications resolved 2026-07-05 via founder decisions D1/D2/D3); implemented same day — T001–T020 + review fixes TR01–TR03, full suite green. Residual: physical gates T021–T025; D3 default-path promotion awaits gate pass.  
+**Status**: Implemented (clarifications resolved 2026-07-05 via founder decisions D1/D2/D3; T001–T020 + review fixes TR01–TR04). Reconciled 2026-07-12; residual: physical gates T021–T024, and D3 default-path promotion awaits gate pass.
 **Product**: Naru Remote  
 **Input**: Founder goal (2026-07-05, `PERFORMANCE_PARITY_ANALYSIS.md` §4.3, §5 Track B): "Chrome Remote Desktop 수준의 사용성 — 특히 compose 입력이 정말 잘 되는 상태." The batch Compose & Send model pays a 1–1.3 s+ per-sentence silence budget (local settle + clipboard settle + server cadence + an "unknown" result banner) that CRD does not. CRD's compose feels good because it is **type-through**: locally IME-composed units are injected into the host natively as they commit, with no separate Send. This feature adds the type-through peer to Compose & Send, built on the transports proven live on 2026-07-05: helper text bridge `nativeInsert` delivered Hangul to a controlled target (`observed-inserted` / `matched`); VNC `KeyEvent` with X11 Unicode keysyms did **not** arrive on macOS Screen Sharing (`no-input`); VNC clipboard + paste works but is batch-only with a 0.30 s settle.
 

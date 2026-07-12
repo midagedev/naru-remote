@@ -21,6 +21,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
 
         if app.staticTexts["Connections"].waitForExistence(timeout: 8) {
             openNewestPhysicalCard(in: app)
+            confirmConfiguredPublicEndpointIfNeeded(in: app)
         } else {
             attachFailureArtifacts(app: app, name: "physical-connect-no-grid")
             guard expectsSeededProfile else {
@@ -32,39 +33,30 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             )
         }
 
-        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
-        let failureBadge = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Failed")).firstMatch
-        let inFlightBadge = app.staticTexts
-            .matching(NSPredicate(format: "label MATCHES[c] %@", "(Connecting|Authenticating|Reconnecting.*)"))
-            .firstMatch
-        if !activeBadge.exists,
-           !failureBadge.exists,
-           !inFlightBadge.waitForExistence(timeout: 2) {
-            guard let connect = waitForConnectButton(in: app, timeout: 8) else {
-                attachFailureArtifacts(app: app, name: "physical-connect-no-connect-button")
-                XCTAssertTrue(false, "Connect button must be visible for saved physical profile")
-                return
-            }
+        // A connection-grid card is now the connection action. Operation
+        // must appear immediately and expose its persistent diagnostic
+        // control while the network attempt continues.
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(
+            diagnosticCorner.waitForExistence(timeout: 8),
+            "One card tap must enter Operation without a second Connect step"
+        )
 
-            connect.tap()
-            app.tap()
-        }
-
-        let deadline = Date().addingTimeInterval(25)
-        while Date() < deadline {
-            if activeBadge.exists || failureBadge.exists {
-                break
-            }
-            usleep(250_000)
-        }
+        // Trigger the UI interruption monitor if iOS presents Local Network
+        // permission over the newly entered Operation surface.
+        app.tap()
+        let connected = waitForConnectedSession(
+            diagnosticCorner: diagnosticCorner,
+            timeout: 25
+        )
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = activeBadge.exists ? "physical-connect-active" : "physical-connect-final"
+        attachment.name = connected ? "physical-connect-active" : "physical-connect-final"
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        XCTAssertTrue(activeBadge.exists, "Expected physical device connection to reach Active state")
+        XCTAssertTrue(connected, "Expected physical device Operation diagnostics to report Connected")
     }
 
     func testPhysicalDeviceSustainedCandidateGate() throws {
@@ -90,20 +82,18 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
             "Physical sustained gate must start from the connection grid"
         )
         openNewestPhysicalCard(in: app)
+        confirmConfiguredPublicEndpointIfNeeded(in: app)
 
-        guard let connect = waitForConnectButton(in: app, timeout: 8) else {
-            attachFailureArtifacts(app: app, name: "physical-sustained-no-connect-button")
-            XCTAssertTrue(false, "Connect button must be visible for the injected physical profile")
-            return
-        }
-        connect.tap()
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(
+            diagnosticCorner.waitForExistence(timeout: 8),
+            "One card tap must enter Operation before the sustained gate starts"
+        )
         app.tap()
 
-        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
-        let failureBadge = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Failed")).firstMatch
         XCTAssertTrue(
-            waitForActiveSession(activeBadge: activeBadge, failureBadge: failureBadge, timeout: 30),
-            "Expected physical sustained gate to reach Active before starting interactions"
+            waitForConnectedSession(diagnosticCorner: diagnosticCorner, timeout: 30),
+            "Expected physical sustained gate diagnostics to report Connected before starting interactions"
         )
 
         attachSustainedCandidateConfiguration(duration: sustainedDuration)
@@ -112,7 +102,10 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(sustainedDuration)
         var nextInteractionAt = Date().addingTimeInterval(min(30, max(5, sustainedDuration / 3)))
         while Date() < deadline {
-            XCTAssertFalse(failureBadge.exists, "Physical sustained gate must not enter a failed session state")
+            XCTAssertFalse(
+                isFailed(diagnosticCorner),
+                "Physical sustained gate must not enter a failed session state"
+            )
             if Date() >= nextInteractionAt {
                 performSustainedInteractionCycle(in: app)
                 nextInteractionAt = Date().addingTimeInterval(min(30, max(5, sustainedDuration / 3)))
@@ -130,10 +123,10 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
 
         revealControlsIfNeeded(in: app)
         XCTAssertTrue(
-            activeBadge.waitForExistence(timeout: 3) || app.descendants(matching: .any)["naru.session.viewport"].exists,
+            isConnected(diagnosticCorner) || app.descendants(matching: .any)["naru.session.viewport"].exists,
             "Expected physical sustained gate to remain in the session surface"
         )
-        XCTAssertFalse(failureBadge.exists, "Physical sustained gate finished in a failed state")
+        XCTAssertFalse(isFailed(diagnosticCorner), "Physical sustained gate finished in a failed state")
 
         let pipEvidence = exercisePiPWatchEnterExit(in: app)
         emitPhysicalPiPEvidence(pipEvidence)
@@ -143,36 +136,33 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         add(pipAttachment)
     }
 
-    private func waitForConnectButton(in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
-        let identifiedConnect = app.buttons["naru.session.connect"]
-        if identifiedConnect.waitForExistence(timeout: timeout) {
-            return identifiedConnect
-        }
-
-        let labeledConnect = app.buttons["Connect"]
-        if labeledConnect.waitForExistence(timeout: 1) {
-            return labeledConnect
-        }
-
-        return nil
-    }
-
-    private func waitForActiveSession(
-        activeBadge: XCUIElement,
-        failureBadge: XCUIElement,
+    private func waitForConnectedSession(
+        diagnosticCorner: XCUIElement,
         timeout: TimeInterval
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if activeBadge.exists {
+            if isConnected(diagnosticCorner) {
                 return true
             }
-            if failureBadge.exists {
+            if isFailed(diagnosticCorner) {
                 return false
             }
             usleep(250_000)
         }
-        return activeBadge.exists
+        return isConnected(diagnosticCorner)
+    }
+
+    private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
+        diagnosticValue(diagnosticCorner).lowercased().hasPrefix("connected")
+    }
+
+    private func isFailed(_ diagnosticCorner: XCUIElement) -> Bool {
+        diagnosticValue(diagnosticCorner).lowercased().hasPrefix("connection failed")
+    }
+
+    private func diagnosticValue(_ diagnosticCorner: XCUIElement) -> String {
+        diagnosticCorner.value as? String ?? ""
     }
 
     private var hasSeededPhysicalProfileConfiguration: Bool {
@@ -435,8 +425,7 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         }
 
         disconnect.tap()
-        let connect = app.buttons["naru.session.connect"]
-        let exited = connect.waitForExistence(timeout: 5) || app.staticTexts["Connections"].waitForExistence(timeout: 2)
+        let exited = app.staticTexts["Connections"].waitForExistence(timeout: 5)
         guard exited else {
             return PhysicalPiPEvidence.blocked(
                 enterStatus: "entered",
@@ -551,6 +540,24 @@ final class PhysicalDeviceConnectE2EUITests: XCTestCase {
         }
 
         openFirstSavedCard(in: app)
+    }
+
+    /// Public-endpoint confirmation is only accepted when the physical gate
+    /// was explicitly configured with that host kind. Never approve a public
+    /// saved profile discovered incidentally on a developer device.
+    private func confirmConfiguredPublicEndpointIfNeeded(in app: XCUIApplication) {
+        let configuredHostKind = ProcessInfo.processInfo.environment["NARU_PHYSICAL_E2E_HOST_KIND"]
+        guard configuredHostKind == "advancedManualPublicEndpoint" else { return }
+
+        let identifiedConfirm = app.buttons["naru.connection.public.confirm"]
+        let confirm = identifiedConfirm.exists
+            ? identifiedConfirm
+            : app.buttons["Connect to Public Address"]
+        XCTAssertTrue(
+            confirm.waitForExistence(timeout: 5),
+            "An explicitly configured public endpoint must require confirmation"
+        )
+        confirm.tap()
     }
 
     private func openFirstSavedCard(in app: XCUIApplication) {

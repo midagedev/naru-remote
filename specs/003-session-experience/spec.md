@@ -2,7 +2,7 @@
 
 **Feature Branch**: `003-session-experience`
 **Created**: 2026-05-31
-**Status**: Implemented (session-experience baseline shipped). Reconciled 2026-07-05 — residual: physical-device manual tasks T032/T033.
+**Status**: Implemented (session-experience baseline shipped). Reconciled 2026-07-12 — VoiceOver-safe controls and the two-surface Operation diagnostic capsule added; residual: physical-device manual tasks T032/T033 and VoiceOver device traversal.
 **Product**: Naru Remote
 **Input**: Goal — raise Naru Remote usability to **Google Remote Desktop** level. A phone-first user driving a remote desktop needs the remote screen to be the hero of the view, smooth and precise pointer control (a trackpad mode with a visible cursor, not finger-stab-only), and the ability to zoom in on small text and pan around — all without the current "control-panel" chrome (title + Checks/Connect/PiP pills + diagnostics panel + 4:3 letterbox inside a `ScrollView`). This feature replaces the presentation/interaction layer of `SessionViewportView`; it does **not** change the RFB protocol layer (encodings are tracked separately under `specs/004-rfb-encodings`).
 
@@ -28,7 +28,7 @@ A user connects to their Mac and the remote screen fills the available space at 
 
 1. **Given** an active session with a 16:9 server framebuffer, **When** the session view renders on iPhone, **Then** the remote screen is presented at 16:9 (letterboxed only by the screen's own aspect mismatch, never by a hardcoded 4:3), filling the width and as much height as the layout allows.
 2. **Given** an active session, **When** the user looks at the session view, **Then** session controls (disconnect, pointer-mode toggle, keyboard, zoom reset, connection status) are reachable from a single compact control bar that overlays or docks beside the screen without forcing the screen into a small box.
-3. **Given** no session yet (a selected profile, not connected), **When** the detail view renders, **Then** a clear connect affordance and pre-connect status is shown, and the diagnostics detail remains accessible (e.g. via a disclosure / sheet) but is not stacked permanently under the screen.
+3. **Given** the user taps a saved private profile, **When** Operation appears, **Then** connection starts immediately and the full-height viewport shows connecting/authenticating progress with a persistent corner diagnostic capsule; there is no selected-but-not-connected primary detail screen and no permanently stacked diagnostic list.
 4. **Given** an active phone session where strict aspect-fit would leave most of the live area empty, **When** the session renders, **Then** the viewport may start at a local crop-to-fill zoom baseline that preserves true aspect ratio and coordinate mapping, with panning available to inspect the cropped edges.
 
 ---
@@ -110,14 +110,18 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **PiP watch path**: PiP remains watch-only and does not install remote-input recognizers. When the main session viewport is zoomed/panned, the PiP renderer may mirror that local focus by cropping the video frames so the same area is readable in the floating window.
 - **Sustained full-screen churn on iPhone**: when many consecutive content frames require full-frame renderer uploads, the stream may raise its pacing floor to the same power-saver cadence used for Low Power Mode. This protects thermals during video-like/full-desktop repaint workloads while preserving the faster cadence for localized terminal/IDE dirty rectangles.
 - **Zoomed-in tap mapping (direct mode)**: a tap while zoomed/panned maps through the combined fit-scale × zoom × pan transform to the correct framebuffer pixel; letterbox bands remain a no-op (not a clamped edge click), preserving the existing behavior.
-- **VoiceOver**: the remote screen exposes an accessibility element; pointer-mode toggle, zoom reset, and quick keys have labels. The framebuffer pixels are not described (privacy + meaningless).
+- **VoiceOver**: the remote screen exposes an accessibility element;
+  pointer-mode toggle, zoom reset, and quick keys have labels. The framebuffer
+  pixels are not described (privacy + meaningless). Immersive controls remain
+  visible and reachable while VoiceOver is enabled; viewport interaction must
+  not collapse them, and the reveal target remains at least 44 points tall.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The session view MUST present the remote framebuffer at the **server's true aspect ratio**, not a hardcoded ratio, sized to be the dominant element of the view (screen-first), with chrome that does not force the screen into a fixed small box. On constrained phone portrait layouts, it MAY use a local crop-to-fill zoom baseline instead of strict aspect-fit so the live stream occupies substantially more vertical space.
-- **FR-002**: Session controls (disconnect, pointer-mode toggle, keyboard/compose access, zoom reset, connection-status chip) MUST be reachable from a compact control surface that overlays or docks without permanently shrinking the remote screen. Diagnostics detail MUST remain reachable (disclosure/sheet) but MUST NOT be permanently stacked under the screen. Overlay controls SHOULD auto-hide or collapse when idle so the remote screen remains the default visual state.
+- **FR-002**: Session controls (Connections/disconnect, pointer-mode toggle, keyboard/compose access, zoom reset) MUST be reachable from a compact control surface that overlays or docks without permanently shrinking the remote screen. A diagnostic capsule MUST remain discoverable independently of auto-hidden controls and open full diagnostics in a sheet/popover; diagnostics MUST NOT be permanently stacked under the screen.
 - **FR-003**: The user MUST be able to pinch-zoom the remote screen between fit scale and a max scale; zoom MUST be a local view transform and MUST NOT emit any RFB message (constitution §I).
 - **FR-004**: When zoomed beyond fit, the user MUST be able to pan the viewport with a one-finger drag (in direct-touch mode); the pan offset MUST be clamped so no out-of-bounds region is revealed.
 - **FR-005**: A double-tap MUST toggle between fit and a comfortable zoom centered on the tapped point; the animation MUST not emit any RFB message.
@@ -127,12 +131,16 @@ A user in Compose mode (the multilingual default) can reach an inline quick-key 
 - **FR-009**: In **Direct-touch** mode, a single tap MUST emit a button-1 pair at the **touched** framebuffer point (existing behavior); long-press MUST emit button-3 at the point; the trackpad cursor MUST be hidden.
 - **FR-010**: Two-finger drag MUST emit RFB scroll-wheel events in both modes (existing behavior), distinct from pan.
 - **FR-011**: In **Trackpad** mode while zoomed, the viewport MUST auto-pan to keep the cursor visible as it nears an edge.
-- **FR-012**: A compact connection-status chip MUST reflect `RemoteSessionState` (connecting / active / reconnecting(n,N) / degraded / failed / closed) with distinct symbol + color, and MUST show a coarse connection-quality bucket (Good / Fair / Poor) derived from frame round-trip timing while active.
+- **FR-012**: The persistent diagnostic capsule MUST reflect `RemoteSessionState` (connecting / authenticating / active / reconnecting(n,N) / degraded / failed / closed) with distinct text + symbol + color, and MUST show a coarse connection-quality bucket (Good / Fair / Poor) while active or the latest fixed-catalog failure otherwise. It MUST retain a minimum 44-point hit target and a complete VoiceOver value.
 - **FR-013**: An inline quick-key strip in **Compose** mode MUST offer at least Esc, Tab, and Ctrl-C, emitting the correct `KeyEvent`(s) through the existing `KeystrokeEmitter`, without modifying the compose draft, and only while a session is active.
 - **FR-014**: All view→framebuffer coordinate mapping (fit scale × zoom × pan, plus trackpad cursor position) MUST be a single shared, pure, unit-tested transform used by both pointer modes so the two paths cannot diverge.
 - **FR-015**: While PiP Watch is active, local zoom/pan changes MUST update the PiP video focus without emitting RFB input. The output video dimensions SHOULD remain stable across focus changes to avoid PiP layer churn.
 - **FR-016**: The app MUST isolate app-level outbound pointer and key queues. A stalled or timed-out pointer operation MUST NOT block or permanently disable later pointer gestures, Direct-mode key events, or Compose quick keys on the same active session. A stalled key operation MUST likewise release its own lane so later keys are retryable. RFB `PointerEvent` and `KeyEvent` delivery SHOULD return after transport enqueue rather than waiting for Network.framework `contentProcessed`; non-zero button masks and multi-command pointer gestures MUST still preserve down/move/up ordering through the ordered app-level pointer lane. Single buttonless trackpad cursor-follow moves MAY use a latest-value/best-effort capability.
 - **FR-017**: In trackpad mode on iPad pointer hardware, hover movement over the viewport SHOULD update the local cursor and send a single buttonless (`0x00`) pointer move at the mapped framebuffer coordinate. This hover path MUST use the same `ViewportTransform` mapping as touch input and MUST NOT log or persist pointer coordinates.
+- **FR-018**: While VoiceOver is enabled, session controls MUST NOT auto-hide
+  from either the idle timer or viewport/trackpad interaction. Enabling
+  VoiceOver MUST restore hidden controls, and any compact reveal affordance MUST
+  expose a minimum 44-point hit target.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 

@@ -207,8 +207,7 @@ final class ProfileEditDeleteTests: XCTestCase {
         let edited = try ConnectionProfile(
             id: savedProfile.id,
             displayName: "Desk Renamed",
-            host: savedProfile.host,
-            credentialRef: credentialRef
+            host: savedProfile.host
         )
 
         await model.editProfile(edited, password: nil)
@@ -230,8 +229,7 @@ final class ProfileEditDeleteTests: XCTestCase {
         let edited = try ConnectionProfile(
             id: savedProfile.id,
             displayName: savedProfile.displayName,
-            host: savedProfile.host,
-            credentialRef: credentialRef
+            host: savedProfile.host
         )
 
         await model.editProfile(edited, password: "")
@@ -422,6 +420,437 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertNil(model.profilePersistenceError)
     }
 
+    // MARK: - Persistence completion + retry
+
+    func testAddProfileFailureReturnsFixedResultAndDoesNotPublishProfile() async throws {
+        let persistence = RetryableConnectionProfilePersistence(shouldFail: true)
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let model = NaruRemoteAppModel(profileStore: store)
+        let profile = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net"
+        )
+
+        let result = await model.addProfile(profile)
+
+        XCTAssertEqual(result, .failed(.profileSave))
+        XCTAssertEqual(model.profilePersistenceError, ProfilePersistenceFailure.profileSave.safeMessage)
+        XCTAssertTrue(model.snapshot.profiles.isEmpty)
+        XCTAssertNil(model.snapshot.selectedProfileID)
+
+        await persistence.setShouldFail(false)
+        let retryResult = await model.addProfile(profile)
+
+        XCTAssertEqual(retryResult, .succeeded)
+        XCTAssertEqual(model.snapshot.profiles, [profile])
+        XCTAssertEqual(model.snapshot.selectedProfileID, profile.id)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testAddProfileFailureRollsBackAllNewCredentialEntries() async throws {
+        let profileID = try XCTUnwrap(
+            UUID(uuidString: "77777777-8888-9999-AAAA-BBBBBBBBBBBB")
+        )
+        let profile = try ConnectionProfile(
+            id: profileID,
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net",
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = RetryableConnectionProfilePersistence(shouldFail: true)
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore()
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+
+        let result = await model.addProfile(
+            profile,
+            password: "vnc-secret",
+            helperPairingSecret: "helper-text-secret",
+            helperVideoPairingSecret: "helper-video-secret"
+        )
+
+        let vncPassword = try await credentialStore.password(
+            for: "vnc-password:\(profileID.uuidString)"
+        )
+        let helperTextSecret = try await credentialStore.password(
+            for: "helper-token:\(profileID.uuidString)"
+        )
+        let helperVideoSecret = try await credentialStore.password(
+            for: "helper-video-token:\(profileID.uuidString)"
+        )
+        XCTAssertEqual(result, .failed(.profileSave))
+        XCTAssertNil(vncPassword)
+        XCTAssertNil(helperTextSecret)
+        XCTAssertNil(helperVideoSecret)
+        XCTAssertTrue(model.snapshot.profiles.isEmpty)
+        XCTAssertNil(model.snapshot.selectedProfileID)
+    }
+
+    func testEditProfileFailureKeepsPersistedAndPublishedProfileUntilRetry() async throws {
+        let original = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net"
+        )
+        let persistence = RetryableConnectionProfilePersistence(
+            profiles: [original],
+            shouldFail: true
+        )
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let model = NaruRemoteAppModel(profileStore: store)
+        await model.loadStoredProfiles()
+        let edited = try ConnectionProfile(
+            id: original.id,
+            displayName: "Renamed Desk",
+            host: original.host
+        )
+
+        let result = await model.editProfile(edited, password: nil)
+        let storedAfterFailure = await store.profile(id: original.id)
+
+        XCTAssertEqual(result, .failed(.profileSave))
+        XCTAssertEqual(model.snapshot.profiles, [original])
+        XCTAssertEqual(storedAfterFailure, original)
+
+        await persistence.setShouldFail(false)
+        let retryResult = await model.editProfile(edited, password: nil)
+        let storedAfterRetry = await store.profile(id: original.id)
+
+        XCTAssertEqual(retryResult, .succeeded)
+        XCTAssertEqual(model.snapshot.profiles, [edited])
+        XCTAssertEqual(storedAfterRetry, edited)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testEditProfileFailureRestoresReplacedCredentials() async throws {
+        let passwordRef = "vnc-password:private-desk"
+        let helperTextRef = "helper-token:private-desk"
+        let helperVideoRef = "helper-video-token:private-desk"
+        let original = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net",
+            credentialRef: passwordRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:old-helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:old-helper-video"
+            )
+        )
+        let persistence = RetryableConnectionProfilePersistence(
+            profiles: [original],
+            shouldFail: true
+        )
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(
+            passwords: [
+                passwordRef: "old-vnc-secret",
+                helperTextRef: "old-helper-text-secret",
+                helperVideoRef: "old-helper-video-secret"
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+        await model.loadStoredProfiles()
+        let edited = try ConnectionProfile(
+            id: original.id,
+            displayName: "Renamed Desk",
+            host: original.host,
+            credentialRef: passwordRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:new-helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:new-helper-video"
+            )
+        )
+
+        let result = await model.editProfile(
+            edited,
+            password: "new-vnc-secret",
+            helperPairingSecret: "new-helper-text-secret",
+            helperVideoPairingSecret: "new-helper-video-secret"
+        )
+
+        let vncPassword = try await credentialStore.password(for: passwordRef)
+        let helperTextSecret = try await credentialStore.password(for: helperTextRef)
+        let helperVideoSecret = try await credentialStore.password(for: helperVideoRef)
+        let persistedProfile = await store.profile(id: original.id)
+        XCTAssertEqual(result, .failed(.profileSave))
+        XCTAssertEqual(vncPassword, "old-vnc-secret")
+        XCTAssertEqual(helperTextSecret, "old-helper-text-secret")
+        XCTAssertEqual(helperVideoSecret, "old-helper-video-secret")
+        XCTAssertEqual(model.snapshot.profiles, [original])
+        XCTAssertEqual(persistedProfile, original)
+    }
+
+    func testEditProfileFailureRestoresExplicitlyRemovedCredentials() async throws {
+        let passwordRef = "vnc-password:private-desk"
+        let helperTextRef = "helper-token:private-desk"
+        let helperVideoRef = "helper-video-token:private-desk"
+        let original = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net",
+            credentialRef: passwordRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = RetryableConnectionProfilePersistence(
+            profiles: [original],
+            shouldFail: true
+        )
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(
+            passwords: [
+                passwordRef: "old-vnc-secret",
+                helperTextRef: "old-helper-text-secret",
+                helperVideoRef: "old-helper-video-secret"
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+        await model.loadStoredProfiles()
+        let edited = try ConnectionProfile(
+            id: original.id,
+            displayName: original.displayName,
+            host: original.host
+        )
+
+        let result = await model.editProfile(
+            edited,
+            password: "",
+            helperPairingSecret: "",
+            helperVideoPairingSecret: ""
+        )
+
+        let vncPassword = try await credentialStore.password(for: passwordRef)
+        let helperTextSecret = try await credentialStore.password(for: helperTextRef)
+        let helperVideoSecret = try await credentialStore.password(for: helperVideoRef)
+        XCTAssertEqual(result, .failed(.profileSave))
+        XCTAssertEqual(vncPassword, "old-vnc-secret")
+        XCTAssertEqual(helperTextSecret, "old-helper-text-secret")
+        XCTAssertEqual(helperVideoSecret, "old-helper-video-secret")
+        XCTAssertEqual(model.snapshot.profiles, [original])
+    }
+
+    func testDeleteProfileFailureKeepsProfileSessionAndCredentialForRetry() async throws {
+        let credentialRef = "vnc-password:private-desk"
+        let helperTextRef = "helper-token:private-desk"
+        let helperVideoRef = "helper-video-token:private-desk"
+        let profile = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net",
+            credentialRef: credentialRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = RetryableConnectionProfilePersistence(
+            profiles: [profile],
+            shouldFail: true
+        )
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(
+            passwords: [
+                credentialRef: "private-secret",
+                helperTextRef: "helper-text-secret",
+                helperVideoRef: "helper-video-secret"
+            ]
+        )
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+        await model.loadStoredProfiles()
+        let sessionID = model.snapshot.session?.id
+
+        let result = await model.deleteProfile(id: profile.id)
+        let credentialAfterFailure = try await credentialStore.password(for: credentialRef)
+        let helperTextAfterFailure = try await credentialStore.password(for: helperTextRef)
+        let helperVideoAfterFailure = try await credentialStore.password(for: helperVideoRef)
+
+        XCTAssertEqual(result, .failed(.profileRemoval))
+        XCTAssertEqual(model.snapshot.profiles, [profile])
+        XCTAssertEqual(model.snapshot.selectedProfileID, profile.id)
+        XCTAssertEqual(model.snapshot.session?.id, sessionID)
+        XCTAssertEqual(credentialAfterFailure, "private-secret")
+        XCTAssertEqual(helperTextAfterFailure, "helper-text-secret")
+        XCTAssertEqual(helperVideoAfterFailure, "helper-video-secret")
+
+        await persistence.setShouldFail(false)
+        let retryResult = await model.deleteProfile(id: profile.id)
+        let credentialAfterRetry = try await credentialStore.password(for: credentialRef)
+        let helperTextAfterRetry = try await credentialStore.password(for: helperTextRef)
+        let helperVideoAfterRetry = try await credentialStore.password(for: helperVideoRef)
+
+        XCTAssertEqual(retryResult, .succeeded)
+        XCTAssertTrue(model.snapshot.profiles.isEmpty)
+        XCTAssertNil(model.snapshot.selectedProfileID)
+        XCTAssertNil(model.snapshot.session)
+        XCTAssertNil(credentialAfterRetry)
+        XCTAssertNil(helperTextAfterRetry)
+        XCTAssertNil(helperVideoAfterRetry)
+        XCTAssertNil(model.profilePersistenceError)
+    }
+
+    func testDeleteCredentialFailureRollsBackEarlierDeletesAndKeepsProfile() async throws {
+        let passwordRef = "vnc-password:private-desk"
+        let helperTextRef = "helper-token:private-desk"
+        let helperVideoRef = "helper-video-token:private-desk"
+        let profile = try ConnectionProfile(
+            displayName: "Private Desk",
+            host: "private-desk.tailnet.ts.net",
+            credentialRef: passwordRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = InMemoryConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = DeleteFailingCredentialStore(
+            passwords: [
+                passwordRef: "vnc-secret",
+                helperTextRef: "helper-text-secret",
+                helperVideoRef: "helper-video-secret"
+            ],
+            failingDeleteRef: helperTextRef
+        )
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+        await model.loadStoredProfiles()
+
+        let result = await model.deleteProfile(id: profile.id)
+
+        let storedProfile = await store.profile(id: profile.id)
+        let vncSecret = await credentialStore.password(for: passwordRef)
+        let helperTextSecret = await credentialStore.password(for: helperTextRef)
+        let helperVideoSecret = await credentialStore.password(for: helperVideoRef)
+        XCTAssertEqual(result, .failed(.helperTokenRemoval))
+        XCTAssertEqual(model.snapshot.profiles, [profile])
+        XCTAssertEqual(storedProfile, profile)
+        XCTAssertEqual(vncSecret, "vnc-secret")
+        XCTAssertEqual(helperTextSecret, "helper-text-secret")
+        XCTAssertEqual(helperVideoSecret, "helper-video-secret")
+    }
+
+    func testConcurrentDeleteFailureThenSuccessLeavesNoOrphanCredentials() async throws {
+        let passwordRef = "vnc-password:concurrent-desk"
+        let helperTextRef = "helper-token:concurrent-desk"
+        let helperVideoRef = "helper-video-token:concurrent-desk"
+        let profile = try ConnectionProfile(
+            displayName: "Concurrent Desk",
+            host: "concurrent-desk.tailnet.ts.net",
+            credentialRef: passwordRef,
+            helperTextBridge: HelperTextBridgeConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperTextRef,
+                pairingFingerprint: "sha256:helper-text"
+            ),
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let persistence = FailFirstConnectionProfilePersistence(profiles: [profile])
+        let store = try await ConnectionProfileStore(persistence: persistence)
+        let credentialStore = InMemoryConnectionCredentialStore(passwords: [
+            passwordRef: "vnc-secret",
+            helperTextRef: "helper-text-secret",
+            helperVideoRef: "helper-video-secret"
+        ])
+        let model = NaruRemoteAppModel(
+            profileStore: store,
+            credentialStore: credentialStore
+        )
+        await model.loadStoredProfiles()
+
+        async let first = model.deleteProfile(id: profile.id)
+        async let second = model.deleteProfile(id: profile.id)
+        let results = await [first, second]
+        let storedProfile = await store.profile(id: profile.id)
+        let storedPassword = try await credentialStore.password(for: passwordRef)
+        let storedHelperText = try await credentialStore.password(for: helperTextRef)
+        let storedHelperVideo = try await credentialStore.password(for: helperVideoRef)
+
+        XCTAssertTrue(results.contains(.failed(.profileRemoval)))
+        XCTAssertTrue(results.contains(.succeeded))
+        XCTAssertTrue(model.snapshot.profiles.isEmpty)
+        XCTAssertNil(storedProfile)
+        XCTAssertNil(storedPassword)
+        XCTAssertNil(storedHelperText)
+        XCTAssertNil(storedHelperVideo)
+    }
+
+    func testNilProfileStoreRemainsAnExplicitSuccessfulFixturePath() async throws {
+        let model = NaruRemoteAppModel()
+        let profile = try ConnectionProfile(
+            displayName: "Fixture Desk",
+            host: "fixture.tailnet.ts.net"
+        )
+
+        let addResult = await model.addProfile(profile)
+        XCTAssertEqual(addResult, .succeeded)
+
+        let edited = try ConnectionProfile(
+            id: profile.id,
+            displayName: "Fixture Desk Renamed",
+            host: profile.host
+        )
+        let editResult = await model.editProfile(edited, password: nil)
+        XCTAssertEqual(editResult, .succeeded)
+        XCTAssertEqual(model.snapshot.selectedProfile, edited)
+
+        let deleteResult = await model.deleteProfile(id: profile.id)
+        XCTAssertEqual(deleteResult, .succeeded)
+        XCTAssertTrue(model.snapshot.profiles.isEmpty)
+    }
+
     // MARK: - Diagnostic export safe-catalog invariance
 
     func testDiagnosticExportSafeCatalogStaysOpaqueAfterEditAndDeleteEvents() async throws {
@@ -462,5 +891,85 @@ final class ProfileEditDeleteTests: XCTestCase {
         XCTAssertFalse(summary.contains("Retry"))
         XCTAssertFalse(summary.contains("desk-hunter2"))
         XCTAssertTrue(summary.contains("Authentication stage."))
+    }
+}
+
+private struct RetryableConnectionProfilePersistenceError: Error {}
+
+private struct DeleteFailingCredentialStoreError: Error {}
+
+private actor DeleteFailingCredentialStore: ConnectionCredentialStoreProtocol {
+    private var passwords: [String: String]
+    private let failingDeleteRef: String
+
+    init(passwords: [String: String], failingDeleteRef: String) {
+        self.passwords = passwords
+        self.failingDeleteRef = failingDeleteRef
+    }
+
+    func savePassword(_ password: String, for credentialRef: String) {
+        passwords[credentialRef] = password
+    }
+
+    func password(for credentialRef: String) -> String? {
+        passwords[credentialRef]
+    }
+
+    func deletePassword(for credentialRef: String) throws {
+        guard credentialRef != failingDeleteRef else {
+            throw DeleteFailingCredentialStoreError()
+        }
+        passwords.removeValue(forKey: credentialRef)
+    }
+}
+
+private struct FailFirstConnectionProfilePersistenceError: Error {}
+
+private actor FailFirstConnectionProfilePersistence: ConnectionProfilePersisting {
+    private var profiles: [ConnectionProfile]
+    private var saveCount = 0
+
+    init(profiles: [ConnectionProfile]) {
+        self.profiles = profiles
+    }
+
+    func loadProfiles() -> [ConnectionProfile] {
+        profiles
+    }
+
+    func saveProfiles(_ profiles: [ConnectionProfile]) throws {
+        saveCount += 1
+        guard saveCount > 1 else {
+            throw FailFirstConnectionProfilePersistenceError()
+        }
+        self.profiles = profiles
+    }
+}
+
+private actor RetryableConnectionProfilePersistence: ConnectionProfilePersisting {
+    private var profiles: [ConnectionProfile]
+    private var shouldFail: Bool
+
+    init(
+        profiles: [ConnectionProfile] = [],
+        shouldFail: Bool
+    ) {
+        self.profiles = profiles
+        self.shouldFail = shouldFail
+    }
+
+    func loadProfiles() -> [ConnectionProfile] {
+        profiles
+    }
+
+    func saveProfiles(_ profiles: [ConnectionProfile]) throws {
+        guard !shouldFail else {
+            throw RetryableConnectionProfilePersistenceError()
+        }
+        self.profiles = profiles
+    }
+
+    func setShouldFail(_ shouldFail: Bool) {
+        self.shouldFail = shouldFail
     }
 }

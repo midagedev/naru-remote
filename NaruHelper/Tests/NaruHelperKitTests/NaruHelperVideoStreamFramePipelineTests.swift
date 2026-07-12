@@ -303,6 +303,43 @@ final class NaruHelperVideoStreamFramePipelineTests: XCTestCase {
         XCTAssertEqual(emitted.envelope.body.kind, accessUnit.kind)
     }
 
+    func testFrameStreamMapsEncodedBackpressureAfterAccessUnitToSafeStall() async throws {
+        let request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
+        let accessUnit = NaruHelperVideoAccessUnit(
+            sequence: 0,
+            kind: .keyframe,
+            binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+        )
+        let pipeline = makePipeline(
+            accessUnitSource: FailingStreamAccessUnitSource(
+                accessUnitsBeforeFailure: [accessUnit],
+                error: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .encodedAccessUnitBackpressureExceeded
+            )
+        )
+
+        let frames = try await collectFrames(
+            from: try pipeline.frameStream(
+                forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+            )
+        )
+
+        XCTAssertEqual(frames.count, 3)
+        let emitted = try decodeAccessUnit(from: frames[1])
+        XCTAssertEqual(emitted.envelope.body.sequence, accessUnit.sequence)
+        XCTAssertEqual(emitted.envelope.body.kind, accessUnit.kind)
+
+        let stall = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoStreamStallBody>.self,
+            from: frames[2]
+        ).envelope
+        XCTAssertEqual(stall.messageType, .streamStalled)
+        XCTAssertEqual(stall.body.reason, .transportBackpressure)
+        XCTAssertEqual(stall.body.health.state, .stalled)
+        XCTAssertTrue(stall.body.health.shouldUseVNCVisualFallback)
+        try assertSafeJSONPayload(in: frames[2])
+    }
+
     func testOversizedAccessUnitPayloadIsRejectedBeforeFrameEmission() throws {
         let request = signedEnvelope(body: HelperVideoStartStreamRequestBody())
         let pipeline = makePipeline(accessUnits: [

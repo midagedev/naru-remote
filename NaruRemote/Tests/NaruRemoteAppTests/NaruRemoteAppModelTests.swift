@@ -1594,6 +1594,138 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.diagnosticRun?.stages.last?.stage, .firstFrame)
     }
 
+    func testConnectProfileSelectsAndConnectsRequestedProfileAsOneIntent() async throws {
+        let first = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let requested = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Studio")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [first, requested],
+                selectedProfileID: first.id
+            ),
+            connectorFactory: { connector }
+        )
+
+        await model.connectProfile(id: requested.id)
+        for _ in 0..<80 where model.snapshot.session?.state != .active {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertEqual(model.snapshot.selectedProfile?.id, requested.id)
+        XCTAssertEqual(model.snapshot.session?.profileID, requested.id)
+        XCTAssertEqual(model.snapshot.session?.state, .active)
+        XCTAssertEqual(
+            connector.requests,
+            [FakeFirstFrameConnector.Request(host: requested.host, port: UInt16(requested.port))]
+        )
+    }
+
+    func testDisconnectDropsLateNonStreamingFirstFrameSuccess() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let connectGate = SynchronousConnectGate()
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            connectGate: connectGate
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            connectorFactory: { connector }
+        )
+        defer { connectGate.release() }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<80 where !connectGate.hasEntered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(connectGate.hasEntered)
+
+        let disconnectedSessionID = try XCTUnwrap(model.snapshot.session?.id)
+        model.disconnect()
+        connectGate.release()
+        for _ in 0..<80 where connector.completedRequestCount == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertEqual(connector.completedRequestCount, 1)
+        XCTAssertEqual(model.snapshot.session?.id, disconnectedSessionID)
+        XCTAssertEqual(model.snapshot.session?.state, .closed)
+        XCTAssertEqual(model.snapshot.session?.hudMessage, "Disconnected")
+        XCTAssertNotEqual(model.snapshot.diagnosticRun?.verdict, .passed)
+        XCTAssertNil(model.snapshot.latestFramebuffer)
+    }
+
+    func testProfileSwitchDropsLateNonStreamingFirstFrameFailure() async throws {
+        let first = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let second = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
+        let connectGate = SynchronousConnectGate()
+        let connector = FakeFirstFrameConnector(
+            width: 1440,
+            height: 900,
+            name: "Desk",
+            connectError: RFBNetworkClientError.connectionFailed,
+            connectGate: connectGate
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [first, second],
+                selectedProfileID: first.id
+            ),
+            connectorFactory: { connector }
+        )
+        defer { connectGate.release() }
+
+        await model.connectSelectedProfile()
+        for _ in 0..<80 where !connectGate.hasEntered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(connectGate.hasEntered)
+
+        model.selectProfile(id: second.id)
+        let switchedSession = try XCTUnwrap(model.snapshot.session)
+        connectGate.release()
+        for _ in 0..<80 where connector.completedRequestCount == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertEqual(connector.completedRequestCount, 1)
+        XCTAssertEqual(model.snapshot.selectedProfile?.id, second.id)
+        XCTAssertEqual(model.snapshot.session, switchedSession)
+        XCTAssertNotEqual(model.snapshot.session?.state, .failed)
+        XCTAssertNil(model.snapshot.diagnosticRun)
+    }
+
+    func testDisconnectWhileCredentialLoadsDoesNotLaunchStaleTransport() async throws {
+        let credentialRef = "vnc-password:blocked"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            credentialRef: credentialRef
+        )
+        let credentialStore = BlockingCredentialStore(password: "secret")
+        let connector = FakeFirstFrameConnector(width: 1440, height: 900, name: "Desk")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: credentialStore,
+            connectorFactory: { connector }
+        )
+
+        let connectTask = Task { await model.connectSelectedProfile() }
+        await credentialStore.waitForPasswordRequest()
+        model.disconnect()
+        await credentialStore.releasePasswordRequest()
+        await connectTask.value
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertEqual(model.snapshot.session?.state, .closed)
+        XCTAssertEqual(model.snapshot.session?.hudMessage, "Disconnected")
+        XCTAssertEqual(connector.requests, [])
+        XCTAssertNil(model.snapshot.latestFramebuffer)
+    }
+
     func testModelConnectsStreamingClientAndStoresFirstFramebuffer() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
@@ -3094,8 +3226,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(30))
-        XCTAssertNotNil(model.snapshot.latestFramebuffer)
+        for _ in 0..<120 where model.snapshot.latestFramebuffer != framebuffer {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
 
         model.selectProfile(id: second.id)
 
@@ -6025,9 +6159,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(2))
         }
         XCTAssertEqual(connector.clipboardPayloads, ["중단되어야 하는 paste"])
+        XCTAssertTrue(
+            connector.pasteCommands.isEmpty,
+            "Observing the clipboard transfer before any paste command places the send inside its settle window."
+        )
 
         model.disconnect()
-        try await Task.sleep(for: .milliseconds(420))
+        for _ in 0..<120 where model.snapshot.latestInjectionAttempt?.status != .failed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
 
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
@@ -6251,7 +6391,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(140))
+        try await waitForLatestFramebuffer(model, equalTo: secondFramebuffer)
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
         XCTAssertNil(model.snapshot.pipWatchSession)
@@ -6402,11 +6542,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 fill: RFBColor(red: UInt8(red), green: 0, blue: 0)
             )
         }
+        let connectGate = SynchronousConnectGate()
         let connector = FakeStreamingConnector(
             width: 2,
             height: 2,
             name: "Desk",
-            framebuffers: framebuffers
+            framebuffers: framebuffers,
+            connectGate: connectGate
         )
         let frameApplicationGate = PacingSleepGate()
         let model = NaruRemoteAppModel(
@@ -6414,13 +6556,35 @@ final class NaruRemoteAppModelTests: XCTestCase {
             frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: framebuffers.count, frameInterval: 0),
             connectorFactory: { connector },
             lowPowerModeProvider: { false },
+            // Request/decode pacing has its own integration coverage. Let the
+            // producer fill this test's bounded queue immediately so the
+            // frame-application worker and its coalescing slot are isolated.
+            streamPacingSleep: { _ in },
             frameApplicationSleep: { delay in
                 try await frameApplicationGate.sleep(delay)
             }
         )
+        defer {
+            connectGate.release()
+            model.disconnect()
+        }
 
         await model.connectSelectedProfile()
+        for _ in 0..<80 where !connectGate.hasEntered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(connectGate.hasEntered)
+
+        // Hold the synchronous connector before its first frame so Compose
+        // focus is established before any content can claim an application
+        // slot. This removes the connect/focus race deterministically.
         model.setComposeInputEditingActive(true)
+        XCTAssertEqual(
+            model.frameApplicationContentFrameMinimumIntervalForTesting,
+            SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval,
+            accuracy: 0.0001
+        )
+        connectGate.release()
 
         for _ in 0..<80 where model.snapshot.latestFramebuffer != framebuffers.first {
             try await Task.sleep(for: .milliseconds(5))
@@ -6432,17 +6596,36 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let firstFrameApplicationDelay = try XCTUnwrap(frameApplicationDelays.first)
         XCTAssertGreaterThan(
             firstFrameApplicationDelay,
-            SessionFrameApplicationWorkerPacing.visualContentFrameMinimumInterval,
-            "Compose focus must pace frame application at the slower text-input cadence, not the visual cadence."
+            0,
+            "The repeated content frame must wait for the active text-input application slot."
         )
         XCTAssertLessThanOrEqual(
             firstFrameApplicationDelay,
             SessionFrameApplicationWorkerPacing.textInputContentFrameMinimumInterval
         )
         XCTAssertEqual(
+            frameApplicationDelays.count,
+            1,
+            "The worker should occupy exactly one text-input pacing slot while the gate is closed."
+        )
+
+        // `latestContentWork(replacing:)` coalesces work that arrived while
+        // this pacing slot was occupied. Wait until the producer has recorded
+        // every frame (which happens after enqueue) before opening the slot;
+        // otherwise the worker can legitimately apply frame 2 before frames
+        // 3 and 4 have reached the bounded queue.
+        for _ in 0..<80 where model.snapshot.sessionStreamStats.deliveredFrameCount < framebuffers.count {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(
+            model.snapshot.sessionStreamStats.deliveredFrameCount,
+            framebuffers.count,
+            "All decoded frames must be queued before asserting latest-content coalescing for this pacing slot."
+        )
+        XCTAssertEqual(
             model.snapshot.latestFramebuffer,
             framebuffers.first,
-            "Focused Compose should hold repeated content frames before they enter MainActor frame application."
+            "Focused Compose should hold the queued content backlog before it enters MainActor frame application."
         )
 
         await frameApplicationGate.releaseNext()
@@ -7291,7 +7474,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(50))
+        for _ in 0..<120 where model.snapshot.lastDiagnosticVerdict[first.id] != .passed {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[first.id], .passed)
 
         // Switch to the second profile — the first profile's
@@ -7583,6 +7768,28 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertNotNil(model.snapshot.latestFramebuffer, file: file, line: line)
     }
 
+    private func waitForLatestFramebuffer(
+        _ model: NaruRemoteAppModel,
+        equalTo expectedFramebuffer: RFBRawFramebuffer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<120 {
+            if model.snapshot.latestFramebuffer == expectedFramebuffer {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            model.snapshot.latestFramebuffer,
+            expectedFramebuffer,
+            "Timed out waiting for the expected streamed framebuffer.",
+            file: file,
+            line: line
+        )
+    }
+
     private func waitForInputCoordinateSpace(
         _ model: NaruRemoteAppModel,
         file: StaticString = #filePath,
@@ -7757,6 +7964,51 @@ private actor PacingSleepGate {
     }
 }
 
+private actor BlockingCredentialStore: ConnectionCredentialStoreProtocol {
+    private let passwordValue: String?
+    private var passwordRequestStarted = false
+    private var passwordRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var passwordReleaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(password: String?) {
+        self.passwordValue = password
+    }
+
+    func savePassword(_ password: String, for credentialRef: String) async throws {
+        // This deterministic fixture only exercises a blocked read.
+    }
+
+    func password(for credentialRef: String) async throws -> String? {
+        passwordRequestStarted = true
+        let waiters = passwordRequestWaiters
+        passwordRequestWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+
+        await withCheckedContinuation { continuation in
+            passwordReleaseContinuation = continuation
+        }
+        return passwordValue
+    }
+
+    func deletePassword(for credentialRef: String) async throws {
+        // This deterministic fixture only exercises a blocked read.
+    }
+
+    func waitForPasswordRequest() async {
+        guard !passwordRequestStarted else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            passwordRequestWaiters.append(continuation)
+        }
+    }
+
+    func releasePasswordRequest() {
+        passwordReleaseContinuation?.resume()
+        passwordReleaseContinuation = nil
+    }
+}
+
 private enum FakePiPWatchError: Error {
     case renderFailed
 }
@@ -7893,6 +8145,7 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
 
     fileprivate struct Recording {
         var recordedRequests: [Request] = []
+        var completedRequestCount = 0
         var recordedClipboardPayloads: [String] = []
         var recordedPasteCommands: [PasteCommand] = []
     }
@@ -7902,6 +8155,7 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
     private let height: Int
     private let name: String
     private let connectError: Error?
+    private let connectGate: SynchronousConnectGate?
     let utf8ClipboardSupport: RemoteClipboardUTF8Support
 
     init(
@@ -7909,12 +8163,14 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
         height: Int,
         name: String,
         connectError: Error? = nil,
+        connectGate: SynchronousConnectGate? = nil,
         utf8ClipboardSupport: RemoteClipboardUTF8Support = .unknown
     ) {
         self.width = width
         self.height = height
         self.name = name
         self.connectError = connectError
+        self.connectGate = connectGate
         self.utf8ClipboardSupport = utf8ClipboardSupport
         self.recording = OSAllocatedUnfairLock(initialState: Recording())
     }
@@ -7929,6 +8185,10 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
 
     var requests: [Request] {
         recording.withLock { $0.recordedRequests }
+    }
+
+    var completedRequestCount: Int {
+        recording.withLock { $0.completedRequestCount }
     }
 
     var clipboardPayloads: [String] {
@@ -7954,15 +8214,17 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
         timeout: TimeInterval
     ) throws -> RFBServerInit {
         _ = credential
+        connectGate?.waitBeforeConnecting()
         recording.withLock { state in
             state.recordedRequests.append(Request(host: host, port: port))
         }
 
         if let connectError {
+            recording.withLock { $0.completedRequestCount += 1 }
             throw connectError
         }
 
-        return RFBServerInit(
+        let serverInit = RFBServerInit(
             width: width,
             height: height,
             pixelFormat: RFBPixelFormat(
@@ -7979,6 +8241,8 @@ private final class FakeFirstFrameConnector: RFBAuthenticatedFirstFrameConnectin
             ),
             name: name
         )
+        recording.withLock { $0.completedRequestCount += 1 }
+        return serverInit
     }
 
     func setClipboardText(_ text: String) throws {
@@ -8200,6 +8464,40 @@ private final class RecordingStreamConnectorFactory: @unchecked Sendable {
     }
 }
 
+private final class SynchronousConnectGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private var entered = false
+    private var released = false
+
+    var hasEntered: Bool {
+        lock.withLock { entered }
+    }
+
+    func waitBeforeConnecting() {
+        let shouldWait = lock.withLock { () -> Bool in
+            entered = true
+            return !released
+        }
+        if shouldWait {
+            releaseSemaphore.wait()
+        }
+    }
+
+    func release() {
+        let shouldSignal = lock.withLock { () -> Bool in
+            guard !released else {
+                return false
+            }
+            released = true
+            return true
+        }
+        if shouldSignal {
+            releaseSemaphore.signal()
+        }
+    }
+}
+
 private final class FakeStreamingConnector:
     RFBStreamingClient,
     RFBBestEffortPointerEventClient,
@@ -8230,6 +8528,7 @@ private final class FakeStreamingConnector:
     private let name: String
     private let connectDelay: TimeInterval
     private let frameUpdateDelay: TimeInterval
+    private let connectGate: SynchronousConnectGate?
 
     var recordedPointerEvents: [(mask: UInt8, x: UInt16, y: UInt16)] {
         recording.withLock { $0.recordedPointerEventsList }
@@ -8265,13 +8564,15 @@ private final class FakeStreamingConnector:
         framebuffer: RFBRawFramebuffer,
         canEnableContinuousUpdates: Bool = false,
         connectDelay: TimeInterval = 0,
-        frameUpdateDelay: TimeInterval = 0
+        frameUpdateDelay: TimeInterval = 0,
+        connectGate: SynchronousConnectGate? = nil
     ) {
         self.width = width
         self.height = height
         self.name = name
         self.connectDelay = max(connectDelay, 0)
         self.frameUpdateDelay = max(frameUpdateDelay, 0)
+        self.connectGate = connectGate
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: [.fullFrame(framebuffer: framebuffer)],
@@ -8287,13 +8588,15 @@ private final class FakeStreamingConnector:
         framebuffers: [RFBRawFramebuffer],
         canEnableContinuousUpdates: Bool = false,
         connectDelay: TimeInterval = 0,
-        frameUpdateDelay: TimeInterval = 0
+        frameUpdateDelay: TimeInterval = 0,
+        connectGate: SynchronousConnectGate? = nil
     ) {
         self.width = width
         self.height = height
         self.name = name
         self.connectDelay = max(connectDelay, 0)
         self.frameUpdateDelay = max(frameUpdateDelay, 0)
+        self.connectGate = connectGate
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: framebuffers.map { .fullFrame(framebuffer: $0) },
@@ -8309,13 +8612,15 @@ private final class FakeStreamingConnector:
         updateResults: [RFBFramebufferUpdateResult],
         canEnableContinuousUpdates: Bool = false,
         connectDelay: TimeInterval = 0,
-        frameUpdateDelay: TimeInterval = 0
+        frameUpdateDelay: TimeInterval = 0,
+        connectGate: SynchronousConnectGate? = nil
     ) {
         self.width = width
         self.height = height
         self.name = name
         self.connectDelay = max(connectDelay, 0)
         self.frameUpdateDelay = max(frameUpdateDelay, 0)
+        self.connectGate = connectGate
         self.recording = OSAllocatedUnfairLock(
             initialState: Recording(
                 frameUpdates: updateResults,
@@ -8379,6 +8684,7 @@ private final class FakeStreamingConnector:
         credential: RFBConnectionCredential,
         timeout: TimeInterval
     ) throws -> RFBServerInit {
+        connectGate?.waitBeforeConnecting()
         if connectDelay > 0 {
             Thread.sleep(forTimeInterval: connectDelay)
         }

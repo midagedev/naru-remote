@@ -965,14 +965,13 @@ without unsafe report fields.
   instructions by about `32.3%`. Evidence recorded in
   `artifacts/benchmarks/2026-06-17-helper-video-wire-codec-split-decode-benchmark-summary.md`.
   **Done.**
-- [ ] T030 [US1] Record physical iPhone + Mac manual verification evidence.
-  Latest 2026-06-17 reconnected-iPhone preflight resolves the target as a
-  connected iPhone, so the current blocker is not USB/device discovery. The
-  gate still stops before install because command-line Xcode reports
-  `xcode-account-missing`, `ios-provisioning-profile-missing`, and no exact app
-  development profile; wildcard development profiles are present but not a
-  passing signal for this app bundle. Evidence recorded in
-  `artifacts/benchmarks/2026-06-17-physical-iphone-reconnected-signing-gate-summary.md`.
+- [ ] T030 [US1] Record physical iPhone + Mac **real-screen** manual
+  verification evidence. Signing/provisioning is no longer the blocker: the
+  2026-07-05 120-second physical iPhone gate passed with the
+  `synthetic-encoded` helper source. The remaining promotion gate is the same
+  physical path with ScreenCaptureKit real-screen capture after one-time Screen
+  Recording approval, extended to the 30-minute RSS/thermal target. Evidence:
+  `artifacts/benchmarks/2026-07-05-physical-iphone-release-hud-and-helper-gate-summary.md`.
 - [x] T031 [US2] Run a true live helper-video access-unit benchmark after the
   helper sender/listener is connected to the iOS decode path. Current
   2026-06-14 evidence reports `helper-video-live-gate` as
@@ -995,8 +994,19 @@ without unsafe report fields.
   the review also fixed a selected-suite synthetic H.264 benchmark timeout
   flake by applying frame-budget-aware local probe timeouts. **Done.**
 - [x] TXXX Record residual manual-device risks if physical iPhone/Mac
-  verification cannot be completed in the current environment. Current
-  2026-06-17 evidence records the iPhone as connected but physical promotion
-  blocked by Xcode account / exact development provisioning profile setup in
-  `artifacts/benchmarks/2026-06-17-physical-iphone-residual-risk-summary.md`.
-  **Done.**
+  verification cannot be completed in the current environment. The 2026-06-17
+  signing residual was superseded by the successful 2026-07-05 synthetic-source
+  physical gate; the still-open residual is real-screen Screen Recording plus
+  the 30-minute sustained run. **Done.**
+
+## Release-readiness review fixes (2026-07-12)
+
+- [x] T031BI [US2] Bound both Toolbox and ScreenCaptureKit encoded H.264
+  access-unit streams (default capacity 8, oldest-prefix retention). When a
+  producer outruns its consumer, terminate with a typed backpressure failure
+  instead of dropping a parameter set/keyframe/delta out of the reference
+  chain. Map the typed overflow to the existing `transportBackpressure` wire
+  stall so the real server/client/session runner selects VNC while preserving
+  the active session and Compose draft. Covered by encoder, frame-pipeline,
+  network-service, and real TCP session-runner tests. The 30-minute real-screen
+  RSS/thermal gate remains open.

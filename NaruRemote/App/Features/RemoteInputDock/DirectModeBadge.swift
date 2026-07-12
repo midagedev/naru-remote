@@ -20,8 +20,9 @@ import SwiftUI
 ///
 /// Visual idiom: warning-tinted small chip with an
 /// `exclamationmark.triangle.fill` SF symbol and the copy
-/// "Direct — IME off".  Coral fill (`NaruColors.coral`) reads as a
-/// state-warning rather than a neutral mode indicator.
+/// "Direct — IME off".  A semantic surface/ink pair keeps the small
+/// copy readable in both appearances while the Coral icon and outline
+/// preserve the state-warning cue.
 ///
 /// Accessibility: a single combined element announces "Direct
 /// keystroke mode active, IME disabled" so VoiceOver doesn't read
@@ -44,16 +45,20 @@ struct DirectModeBadge: View {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(NaruColors.coral)
                 Text("IME off")
                     .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NaruColors.ink)
                     .lineLimit(1)
             }
             .fixedSize(horizontal: true, vertical: false)
-            .foregroundStyle(Color.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
-                Capsule().fill(NaruColors.coral)
+                Capsule().fill(NaruColors.surface)
+            )
+            .overlay(
+                Capsule().stroke(NaruColors.coral, lineWidth: 1)
             )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Direct keystroke mode active, IME disabled")

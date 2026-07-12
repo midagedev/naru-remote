@@ -78,6 +78,94 @@ private struct ComposeRouteDiagnosticSnapshot {
     var helperProfileID: ConnectionProfile.ID?
 }
 
+/// Fixed, privacy-safe failures for profile mutations.  Raw persistence or
+/// Keychain errors never cross into the UI; the editor can safely render this
+/// catalog while leaving the user's form in place for a retry.
+public enum ProfilePersistenceFailure: Equatable, Sendable {
+    case profileSave
+    case profileRemoval
+    case passwordSave
+    case passwordRemoval
+    case helperTokenSave
+    case helperTokenRemoval
+    case helperVideoTokenSave
+    case helperVideoTokenRemoval
+    case credentialRestore
+
+    public var safeMessage: String {
+        switch self {
+        case .profileSave:
+            "Profile could not be saved on this device."
+        case .profileRemoval:
+            "Profile could not be removed on this device."
+        case .passwordSave:
+            "Password could not be saved on this device."
+        case .passwordRemoval:
+            "Password could not be removed on this device."
+        case .helperTokenSave:
+            "Helper token could not be saved on this device."
+        case .helperTokenRemoval:
+            "Helper token could not be removed on this device."
+        case .helperVideoTokenSave:
+            "Helper video token could not be saved on this device."
+        case .helperVideoTokenRemoval:
+            "Helper video token could not be removed on this device."
+        case .credentialRestore:
+            "Profile could not be saved, and saved credentials could not be restored on this device."
+        }
+    }
+}
+
+/// Completion handed back to profile-mutation UI.  `succeeded` means the
+/// profile store write (or the explicit nil-store fixture path) completed;
+/// callers must not dismiss an editor before receiving it.
+public enum ProfilePersistenceResult: Equatable, Sendable {
+    case succeeded
+    case failed(ProfilePersistenceFailure)
+
+    public var failure: ProfilePersistenceFailure? {
+        guard case .failed(let failure) = self else {
+            return nil
+        }
+        return failure
+    }
+}
+
+/// One process-local undo record for a Keychain mutation performed while a
+/// profile write is still provisional. Values never leave this call stack,
+/// are never logged, and are discarded immediately after commit/rollback.
+private struct CredentialMutationRollback {
+    let credentialRef: String
+    let previousValue: String?
+}
+
+/// Serializes profile + Keychain transactions across MainActor suspension
+/// points. `@MainActor` alone permits reentrancy at every `await`; without a
+/// gate, overlapping add/edit/delete calls can observe and roll back each
+/// other's provisional credential mutations.
+private actor ProfilePersistenceMutationGate {
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        guard isLocked else {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        guard !waiters.isEmpty else {
+            isLocked = false
+            return
+        }
+        waiters.removeFirst().resume()
+    }
+}
+
 @MainActor
 public final class NaruRemoteAppModel: ObservableObject {
     public typealias HelperVideoStartStream = @Sendable (
@@ -276,6 +364,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let frameStreamConfiguration: RFBFramePumpConfiguration
     private let reconnectPolicy: ReconnectPolicy
     private var profileStore: ConnectionProfileStore?
+    private let profilePersistenceMutationGate = ProfilePersistenceMutationGate()
     private var profilePreviewStore: (any ProfilePreviewStore)?
     private let credentialStore: ConnectionCredentialStoreProtocol?
     private let settingsPersistence: AppSettingsPersisting?
@@ -1312,45 +1401,178 @@ public final class NaruRemoteAppModel: ObservableObject {
         selectedProfileID = id
     }
 
+    private func withSerializedProfileMutation<Result>(
+        _ operation: @MainActor () async -> Result
+    ) async -> Result {
+        await profilePersistenceMutationGate.acquire()
+        let result = await operation()
+        await profilePersistenceMutationGate.release()
+        return result
+    }
+
+    private func profilePersistenceFailed(
+        _ failure: ProfilePersistenceFailure
+    ) -> ProfilePersistenceResult {
+        profilePersistenceError = failure.safeMessage
+        return .failed(failure)
+    }
+
+    private func applyCredentialMutation(
+        _ newValue: String?,
+        credentialRef: String,
+        failure: ProfilePersistenceFailure,
+        rollbackJournal: inout [CredentialMutationRollback]
+    ) async -> ProfilePersistenceFailure? {
+        guard let credentialStore else {
+            // A nil credential store is an explicit no-Keychain fixture path
+            // for deletions. New secret material still cannot be accepted.
+            return newValue == nil ? nil : failure
+        }
+
+        let previousValue: String?
+        do {
+            previousValue = try await credentialStore.password(for: credentialRef)
+        } catch {
+            return failure
+        }
+
+        // Record the undo value before attempting the mutation. The concrete
+        // Keychain store replaces an item with delete-then-add, so even a
+        // throwing save can have changed the prior entry and needs recovery.
+        rollbackJournal.append(
+            CredentialMutationRollback(
+                credentialRef: credentialRef,
+                previousValue: previousValue
+            )
+        )
+
+        do {
+            if let newValue {
+                try await credentialStore.savePassword(newValue, for: credentialRef)
+            } else {
+                try await credentialStore.deletePassword(for: credentialRef)
+            }
+        } catch {
+            return failure
+        }
+        return nil
+    }
+
+    private func rollbackCredentialMutations(
+        _ rollbackJournal: [CredentialMutationRollback]
+    ) async -> Bool {
+        guard let credentialStore else {
+            return true
+        }
+
+        var restoredAll = true
+        for mutation in rollbackJournal.reversed() {
+            do {
+                if let previousValue = mutation.previousValue {
+                    try await credentialStore.savePassword(
+                        previousValue,
+                        for: mutation.credentialRef
+                    )
+                } else {
+                    try await credentialStore.deletePassword(for: mutation.credentialRef)
+                }
+            } catch {
+                // Continue restoring the remaining entries. The caller gets a
+                // fixed catalog failure; raw Keychain errors and values never
+                // enter UI state or logs.
+                restoredAll = false
+            }
+        }
+        return restoredAll
+    }
+
+    private func profilePersistenceFailed(
+        _ failure: ProfilePersistenceFailure,
+        rollingBack rollbackJournal: [CredentialMutationRollback]
+    ) async -> ProfilePersistenceResult {
+        let restoredAll = await rollbackCredentialMutations(rollbackJournal)
+        return profilePersistenceFailed(restoredAll ? failure : .credentialRestore)
+    }
+
+    @discardableResult
     public func addProfile(
         _ profile: ConnectionProfile,
         password: String? = nil,
         helperPairingSecret: String? = nil,
         helperVideoPairingSecret: String? = nil
-    ) async {
+    ) async -> ProfilePersistenceResult {
+        await withSerializedProfileMutation {
+            await addProfileTransaction(
+                profile,
+                password: password,
+                helperPairingSecret: helperPairingSecret,
+                helperVideoPairingSecret: helperVideoPairingSecret
+            )
+        }
+    }
+
+    private func addProfileTransaction(
+        _ profile: ConnectionProfile,
+        password: String?,
+        helperPairingSecret: String?,
+        helperVideoPairingSecret: String?
+    ) async -> ProfilePersistenceResult {
         profilePersistenceError = nil
         var profileToSave = profile
+        var credentialRollbackJournal: [CredentialMutationRollback] = []
         let trimmedPassword = password?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let trimmedPassword, !trimmedPassword.isEmpty {
-            guard let credentialStore else {
-                profilePersistenceError = "Password could not be saved on this device."
-                return
-            }
-
             let credentialRef = profileToSave.credentialRef ?? Self.credentialReference(for: profileToSave.id)
-            do {
-                try await credentialStore.savePassword(trimmedPassword, for: credentialRef)
-                profileToSave.credentialRef = credentialRef
-            } catch {
-                profilePersistenceError = "Password could not be saved on this device."
-                return
+            if let failure = await applyCredentialMutation(
+                trimmedPassword,
+                credentialRef: credentialRef,
+                failure: .passwordSave,
+                rollbackJournal: &credentialRollbackJournal
+            ) {
+                return await profilePersistenceFailed(
+                    failure,
+                    rollingBack: credentialRollbackJournal
+                )
             }
+            profileToSave.credentialRef = credentialRef
         }
 
-        guard await applyHelperPairingSecretUpdate(
+        if let failure = await applyHelperPairingSecretUpdate(
             helperPairingSecret,
             to: &profileToSave,
-            existingProfile: nil
-        ) else {
-            return
+            existingProfile: nil,
+            rollbackJournal: &credentialRollbackJournal
+        ) {
+            return await profilePersistenceFailed(
+                failure,
+                rollingBack: credentialRollbackJournal
+            )
         }
-        guard await applyHelperVideoPairingSecretUpdate(
+        if let failure = await applyHelperVideoPairingSecretUpdate(
             helperVideoPairingSecret,
             to: &profileToSave,
-            existingProfile: nil
-        ) else {
-            return
+            existingProfile: nil,
+            rollbackJournal: &credentialRollbackJournal
+        ) {
+            return await profilePersistenceFailed(
+                failure,
+                rollingBack: credentialRollbackJournal
+            )
+        }
+
+        // A nil store is an explicit in-memory fixture path and therefore a
+        // successful persistence boundary.  With a real store, do not publish
+        // the profile or dismiss its editor until the durable write completes.
+        if let profileStore {
+            do {
+                try await profileStore.save(profileToSave)
+            } catch {
+                return await profilePersistenceFailed(
+                    .profileSave,
+                    rollingBack: credentialRollbackJournal
+                )
+            }
         }
 
         if let index = profiles.firstIndex(where: { $0.id == profileToSave.id }) {
@@ -1360,12 +1582,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         publishInitialHelperTextBridgeState(for: profileToSave)
         publishInitialHelperVideoState(for: profileToSave)
-
-        do {
-            try await profileStore?.save(profileToSave)
-        } catch {
-            profilePersistenceError = "Profile could not be saved on this device."
-        }
         refreshProfileReachability()
 
         selectedProfileID = profileToSave.id
@@ -1399,6 +1615,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             activeStreamCredential = nil
             reconnectAttempts = 0
         }
+        return .succeeded
     }
 
     /// Replace the saved record for an existing profile.  The
@@ -1419,19 +1636,40 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// place (the user is iterating on the same target).  If the
     /// profile id is unknown, this is a no-op so a stale UI never
     /// resurrects a deleted profile.
+    @discardableResult
     public func editProfile(
         _ profile: ConnectionProfile,
         password: String?,
         helperPairingSecret: String? = nil,
         helperVideoPairingSecret: String? = nil
-    ) async {
+    ) async -> ProfilePersistenceResult {
+        await withSerializedProfileMutation {
+            await editProfileTransaction(
+                profile,
+                password: password,
+                helperPairingSecret: helperPairingSecret,
+                helperVideoPairingSecret: helperVideoPairingSecret
+            )
+        }
+    }
+
+    private func editProfileTransaction(
+        _ profile: ConnectionProfile,
+        password: String?,
+        helperPairingSecret: String?,
+        helperVideoPairingSecret: String?
+    ) async -> ProfilePersistenceResult {
         profilePersistenceError = nil
 
         guard let existingProfile = profiles.first(where: { $0.id == profile.id }) else {
-            return
+            // Preserve the established stale-editor no-op behavior. There is
+            // nothing left to persist, so treating it as complete is safer
+            // than resurrecting a profile that another path deleted.
+            return .succeeded
         }
 
         var profileToSave = profile
+        var credentialRollbackJournal: [CredentialMutationRollback] = []
         if profileToSave.helperVideo == nil {
             // The current profile editor does not own helper-video
             // disable/revoke controls. Preserve that opt-in unless a dedicated
@@ -1447,45 +1685,78 @@ public final class NaruRemoteAppModel: ObservableObject {
                 // store treats a missing entry as success so the
                 // user never sees a "couldn't delete" error for a
                 // password that was never saved.
-                if let existingRef = profileToSave.credentialRef {
-                    do {
-                        try await credentialStore?.deletePassword(for: existingRef)
-                    } catch {
-                        profilePersistenceError = "Password could not be removed on this device."
-                        return
+                if let existingRef = existingProfile.credentialRef ?? profileToSave.credentialRef {
+                    if let failure = await applyCredentialMutation(
+                        nil,
+                        credentialRef: existingRef,
+                        failure: .passwordRemoval,
+                        rollbackJournal: &credentialRollbackJournal
+                    ) {
+                        return await profilePersistenceFailed(
+                            failure,
+                            rollingBack: credentialRollbackJournal
+                        )
                     }
                 }
                 profileToSave.credentialRef = nil
             } else {
-                guard let credentialStore else {
-                    profilePersistenceError = "Password could not be saved on this device."
-                    return
-                }
-
                 let credentialRef = profileToSave.credentialRef ?? Self.credentialReference(for: profileToSave.id)
-                do {
-                    try await credentialStore.savePassword(trimmedPassword, for: credentialRef)
-                    profileToSave.credentialRef = credentialRef
-                } catch {
-                    profilePersistenceError = "Password could not be saved on this device."
-                    return
+                if let failure = await applyCredentialMutation(
+                    trimmedPassword,
+                    credentialRef: credentialRef,
+                    failure: .passwordSave,
+                    rollbackJournal: &credentialRollbackJournal
+                ) {
+                    return await profilePersistenceFailed(
+                        failure,
+                        rollingBack: credentialRollbackJournal
+                    )
                 }
+                profileToSave.credentialRef = credentialRef
             }
+        } else {
+            // `nil` means the credential is outside this edit. Preserve the
+            // durable reference even if a non-UI caller supplied a partial
+            // profile without it, so the unchanged Keychain item is not
+            // orphaned by the profile write.
+            profileToSave.credentialRef = existingProfile.credentialRef
         }
 
-        guard await applyHelperPairingSecretUpdate(
+        if let failure = await applyHelperPairingSecretUpdate(
             helperPairingSecret,
             to: &profileToSave,
-            existingProfile: existingProfile
-        ) else {
-            return
+            existingProfile: existingProfile,
+            rollbackJournal: &credentialRollbackJournal
+        ) {
+            return await profilePersistenceFailed(
+                failure,
+                rollingBack: credentialRollbackJournal
+            )
         }
-        guard await applyHelperVideoPairingSecretUpdate(
+        if let failure = await applyHelperVideoPairingSecretUpdate(
             helperVideoPairingSecret,
             to: &profileToSave,
-            existingProfile: existingProfile
-        ) else {
-            return
+            existingProfile: existingProfile,
+            rollbackJournal: &credentialRollbackJournal
+        ) {
+            return await profilePersistenceFailed(
+                failure,
+                rollingBack: credentialRollbackJournal
+            )
+        }
+
+        // Keep the currently rendered profile unchanged until the durable
+        // store confirms the replacement. A nil store is the intentional
+        // in-memory fixture path and counts as success.
+        if let profileStore {
+            do {
+                try await profileStore.save(profileToSave)
+            } catch {
+                return await profilePersistenceFailed(
+                    .profileSave,
+                    rollingBack: credentialRollbackJournal
+                )
+            }
         }
 
         if let index = profiles.firstIndex(where: { $0.id == profileToSave.id }) {
@@ -1493,13 +1764,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         publishInitialHelperTextBridgeState(for: profileToSave)
         publishInitialHelperVideoState(for: profileToSave)
-
-        do {
-            try await profileStore?.save(profileToSave)
-        } catch {
-            profilePersistenceError = "Profile could not be saved on this device."
-        }
         refreshProfileReachability()
+        return .succeeded
     }
 
     private func publishInitialHelperTextBridgeState(for profile: ConnectionProfile) {
@@ -1935,10 +2201,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func applyHelperPairingSecretUpdate(
         _ helperPairingSecret: String?,
         to profile: inout ConnectionProfile,
-        existingProfile: ConnectionProfile?
-    ) async -> Bool {
+        existingProfile: ConnectionProfile?,
+        rollbackJournal: inout [CredentialMutationRollback]
+    ) async -> ProfilePersistenceFailure? {
         guard let helperPairingSecret else {
-            return true
+            return nil
         }
 
         let trimmedSecret = helperPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1946,49 +2213,55 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         guard !trimmedSecret.isEmpty else {
             if let existingRef {
-                do {
-                    try await credentialStore?.deletePassword(for: existingRef)
-                } catch {
-                    profilePersistenceError = "Helper token could not be removed on this device."
-                    return false
+                if let failure = await applyCredentialMutation(
+                    nil,
+                    credentialRef: existingRef,
+                    failure: .helperTokenRemoval,
+                    rollbackJournal: &rollbackJournal
+                ) {
+                    return failure
                 }
             }
-            return true
+            return nil
         }
 
-        guard let credentialStore else {
-            profilePersistenceError = "Helper token could not be saved on this device."
-            return false
-        }
         guard var configuration = profile.helperTextBridge else {
-            profilePersistenceError = "Helper token could not be saved on this device."
-            return false
+            return .helperTokenSave
         }
 
         let secretRef = configuration.pairingSecretRef
             ?? Self.helperPairingSecretReference(for: profile.id)
-        do {
-            try await credentialStore.savePassword(trimmedSecret, for: secretRef)
-            if let existingRef, existingRef != secretRef {
-                try await credentialStore.deletePassword(for: existingRef)
-            }
-        } catch {
-            profilePersistenceError = "Helper token could not be saved on this device."
-            return false
+        if let failure = await applyCredentialMutation(
+            trimmedSecret,
+            credentialRef: secretRef,
+            failure: .helperTokenSave,
+            rollbackJournal: &rollbackJournal
+        ) {
+            return failure
+        }
+        if let existingRef, existingRef != secretRef,
+           let failure = await applyCredentialMutation(
+               nil,
+               credentialRef: existingRef,
+               failure: .helperTokenRemoval,
+               rollbackJournal: &rollbackJournal
+           ) {
+            return failure
         }
 
         configuration.pairingSecretRef = secretRef
         profile.helperTextBridge = configuration
-        return true
+        return nil
     }
 
     private func applyHelperVideoPairingSecretUpdate(
         _ helperVideoPairingSecret: String?,
         to profile: inout ConnectionProfile,
-        existingProfile: ConnectionProfile?
-    ) async -> Bool {
+        existingProfile: ConnectionProfile?,
+        rollbackJournal: inout [CredentialMutationRollback]
+    ) async -> ProfilePersistenceFailure? {
         guard let helperVideoPairingSecret else {
-            return true
+            return nil
         }
 
         let trimmedSecret = helperVideoPairingSecret.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1996,59 +2269,111 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         guard !trimmedSecret.isEmpty else {
             if let existingRef {
-                do {
-                    try await credentialStore?.deletePassword(for: existingRef)
-                } catch {
-                    profilePersistenceError = "Helper video token could not be removed on this device."
-                    return false
+                if let failure = await applyCredentialMutation(
+                    nil,
+                    credentialRef: existingRef,
+                    failure: .helperVideoTokenRemoval,
+                    rollbackJournal: &rollbackJournal
+                ) {
+                    return failure
                 }
             }
-            return true
+            return nil
         }
 
-        guard let credentialStore else {
-            profilePersistenceError = "Helper video token could not be saved on this device."
-            return false
-        }
         guard var configuration = profile.helperVideo else {
-            profilePersistenceError = "Helper video token could not be saved on this device."
-            return false
+            return .helperVideoTokenSave
         }
 
         let secretRef = configuration.pairingSecretRef
             ?? Self.helperVideoPairingSecretReference(for: profile.id)
-        do {
-            try await credentialStore.savePassword(trimmedSecret, for: secretRef)
-            if let existingRef, existingRef != secretRef {
-                try await credentialStore.deletePassword(for: existingRef)
-            }
-        } catch {
-            profilePersistenceError = "Helper video token could not be saved on this device."
-            return false
+        if let failure = await applyCredentialMutation(
+            trimmedSecret,
+            credentialRef: secretRef,
+            failure: .helperVideoTokenSave,
+            rollbackJournal: &rollbackJournal
+        ) {
+            return failure
+        }
+        if let existingRef, existingRef != secretRef,
+           let failure = await applyCredentialMutation(
+               nil,
+               credentialRef: existingRef,
+               failure: .helperVideoTokenRemoval,
+               rollbackJournal: &rollbackJournal
+           ) {
+            return failure
         }
 
         configuration.pairingSecretRef = secretRef
         profile.helperVideo = configuration
-        return true
+        return nil
     }
 
-    /// Remove a saved profile from the store.  Best-effort cleans up
-    /// the keychain credential too — keychain delete-of-missing is
-    /// treated as success so a profile that was never given a
-    /// password still deletes cleanly.
+    /// Remove a saved profile and its Keychain credentials as one provisional
+    /// mutation. Keychain delete-of-missing is success; any credential/store
+    /// failure restores prior credentials and keeps the published profile so
+    /// the user can retry safely.
     ///
     /// If the deleted profile was the active one, the session,
     /// frame stream, incoming-clipboard review, diagnostics, and
     /// PiP watch state are all torn down and `selectedProfileID` is
     /// cleared so no stale UI references the missing profile.
-    public func deleteProfile(id: ConnectionProfile.ID) async {
+    @discardableResult
+    public func deleteProfile(id: ConnectionProfile.ID) async -> ProfilePersistenceResult {
+        await withSerializedProfileMutation {
+            await deleteProfileTransaction(id: id)
+        }
+    }
+
+    private func deleteProfileTransaction(
+        id: ConnectionProfile.ID
+    ) async -> ProfilePersistenceResult {
         profilePersistenceError = nil
 
         guard let removedProfile = profiles.first(where: { $0.id == id }) else {
-            return
+            return .succeeded
         }
 
         let wasActive = selectedProfileID == id || session?.profileID == id
+        var credentialRollbackJournal: [CredentialMutationRollback] = []
+
+        // Credential removal is provisional until the profile store commits.
+        // If any Keychain delete or the durable profile delete fails, restore
+        // every prior value in reverse order and leave the row/session intact
+        // so the shell's retry action remains meaningful.
+        let credentialMutations: [(String?, ProfilePersistenceFailure)] = [
+            (removedProfile.credentialRef, .passwordRemoval),
+            (removedProfile.helperTextBridge?.pairingSecretRef, .helperTokenRemoval),
+            (removedProfile.helperVideo?.pairingSecretRef, .helperVideoTokenRemoval)
+        ]
+        for (credentialRef, failure) in credentialMutations {
+            guard let credentialRef else { continue }
+            if let mutationFailure = await applyCredentialMutation(
+                nil,
+                credentialRef: credentialRef,
+                failure: failure,
+                rollbackJournal: &credentialRollbackJournal
+            ) {
+                return await profilePersistenceFailed(
+                    mutationFailure,
+                    rollingBack: credentialRollbackJournal
+                )
+            }
+        }
+
+        // A nil store is the explicit in-memory fixture path. With a real
+        // store, durable removal is the transaction commit point.
+        if let profileStore {
+            do {
+                _ = try await profileStore.deleteProfile(id: id)
+            } catch {
+                return await profilePersistenceFailed(
+                    .profileRemoval,
+                    rollingBack: credentialRollbackJournal
+                )
+            }
+        }
 
         profiles.removeAll { $0.id == id }
         // Drop any cached verdict for the deleted profile so the
@@ -2059,40 +2384,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         lastPreviewSaveAt.removeValue(forKey: id)
         profileReachability.removeValue(forKey: id)
 
-        if let credentialRef = removedProfile.credentialRef {
-            do {
-                try await credentialStore?.deletePassword(for: credentialRef)
-            } catch {
-                // The profile is already gone from the in-memory
-                // list and the disk store; surface a non-fatal
-                // error rather than aborting the whole delete and
-                // leaving the user with a half-deleted profile.
-                profilePersistenceError = "Saved password could not be removed on this device."
-            }
-        }
-
-        if let helperSecretRef = removedProfile.helperTextBridge?.pairingSecretRef {
-            do {
-                try await credentialStore?.deletePassword(for: helperSecretRef)
-            } catch {
-                profilePersistenceError = "Helper token could not be removed on this device."
-            }
-        }
-        if let helperVideoSecretRef = removedProfile.helperVideo?.pairingSecretRef {
-            do {
-                try await credentialStore?.deletePassword(for: helperVideoSecretRef)
-            } catch {
-                profilePersistenceError = "Helper video token could not be removed on this device."
-            }
-        }
         helperTextBridgeState.removeValue(forKey: id)
         helperVideoProfileState.removeValue(forKey: id)
-
-        do {
-            _ = try await profileStore?.deleteProfile(id: id)
-        } catch {
-            profilePersistenceError = "Profile could not be removed on this device."
-        }
 
         do {
             try await profilePreviewStore?.deleteThumbnail(for: id)
@@ -2133,6 +2426,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             clearPiPWatchSession()
             selectedProfileID = nil
         }
+        return .succeeded
     }
 
     /// Build a `DiagnosticExport` from the current diagnostic state.
@@ -2991,6 +3285,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func emitDiagnosticExportForTestingIfRequested(_ run: ConnectionDiagnosticRun?) {
+#if DEBUG
         guard ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1",
               run?.finishedAt != nil
         else {
@@ -2998,9 +3293,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         emitDiagnosticExportForTesting(buildVersion: "test-device")
+#endif
     }
 
     public func emitDiagnosticExportForTesting(buildVersion: String?) {
+#if DEBUG
         guard ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1" else {
             return
         }
@@ -3015,9 +3312,11 @@ public final class NaruRemoteAppModel: ObservableObject {
         print("NARU_DIAGNOSTIC_EXPORT_BEGIN")
         print(payload)
         print("NARU_DIAGNOSTIC_EXPORT_END")
+#endif
     }
 
     private func scheduleActiveDiagnosticExportForTestingIfRequested() {
+#if DEBUG
         guard !hasScheduledActiveDiagnosticExportForTesting,
               ProcessInfo.processInfo.environment["NARU_TEST_LOG_DIAGNOSTIC_EXPORT"] == "1",
               let rawDelay = ProcessInfo.processInfo
@@ -3048,13 +3347,18 @@ public final class NaruRemoteAppModel: ObservableObject {
                 self.activeDiagnosticExportTaskForTesting = nil
             }
         }
+#endif
     }
 
     private static func testSkipsSettingsStoreLoad() -> Bool {
+#if DEBUG
         guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_SKIP_SETTINGS_STORE_LOAD"],
               !raw.isEmpty
         else { return false }
         return raw != "0" && raw.lowercased() != "false"
+#else
+        false
+#endif
     }
 
     private func connectionCredential(for profile: ConnectionProfile) async throws -> RFBConnectionCredential {
@@ -3115,8 +3419,30 @@ public final class NaruRemoteAppModel: ObservableObject {
         "helper-video-token:\(profileID.uuidString)"
     }
 
+    /// Treat a connection-grid tap as one MainActor-owned intent: select the
+    /// requested profile and start that exact profile's connection attempt.
+    /// The expected-ID gate prevents an intervening selection from turning
+    /// this tap into a connection to a different machine.
+    public func connectProfile(id: ConnectionProfile.ID) async {
+        guard profiles.contains(where: { $0.id == id }) else {
+            return
+        }
+
+        selectProfile(id: id)
+        await connectSelectedProfile(expectedProfileID: id)
+    }
+
     public func connectSelectedProfile() async {
-        guard let profile = selectedProfile else {
+        await connectSelectedProfile(expectedProfileID: selectedProfileID)
+    }
+
+    private func connectSelectedProfile(
+        expectedProfileID: ConnectionProfile.ID?
+    ) async {
+        guard let expectedProfileID,
+              selectedProfileID == expectedProfileID,
+              let profile = profiles.first(where: { $0.id == expectedProfileID })
+        else {
             return
         }
 
@@ -3154,6 +3480,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         do {
             credential = try await connectionCredential(for: profile)
         } catch {
+            guard isCurrentConnectionAttempt(
+                sessionID: nextSession.id,
+                profileID: profile.id
+            ) else {
+                return
+            }
             nextSession.markFailed("Credential unavailable")
             session = nextSession
             activeTextClient = nil
@@ -3174,6 +3506,17 @@ public final class NaruRemoteAppModel: ObservableObject {
                 startedAt: diagnosticStartedAt
             )
             recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
+            return
+        }
+
+        // Keychain access is an actor-reentrant await. The user may have
+        // disconnected, selected another profile, or started a newer retry
+        // while the credential was loading; never launch transport work for
+        // an attempt that no longer owns the visible session.
+        guard isCurrentConnectionAttempt(
+            sessionID: nextSession.id,
+            profileID: profile.id
+        ) else {
             return
         }
 
@@ -3211,6 +3554,17 @@ public final class NaruRemoteAppModel: ObservableObject {
                         timeout: requestTimeout
                     )
                 }.value
+
+                // The non-streaming connector has no streamID, so mirror the
+                // streaming path's freshness contract with the immutable
+                // attempt session/profile pair plus the explicit-disconnect
+                // latch before publishing any first-frame success state.
+                guard isCurrentConnectionAttempt(
+                    sessionID: nextSession.id,
+                    profileID: profile.id
+                ) else {
+                    return
+                }
 
                 nextSession.markFirstFrameReceived(at: connectionResult.frameCapturedAt)
                 if let framebuffer = connectionResult.framebuffer {
@@ -3279,6 +3633,15 @@ public final class NaruRemoteAppModel: ObservableObject {
                 )
                 recordDiagnosticVerdict(for: profile.id, from: diagnosticRun)
             } catch {
+                // A late failure is just as stale as a late success. In
+                // particular it must not replace the closed session after a
+                // Back/Disconnect action or a newer profile/retry session.
+                guard isCurrentConnectionAttempt(
+                    sessionID: nextSession.id,
+                    profileID: profile.id
+                ) else {
+                    return
+                }
                 stopHelperVideoStreamBootstrap()
                 activeTextClient = nil
                 activePointerClient = nil
@@ -5142,6 +5505,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         profileID: ConnectionProfile.ID
     ) -> Bool {
         activeFrameStreamID == streamID &&
+            session?.id == sessionID &&
+            selectedProfileID == profileID
+    }
+
+    /// Freshness gate for the legacy non-streaming first-frame path. The
+    /// streaming path deliberately keeps its stronger stream/session/profile
+    /// triple-check in `isCurrentStream`.
+    private func isCurrentConnectionAttempt(
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) -> Bool {
+        !explicitlyDisconnected &&
             session?.id == sessionID &&
             selectedProfileID == profileID
     }

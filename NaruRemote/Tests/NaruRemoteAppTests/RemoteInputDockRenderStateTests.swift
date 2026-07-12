@@ -3,6 +3,13 @@ import NaruRemoteCore
 @testable import NaruRemoteApp
 
 final class RemoteInputDockRenderStateTests: XCTestCase {
+    func testFloatingModeTargetsMeetMinimumTouchDimension() {
+        XCTAssertGreaterThanOrEqual(
+            RemoteInputDockView.minimumFloatingModeTargetDiameter,
+            44
+        )
+    }
+
     func testCompactComposeEditorCollapsesOnlyWhenIdleAndEmpty() {
         XCTAssertFalse(
             RemoteInputDockView.shouldShowCompactComposeEditor(

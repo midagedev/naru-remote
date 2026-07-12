@@ -77,28 +77,23 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         openFirstConnectionCardIfPresent(app: app)
 
-        // Saved-profile launch now starts on the connection grid.
-        // Opening the card lands on the existing pre-connect detail.
-        // Prefer the leaf identifier, then fall back to the visible
-        // label for older SwiftUI accessibility snapshots.
-        let connect = app.buttons["naru.session.connect"].exists
-            ? app.buttons["naru.session.connect"]
-            : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
-        XCTAssertTrue(connect.waitForExistence(timeout: 8), "Connect button must be visible at launch with a seeded profile")
-        try saveScreen(named: "01-pre-connect.png")
-        connect.tap()
+        // A saved card is the connection action: one tap enters Operation
+        // and starts the attempt without an intermediate pre-connect screen.
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(
+            diagnosticCorner.waitForExistence(timeout: 8),
+            "A card tap must enter Operation and mount its persistent diagnostic control"
+        )
+        try saveScreen(named: "01-operation-connecting.png")
 
-        // Wait up to 20s for the session to flip to "Active" (success)
-        // or for the failed diagnostic row to appear (failure).  The
+        // Wait up to 20s for Operation diagnostics to report Connected
+        // (success) or Connection failed (failure). The
         // framebuffer itself is a Metal-backed surface that doesn't
         // expose an accessibility identifier through standard XCUI
-        // queries, so we rely on the model-driven status badge.
-        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
-        let failureBadge = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Failed")).firstMatch
-        let rejectedHint = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "rejected")).firstMatch
+        // queries, so we rely on the model-driven diagnostic value.
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
-            if activeBadge.exists || failureBadge.exists || rejectedHint.exists {
+            if isConnected(diagnosticCorner) || isFailed(diagnosticCorner) {
                 break
             }
             usleep(250_000)
@@ -106,12 +101,12 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         try saveScreen(named: "02-post-connect.png")
         XCTAssertTrue(
-            activeBadge.exists,
-            "Expected session to reach Active state after connect with correct password. See 02-post-connect.png."
+            isConnected(diagnosticCorner),
+            "Expected Operation diagnostics to report Connected after one card tap. See 02-post-connect.png."
         )
         XCTAssertFalse(
-            failureBadge.exists,
-            "Did not expect a Failed badge; saw one. See 02-post-connect.png."
+            isFailed(diagnosticCorner),
+            "Did not expect Operation diagnostics to report a failed connection. See 02-post-connect.png."
         )
     }
 
@@ -137,19 +132,14 @@ final class LocalMacConnectE2EUITests: XCTestCase {
 
         openFirstConnectionCardIfPresent(app: app)
 
-        let connect = app.buttons["naru.session.connect"].exists
-            ? app.buttons["naru.session.connect"]
-            : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
-        XCTAssertTrue(connect.waitForExistence(timeout: 8))
-        connect.tap()
-
-        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 8))
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
-            if activeBadge.exists { break }
+            if isConnected(diagnosticCorner) || isFailed(diagnosticCorner) { break }
             usleep(250_000)
         }
-        XCTAssertTrue(activeBadge.exists, "Session must be Active before composing")
+        XCTAssertTrue(isConnected(diagnosticCorner), "Session must be Connected before composing")
         try saveScreen(named: "09-active.png")
 
         // In a live session the dock shows the floating "Compose" reveal
@@ -165,8 +155,21 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         var revealTapsNeeded = 0
         var editor = app.textViews["Remote input text"]
         for attempt in 1...3 {
-            let reveal = app.buttons["naru.input.compose-reveal"].firstMatch
-            guard reveal.waitForExistence(timeout: 5) else { break }
+            // Primary query is `buttons` — if that misses while the `.any`
+            // fallback hits, an interactive control has lost its `.isButton`
+            // trait (2026-07-12 finding: `.accessibilityElement(children:
+            // .ignore)` without `.accessibilityAddTraits(.isButton)`), which
+            // is a VoiceOver defect. Surface it as a test finding.
+            var reveal = app.buttons["naru.input.compose-reveal"].firstMatch
+            if !reveal.waitForExistence(timeout: 5) {
+                reveal = app.descendants(matching: .any)["naru.input.compose-reveal"].firstMatch
+                if reveal.exists {
+                    XCTContext.runActivity(
+                        named: "FINDING: compose reveal lost its .isButton trait (VoiceOver defect)"
+                    ) { _ in }
+                }
+            }
+            guard reveal.exists else { break }
             reveal.tap()
             revealTapsNeeded = attempt
             editor = app.textViews["Remote input text"]
@@ -207,13 +210,20 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: "definitely-wrong-pw")
         openFirstConnectionCardIfPresent(app: app)
 
-        // Prefer the leaf identifier, then fall back to the visible
-        // label for older SwiftUI accessibility snapshots.
-        let connect = app.buttons["naru.session.connect"].exists
-            ? app.buttons["naru.session.connect"]
-            : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
-        XCTAssertTrue(connect.waitForExistence(timeout: 8))
-        connect.tap()
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 8))
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !isFailed(diagnosticCorner) {
+            usleep(250_000)
+        }
+        XCTAssertTrue(
+            isFailed(diagnosticCorner),
+            "Expected Operation diagnostics to report the authentication failure"
+        )
+
+        // The corner remains a compact status surface. Open its sheet before
+        // asserting the full, actionable safe-detail catalog entry.
+        diagnosticCorner.tap()
 
         let macHint = NSPredicate(format: "label CONTAINS[c] %@", "VNC password was rejected")
         let macHintLabel = app.staticTexts.matching(macHint).firstMatch
@@ -272,6 +282,18 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
         XCTAssertTrue(firstCard.waitForExistence(timeout: 4))
         firstCard.tap()
+    }
+
+    private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
+        diagnosticValue(diagnosticCorner).lowercased().hasPrefix("connected")
+    }
+
+    private func isFailed(_ diagnosticCorner: XCUIElement) -> Bool {
+        diagnosticValue(diagnosticCorner).lowercased().hasPrefix("connection failed")
+    }
+
+    private func diagnosticValue(_ diagnosticCorner: XCUIElement) -> String {
+        diagnosticCorner.value as? String ?? ""
     }
 
     private func writeSeedProfile(

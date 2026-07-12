@@ -247,6 +247,7 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
     /// frame for smoke tests and fixture callers.
     public var frameCount: Int
     private let pixelBufferProvider: any NaruHelperVideoScreenCaptureKitPixelBufferProvider
+    private let encodedAccessUnitBufferCapacity: Int
 
     public init(frameCount: Int = 2) {
         self.init(
@@ -259,8 +260,23 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         frameCount: Int = 2,
         pixelBufferProvider: any NaruHelperVideoScreenCaptureKitPixelBufferProvider
     ) {
+        self.init(
+            frameCount: frameCount,
+            pixelBufferProvider: pixelBufferProvider,
+            encodedAccessUnitBufferCapacity: NaruHelperVideoEncodedAccessUnitStreamPolicy
+                .defaultCapacity
+        )
+    }
+
+    init(
+        frameCount: Int = 2,
+        pixelBufferProvider: any NaruHelperVideoScreenCaptureKitPixelBufferProvider,
+        encodedAccessUnitBufferCapacity: Int
+    ) {
         self.frameCount = max(frameCount, 0)
         self.pixelBufferProvider = pixelBufferProvider
+        self.encodedAccessUnitBufferCapacity = NaruHelperVideoEncodedAccessUnitStreamPolicy
+            .normalizedCapacity(encodedAccessUnitBufferCapacity)
     }
 
     public func accessUnits(
@@ -312,7 +328,11 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         let pixelBufferStreamBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferStreamBox(
             stream: pixelBufferStream
         )
-        return AsyncThrowingStream { continuation in
+        return AsyncThrowingStream(
+            bufferingPolicy: NaruHelperVideoEncodedAccessUnitStreamPolicy.bufferingPolicy(
+                capacity: encodedAccessUnitBufferCapacity
+            )
+        ) { continuation in
             let producer = Task.detached(priority: .userInitiated) {
                 do {
                     let iteratorBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferIteratorBox(
@@ -366,12 +386,18 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
                         frameRateBucket: request.maxFrameRateBucket,
                         qualityBucket: request.qualityBucket,
                         keyFrameInterval: keyFrameInterval,
-                        encodingMode: .lowLatencyRealtime
+                        encodingMode: .lowLatencyRealtime,
+                        encodedAccessUnitBufferCapacity: encodedAccessUnitBufferCapacity
                     )
                     let accessUnits = try encoder.encode(pixelBuffers: replayedPixelBuffers)
                     for try await accessUnit in accessUnits {
                         try Task.checkCancellation()
-                        continuation.yield(accessUnit)
+                        guard NaruHelperVideoEncodedAccessUnitStreamPolicy.yield(
+                            accessUnit,
+                            to: continuation
+                        ) else {
+                            return
+                        }
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -395,11 +421,25 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         let replayProducer = Task.detached(priority: .userInitiated) {
             do {
                 nonisolated(unsafe) let transferableFirst = firstBox.pixelBuffer
-                replayContinuation.yield(transferableFirst)
+                switch replayContinuation.yield(transferableFirst) {
+                case .enqueued, .dropped:
+                    break
+                case .terminated:
+                    return
+                @unknown default:
+                    return
+                }
                 while let next = try await iteratorBox.next() {
                     try Task.checkCancellation()
                     nonisolated(unsafe) let transferableNext = next
-                    replayContinuation.yield(transferableNext)
+                    switch replayContinuation.yield(transferableNext) {
+                    case .enqueued, .dropped:
+                        break
+                    case .terminated:
+                        return
+                    @unknown default:
+                        return
+                    }
                 }
                 replayContinuation.finish()
             } catch is CancellationError {
@@ -1100,7 +1140,16 @@ private final class LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector:
         }
         firstFrameContinuationToResume?.resume()
         nonisolated(unsafe) let transferableImageBuffer = imageBuffer
-        continuation.yield(transferableImageBuffer)
+        switch continuation.yield(transferableImageBuffer) {
+        case .enqueued, .dropped:
+            break
+        case .terminated:
+            complete(.success(()))
+            return
+        @unknown default:
+            complete(.success(()))
+            return
+        }
         if shouldFinish {
             complete(.success(()))
         }
@@ -1249,17 +1298,54 @@ extension HelperVideoFrameRateBucket {
     }
 }
 
-private enum NaruHelperVideoAccessUnitSourceDefaultStreamAdapter {
+enum NaruHelperVideoAccessUnitSourceDefaultStreamAdapter {
     static func stream(
         source: NaruHelperVideoScreenCaptureKitAccessUnitSource,
         request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        let accessUnits = try source.accessUnits(for: request)
-        return AsyncThrowingStream { continuation in
-            for accessUnit in accessUnits {
-                continuation.yield(accessUnit)
+        stream(accessUnits: try source.accessUnits(for: request))
+    }
+
+    static func stream(
+        accessUnits: [NaruHelperVideoAccessUnit]
+    ) -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        // This adapter already owns a finite, materialized batch. An unbounded
+        // stream is therefore bounded by that batch and avoids treating a
+        // scheduler race as live encoder backpressure when the batch exceeds
+        // the live stream's small transport buffer.
+        AsyncThrowingStream { continuation in
+            let producer = Task.detached(priority: .userInitiated) {
+                do {
+                    for accessUnit in accessUnits {
+                        try Task.checkCancellation()
+                        switch continuation.yield(accessUnit) {
+                        case .enqueued:
+                            await Task.yield()
+                        case .terminated:
+                            return
+                        case .dropped:
+                            continuation.finish(
+                                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                                    .encodedAccessUnitBackpressureExceeded
+                            )
+                            return
+                        @unknown default:
+                            continuation.finish(
+                                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                                    .encodedAccessUnitBackpressureExceeded
+                            )
+                            return
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                }
             }
-            continuation.finish()
+
+            continuation.onTermination = { _ in
+                producer.cancel()
+            }
         }
     }
 }

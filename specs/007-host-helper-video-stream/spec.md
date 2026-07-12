@@ -2,7 +2,7 @@
 
 **Feature Branch**: `007-host-helper-video-stream`  
 **Created**: 2026-06-06  
-**Status**: Implemented (helper video stream; physical iPhone gate passed 2026-07-05 with synthetic source). Residual: real-screen gate needs one-time macOS Screen Recording approval (`helper-dev-app-setup`), then a gate re-run.  
+**Status**: Implemented (helper video stream; physical iPhone gate passed 2026-07-05 with synthetic source). Reconciled 2026-07-12 with bounded encoded-AU backpressure. Residual: real-screen gate needs one-time macOS Screen Recording approval (`helper-dev-app-setup`), then a 30-minute gate re-run.
 **Product**: Naru Remote  
 **Input**: Continue the sustained iPhone VNC performance work after the live
 request-pipeline benchmark showed that extra RFB requests do not reduce the

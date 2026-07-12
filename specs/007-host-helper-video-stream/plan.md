@@ -74,6 +74,11 @@ Use a dual-transport model:
    labels so dashboards can route permission, transport, sustained cadence,
    decode pressure, true capture, and physical iPhone gates without unsafe
    payload details.
+7. ScreenCaptureKit raw frames coalesce newest-one, but encoded H.264 access
+   units use a bounded oldest-prefix queue (default 8). Overflow terminates the
+   optional helper stream with a typed backpressure failure so the visual
+   selector falls back to VNC instead of retaining memory without bound or
+   corrupting the decoder reference chain (research D90).
 
 ### Alternatives Considered
 
@@ -108,6 +113,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | US1 / FR-001 / FR-002 | Unit + app model | XCTest fake helper | helper video selected while VNC control stays active | Agent |
 | US1 / FR-004 | Unit | XCTest | stream stall falls back to VNC visual state | Agent |
+| US1 / FR-004 / D90 | Unit + helper integration | XCTest | encoded overflow preserves a contiguous prefix, terminates/cancels once, and reaches the existing VNC fallback path | Agent |
 | US2 / FR-006 | Unit | Benchmark fixture | helper-video report schema omits unsafe fields | Agent |
 | US3 / FR-005 / SP-005 | Unit | Diagnostic JSON test | no frames, dimensions, endpoints, byte counts, exact timings, or tokens | Agent |
 | SC-001 | Live benchmark | Mac helper + iPhone/simulator harness | constrained-cellular comparison artifact | Agent + human |

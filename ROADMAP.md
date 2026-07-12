@@ -1,6 +1,6 @@
 # Roadmap: Naru Remote
 
-Updated: 2026-07-05 KST
+Updated: 2026-07-12 KST
 
 ## Current Position
 
@@ -18,7 +18,8 @@ CRD-parity hardening stage. Implemented so far:
   with Korean against a real Mac) and video stream (`specs/007`, physical
   iPhone gate passed 2026-07-05 with a synthetic source).
 - Live type-through compose (`specs/009`) + helper onboarding (`specs/010`):
-  implemented 2026-07-05; physical gates T021–T025 remain.
+  implemented 2026-07-05; physical gates T021–T024 remain. The non-macOS
+  adapter-ladder limitation is documented as a later-spec boundary.
 - Performance parity analysis (`PERFORMANCE_PARITY_ANALYSIS.md`): the client
   pipeline is healthy on-device; the Apple VNC server's ~5.6 content-fps
   produce rate is the framerate ceiling; helper video is the structural path
@@ -378,10 +379,11 @@ P0 — App Store rejects or runtime fails without these:
   is watch-only (constitution + ROADMAP Phase 6) so no audio is ever
   produced — the audio session declaration is the system handshake
   that grants background frame delivery, not a real audio output
-- App Icon (`Assets.xcassets/AppIcon.appiconset`) — pending; needs
-  1024×1024 marketing plus iPhone/iPad sizes
-- Apple Developer account, bundle ID provisioning, and signing
-  configuration — pending; outside the agent loop
+- ✅ App Icon (`Assets.xcassets/AppIcon.appiconset`) — 1024×1024 opaque
+  marketing source is present and Xcode thins the required iPhone/iPad sizes
+- ✅ Apple Developer team and automatic signing are configured in
+  `project.yml`; a physical iPhone build/test succeeded on 2026-07-05.
+  App Store Connect record creation remains a human step
 - ✅ **Direct Keystroke Streaming Mode** — implemented (PRs #28–#34;
   Phase 8 verification PR #35). Spec at
   `specs/002-direct-keystroke-mode/spec.md`. Custom soft keyboard
@@ -415,31 +417,37 @@ P0 — App Store rejects or runtime fails without these:
   P1 dark-mode regressions on the Direct keystroke keyboard +
   compose `TextEditor` background were surfaced by Chunk 8 and
   filed for follow-up under #301 / #302.
-- Open UX issue #477 tracks the next iPhone-first polish pass after the
-  merged Compose safe-area/input-stall fix (`807b6128`). Current evidence:
-  `artifacts/benchmarks/2026-06-17-compose-input-scroll-safe-area-and-storm-fixture-summary.md`
-  proves the pre-connection Korean/CJK Compose stall is fixed in simulator, but
-  it does not close the broader layout-overflow report. Next action: run a
-  fresh iPhone simulator screenshot audit for connection grid, profile detail,
-  disconnected/connecting/active session, keyboard-up Compose, Direct mode, and
-  trackpad overlays, then split visible layout fixes into small PR-sized
-  changes. Do not run physical iPhone/iPad tests from automation unless a human
-  explicitly requests that evidence.
+- UX issue #477's iPhone-first pass was rerun on 2026-07-12. It fixed dark
+  clipboard contrast, keyboard-AutoFill overlap with mode controls, explicit
+  detail→grid navigation, VoiceOver-safe session controls, and profile-save
+  failure/retry behavior. Unit tests and the iPhone simulator build pass; the
+  local XCUITest accessibility service currently stops before test execution,
+  so fresh light/dark/keyboard-up captures and physical VoiceOver traversal
+  remain evidence gaps. Do not run physical iPhone/iPad tests from automation
+  unless a human explicitly requests that evidence.
+
+P0 — public 1.0 product gates:
+
+- Real-screen ScreenCaptureKit helper-video physical iPhone gate and one
+  30-minute whole-product session (helper/VNC fallback, input modes,
+  trackpad/zoom, reconnect, PiP, thermal/RSS).
+- `specs/009` physical gates T021–T024. See `NEXT_STEPS.md` for the
+  authoritative order.
 
 P1 — App Store listing requires these:
 
 - App Store screenshots (6.7" iPhone 17 Pro Max mandatory; iPad 13"
   recommended).  `artifacts/screenshots/` exists for compose-text
   smoke checks but is not yet App Store-sized
-- App description, keywords, support URL, marketing URL (KR + EN)
+- ✅ App description and keywords draft (KR + EN) in `APP_STORE_LISTING.md`
+- Support URL; price decision; review-accessible demo/notes
 - Privacy Policy URL (hosted page)
 - App Privacy questionnaire answers — Naru collects nothing;
   diagnostics share is local-only and uses the safe-detail catalog
+- App Store distribution Archive/export validation and TestFlight upload
 
-P2 — Constitution / product promise items:
+P2 — Product follow-ups after the P0 release gate:
 
-- One full physical-device session (iPhone) covering Tailnet → VNC →
-  IME compose → PiP enter / leave (constitution §III, §VI)
 - Korean localization (`Localizable.strings` / String Catalog).
   Founder ICP is Korean-speaking sustained AI-coding from phone
   (memory: founder workflow); current strings are English
@@ -542,7 +550,7 @@ framerate. Analysis and measured baselines: `PERFORMANCE_PARITY_ANALYSIS.md`.
   delivery ladder (helper nativeInsert → clipboard chunk → ASCII-only key
   events), key-lane ordering barrier, failure retention (FR-015), 3-way
   Remote Input Dock mode picker (Compose / Live / Direct). Physical gates
-  T021–T025 pending; founder decision D3: Live becomes the default
+  T021–T024 pending; founder decision D3: Live becomes the default
   multilingual path once gates pass (constitution §I amendment then)
 - `specs/010` helper onboarding: 5-step in-app pairing sheet, CSPRNG secret
   stored Keychain-only, copy-able Mac setup snippet using `--token-env`

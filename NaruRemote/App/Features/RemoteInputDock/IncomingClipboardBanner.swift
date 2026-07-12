@@ -69,12 +69,13 @@ public struct IncomingClipboardBanner: View {
                     Spacer()
                     Text("from remote")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(NaruColors.mutedInk)
                 }
+                .foregroundStyle(NaruColors.ink)
 
                 Text(review.previewText)
                     .font(.callout)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(NaruColors.ink)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("naru.input.incomingClipboard.preview")
@@ -101,9 +102,11 @@ public struct IncomingClipboardBanner: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(red: 0.94, green: 0.96, blue: 0.92))
+            .background(NaruColors.surface)
             .overlay(alignment: .top) {
-                Divider()
+                Rectangle()
+                    .fill(NaruColors.hairline)
+                    .frame(height: 1)
             }
             .accessibilityIdentifier("naru.input.incomingClipboard.banner")
             .accessibilityElement(children: .contain)

@@ -5,15 +5,22 @@ public struct ConnectionGridView: View {
     private let cards: [ConnectionGridCard]
     private let onSelect: (ConnectionGridCard.ID) -> Void
     private let onAddProfile: () -> Void
+    private let onEdit: ((ConnectionGridCard.ID) -> Void)?
+    private let onDelete: ((ConnectionGridCard.ID) -> Void)?
+    @State private var pendingDeleteCard: ConnectionGridCard?
 
     public init(
         cards: [ConnectionGridCard],
         onSelect: @escaping (ConnectionGridCard.ID) -> Void,
-        onAddProfile: @escaping () -> Void
+        onAddProfile: @escaping () -> Void,
+        onEdit: ((ConnectionGridCard.ID) -> Void)? = nil,
+        onDelete: ((ConnectionGridCard.ID) -> Void)? = nil
     ) {
         self.cards = cards
         self.onSelect = onSelect
         self.onAddProfile = onAddProfile
+        self.onEdit = onEdit
+        self.onDelete = onDelete
     }
 
     public var body: some View {
@@ -30,13 +37,23 @@ public struct ConnectionGridView: View {
                 spacing: 14
             ) {
                 ForEach(cards) { card in
-                    Button {
-                        onSelect(card.id)
-                    } label: {
-                        ConnectionGridCardView(card: card)
+                    ZStack(alignment: .topTrailing) {
+                        Button {
+                            onSelect(card.id)
+                        } label: {
+                            ConnectionGridCardView(card: card)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel(Self.cardAccessibilityLabel(for: card))
+                        .accessibilityHint(Self.cardAccessibilityHint(for: card))
+                        .accessibilityIdentifier("naru.connection.grid.card")
+
+                        if onEdit != nil || onDelete != nil {
+                            profileActionsMenu(for: card)
+                                .padding(8)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("naru.connection.grid.card")
                 }
             }
             .padding(16)
@@ -46,6 +63,7 @@ public struct ConnectionGridView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Connections")
                         .font(.title2.weight(.semibold))
+                        .accessibilityIdentifier("naru.connection.grid")
                     Text("Choose a saved computer")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -74,7 +92,84 @@ public struct ConnectionGridView: View {
             }
         }
         .background(NaruColors.canvas)
-        .accessibilityIdentifier("naru.connection.grid")
+        .alert(
+            "Delete profile?",
+            isPresented: Binding(
+                get: { pendingDeleteCard != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDeleteCard = nil
+                    }
+                }
+            ),
+            presenting: pendingDeleteCard
+        ) { card in
+            Button("Delete", role: .destructive) {
+                pendingDeleteCard = nil
+                onDelete?(card.id)
+            }
+            .accessibilityIdentifier("naru.connection.grid.delete.confirm")
+
+            Button("Cancel", role: .cancel) {
+                pendingDeleteCard = nil
+            }
+        } message: { card in
+            Text("Remove \(card.displayName) and its saved credentials from this device?")
+        }
+    }
+
+    nonisolated static func cardAccessibilityLabel(for card: ConnectionGridCard) -> String {
+        let hostDescription: String
+        switch card.hostKind {
+        case .magicDNS:
+            hostDescription = "MagicDNS address"
+        case .privateAddress:
+            hostDescription = "Private address"
+        case .advancedManualPublicEndpoint:
+            hostDescription = "Public address, advanced public endpoint warning"
+        }
+
+        return "\(card.displayName), \(card.endpoint), \(hostDescription), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
+    }
+
+    nonisolated static func cardAccessibilityHint(for card: ConnectionGridCard) -> String {
+        switch card.hostKind {
+        case .advancedManualPublicEndpoint:
+            return "Review the public address and its security before connecting"
+        case .magicDNS, .privateAddress:
+            return "Connect to this saved computer"
+        }
+    }
+
+    private func profileActionsMenu(for card: ConnectionGridCard) -> some View {
+        Menu {
+            if let onEdit {
+                Button {
+                    onEdit(card.id)
+                } label: {
+                    Label("Edit Profile", systemImage: "pencil")
+                }
+                .accessibilityIdentifier("naru.connection.grid.edit")
+            }
+
+            if onDelete != nil {
+                Button(role: .destructive) {
+                    pendingDeleteCard = card
+                } label: {
+                    Label("Delete Profile", systemImage: "trash")
+                }
+                .accessibilityIdentifier("naru.connection.grid.delete")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .foregroundStyle(.primary)
+        .accessibilityLabel("Actions for \(card.displayName)")
+        .accessibilityIdentifier("naru.connection.grid.actions")
     }
 }
 
@@ -134,15 +229,9 @@ private struct ConnectionGridCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(
-                    card.isSelected ? NaruColors.focusRing : NaruColors.hairline,
-                    lineWidth: card.isSelected ? 2 : 1
-                )
+                .stroke(NaruColors.hairline, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(card.displayName), \(card.endpoint), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
-        )
     }
 
     @ViewBuilder

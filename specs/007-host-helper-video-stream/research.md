@@ -4524,3 +4524,37 @@ iteration counts. They must not expose hostnames, endpoints, credentials,
 signing identifiers, device identifiers, raw helper payload bytes, H.264 frame
 contents, screenshots, pixels, coordinates, composed text, clipboard contents,
 or exact per-frame timing series.
+
+## D90 - Bound encoded access-unit queues and fail closed to VNC
+
+**Decision**: Use a bounded `bufferingOldest` queue for helper-video encoded
+H.264 access units (default capacity 8, minimum 2). If the queue fills, retain
+the already-enqueued contiguous prefix, finish with the fixed typed
+`encodedAccessUnitBackpressureExceeded` failure, cancel the producer, and let
+the app's existing helper-video failure path fall back to VNC.
+
+**Rationale**:
+- An unbounded encoded queue can grow for the entire session when network send
+  or downstream consumption is slower than ScreenCaptureKit/VideoToolbox.
+- Dropping the oldest H.264 item can remove parameter sets or reference frames;
+  dropping a new delta and continuing can still leave an ambiguous transport
+  discontinuity. Ending the optional helper stream is safer than presenting
+  corrupted video, and the viewer baseline remains available through VNC.
+- Raw capture remains newest-one because stale raw frames have no decoder
+  dependency. The encoded lane deliberately has different semantics.
+
+**Evidence**:
+- `NaruHelperVideoEncoderPrototypeTests` verifies a capacity-two stream yields
+  only the parameter-set/keyframe prefix, then reports the typed failure and
+  cancels/terminates once.
+- The focused encoder suite and helper frame-pipeline/network-service suites
+  pass after the change. A real loopback TCP server/client/session-runner test
+  receives access unit → `transportBackpressure` stall, selects the VNC visual
+  fallback, and preserves the active session and Compose draft. Real-screen
+  sustained RSS/thermal evidence is still a physical gate, not inferred from
+  unit tests.
+
+**Privacy rule**: Backpressure diagnostics may expose only the fixed failure
+label, bounded capacity, aggregate counts, and pass/fail status. They must not
+expose encoded payload bytes, screenshots, pixels, host identity, credentials,
+Compose text, clipboard contents, or per-frame timing series.

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-naru-remote-mvp`  
 **Created**: 2026-04-29  
-**Status**: Implemented (MVP shipped; reference baseline). Reconciled 2026-07-05 — only T029 (iPad IME manual checklist) remains open in tasks.md.  
+**Status**: Implemented (MVP shipped; reference baseline). Reconciled 2026-07-12 — profile writes now report durable completion to the editor; only T029 (iPad IME manual checklist) remains open in tasks.md.
 **Product**: Naru Remote  
 **Input**: Product direction from `PRODUCT_SPEC.md`, branding decision `Naru Remote`, and spec-driven setup request.
 
@@ -32,6 +32,10 @@ the VNC handshake stage or reports the exact blocked stage.
 3. **Given** TCP succeeds but the VNC handshake fails, **When** diagnostics
    finish, **Then** Naru Remote reports that the host is reachable but the VNC
    service is not available or incompatible.
+4. **Given** durable profile or credential storage rejects an add/edit/delete,
+   **When** the operation completes, **Then** the editor/list remains in its
+   prior usable state, shows a fixed privacy-safe failure, and allows retry
+   instead of dismissing or claiming success.
 
 ---
 
@@ -235,6 +239,13 @@ launch with one or more saved profiles and verify the empty-state CTA is gone.
 - **FR-017**: Public endpoint setup remains advanced/manual; the first-launch
   empty-state CTA MUST NOT route users into a public-IP entry path or imply
   that public IPs are the expected default (constitution §II).
+- **FR-018**: Profile add/edit/delete MUST not publish a successful UI state
+  before durable profile persistence succeeds. Failure MUST preserve the
+  prior profile/selection/session state, retain editor input when applicable,
+  expose only a fixed privacy-safe message, and offer retry. Credential-store
+  mutations MUST be rolled back if the enclosing profile write fails, and
+  profile mutations MUST be serialized across async suspension points so one
+  operation cannot roll back another operation's committed credentials.
 
 ### Naru Input Requirements *(mandatory if feature handles input)*
 

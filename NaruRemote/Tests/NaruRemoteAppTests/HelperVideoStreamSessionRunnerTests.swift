@@ -1,4 +1,5 @@
 import XCTest
+import NaruHelperKit
 import NaruRemoteCore
 @testable import NaruRemoteApp
 
@@ -357,6 +358,80 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertEqual(renderer.flushCount, 2)
     }
 
+    #if canImport(Network)
+    func testNetworkBackpressureStallFallsBackToVNCWithoutLosingSessionOrComposeDraft()
+        async throws
+    {
+        let pairingSecret = "test-pairing-secret"
+        let profileFingerprint = "sha256:helper-video"
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(displayableSequences: [0])
+        let source = SessionBackpressuredAccessUnitSource(accessUnitsBeforeFailure: [
+            NaruHelperVideoAccessUnit(
+                sequence: 0,
+                kind: .keyframe,
+                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+            )
+        ])
+        let server = try NaruHelperVideoStreamNetworkServer(
+            pipeline: NaruHelperVideoStreamFramePipeline(
+                requestHandler: NaruHelperVideoTransportRequestHandler(
+                    expectedPairingSecret: pairingSecret,
+                    expectedProfileFingerprint: profileFingerprint,
+                    capabilityProvider: {
+                        HelperVideoCapabilityResponseBody(
+                            availability: .available,
+                            screenRecordingPermission: .granted,
+                            codecSupport: .h264,
+                            latencyModes: [.lowLatency]
+                        )
+                    }
+                ),
+                accessUnitSource: source
+            ),
+            transportProtection: .authenticatedPrivateProfile
+        )
+        server.start()
+        defer { server.cancel() }
+        let port = try await Self.waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let runner = HelperVideoStreamSessionRunner(
+            networkClient: HelperVideoStreamNetworkClient(
+                host: "127.0.0.1",
+                port: port,
+                profileFingerprint: profileFingerprint,
+                pairingSecret: pairingSecret,
+                transportProtection: .authenticatedPrivateProfile,
+                timeout: 3
+            ),
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertTrue(outcome.startAccepted)
+        XCTAssertTrue(outcome.selectedVisualTransport)
+        XCTAssertEqual(outcome.receivedAccessUnitCount, 1)
+        XCTAssertEqual(outcome.displayableFrameCount, 1)
+        XCTAssertEqual(outcome.fallbackFailureCode, .streamStalled)
+        XCTAssertEqual(outcome.fallbackStallReason, .transportBackpressure)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.session?.state, .active)
+        XCTAssertEqual(snapshot.composeDraft?.text, "입력 유지")
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .fallbackToVNC)
+        XCTAssertEqual(renderer.enqueuedSequences, [0])
+        XCTAssertEqual(renderer.flushCount, 2)
+    }
+    #endif
+
     func testDecoderRejectionFlushesAndFallsBackWithoutDroppingSession() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
@@ -596,7 +671,48 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
             binaryPayload: Data([0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21])
         )
     }
+
+    #if canImport(Network)
+    private nonisolated static func waitForPort(
+        _ server: NaruHelperVideoStreamNetworkServer
+    ) async throws -> UInt16 {
+        for _ in 0..<50 {
+            if let port = server.port, port > 0 {
+                return port
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return try XCTUnwrap(server.port)
+    }
+    #endif
 }
+
+#if canImport(Network)
+private struct SessionBackpressuredAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var accessUnitsBeforeFailure: [NaruHelperVideoAccessUnit]
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        accessUnitsBeforeFailure
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        let accessUnitsBeforeFailure = accessUnitsBeforeFailure
+        return AsyncThrowingStream { continuation in
+            for accessUnit in accessUnitsBeforeFailure {
+                continuation.yield(accessUnit)
+            }
+            continuation.finish(
+                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .encodedAccessUnitBackpressureExceeded
+            )
+        }
+    }
+}
+#endif
 
 @MainActor
 private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRendering, HelperVideoAccessUnitRenderBackpressureReporting {

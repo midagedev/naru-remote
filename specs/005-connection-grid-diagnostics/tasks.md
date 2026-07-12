@@ -113,3 +113,40 @@ Tasks are grouped by PR-sized increments. Each increment owns a small file set, 
 - Do not log hostnames, endpoints, passwords, clipboard text, composed text, pointer coordinates, raw latency, raw timing samples, raw network errors, or pixels.
 - iPhone simulator evidence comes before iPad evidence for every UI increment.
 - Keep `.claude/` untracked and unstaged.
+
+## Release-readiness review fixes (2026-07-12)
+
+- [x] RR01 Keep Connections explicitly reachable from Operation even when
+  failed/closed diagnostics are retained for post-mortem use. Navigation unit
+  tests and the card → Operation → Connections XCUITest pass.
+- [x] RR02 Include MagicDNS/private/public host kind in each grid card's
+  VoiceOver label; public endpoints also announce the advanced-path warning and
+  a security-review hint. Covered by `ConnectionGridAccessibilityTests`.
+- [x] RR03 Replace the incoming-clipboard banner's light-only fill and implicit
+  text colors with adaptive `surface`, `ink`, `mutedInk`, and `hairline`
+  tokens; update the Direct-mode badge to a high-contrast semantic surface.
+
+## Two-surface refinement (2026-07-12)
+
+- [x] RR04 [Navigation] `NaruRemoteAppShell.swift` + `ConnectionGridView.swift`:
+  make Connections and Operation the only primary surfaces; one private-card
+  tap selects and connects, public cards confirm, add/edit/delete stay modal or
+  menu actions, and iPad does not render a duplicate profile-list sidebar.
+  Owns: shell/grid files and navigation tests.
+- [x] RR05 [Correctness] `NaruRemoteAppModel.swift`: add an atomic
+  profile-connect intent and attempt/session freshness guard so returning to
+  Connections, disconnecting, retrying, or switching profiles cannot let a
+  late non-stream connector result resurrect stale state. Owns: app model and
+  focused model/disconnect tests.
+- [x] RR06 [Diagnostics UI] Add `SessionDiagnosticCornerView.swift`: persistent
+  44pt operation-corner capsule with safe state/quality/failure mapping, full
+  diagnostic sheet, accessible text+symbol, adaptive material, and Reduce
+  Motion/Transparency behavior. Remove the stacked pre-connect diagnostics.
+  Owns: diagnostics view, app snapshot/state tests, and session shell wiring.
+- [x] RR07 [Verification] Update deterministic UX fixtures and affected UI
+  flows for direct card-to-operation entry; run focused SwiftPM tests, full
+  `swift test`, XcodeGen, iPhone build/run/screenshots before iPad build.
+  Evidence: focused two-surface/model/diagnostic tests 18/18 passed; iPhone
+  card → Operation → diagnostic-sheet XCUITest passed; iPhone 17 Pro and iPad
+  Pro 13-inch simulator builds/runs passed with light/dark phone and tablet
+  captures under `artifacts/screenshots/2026-07-12-two-surface/`.

@@ -23,6 +23,51 @@ public enum NaruHelperVideoToolboxSyntheticAccessUnitSourceError: Error, Equatab
     case malformedAVCCPayload
     case noSourceFrames
     case noEncodedAccessUnits
+    case encodedAccessUnitBackpressureExceeded
+}
+
+enum NaruHelperVideoEncodedAccessUnitStreamPolicy {
+    static let defaultCapacity = 8
+    private static let minimumCapacity = 2
+
+    static func normalizedCapacity(_ requestedCapacity: Int) -> Int {
+        max(requestedCapacity, minimumCapacity)
+    }
+
+    static func bufferingPolicy(
+        capacity: Int
+    ) -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>.Continuation.BufferingPolicy {
+        .bufferingOldest(normalizedCapacity(capacity))
+    }
+
+    /// Encoded H.264 access units must remain a contiguous prefix. Dropping the
+    /// oldest parameter set, keyframe, or delta would corrupt the decoder's
+    /// reference chain, so a full buffer terminates the helper stream and lets
+    /// the app fall back to VNC instead.
+    @discardableResult
+    static func yield(
+        _ accessUnit: NaruHelperVideoAccessUnit,
+        to continuation: AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>.Continuation
+    ) -> Bool {
+        switch continuation.yield(accessUnit) {
+        case .enqueued:
+            return true
+        case .dropped:
+            continuation.finish(
+                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .encodedAccessUnitBackpressureExceeded
+            )
+            return false
+        case .terminated:
+            return false
+        @unknown default:
+            continuation.finish(
+                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .encodedAccessUnitBackpressureExceeded
+            )
+            return false
+        }
+    }
 }
 
 public enum NaruHelperVideoToolboxEncodingMode: Equatable, Sendable {
@@ -111,6 +156,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     public let rateControlPolicy: NaruHelperVideoRateControlPolicy
     private let keyFrameInterval: Int
     private let encodingMode: NaruHelperVideoToolboxEncodingMode
+    private let encodedAccessUnitBufferCapacity: Int
 
     public init(
         width: Int32,
@@ -119,6 +165,27 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         qualityBucket: HelperVideoQualityBucket = .readability,
         keyFrameInterval: Int,
         encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime
+    ) {
+        self.init(
+            width: width,
+            height: height,
+            frameRateBucket: frameRateBucket,
+            qualityBucket: qualityBucket,
+            keyFrameInterval: keyFrameInterval,
+            encodingMode: encodingMode,
+            encodedAccessUnitBufferCapacity: NaruHelperVideoEncodedAccessUnitStreamPolicy
+                .defaultCapacity
+        )
+    }
+
+    init(
+        width: Int32,
+        height: Int32,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket = .readability,
+        keyFrameInterval: Int,
+        encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime,
+        encodedAccessUnitBufferCapacity: Int
     ) {
         self.width = width
         self.height = height
@@ -129,6 +196,8 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         )
         self.keyFrameInterval = max(keyFrameInterval, 1)
         self.encodingMode = encodingMode
+        self.encodedAccessUnitBufferCapacity = NaruHelperVideoEncodedAccessUnitStreamPolicy
+            .normalizedCapacity(encodedAccessUnitBufferCapacity)
     }
 
     public func encode(pixelBuffers: [CVPixelBuffer]) throws -> [NaruHelperVideoAccessUnit] {
@@ -217,7 +286,11 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
             throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.invalidFrameSize
         }
 
-        return AsyncThrowingStream { continuation in
+        return AsyncThrowingStream(
+            bufferingPolicy: NaruHelperVideoEncodedAccessUnitStreamPolicy.bufferingPolicy(
+                capacity: encodedAccessUnitBufferCapacity
+            )
+        ) { continuation in
             let emitter = LiveNaruHelperVideoToolboxStreamEmitter(continuation: continuation)
             var session: VTCompressionSession?
             let encoderSpecification = encodingMode.encoderSpecification
@@ -448,13 +521,21 @@ private extension NaruHelperVideoToolboxSyntheticAccessUnitSource {
             do {
                 while frameLimit.map({ frameIndex < $0 }) ?? true {
                     try Task.checkCancellation()
-                    continuation.yield(
+                    let yieldResult = continuation.yield(
                         try Self.makePixelBuffer(
                             width: width,
                             height: height,
                             frameIndex: frameIndex
                         )
                     )
+                    switch yieldResult {
+                    case .enqueued, .dropped:
+                        break
+                    case .terminated:
+                        return
+                    @unknown default:
+                        return
+                    }
                     frameIndex += 1
                     try await Task.sleep(
                         for: frameRateBucket.syntheticFrameIntervalDuration
@@ -653,7 +734,13 @@ private final class LiveNaruHelperVideoToolboxStreamEmitter: @unchecked Sendable
         do {
             let accessUnits = try makeAccessUnits(from: sampleBuffer)
             for accessUnit in accessUnits {
-                continuation.yield(accessUnit)
+                guard NaruHelperVideoEncodedAccessUnitStreamPolicy.yield(
+                    accessUnit,
+                    to: continuation
+                ) else {
+                    markTerminated()
+                    return
+                }
             }
         } catch {
             finish(throwing: error)
@@ -686,6 +773,12 @@ private final class LiveNaruHelperVideoToolboxStreamEmitter: @unchecked Sendable
             return
         }
         continuation.finish(throwing: error)
+    }
+
+    private func markTerminated() {
+        lock.withLock {
+            isFinished = true
+        }
     }
 
     private func makeAccessUnits(

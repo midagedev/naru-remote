@@ -2,7 +2,7 @@
 
 **Feature Branch**: `010-helper-onboarding`
 **Created**: 2026-07-05
-**Status**: Accepted (founder-directed 2026-07-05); implemented same pass — 5-step pairing sheet, Keychain-only secret, `--token-env` Mac snippet. Open: real single-profile helper probe (see plan.md).
+**Status**: Implemented (founder-directed 2026-07-05) — 5-step pairing sheet, Keychain-only secret, `--token-env` Mac snippet. Residual: real single-profile helper probe and physical Mac/iPhone end-to-end pairing T014.
 **Product**: Naru Remote
 **Input**: Founder goal (2026-07-05): "Implement helper onboarding — a guided in-app setup flow so a user can get NaruHelper running on their Mac and paired with a profile without reading repo docs." Today the only path to a paired helper is: read `CLAUDE.md` / spec 006 / spec 007, run `scripts/install-naru-helper-dev-app.sh` by hand, invent a pairing secret, type it into the profile editor's Helper token `SecureField`, launch `NaruHelper --listen` / `--video-listen` with the right argv/env by memory, and grant Accessibility + Screen Recording on the Mac. Every step is undocumented in-app. This feature turns that into a phone-first guided flow that generates the secret, hands the user an exact copy-able Mac snippet, walks the two macOS permissions, and verifies reachability — while keeping the pairing secret in Keychain only (constitution §IV) and keeping the helper strictly optional (constitution §V).
 
@@ -53,7 +53,7 @@ After running the Mac commands, the user taps **Test** on the verify step. Naru 
 
 1. **Given** the verify step with a reachable host, **When** the user taps **Test**, **Then** Naru shows a checking indicator and then a fixed reachable status with no raw network error text.
 2. **Given** a host that is down or wrong, **When** the user taps **Test**, **Then** Naru shows a fixed unreachable/needs-password status from the catalog and a plain next step.
-3. **Given** any verify outcome, **When** it renders, **Then** the copy states that the test confirms the Mac is reachable and that full helper verification (pairing + Accessibility + Screen Recording) is confirmed after Save via the profile's helper status. **[NEEDS CLARIFICATION: whether v1 also runs the helper-handshake probe in-flow depends on adding the single-profile awaitable helper-test API named in FR-013 and its shell wiring — until then the in-flow Test is host reachability only.]**
+3. **Given** any verify outcome, **When** it renders, **Then** the copy states that the in-flow v1 test confirms only that the Mac is reachable. Full helper verification (pairing + Accessibility + Screen Recording) is confirmed after Save via the profile's helper status; the real single-profile awaitable helper probe remains the named follow-up in FR-013 and `plan.md`.
 
 ---
 

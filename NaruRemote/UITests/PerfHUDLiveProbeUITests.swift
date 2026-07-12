@@ -54,29 +54,31 @@ final class PerfHUDLiveProbeUITests: XCTestCase {
         let credentialRef = "vnc-password:\(profileID.uuidString)"
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: password)
 
-        // Saved-profile launch starts on the connection grid.
+        // Saved-profile launch starts on Connections. A single card tap
+        // enters Operation and starts the connection immediately.
         let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
-        if firstCard.waitForExistence(timeout: 5) {
-            firstCard.tap()
-        }
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 5), "Saved connection card must be present")
+        firstCard.tap()
 
-        let connect = app.buttons["naru.session.connect"].exists
-            ? app.buttons["naru.session.connect"]
-            : app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@", "Connect")).firstMatch
-        XCTAssertTrue(connect.waitForExistence(timeout: 8), "Connect button must be present")
-        connect.tap()
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(
+            diagnosticCorner.waitForExistence(timeout: 8),
+            "A card tap must enter Operation and mount its persistent diagnostic control"
+        )
 
         // First launch on a physical device raises the iOS Local
         // Network permission alert the moment the socket touches a
         // private address; the connection cannot proceed until it is
-        // allowed, so poll for it while waiting for Active.
-        let activeBadge = app.staticTexts.matching(NSPredicate(format: "label MATCHES[c] %@", "Active")).firstMatch
+        // allowed, so poll for it while waiting for Connected.
         let deadline = Date().addingTimeInterval(30)
-        while Date() < deadline, !activeBadge.exists {
+        while Date() < deadline, !isConnected(diagnosticCorner) {
             allowSystemPermissionAlertIfPresent()
             usleep(250_000)
         }
-        XCTAssertTrue(activeBadge.exists, "Session must reach Active — check network path/password/local-network permission")
+        XCTAssertTrue(
+            isConnected(diagnosticCorner),
+            "Operation diagnostics must report Connected — check network path/password/local-network permission"
+        )
         try saveScreen(app: app, named: "perf-01-active.png")
 
         // Idle window first: no interaction, so the HUD aggregates show
@@ -131,6 +133,11 @@ final class PerfHUDLiveProbeUITests: XCTestCase {
             element.coordinate(withNormalizedOffset: point).tap()
             usleep(200_000)
         }
+    }
+
+    private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
+        guard let value = diagnosticCorner.value as? String else { return false }
+        return value.lowercased().hasPrefix("connected")
     }
 
     /// Taps the affirmative button on a system alert (Local Network

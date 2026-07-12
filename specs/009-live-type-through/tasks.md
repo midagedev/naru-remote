@@ -93,7 +93,10 @@ default (D3) — not this opt-in slice.
 - [ ] T022 [SC-002] Physical iPhone + Mac: per-commit latency probe extending `helper-text-observed-probe` (commit → request accepted / observed insert); record p95, confirm few-hundred-ms class, materially < batch ~1–1.3 s budget.
 - [ ] T023 [FR-005] Physical regression: `text-keystroke-observed-probe` (unicode-hangul) confirms Unicode `KeyEvent` to macOS remains `no-input`.
 - [ ] T024 [SC-007] Physical iPhone: 30-min sustained live-typing session — no accumulated desync/loss/unrecoverable state/sustained serious thermal. Record session log + diagnostic export.
-- [ ] T025 Record the non-macOS-host residual (Non-Goal): adapter ladder must not assume macOS everywhere; a later spec covers non-mac tiers.
+- [x] T025 Record the non-macOS-host residual (Non-Goal): adapter ladder must
+  not assume macOS everywhere; `NEXT_STEPS.md` and `ROADMAP.md` now keep
+  non-mac tiers behind a later feature spec rather than implying current
+  support. **Done 2026-07-12.**
 
 ---
 
@@ -117,6 +120,13 @@ two plausible defects, fixed same-day with regression tests:
   path re-retains against the rolled-back mirror even on sealed windows and
   surfaces `retainedFailure`.
   Test: `testPointerSealDuringInFlightFailureStillRetainsAndSurfacesFailure`.
+- [x] TR04 (CONFIRMED, 2026-07-12) FR-001: iOS keyboard AutoFill chrome could
+  cover the leading compact Direct/Live controls. Move both switches to the
+  trailing mission-control edge, expand compact and floating variants to
+  44-point targets, and assert both remain hittable with the system keyboard
+  visible in `UXAuditScreenshotsUITests`. The assertion is authored; current
+  execution is pending because the local simulator AX service stops before the
+  test body.
 
 ---
 

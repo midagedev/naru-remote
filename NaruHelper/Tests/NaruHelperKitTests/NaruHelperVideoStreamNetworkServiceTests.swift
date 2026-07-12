@@ -430,6 +430,49 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         XCTAssertNil(result.stall?.authProof)
     }
 
+    func testNetworkEventStreamReceivesBackpressureStallAfterAccessUnit() async throws {
+        let accessUnit = NaruHelperVideoAccessUnit(
+            sequence: 0,
+            kind: .keyframe,
+            binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+        )
+        let server = try makeServer(
+            source: BackpressuredAccessUnitSource(accessUnitsBeforeFailure: [accessUnit])
+        )
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
+            timeout: 3
+        )
+        var events: [HelperVideoStreamNetworkEvent] = []
+        for try await event in client.streamEvents() {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events.count, 3)
+        guard case .startResponse(let response) = events[0],
+              case .accessUnit(let received) = events[1],
+              case .stall(let stall) = events[2]
+        else {
+            XCTFail("Expected start, access unit, then transport-backpressure stall.")
+            return
+        }
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(received.envelope.body.sequence, accessUnit.sequence)
+        XCTAssertEqual(received.envelope.body.kind, accessUnit.kind)
+        XCTAssertEqual(stall.body.reason, .transportBackpressure)
+        XCTAssertEqual(stall.body.health.state, .stalled)
+        XCTAssertTrue(stall.body.health.shouldUseVNCVisualFallback)
+    }
+
     func testWrongPairingSecretReceivesRejectedStartWithoutAccessUnits() async throws {
         let server = try makeServer(accessUnits: [
             NaruHelperVideoAccessUnit(
@@ -552,6 +595,31 @@ private struct FailingAccessUnitSource: NaruHelperVideoAccessUnitSource {
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         throw error
+    }
+}
+
+private struct BackpressuredAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var accessUnitsBeforeFailure: [NaruHelperVideoAccessUnit]
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        accessUnitsBeforeFailure
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        let accessUnitsBeforeFailure = accessUnitsBeforeFailure
+        return AsyncThrowingStream { continuation in
+            for accessUnit in accessUnitsBeforeFailure {
+                continuation.yield(accessUnit)
+            }
+            continuation.finish(
+                throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .encodedAccessUnitBackpressureExceeded
+            )
+        }
     }
 }
 

@@ -25,7 +25,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Naru Remote은 Tailscale 등 사설망에 있는 컴퓨터에 VNC로 연결하기 위해 로컬 네트워크 접근이 필요합니다.</string>
+	<string>Naru Remote uses your local network to connect directly to VNC computers on your private network.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

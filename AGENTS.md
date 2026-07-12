@@ -78,8 +78,8 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/009-live-type-through` (implemented
-2026-07-05; physical gates T021–T025 residual). Feature index —
+Current active feature: `specs/005-connection-grid-diagnostics` (implemented;
+two-surface Connections → Operation refinement completed 2026-07-12). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text

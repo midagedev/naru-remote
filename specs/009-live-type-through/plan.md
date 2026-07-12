@@ -92,6 +92,9 @@ Three layers, matching the enforced module graph:
 3. **Presentation — `NaruRemoteApp/Features/RemoteInputDock`** (view only):
    - `RemoteInputDockView.modePicker` becomes a 3-way segmented picker
      (Compose / Live / Direct) instead of the current Compose/Direct boolean.
+     When compact live-session chrome replaces the full picker, its one-tap
+     Live/Direct switches use 44-point targets and remain on the trailing edge
+     so iOS keyboard AutoFill chrome cannot cover the leading mode controls.
    - `MultilingualComposeTextView` marked-text machinery (already resolves
      committed-vs-marked boundaries for Compose) drives the Live commit hook —
      the same commit-boundary detection, but each commit dispatches instead of
@@ -162,7 +165,7 @@ delivery/latency claims) before any iPad path.
 | Requirement / User Story | Test Level | Tool / Environment | Evidence Required | Owner |
 | --- | --- | --- | --- | --- |
 | US1 / FR-002 / FR-003 / FR-004(helper) | Unit + app model | XCTest + fake helper recorder, iPhone sim | Per-commit helper request carries only committed unit; no VNC clipboard/paste/Unicode `KeyEvent`; marked text not sent | Agent |
-| US2 / FR-001 / FR-012 | Unit (model) | XCTest, iPhone sim | 3-way switch preserves Compose draft, clears Direct modifiers, seals Live window | Agent |
+| US2 / FR-001 / FR-012 | Unit (model) + keyboard-up UI | XCTest + XCUITest, iPhone sim | 3-way switch preserves Compose draft, clears Direct modifiers, seals Live window; compact Live/Direct switches remain hittable above the system keyboard | Agent |
 | US3 / FR-007 / FR-009 / FR-010 (D1) | Unit + fake helper recorder | XCTest, iPhone sim | `hte`→⌫→`e`→Return yields ordered inserts + `BackSpace` key events + `Return` + seal | Agent |
 | US4 / FR-004 / FR-014 (D2) | XCTest + FakeRFBServer | iPhone sim | No-helper: ASCII+Korean deliver via disclosed chunked clipboard; clipboard-blocked: Korean retained + safe failure; never Unicode `KeyEvent` | Agent |
 | US5 / FR-006 / FR-011 | XCTest | iPhone sim | Pointer/focus-unavailable/disconnect each seal; no delete crosses seal on later backspace | Agent |

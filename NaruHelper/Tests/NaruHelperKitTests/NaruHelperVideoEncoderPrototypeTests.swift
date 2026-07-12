@@ -377,6 +377,101 @@ final class NaruHelperVideoEncoderPrototypeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(accessUnits.dropFirst().count, 5)
     }
 
+    func testEncodedAccessUnitBufferOverflowPreservesContiguousPrefixAndTerminatesProducer()
+        async
+    {
+        XCTAssertEqual(NaruHelperVideoEncodedAccessUnitStreamPolicy.defaultCapacity, 8)
+
+        let bufferedStream = AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+            .makeStream(
+                bufferingPolicy: NaruHelperVideoEncodedAccessUnitStreamPolicy.bufferingPolicy(
+                    capacity: 2
+                )
+            )
+        let startGate = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let lifecycle = EncodedAccessUnitProducerLifecycleProbe()
+        bufferedStream.continuation.onTermination = { _ in
+            lifecycle.streamDidTerminate()
+        }
+
+        let producer = Task.detached {
+            defer {
+                lifecycle.producerDidStop(wasCancelled: Task.isCancelled)
+            }
+            var gateIterator = startGate.stream.makeAsyncIterator()
+            _ = await gateIterator.next()
+
+            for sequence in 0..<4 {
+                let kind: HelperVideoAccessUnitKind = switch sequence {
+                case 0: .parameterSet
+                case 1: .keyframe
+                default: .delta
+                }
+                guard NaruHelperVideoEncodedAccessUnitStreamPolicy.yield(
+                    NaruHelperVideoAccessUnit(
+                        sequence: sequence,
+                        kind: kind,
+                        binaryPayload: Data([UInt8(sequence)])
+                    ),
+                    to: bufferedStream.continuation
+                ) else {
+                    return
+                }
+            }
+        }
+        lifecycle.install(producer)
+        startGate.continuation.yield(())
+        startGate.continuation.finish()
+        await producer.value
+
+        var received: [NaruHelperVideoAccessUnit] = []
+        var terminalError: (any Error)?
+        do {
+            for try await accessUnit in bufferedStream.stream {
+                received.append(accessUnit)
+            }
+        } catch {
+            terminalError = error
+        }
+
+        XCTAssertEqual(received.map(\.sequence), [0, 1])
+        XCTAssertEqual(received.map(\.kind), [.parameterSet, .keyframe])
+        XCTAssertEqual(
+            terminalError as? NaruHelperVideoToolboxSyntheticAccessUnitSourceError,
+            .encodedAccessUnitBackpressureExceeded
+        )
+
+        bufferedStream.continuation.finish()
+        bufferedStream.continuation.finish()
+        let lifecycleSnapshot = lifecycle.snapshot
+        XCTAssertEqual(lifecycleSnapshot.streamTerminationCount, 1)
+        XCTAssertEqual(lifecycleSnapshot.producerStopCount, 1)
+        XCTAssertTrue(lifecycleSnapshot.producerWasCancelled)
+    }
+
+    func testFiniteDefaultStreamAdapterPreservesBatchLargerThanLiveBufferCapacity()
+        async throws
+    {
+        let accessUnits = (0..<12).map { sequence in
+            NaruHelperVideoAccessUnit(
+                sequence: sequence,
+                kind: sequence == 0 ? .keyframe : .delta,
+                binaryPayload: Data([UInt8(sequence)])
+            )
+        }
+        let stream = NaruHelperVideoAccessUnitSourceDefaultStreamAdapter.stream(
+            accessUnits: accessUnits
+        )
+
+        // Let the finite producer run ahead so this catches the old synchronous
+        // live-capacity overflow even when the eventual consumer is healthy.
+        try await Task.sleep(for: .milliseconds(20))
+        let received = try await Self.collectAccessUnits(from: stream)
+
+        XCTAssertEqual(received.map(\.sequence), Array(0..<12))
+        XCTAssertEqual(received.map(\.kind), [.keyframe] + Array(repeating: .delta, count: 11))
+    }
+
     func testToolboxPixelBufferEncoderRejectsEmptyFrameBatch() throws {
         let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
             width: 64,
@@ -738,3 +833,53 @@ private final class VideoEncoderSessionProbeRecorder: @unchecked Sendable {
         return result
     }
 }
+
+#if os(macOS) && canImport(VideoToolbox) && canImport(ScreenCaptureKit)
+private final class EncodedAccessUnitProducerLifecycleProbe: @unchecked Sendable {
+    struct Snapshot {
+        var streamTerminationCount: Int
+        var producerStopCount: Int
+        var producerWasCancelled: Bool
+    }
+
+    private let lock = NSLock()
+    private var producer: Task<Void, Never>?
+    private var recordedStreamTerminationCount = 0
+    private var recordedProducerStopCount = 0
+    private var recordedProducerWasCancelled = false
+
+    func install(_ producer: Task<Void, Never>) {
+        lock.lock()
+        self.producer = producer
+        lock.unlock()
+    }
+
+    func streamDidTerminate() {
+        lock.lock()
+        recordedStreamTerminationCount += 1
+        let producer = self.producer
+        lock.unlock()
+        producer?.cancel()
+    }
+
+    func producerDidStop(wasCancelled: Bool) {
+        lock.lock()
+        recordedProducerStopCount += 1
+        recordedProducerWasCancelled = wasCancelled
+        producer = nil
+        lock.unlock()
+    }
+
+    var snapshot: Snapshot {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return Snapshot(
+            streamTerminationCount: recordedStreamTerminationCount,
+            producerStopCount: recordedProducerStopCount,
+            producerWasCancelled: recordedProducerWasCancelled
+        )
+    }
+}
+#endif

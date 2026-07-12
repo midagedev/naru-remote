@@ -1,17 +1,31 @@
 # Research: Connection Grid, Reachability, Previews, And Collectable Diagnostics
 
 **Feature**: `005-connection-grid-diagnostics`
-**Date**: 2026-06-02
+**Date**: 2026-06-02 (two-surface decision revised 2026-07-12)
 
-## Decision: Grid As Default Detail Entry, Session Flow Reused
+## Decision: Connections And Operation Are The Only Primary Surfaces
 
-**Decision**: When saved profiles exist, the shell renders a connection grid as the default detail surface. Tapping a card selects the profile and opens the existing session detail/session viewport.
+**Decision**: When saved profiles exist, the shell renders Connections as one
+responsive grid. A private card tap enters full-height Operation and starts the
+exact profile's connection attempt immediately; advanced public endpoints
+confirm first. Add/edit/delete remain modal or menu actions. Operation retains
+a persistent diagnostic capsule and opens the complete safe summary in a
+sheet/popover. iPad scales the grid rather than adding a profile sidebar.
 
-**Rationale**: This gives the requested "grid first" experience without rewriting the already-tested session viewport, input dock, PiP, reconnect, and diagnostics wiring. It also lets wide layouts keep the current profile list as a secondary navigation aid.
+**Rationale**: The previous card → selected profile → Connect sequence created
+navigation depth without adding a meaningful decision. Direct entry preserves
+the already-tested viewport, input dock, PiP, reconnect, and diagnostic wiring
+while giving each primary surface one clear job. A material status capsule is
+parallel, non-blocking information; full diagnostics remain progressive
+disclosure rather than a third destination.
 
 **Alternatives considered**:
 
-- Replace the entire split view with a tab/home stack. Rejected for v1 because it would churn existing iPad navigation and tests.
+- Keep the split view and selected-profile detail. Superseded because it
+  duplicated selection on iPad and required a second action after the user had
+  already chosen the computer.
+- Add a permanent diagnostics column/panel. Rejected because it would shrink
+  the remote canvas and recreate a third primary surface.
 - Keep sidebar-only navigation and add bigger rows. Rejected because the user explicitly asked for a grid entry point with previews.
 
 ## Decision: Local Downsampled Preview Store

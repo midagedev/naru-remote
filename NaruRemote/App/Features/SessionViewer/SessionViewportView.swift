@@ -38,6 +38,7 @@ public struct SessionViewportView: View {
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onDisconnect: (() -> Void)?
+    private let onReturnToConnections: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
     private let onFramebufferTap: SessionFramebufferTapHandler?
     private let onFramebufferRightClick: SessionFramebufferRightClickHandler?
@@ -183,9 +184,12 @@ public struct SessionViewportView: View {
     /// sidebar visible — UX punch-list #303).  The `ViewThatFits`
     /// branch in `body` handles that fallback at draw time.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityVoiceOverEnabled) private var accessibilityVoiceOverEnabled
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
+    nonisolated static let controlRevealMinimumHitHeight: CGFloat = 44
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public init(
@@ -209,6 +213,7 @@ public struct SessionViewportView: View {
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
+        onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
@@ -264,6 +269,7 @@ public struct SessionViewportView: View {
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
+        self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
@@ -312,6 +318,7 @@ public struct SessionViewportView: View {
         onRunChecks: (() -> Void)? = nil,
         onConnect: (() -> Void)? = nil,
         onDisconnect: (() -> Void)? = nil,
+        onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
@@ -365,6 +372,7 @@ public struct SessionViewportView: View {
         self.onRunChecks = onRunChecks
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
+        self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
@@ -456,14 +464,14 @@ public struct SessionViewportView: View {
                     immersiveControlBar
                         .padding(.horizontal, 10)
                         .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(immersiveChromeTransition)
                 } else {
                     controlRevealHandle
                         .padding(.top, 8)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: showsImmersiveControlBar)
+            .animation(immersiveChromeAnimation, value: showsImmersiveControlBar)
             .zIndex(100)
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -471,17 +479,25 @@ public struct SessionViewportView: View {
             .task(id: immersiveControlAutoHideToken) {
                 guard Self.allowsImmersiveControlAutoHide(
                     showsControlBar: showsImmersiveControlBar,
-                    isViewportInteractionActive: isViewportInteractionActive
+                    isViewportInteractionActive: isViewportInteractionActive,
+                    isVoiceOverEnabled: accessibilityVoiceOverEnabled
                 ) else { return }
                 try? await Task.sleep(nanoseconds: 2_400_000_000)
                 guard !Task.isCancelled,
                       Self.allowsImmersiveControlAutoHide(
                         showsControlBar: showsImmersiveControlBar,
-                        isViewportInteractionActive: isViewportInteractionActive
+                        isViewportInteractionActive: isViewportInteractionActive,
+                        isVoiceOverEnabled: accessibilityVoiceOverEnabled
                       )
                 else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(immersiveChromeAnimation) {
                     showsImmersiveControlBar = false
+                }
+            }
+            .onChange(of: accessibilityVoiceOverEnabled) { _, isEnabled in
+                guard isEnabled, !showsImmersiveControlBar else { return }
+                withAnimation(immersiveChromeAnimation) {
+                    showsImmersiveControlBar = true
                 }
             }
     }
@@ -489,6 +505,17 @@ public struct SessionViewportView: View {
     private var immersiveControlAutoHideToken: Int {
         (showsImmersiveControlBar ? 1 : 0)
             | (isViewportInteractionActive ? 2 : 0)
+            | (accessibilityVoiceOverEnabled ? 4 : 0)
+    }
+
+    private var immersiveChromeAnimation: Animation? {
+        accessibilityReduceMotion ? .linear(duration: 0.1) : .easeInOut(duration: 0.18)
+    }
+
+    private var immersiveChromeTransition: AnyTransition {
+        accessibilityReduceMotion
+            ? .opacity
+            : .move(edge: .top).combined(with: .opacity)
     }
 
     private var viewportSurface: some View {
@@ -576,19 +603,10 @@ public struct SessionViewportView: View {
 
     private var immersiveControlBar: some View {
         HStack(spacing: 8) {
-            statusBadge
-                .padding(.vertical, 7)
-                .padding(.horizontal, 9)
-                .background(Color.black.opacity(0.38))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            qualityChip
+            connectionsButton
 
             Spacer(minLength: 8)
 
-            if showsConnectButton {
-                connectButton
-            }
             if showsDisconnectButton {
                 disconnectButton
             }
@@ -605,6 +623,21 @@ public struct SessionViewportView: View {
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
+    }
+
+    private var connectionsButton: some View {
+        Button {
+            onReturnToConnections?()
+        } label: {
+            Label("Connections", systemImage: "square.grid.2x2")
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(onReturnToConnections == nil)
+        .help("End or cancel this connection and return to saved computers")
+        .accessibilityIdentifier("naru.operation.connections")
     }
 
     /// Secondary session commands stay one tap away without widening the
@@ -704,30 +737,30 @@ public struct SessionViewportView: View {
 
     private var controlRevealHandle: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(immersiveChromeAnimation) {
                 showsImmersiveControlBar = true
             }
         } label: {
-            Text("Show session controls")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.clear)
-                .frame(width: 52, height: 24)
-                .background(Color.black.opacity(0.42))
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                )
-                .overlay {
-                    Image(systemName: "chevron.down")
-                        .foregroundStyle(.white.opacity(0.86))
-                        .accessibilityHidden(true)
-                }
+            ZStack {
+                Capsule()
+                    .fill(Color.black.opacity(0.42))
+                    .frame(width: 52, height: 24)
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                    )
+
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(.white.opacity(0.86))
+                    .accessibilityHidden(true)
+            }
+            .frame(width: 52, height: Self.controlRevealMinimumHitHeight)
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .zIndex(100)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Show session controls")
         .accessibilityIdentifier("naru.session.controls.reveal")
     }
@@ -827,7 +860,7 @@ public struct SessionViewportView: View {
         Button {
             onConnect?()
         } label: {
-            Label("Connect", systemImage: "bolt.horizontal.circle")
+            Label(connectButtonTitle, systemImage: "arrow.clockwise.circle")
                 // Keep the label on one line so a tight action row never
                 // wraps it into a vertical glyph strip ("Co / nne / ct")
                 // once the trackpad / PiP controls share the row on the
@@ -837,8 +870,17 @@ public struct SessionViewportView: View {
         }
         .buttonStyle(.borderedProminent)
         .disabled(onConnect == nil)
-        .help("Connect to selected profile")
+        .help(connectButtonTitle == "Retry" ? "Retry this connection" : "Connect to selected profile")
         .accessibilityIdentifier("naru.session.connect")
+    }
+
+    private var connectButtonTitle: String {
+        switch session?.state {
+        case .failed, .closed:
+            return "Retry"
+        default:
+            return "Connect"
+        }
     }
 
     @ViewBuilder
@@ -2090,9 +2132,10 @@ public struct SessionViewportView: View {
     ) {
         if Self.collapsesImmersiveControlsOnViewportInteraction(
             showsControlBar: showsImmersiveControlBar,
-            isViewportInteractionActive: isActive
+            isViewportInteractionActive: isActive,
+            isVoiceOverEnabled: accessibilityVoiceOverEnabled
         ) {
-            withAnimation(.easeInOut(duration: 0.16)) {
+            withAnimation(immersiveChromeAnimation) {
                 showsImmersiveControlBar = false
             }
         }
@@ -2105,11 +2148,12 @@ public struct SessionViewportView: View {
     private func collapseImmersiveControlsForTrackpadGesture(_ gesture: PointerGesture) {
         guard Self.collapsesImmersiveControlsOnTrackpadGesture(
             showsControlBar: showsImmersiveControlBar,
-            gesture: gesture
+            gesture: gesture,
+            isVoiceOverEnabled: accessibilityVoiceOverEnabled
         ) else {
             return
         }
-        withAnimation(.easeInOut(duration: 0.16)) {
+        withAnimation(immersiveChromeAnimation) {
             showsImmersiveControlBar = false
         }
     }
@@ -2168,9 +2212,9 @@ public struct SessionViewportView: View {
     private var showsDisconnectButton: Bool {
         guard let state = session?.state else { return false }
         switch state {
-        case .active, .reconnecting:
+        case .active, .degraded, .reconnecting:
             return true
-        case .connecting, .authenticating, .degraded, .failed, .closed:
+        case .connecting, .authenticating, .failed, .closed:
             return false
         }
     }
@@ -2185,9 +2229,9 @@ public struct SessionViewportView: View {
     private var showsConnectButton: Bool {
         guard let state = session?.state else { return true }
         switch state {
-        case .active, .reconnecting:
+        case .connecting, .authenticating, .active, .degraded, .reconnecting:
             return false
-        case .connecting, .authenticating, .degraded, .failed, .closed:
+        case .failed, .closed:
             return true
         }
     }
@@ -2360,23 +2404,26 @@ public struct SessionViewportView: View {
 
     nonisolated static func allowsImmersiveControlAutoHide(
         showsControlBar: Bool,
-        isViewportInteractionActive: Bool
+        isViewportInteractionActive: Bool,
+        isVoiceOverEnabled: Bool
     ) -> Bool {
-        showsControlBar && !isViewportInteractionActive
+        showsControlBar && !isViewportInteractionActive && !isVoiceOverEnabled
     }
 
     nonisolated static func collapsesImmersiveControlsOnViewportInteraction(
         showsControlBar: Bool,
-        isViewportInteractionActive: Bool
+        isViewportInteractionActive: Bool,
+        isVoiceOverEnabled: Bool
     ) -> Bool {
-        showsControlBar && isViewportInteractionActive
+        showsControlBar && isViewportInteractionActive && !isVoiceOverEnabled
     }
 
     nonisolated static func collapsesImmersiveControlsOnTrackpadGesture(
         showsControlBar: Bool,
-        gesture: PointerGesture
+        gesture: PointerGesture,
+        isVoiceOverEnabled: Bool
     ) -> Bool {
-        guard showsControlBar else {
+        guard showsControlBar, !isVoiceOverEnabled else {
             return false
         }
         switch gesture {
@@ -2544,23 +2591,25 @@ private struct PointerFeedbackPulse: Identifiable {
 private struct PointerFeedbackPulseView: View {
     let pulse: PointerFeedbackPulse
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(NaruColors.signalBlue, lineWidth: 2)
                 .frame(width: diameter, height: diameter)
-                .scaleEffect(expanded ? 1.25 : 0.35)
-                .opacity(expanded ? 0 : baseOpacity)
+                .scaleEffect(accessibilityReduceMotion ? 1 : (expanded ? 1.25 : 0.35))
+                .opacity(accessibilityReduceMotion ? baseOpacity : (expanded ? 0 : baseOpacity))
             if pulse.kind == .rightClick {
                 Circle()
                     .fill(NaruColors.signalBlue)
                     .frame(width: 6, height: 6)
-                    .opacity(expanded ? 0 : 0.9)
+                    .opacity(accessibilityReduceMotion ? 0.9 : (expanded ? 0 : 0.9))
             }
         }
         .position(pulse.point)
         .onAppear {
+            guard !accessibilityReduceMotion else { return }
             withAnimation(.easeOut(duration: 0.45)) {
                 expanded = true
             }

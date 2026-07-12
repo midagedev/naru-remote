@@ -359,17 +359,23 @@ UI에서 반복되는 형태:
 
 ## 6.3 App Icon 방향
 
-추천 아이콘:
+추천 아이콘은 `Between Worlds`다.
 
-> rounded square 안에 작은 port/slate와 세 개의 remote node가 연결된 형태.
+> 서로 떨어진 두 공간이 한순간 맞닿고, 완성된 생각 하나가 그 경계를 건너는 형태.
 
 구성:
 
-- 배경: graphite 또는 near-black
-- 중심: 얇은 line으로 연결된 3개 node
-- 하단: input surface를 상징하는 가로 slot
-- slot에서 위 node로 올라가는 작은 signal pulse
-- 텍스트/음성/이미지를 직접 그리지 않고, "local input이 private node로 건너가는" 구조만 상징
+- 배경: full-bleed near-black graphite `#111318`
+- 중심: 불가능한 원근으로 겹치는 두 개의 matte graphite plane
+- 경계: 두 plane 사이를 가르는 굵고 짧은 Signal Blue seam
+- crossing object: seam의 앞/뒤에 동시에 걸친 작은 off-white rounded tile
+- 의미: local에서 완성한 텍스트·음성·이미지·파일이 private remote 공간으로 넘어가는 순간
+- 작은 크기에서도 plane / seam / thought의 세 덩어리만 남도록 유지
+
+기존의 `3 node + connector + input slot` 도식은 제품 구조를 정확히
+설명했지만 작은 아이콘에서 network diagram 또는 game controller처럼
+읽혔다. UI의 진단·연결 화면에서는 node/lane 언어를 계속 사용하되,
+브랜드 마크는 장비 자체보다 두 공간을 잇는 경험을 상징한다.
 
 피해야 할 아이콘:
 
@@ -379,6 +385,8 @@ UI에서 반복되는 형태:
 - 구름/cloud 아이콘
 - 마이크만 강조한 아이콘
 - 과도한 네온/그라디언트
+- network topology를 그대로 축소한 도식
+- upload/download 화살표
 
 ## 7. 컬러 시스템
 

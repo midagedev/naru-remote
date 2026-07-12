@@ -281,3 +281,24 @@ the expected UTF-8 clipboard payload and paste command path.
   boundaries and should not be edited by multiple agents at the same time.
 - Manual iPad IME verification cannot be delegated to a code-only agent without
   device access.
+
+## Release-readiness review fixes (2026-07-12)
+
+- [x] RR01 [US1] Make profile add/edit/delete return a fixed-catalog durable
+  persistence result; keep the published profile, selection, and session
+  unchanged when the store rejects a mutation.
+- [x] RR02 [US1] Keep Profile Editor open until persistence succeeds, disable
+  duplicate saves while pending, and show a privacy-safe retry surface after
+  failure. Covered by `ProfileEditDeleteTests` and
+  `ProfileEditorFormStateTests`.
+- [x] RR03 [US1] Treat provisional Keychain writes as an undo-journaled part
+  of profile add/edit: restore previous VNC/helper text/helper video secrets in
+  reverse order when durable profile persistence fails. A rollback failure
+  exposes only the fixed `.credentialRestore` catalog value. Apply the same
+  transaction to delete, and serialize all profile mutations across MainActor
+  suspension points so overlapping operations cannot restore orphan secrets.
+  Covered by creation/replacement/explicit-removal/concurrent-delete tests.
+- [x] RR04 [US1] Consume delete persistence results in the app shell. A failed
+  delete leaves the row/session intact and presents fixed safe copy with
+  `Retry Delete` and Cancel instead of failing silently; a single in-flight
+  guard rejects duplicate delete gestures.

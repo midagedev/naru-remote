@@ -9,22 +9,27 @@ public struct DiagnosticSummaryView: View {
     /// `nil` hides the Share Diagnostics affordance entirely
     /// (constitution §IV: prefer absence over a stub that could leak).
     private let shareTextProvider: (() -> String)?
+    private let showsHeader: Bool
     @State private var shareText: String?
 
     public init(
         rows: [DiagnosticSummaryRow],
-        shareTextProvider: (() -> String)? = nil
+        shareTextProvider: (() -> String)? = nil,
+        showsHeader: Bool = true
     ) {
         self.rows = rows
         self.shareTextProvider = shareTextProvider
+        self.showsHeader = showsHeader
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Diagnostics", systemImage: "waveform.path.ecg")
-                    .font(.headline)
-                Spacer()
+            if showsHeader {
+                HStack {
+                    Label("Diagnostics", systemImage: "waveform.path.ecg")
+                        .font(.headline)
+                    Spacer()
+                }
             }
 
             if rows.isEmpty {
@@ -38,6 +43,7 @@ public struct DiagnosticSummaryView: View {
                             .foregroundStyle(row.status.tint)
                             .frame(width: 20)
                             .help(row.status)
+                            .accessibilityLabel(row.status.capitalized)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.title)
@@ -45,14 +51,15 @@ public struct DiagnosticSummaryView: View {
                             Text(row.detail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+
+                            Text(row.stage)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
                         }
 
-                        Spacer()
-
-                        Text(row.stage)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
 

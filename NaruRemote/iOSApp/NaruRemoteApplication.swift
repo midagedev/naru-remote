@@ -7,26 +7,30 @@ import SwiftUI
 struct NaruRemoteApplication: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = Self.makeModel()
+#if DEBUG
     @MainActor private static var trackpadCursorStormTask: Task<Void, Never>?
     @MainActor private static var framebufferFloodTask: Task<Void, Never>?
     @MainActor private static var modelPublishStormTask: Task<Void, Never>?
     @MainActor private static var helperVideoHealthStormTask: Task<Void, Never>?
     @MainActor private static var incomingClipboardChromeStormTask: Task<Void, Never>?
     @MainActor private static var delayedFirstFrameTask: Task<Void, Never>?
+#endif
 
     var body: some Scene {
         WindowGroup {
             NaruRemoteAppShell(
                 model: model,
                 buildVersion: Self.bundleBuildVersion(),
-                startsOnSelectedProfileDetail: Self.testStartsOnSelectedProfileDetail()
+                startsOnSelectedProfileDetail: Self.testStartsOnOperationSurface()
             )
                 .preferredColorScheme(Self.testOverrideColorScheme())
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase != .active else {
                         return
                     }
+#if DEBUG
                     Self.cancelTestStormTasks()
+#endif
                 }
         }
     }
@@ -42,6 +46,7 @@ struct NaruRemoteApplication: App {
     /// `-AppleInterfaceStyle Dark` launch argument is a macOS-only
     /// user-default key and is silently ignored on iOS.
     private static func testOverrideColorScheme() -> ColorScheme? {
+#if DEBUG
         guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_OVERRIDE_INTERFACE_STYLE"],
               !raw.isEmpty
         else { return nil }
@@ -50,6 +55,9 @@ struct NaruRemoteApplication: App {
         case "light": return .light
         default: return nil
         }
+#else
+        nil
+#endif
     }
 
     /// Reads `CFBundleShortVersionString` so the diagnostic share
@@ -62,12 +70,20 @@ struct NaruRemoteApplication: App {
 
     /// XCUITest hook — production launches saved profiles into the
     /// connection grid, but focused input-dock tests need to start on the
-    /// selected profile detail without tapping through the launcher.
-    private static func testStartsOnSelectedProfileDetail() -> Bool {
-        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_START_PROFILE_DETAIL"],
+    /// Operation without tapping through Connections. The legacy detail key
+    /// remains supported for focused input-dock tests; the Operation key does
+    /// not implicitly force the dock into pre-session fixtures.
+    private static func testStartsOnOperationSurface() -> Bool {
+#if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard let raw = environment["NARU_TEST_START_OPERATION_SURFACE"]
+                ?? environment["NARU_TEST_START_PROFILE_DETAIL"],
               !raw.isEmpty
         else { return false }
         return raw != "0" && raw.lowercased() != "false"
+#else
+        false
+#endif
     }
 
     private static func makeModel() -> NaruRemoteAppModel {
@@ -81,6 +97,7 @@ struct NaruRemoteApplication: App {
         // `loadStoredProfiles()` to merge disk-backed profiles in.
         let credentialStore = KeychainConnectionCredentialStore()
 
+        #if DEBUG
         // XCUITest fixture hook — when `NARU_TEST_FIXTURE_SNAPSHOT`
         // is set the model is seeded with a synthetic snapshot so
         // the audit harness can drive states the live persistence
@@ -109,14 +126,28 @@ struct NaruRemoteApplication: App {
                 localClipboardWriter: UIPasteboardClipboardWriter()
             )
         }
+        #else
+        // App Store builds do not link synthetic fixtures or launch-
+        // environment state injection. They always start from real persisted
+        // state and the production dependency graph.
+        let model = NaruRemoteAppModel(
+            profilePreviewStore: previewStore,
+            credentialStore: credentialStore,
+            settingsPersistence: settingsPersistence,
+            pipWatchController: PiPWatchPictureInPictureController(),
+            localClipboardWriter: UIPasteboardClipboardWriter()
+        )
+        #endif
         Task { @MainActor in
+#if DEBUG
             // XCUITest E2E hook — pre-populate the keychain with
             // known profile credentials BEFORE the profile store loads
             // so live UI tests can connect without driving the editor
             // UI. No-op when the env vars are unset (production).
             await applyTestInjectKeychainCredentials(into: credentialStore)
+#endif
 
-            if !testSkipsProfileStoreLoad() {
+            if shouldLoadProfileStore() {
                 do {
                     let persistence = FileConnectionProfilePersistence(fileURL: profileStoreURL())
                     let store = try await ConnectionProfileStore(persistence: persistence)
@@ -129,6 +160,7 @@ struct NaruRemoteApplication: App {
             }
             await model.loadStoredProfilePreviews()
 
+#if DEBUG
             applyTestAppSettingsOverrides(to: model)
             applyTestStickyModifierOverrides(to: model)
             applyTestSuppressDirectModeWarning(to: model)
@@ -143,10 +175,23 @@ struct NaruRemoteApplication: App {
             applyTestIncomingClipboardChromeStorm(to: model)
             applyTestDelayedFirstFrameAfterComposeFocus(to: model)
             writeTestDeviceStateMarkerIfRequested(for: model)
+#endif
         }
         return model
     }
 
+    /// Release builds cannot bypass the real profile store through a process
+    /// environment variable. Debug remains configurable for XCUITest and
+    /// physical-device gates.
+    private static func shouldLoadProfileStore() -> Bool {
+#if DEBUG
+        !testSkipsProfileStoreLoad()
+#else
+        true
+#endif
+    }
+
+#if DEBUG
     /// Physical-device smoke hook — when explicitly requested by the
     /// launch environment, write a privacy-safe marker into the app
     /// Documents container.  The CLI gate can fetch this through
@@ -170,7 +215,7 @@ struct NaruRemoteApplication: App {
             selectedProfileHelperVideoStatus: selectedProfile?.helperVideo?.isEnabled == true ? "enabled" : "disabled",
             selectedProfileHelperVideoSecretReferenceStatus: selectedProfile?.helperVideo?.pairingSecretRef == nil ? "missing" : "present",
             profileStoreLoadSkippedStatus: testSkipsProfileStoreLoad() ? "true" : "false",
-            startsOnSelectedProfileDetailStatus: testStartsOnSelectedProfileDetail() ? "true" : "false",
+            startsOnSelectedProfileDetailStatus: testStartsOnOperationSurface() ? "true" : "false",
             streamSettingsOverrideStatus: testStreamSettingsOverrideStatus(),
             markerRunNonce: ProcessInfo.processInfo.environment["NARU_TEST_DEVICE_STATE_MARKER_NONCE"] ?? ""
         )
@@ -710,6 +755,7 @@ struct NaruRemoteApplication: App {
         else { return false }
         return raw != "0" && raw.lowercased() != "false"
     }
+#endif
 
     private static func profileStoreURL() -> URL {
         if let overridePath = ProcessInfo.processInfo.environment["NARU_PROFILE_STORE_URL"],

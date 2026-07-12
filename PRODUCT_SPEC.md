@@ -304,21 +304,22 @@ PiP Watch Mode는 사용자가 iPhone/iPad에서 다른 일을 하는 동안 원
 - Compose mode에서도 Esc, Tab, Ctrl-C, 위/아래 화살표 quick keys를 제공해
   다국어 문장을 작성하던 사용자가 Direct mode로 전환하지 않고 terminal/AI
   CLI에 필요한 discrete control key를 보낼 수 있다.
-- full-rate SwiftUI/Metal rendering, clipboard restore/receive, broader
-  pointer/keyboard events, real-device credential verification, system PiP
-  window, and multi-session coordinator는 아직 구현 대상이다.
+- SwiftUI/Metal rendering, clipboard restore/receive, broader pointer/keyboard
+  events, Keychain credential wiring, system PiP controller boundary는 구현됐다.
+  잔여는 실제 credential/PiP 실기기 검증과 별도 feature가 필요한 multi-session
+  coordinator다.
 
 ## 6.3 Compose & Send
 
 ### 위치
 
-Compose & Send는 두 가지 원격 입력 모드 중 **기본 모드**다. 다른 모드는 §6.3.6 Direct
-Keystroke Streaming Mode이며, 사용자가 Remote Input Dock의 토글로 전환한다.
+Compose & Send는 세 가지 원격 입력 모드 중 검토형 **기본 모드**다. 다른 모드는
+`specs/009-live-type-through`의 Live type-through와 §6.3.6 Direct Keystroke
+Streaming Mode이며, 사용자가 Remote Input Dock에서 한 번의 탭으로 전환한다.
 Compose & Send가 기본인 이유는 다국어 텍스트, IME, 받아쓰기, 손글씨, 자동완성이
-로컬에서 완성된 뒤 원격으로 한 번에 들어가는 흐름이 깨지지 않기 때문이다. 동일한
-이중 모드 구조는 Chrome Remote Desktop Android가 채택한 패턴이며 (기본 = 텍스트 박스
-+ Send, 토글 = "On-screen input"으로 직접 키스트로크 전송) Naru Remote도 같은 결론을
-따른다.
+로컬에서 완성된 뒤 원격으로 한 번에 들어가는 흐름이 깨지지 않기 때문이다. Live는
+IME에서 확정된 단위를 즉시 보내는 대화형 경로이고, Direct는 raw terminal key 경로다.
+세 모드는 서로 대체하지 않고 장문 검토·대화형 입력·키 단위 제어를 나눠 맡는다.
 
 ### 사용자 가치
 
@@ -425,7 +426,7 @@ OS별 구현 후보:
 
 #### 위치
 
-Compose & Send와 **나란한 두 번째 입력 모드**다. §6.3 전송 모드 안의
+Compose & Send 및 Live type-through와 나란한 **세 번째 입력 모드**다. §6.3 전송 모드 안의
 "B. Keystroke Fallback Mode"가 Compose & Send 안의 send-time fallback인 것과 달리,
 이 모드는 Remote Input Dock 레벨에서 사용자가 명시적으로 켜는 토글 모드다. 켜지면
 compose 단계가 사라지고, **앱이 직접 그리는 커스텀 소프트 키보드**(Chrome Remote Desktop
@@ -449,14 +450,13 @@ they MUST NOT be the primary design for multilingual text entry"* 의 "MAY" 영�
 
 #### 흐름
 
-1. 사용자가 Remote Input Dock 상단의 segmented mode picker에서
-   "Compose" / "Direct" 두 세그먼트 중 "Direct"를 선택한다(shipped UI 라벨은
+1. 사용자가 Remote Input Dock 상단의 mode picker에서
+   "Compose" / "Live" / "Direct" 중 "Direct"를 선택한다(shipped UI 라벨은
    짧게 "Direct"; "Direct Keystroke"가 아니다 — 도크의 좁은 폭에 맞춘
    결정이다).
 2. iOS 시스템 키보드가 내려가고 화면 하단에 Naru의 커스텀 소프트 키보드(QWERTY 페이지)가
-   올라오며, 도크 헤더와 세션 HUD 두 곳에 "Direct mode" 배지가 동시에
-   표시된다(도크 배지는 키보드와 함께, HUD 배지는 키보드를 접거나 다른
-   시트로 전환해도 유지된다 — FR-010).
+   올라오며, 입력 도크에 "IME off" 상태가 표시된다. 별도 HUD 배지는 두지 않아
+   키보드가 올라온 좁은 화면에서 상태 배지가 중복되거나 겹치지 않게 한다.
 3. 첫 진입 시(세션당 1회) `confirmationDialog`로 경고가 표시된다. 본문은 영어로
    "Keystrokes go straight to the remote computer. IME input (Korean,
    Chinese, Japanese, emoji) will not work in this mode. Switch back to

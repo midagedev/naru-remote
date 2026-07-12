@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import NaruRemoteApp
 import NaruRemoteCore
@@ -992,3 +993,4 @@ private extension Dictionary where Key == String, Value == String {
         return raw == "1" || raw == "true" || raw == "yes"
     }
 }
+#endif

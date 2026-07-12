@@ -141,6 +141,13 @@ public struct NaruHelperVideoOpenedFrameStream: Sendable {
         _ error: any Error,
         emittedAccessUnit: Bool
     ) -> HelperVideoStreamStallReason? {
+        if let encoderError = error
+            as? NaruHelperVideoToolboxSyntheticAccessUnitSourceError,
+           encoderError == .encodedAccessUnitBackpressureExceeded
+        {
+            return .transportBackpressure
+        }
+
         guard !emittedAccessUnit else {
             return nil
         }

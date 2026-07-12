@@ -244,3 +244,17 @@ description: "Tasks: Session Experience — GRD-Class Viewport & Pointer Control
 
 ## Dependencies
 Stage A core (T001/T002) → A app (T003–T006). Stage B core (T010–T013) parallel with A app; B app (T014–T016) needs A app + B core. Stage C is independent of B and can overlap. VISUAL tasks wait on their stage's app tasks.
+
+## Release-readiness review fixes (2026-07-12)
+
+- [x] RR01 [B] Do not auto-hide immersive session controls while VoiceOver is
+  enabled from the idle timer, viewport interaction, or trackpad intent;
+  restore them immediately if VoiceOver turns on, and retain a compact 52×24
+  visual reveal handle inside a minimum 52×44 hit area. Covered by
+  `SessionViewportViewGeometryTests`; physical VoiceOver traversal remains in
+  the cross-feature release checklist.
+- [x] RR02 [A/C] Replace the selected-profile pre-connect layout with the
+  full-height Operation surface and a persistent, accessible diagnostic corner
+  capsule that opens the full safe summary. Remove duplicate status/quality
+  chrome from the auto-hidden action bar. Covered by diagnostic-state unit
+  tests and iPhone-first screenshots; physical VoiceOver remains residual.

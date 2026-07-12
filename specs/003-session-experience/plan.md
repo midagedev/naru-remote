@@ -48,6 +48,7 @@ Gesture (view points) → `MetalFramebufferHostingView` closure → `NaruRemoteA
 | `PointerGestureResolver` | direct tap maps through zoom+pan; trackpad tap@cursor; 2-finger@cursor; tap-and-a-half; zoom/pan emit `[]` | Unit + Fake RFB | iPhone sim |
 | Model integration | mode/cursor/transform/quality reset on disconnect/profile-change; latency sampling; trackpad-move backlog does not block key lane | XCTest (`NaruRemoteAppTests`) | iPhone sim |
 | Screen-first layout, pointer-mode toggle, cursor overlay, quick keys | XCUITest + screenshots (vision-judge) | iPhone 17 Pro / iOS 26.2 | iPhone sim |
+| VoiceOver-safe immersive controls (FR-018) | Unit policy + manual traversal | XCTest + physical iPhone | Idle timer and viewport interaction cannot hide controls; reveal hit target ≥44pt; manual traversal residual | Agent + human |
 | Graceful scaling | screenshots | iPad Pro 13" sim |
 | Real Mac VNC trackpad/zoom feel | Manual | iPhone physical — **residual risk** (no device in env), recorded per §III |
 

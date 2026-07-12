@@ -147,18 +147,30 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "04-connection-grid-\(deviceTag)-\(mode.suffix).png")
 
         openFirstConnectionCardIfPresent(app: app)
-        let checksButton = findChecksButton(in: app)
+        let returnToGrid = app.buttons["naru.operation.connections"]
         XCTAssertTrue(
-            checksButton.waitForExistence(timeout: 4),
-            "Run Checks button must be visible after opening a grid card"
+            returnToGrid.waitForExistence(timeout: 4),
+            "Operation must keep Connections directly reachable."
         )
+        returnToGrid.tap()
         XCTAssertTrue(
-            waitForStableElement(
-                in: app,
-                identifier: "naru.session.tools.menu",
-                timeout: 4
-            ).exists,
-            "Profile detail must expose secondary stream and PiP controls from one Session tools menu"
+            app.buttons["naru.connection.grid.card"].firstMatch.waitForExistence(timeout: 4),
+            "Returning from profile detail must restore the connection grid."
+        )
+        openFirstConnectionCardIfPresent(app: app)
+        XCTAssertTrue(
+            app.buttons["naru.session.diagnostics.corner"].waitForExistence(timeout: 4),
+            "Operation must keep diagnostics visible without a stacked third screen"
+        )
+        let sessionTools = app.buttons["naru.session.tools.menu"]
+        if !sessionTools.exists {
+            let reveal = app.buttons["naru.session.controls.reveal"]
+            XCTAssertTrue(reveal.waitForExistence(timeout: 4))
+            reveal.tap()
+        }
+        XCTAssertTrue(
+            sessionTools.waitForExistence(timeout: 4),
+            "Operation must expose secondary stream and PiP controls from one Session tools menu"
         )
         XCTAssertFalse(
             app.buttons["naru.session.streamPowerMode"].exists,
@@ -179,31 +191,20 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // instead — four deterministic stages including the running
         // authentication row.
         let diagnosticsApp = launchAppWithFixture(.diagnosticsPopulated, mode: mode)
+        let diagnosticCorner = diagnosticsApp.buttons["naru.session.diagnostics.corner"]
         XCTAssertTrue(
-            diagnosticsApp.staticTexts["Diagnostics"].waitForExistence(timeout: 8),
-            "Diagnostics summary must be mounted"
+            diagnosticCorner.waitForExistence(timeout: 8),
+            "Persistent Operation diagnostic capsule must be mounted"
         )
-        // The fixture's first stage is "Host resolved" — wait for
-        // it so we know the rows are mounted in the SwiftUI tree.
+        diagnosticCorner.tap()
+        XCTAssertTrue(
+            diagnosticsApp.navigationBars["Diagnostics"].waitForExistence(timeout: 4),
+            "Capsule must open the full diagnostics sheet"
+        )
         XCTAssertTrue(
             diagnosticsApp.staticTexts["Host resolved"].waitForExistence(timeout: 4),
-            "Diagnostic rows must render before screenshot"
+            "Diagnostic rows must render in the sheet before screenshot"
         )
-        // The DiagnosticSummaryView lives at the bottom of the
-        // detail-column ScrollView, below SessionViewportView; on
-        // iPhone it sits below the fold at first paint.  Scroll up
-        // by swiping inside the detail content so the diagnostic
-        // rows are actually visible in the captured PNG.
-        let detail = diagnosticsApp.scrollViews.firstMatch
-        if detail.exists {
-            detail.swipeUp()
-            detail.swipeUp()
-        } else {
-            diagnosticsApp.swipeUp()
-            diagnosticsApp.swipeUp()
-        }
-        // Re-confirm a row is still visible after the scroll.
-        _ = diagnosticsApp.staticTexts["Host resolved"].waitForExistence(timeout: 2)
         try saveScreen(named: "05-diagnostics-populated-\(deviceTag)-\(mode.suffix).png")
     }
 
@@ -224,8 +225,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
         let editor = app.textViews["Remote input text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
-        editor.tap()
-        editor.typeText("Hello world")
+        enterStoreComposeText(
+            "안녕하세요 · Hello · こんにちは",
+            into: editor,
+            in: app
+        )
 
         // State 7: compose mode with text typed, Send enabled.
         try saveScreen(named: "07-compose-text-\(deviceTag)-\(mode.suffix).png")
@@ -249,6 +253,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runDirectMode(mode: .dark, deviceTag: "iphone", page: .special)
     }
 
+    func testStoreIPadDirectSpecial_light() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try runDirectMode(mode: .light, deviceTag: "ipad-landscape", page: .special)
+    }
+
     private enum DirectPage { case qwerty, special }
 
     private func runDirectMode(mode: ColorMode, deviceTag: String, page: DirectPage) throws {
@@ -261,6 +270,16 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         XCTAssertTrue(directSegment.waitForExistence(timeout: 4))
         directSegment.tap()
 
+        // The suppression hook normally prevents this first-entry disclosure,
+        // but a pristine iPad simulator can still surface the system popover
+        // on the first Direct transition. Store captures must show the keyboard,
+        // not onboarding chrome.
+        let directWarning = app.buttons["Got it"].firstMatch
+        if directWarning.waitForExistence(timeout: 2) {
+            directWarning.tap()
+            _ = directWarning.waitForNonExistence(timeout: 2)
+        }
+
         let qKey = app.buttons["Key q"]
         XCTAssertTrue(qKey.waitForExistence(timeout: 4))
 
@@ -269,10 +288,21 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             return
         }
 
-        let pageToggle = app.buttons["Switch keyboard page"]
+        var pageToggle = app.buttons["naru.direct.key.pageToggle"]
+        if !pageToggle.waitForExistence(timeout: 2) {
+            pageToggle = app.buttons["Switch keyboard page"]
+        }
         XCTAssertTrue(pageToggle.waitForExistence(timeout: 2))
         pageToggle.tap()
 
+        let specialKeyboard = app.descendants(matching: .any)["naru.direct.keyboard.special"]
+        if !specialKeyboard.waitForExistence(timeout: 4) {
+            // A transient operation-status update can steal the first SwiftUI
+            // tap during screenshot setup. Retry the same local-only page
+            // toggle once; it never emits a remote key event.
+            pageToggle.tap()
+        }
+        XCTAssertTrue(specialKeyboard.waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["Key f1"].waitForExistence(timeout: 4))
         try saveScreen(named: "09-direct-special-\(deviceTag)-\(mode.suffix).png")
     }
@@ -510,6 +540,25 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "System keyboard must rise from the compact live-session input field"
         )
 
+        let directToggle = waitForStableElement(
+            in: app,
+            identifier: "naru.input.direct-toggle",
+            timeout: 3
+        )
+        let liveToggle = waitForStableElement(
+            in: app,
+            identifier: "naru.input.live-toggle",
+            timeout: 3
+        )
+        XCTAssertTrue(
+            directToggle.isHittable,
+            "Keyboard system chrome must not cover the one-tap Direct mode switch."
+        )
+        XCTAssertTrue(
+            liveToggle.isHittable,
+            "Keyboard system chrome must not cover the one-tap Live mode switch."
+        )
+
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
 
         if terminateAfterCapture {
@@ -664,6 +713,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSidebarMultipleProfilesWithVerdicts(mode: .dark, deviceTag: "iphone")
     }
 
+    func testStoreIPadConnectionGridWithVerdicts_light() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try runSidebarMultipleProfilesWithVerdicts(
+            mode: .light,
+            deviceTag: "ipad-landscape"
+        )
+    }
+
     private func runSidebarMultipleProfilesWithVerdicts(mode: ColorMode, deviceTag: String) throws {
         // Fixture pre-populates both last diagnostic verdicts and the
         // launch reachability states that now drive connection-grid
@@ -737,8 +794,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                     openFirstConnectionCardIfPresent(app: app)
                     let editor = app.textViews["Remote input text"]
                     XCTAssertTrue(editor.waitForExistence(timeout: 8))
-                    editor.tap()
-                    editor.typeText("Hello world")
+                    enterStoreComposeText(
+                        "안녕하세요 · Hello · こんにちは",
+                        into: editor,
+                        in: app
+                    )
                     try saveScreen(named: "07-compose-text-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
@@ -877,6 +937,9 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
+        if token == .diagnosticsPopulated || token == .diagnosticErrorDNS {
+            app.launchEnvironment["NARU_TEST_START_OPERATION_SURFACE"] = "1"
+        }
         if suppressDirectWarning {
             app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         }
@@ -927,13 +990,19 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         let host: String
         let port: Int
         let hostKind: String  // "magicDNS" | "privateAddress" | "advancedManualPublicEndpoint"
+        /// Points at no injected Keychain item on purpose. Card-driven UI
+        /// audits must reach a deterministic Operation failure immediately,
+        /// not leave XCTest waiting for a real DNS/TCP timeout.
+        let credentialRef: String
 
         init(displayName: String, host: String, port: Int = 5900, hostKind: String = "magicDNS") {
-            self.id = UUID()
+            let id = UUID()
+            self.id = id
             self.displayName = displayName
             self.host = host
             self.port = port
             self.hostKind = hostKind
+            self.credentialRef = "vnc-password:\(id.uuidString)"
         }
     }
 
@@ -950,6 +1019,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                 "host": p.host,
                 "port": p.port,
                 "hostKind": p.hostKind,
+                "credentialRef": p.credentialRef,
                 "favorite": false,
                 "allowsPiPWatch": true
             ]
@@ -992,6 +1062,49 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Connection grid card must be tappable before entering session detail"
         )
         firstCard.tap()
+    }
+
+    /// A fresh App Store capture simulator can show the one-time iOS
+    /// QuickPath tutorial over the system keyboard after the first typed text.
+    /// Dismiss that system-owned onboarding so screenshots show the product UI.
+    private func dismissSystemKeyboardOnboardingIfPresent(in app: XCUIApplication) {
+        let continueButton = app.buttons["Continue"]
+        if continueButton.waitForExistence(timeout: 2) {
+            continueButton.tap()
+            _ = continueButton.waitForNonExistence(timeout: 2)
+        }
+    }
+
+    private func enterStoreComposeText(
+        _ text: String,
+        into editor: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        editor.tap()
+        editor.typeText(text)
+        dismissSystemKeyboardOnboardingIfPresent(in: app)
+
+        // On a pristine simulator the first type event opens QuickPath
+        // onboarding instead of reaching the editor. Re-focus and type once
+        // more only when that system sheet consumed the original input.
+        let currentValue = editor.value as? String ?? ""
+        if currentValue.isEmpty {
+            editor.tap()
+            editor.typeText(text)
+        }
+
+        let predicate = NSPredicate(format: "value CONTAINS %@", text)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: editor)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 4)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Store Compose capture must visibly contain its multilingual text.",
+            file: file,
+            line: line
+        )
     }
 
 

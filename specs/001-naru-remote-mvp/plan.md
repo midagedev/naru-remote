@@ -126,6 +126,7 @@ flowchart LR
 | Requirement/User Story | Test Level | Tool/Environment | Evidence Required | Owner |
 | --- | --- | --- | --- | --- |
 | US1 / FR-001 profile persistence | Unit | XCTest | Saved profile round-trip passes | Agent |
+| US1 / FR-018 persistence failure/retry | Unit/UI | XCTest | Failed add/edit/delete preserves published and credential state, concurrent mutations serialize without orphan secrets, editor/delete alert keeps fixed retry UI, retry succeeds | Agent |
 | US1 / FR-003 staged diagnostics | Integration | Fake DNS/TCP/RFB fixtures | Distinct DNS/TCP/handshake failures | Agent |
 | US2 / FR-004 session first frame | Integration/UI | Fake RFB server + UI harness | Known frame received/render state captured | Agent + human review |
 | US3 / FR-005 local compose | Unit/UI | XCTest + iPad manual | Unicode draft preserved exactly | Agent + human |

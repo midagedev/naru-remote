@@ -2,7 +2,7 @@
 
 **Feature Branch**: `005-connection-grid-diagnostics`
 **Created**: 2026-06-02
-**Status**: Implemented (connection grid + staged diagnostics shipped). Reconciled 2026-07-05.
+**Status**: Implemented (connection grid + staged diagnostics shipped). Two-surface refinement completed 2026-07-12: Connections and Operation are the only primary surfaces; card tap starts the connection directly, and diagnostics remain visible from a persistent operation-corner capsule plus full sheet.
 **Product**: Naru Remote
 **Input**: Goal - fix light/dark theme visibility issues, make the app open by default to a grid of saved connections, show each connection's most recent screen capture on the grid, show online/reachable status when the app opens, and make problem diagnostics easy for the Naru team to collect without leaking sensitive content.
 
@@ -20,15 +20,18 @@ Naru currently opens into a split-view profile list plus a selected session deta
 
 ### User Story 1 - Start In A Connection Grid (Priority: P1)
 
-A returning user opens Naru and sees saved computers as cards in a responsive grid. Tapping a card opens that profile's connection detail/session view. The old list can remain as secondary navigation on wide layouts, but the default entry point is the grid.
+A returning user opens Naru and sees saved computers as cards in a responsive grid. Tapping a card immediately selects that profile, starts one connection attempt, and enters the Operation surface. There is no selected-but-not-connected profile-detail screen. Add/edit/delete remain secondary sheet/menu actions on Connections.
 
-**Independent Test**: Launch with multiple saved profiles in the UX-audit fixture on iPhone and iPad simulators. Assert the first detail surface exposes `naru.connection.grid`, cards expose stable accessibility identifiers, and no session viewport is shown until a card is selected or connected.
+**Independent Test**: Launch with multiple saved profiles in the UX-audit fixture on iPhone and iPad simulators. Assert the root exposes `naru.connection.grid` with no duplicate profile-list column. Tap one card and assert the Operation viewport plus connecting diagnostic capsule appears immediately, without a second Connect action.
 
 **Acceptance Scenarios**:
 
 1. Given one or more saved profiles, when the app launches, then the primary first screen is a profile grid rather than a pre-selected session viewport.
 2. Given no saved profiles, when the app launches, then the existing empty-home add-profile CTA remains the first screen.
-3. Given a card is selected, when the user taps it, then the session detail for that profile opens and all existing connect/input behavior remains available.
+3. Given a private-network card, when the user taps it, then Naru enters Operation and starts exactly one connection attempt without asking for a second Connect tap.
+4. Given Operation is connecting, authenticating, active, reconnecting, degraded, failed, or closed, when the user chooses Connections or Disconnect, then the connection attempt/session is cancelled and the grid returns; a late connector result cannot resurrect the operation.
+5. Given an advanced public endpoint, when the user taps its card, then Naru presents the existing security warning as an explicit confirmation before starting the attempt.
+6. Given a connection failure, when Operation renders, then Retry, Edit, Diagnostics, and Connections remain available on the same surface.
 
 ### User Story 2 - Last Screen Preview On Each Card (Priority: P1)
 
@@ -86,7 +89,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 
 - **FR-001**: Naru MUST default to a connection grid when at least one profile exists. Empty-profile launch MUST keep the add-profile home CTA.
 - **FR-002**: The grid MUST render one card per saved profile with display name, endpoint or host-kind label, last preview/placeholder, and current reachability state.
-- **FR-003**: Card tap MUST select the profile and navigate to the existing session detail without changing existing connect/disconnect/input semantics.
+- **FR-003**: Private-network card tap MUST select the profile, enter the Operation surface, and start exactly one connection attempt without a second Connect action. Advanced public endpoints MUST require explicit confirmation before that attempt starts.
 - **FR-004**: Naru MUST persist a downsampled last-frame preview per profile after a successful framebuffer receive, keyed by profile id.
 - **FR-005**: Stored previews MUST be local-only app data, deleted best-effort on profile deletion, and excluded from diagnostics, logs, telemetry, and share exports.
 - **FR-006**: The app MUST start bounded, non-blocking reachability probes for saved profiles when profiles first load, with cancellation on model teardown or profile deletion.
@@ -99,6 +102,12 @@ When a connection fails, the user can share a structured diagnostic report that 
 - **FR-013**: Diagnostics JSON MUST include debug-safe connection context when a profile is selected: target fingerprint derived from host+port, host kind, configured port, credential-reference presence, diagnostic trigger, and probe timeout seconds. The raw host, endpoint, username, credential reference, password, and raw network error MUST remain absent.
 - **FR-014**: Failed diagnostic stages MUST include a typed failure code such as `network.connectionFailed`, `network.connectTimedOut`, `network.readTimedOut`, `rfb.authenticationRequired`, or `rfb.securityFailed` when the app can derive one. Failure codes MUST be fixed enums/strings owned by the app, not raw platform error descriptions.
 - **FR-015**: Diagnostics JSON MAY include active-session stream-performance aggregates for support triage: frame counts, content/empty/timeout ratios, dirty-rectangle/change-area aggregates, coarse duration/FPS buckets, coarse receive-timing buckets, coarse app frame-apply timing buckets, coarse thermal state, the viewer-selected stream power mode, and safe actual RFB encoding mix counts. It MUST NOT include pixels, frame dimensions, coordinates, raw latency/timing samples, raw target identity, preview data, device power state, unsupported raw encoding codes, or user content.
+- **FR-016**: Operation MUST provide an explicit route back to Connections in every session state. Returning or disconnecting MUST cancel the in-flight attempt/session and invalidate late success/failure publication before showing the grid. There MUST NOT be a selected-but-not-connected primary detail screen.
+- **FR-017**: Each grid card's accessibility label MUST identify MagicDNS,
+  private, or advanced public host kind. Advanced public endpoints MUST also
+  announce the warning and a security-review hint before connection.
+- **FR-018**: Add, edit, delete, and profile configuration MUST remain secondary sheet/menu actions on Connections rather than separate primary navigation depths. The iPad layout MUST not duplicate the grid with a profile-list sidebar.
+- **FR-019**: Operation MUST keep an always-discoverable, minimum-44-point diagnostic capsule in a screen corner. It MUST expose session state plus coarse quality or the latest fixed-catalog failure using text and symbol, remain independent of immersive-control auto-hide, and open the full safe diagnostic summary in a sheet/popover without permanently shrinking the remote viewport.
 
 ### Naru Input Requirements
 
@@ -138,7 +147,11 @@ When a connection fails, the user can share a structured diagnostic report that 
 
 | Scenario | Verification Type | Device Class | Required Evidence |
 | --- | --- | --- | --- |
-| Launch with profiles starts on grid | XCUITest screenshot | iPhone simulator | Grid visible first, session viewport absent until card tap |
+| Launch with profiles starts on grid | XCUITest screenshot | iPhone simulator | Grid visible first with no duplicate profile-list column |
+| Card starts operation directly | Unit + XCUITest assertion | iPhone simulator | One card tap shows Operation/connecting diagnostics and starts one attempt; no second Connect action |
+| Operation returns to grid | Unit + XCUITest assertion | iPhone simulator | Connections/Disconnect cancels the attempt/session, invalidates late results, and restores the grid |
+| Corner diagnostics | Unit + XCUITest screenshot | iPhone simulator | Persistent 44pt capsule maps connecting/active/reconnecting/degraded/failed and opens full safe rows without scrolling |
+| Public endpoint VoiceOver warning | Unit + manual traversal | iPhone simulator then physical | Fixed accessibility label/hint names the advanced public path; physical traversal residual |
 | Grid adapts to tablet width | XCUITest screenshot | iPad simulator | Multi-column card layout with no text overlap |
 | Light and dark cards/diagnostics readable | Screenshot + static review | iPhone simulator | Light/dark captures and removal of fixed light-only fills |
 | Preview save/load/delete | Unit | iPhone simulator | Store round-trip by profile id and delete on profile delete |
@@ -152,7 +165,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 
 ## Success Criteria
 
-- **SC-001**: A saved-profile launch first paints the grid on iPhone and iPad, with profile selection leading to the existing session flow.
+- **SC-001**: A saved-profile launch first paints the grid on iPhone and iPad; one private-card tap starts one connection and enters Operation with no intermediate primary screen.
 - **SC-002**: Cards show a stable preview or themed placeholder and remain readable in light and dark screenshots.
 - **SC-003**: At launch, every profile reaches a visible reachability state within the bounded probe timeout or remains honestly checking/unknown if cancelled.
 - **SC-004**: Deleting a profile removes its status and preview cache entry.
@@ -160,7 +173,7 @@ When a connection fails, the user can share a structured diagnostic report that 
 
 ## Assumptions
 
-- The first implementation may keep the split-view sidebar on iPad/mac-size layouts as secondary navigation, but the detail column's default content is the grid.
+- Connections is one responsive grid on both compact and regular widths. iPad scales the grid columns but does not add a duplicate profile-list sidebar.
 - Preview storage can use platform image encoding behind an app-layer protocol while tests use an in-memory implementation.
 - Reachability probes can reuse the existing first-frame connector and diagnostic catalog; a lightweight TCP-only optimization is allowed later but is not required for v1.
 - The app has no backend telemetry; "collectable" means user-shared support payloads are structured and safe.

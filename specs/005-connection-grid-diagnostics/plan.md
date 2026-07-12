@@ -44,9 +44,10 @@ NaruRemote/App/AppShell/
 NaruRemote/App/Features/ConnectionHub/
 ├── ConnectionGridView.swift          # new responsive grid
 ├── ConnectionGridCardView.swift      # card rendering, preview/placeholder/status
-└── ProfileListView.swift             # keep as secondary navigation; align status language
+└── ProfileListView.swift             # legacy reusable list; not a primary shell surface
 
 NaruRemote/App/Features/Diagnostics/
+├── SessionDiagnosticCornerView.swift # persistent operation health capsule + detail presentation
 ├── DiagnosticSummaryView.swift       # adaptive background + structured share affordance
 └── DiagnosticExportShareSheet.swift  # payload handoff stays system share sheet
 
@@ -71,9 +72,24 @@ Each increment must pass `swift test`. UI increments must also run the relevant 
 
 ## Technical Approach
 
-### Grid entry
+### Two-surface navigation
 
-The shell should treat the grid as the default detail surface when profiles exist and no live session is active. Card tap selects a profile and transitions into the existing session viewport/detail flow. This avoids rewriting the session stack and keeps the change focused.
+The shell owns exactly two primary routes: Connections and Operation.
+Connections is a responsive grid on iPhone and iPad; add/edit/delete are
+sheet/menu presentations. A private card tap selects the profile, switches to
+Operation immediately, and starts one connection attempt. Advanced public
+cards confirm first. Operation owns connecting, authenticating, active,
+reconnecting, degraded, failed, and closed states. Connections/Disconnect
+cancels the attempt/session and invalidates late callbacks before returning.
+
+The Operation viewport remains full-height from the first connecting frame.
+Remove the permanently stacked diagnostic summary and expose health in a
+persistent material capsule outside the frame-store/Metal subtree. The capsule
+uses fixed safe-catalog state, coarse quality, and symbols/text; tapping it
+opens `DiagnosticSummaryView` in a sheet/popover. It never follows immersive
+control auto-hide and respects VoiceOver, Reduce Motion, and Reduce
+Transparency. This follows Apple-style immediacy, spatial consistency, and
+progressive disclosure without introducing another navigation depth.
 
 ### Theme safety
 

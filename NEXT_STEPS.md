@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-07-05 KST.
+Updated: 2026-07-12 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -10,34 +10,36 @@ same PR.
 
 ## Now — ship blockers (P0)
 
-1. **Commit / PR the 2026-07-05 working tree** — Live type-through
-   (`specs/009`), helper onboarding (`specs/010`), NaruHelper hardening,
-   `PERFORMANCE_PARITY_ANALYSIS.md`, and this documentation refresh. The tree
-   is verified green: `swift test` 1473 tests / 0 failures, iPhone 17 Pro
-   simulator build succeeded.
-2. **`specs/009` physical gates T021–T025** (`specs/009-live-type-through/tasks.md`):
+1. **`specs/007` real-screen helper-video + sustained-device gate** — run
+   `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
+   approve Screen Recording, then re-run
+   `physical-iphone-helper-video-gate`. The synthetic-source physical gate
+   passed 2026-07-05, and the 2026-07-12 release review bounded encoded H.264
+   access-unit queues with fail-safe VNC fallback; neither substitutes for a
+   30-minute real-screen RSS/thermal run.
+2. **`specs/009` physical gates T021–T024** (`specs/009-live-type-through/tasks.md`):
    200-char Korean/English/number/symbol integrity ×10, per-commit latency
-   p95, Unicode-KeyEvent no-input regression, 30-min sustained live session,
-   non-macOS-host residual note. Requires the paired physical iPhone and the
+   p95, Unicode-KeyEvent no-input regression, and 30-min sustained live
+   session. Requires the paired physical iPhone and the
    founder's Mac; VNC/helper credentials go through environment variables
    only — never into source, docs, or shell history.
-3. **`specs/007` real-screen helper-video gate** — one human click: run
-   `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac
-   and approve Screen Recording, then re-run
-   `physical-iphone-helper-video-gate` (the synthetic-source gate already
-   passed 2026-07-05).
+3. **30-minute whole-product iPhone pass** — helper video, VNC fallback,
+   Compose/Live/Direct, trackpad/zoom, reconnect, and PiP enter/leave in one
+   session. Record only privacy-safe aggregate diagnostics and thermal/RSS
+   verdicts (`SUBMISSION_READINESS.md` §5.4).
 4. **Founder decision D3 execution** — once the 009 gates pass, promote Live
    to the default multilingual input path and amend
    `.specify/memory/constitution.md` §I accordingly.
-5. **App Store Connect human steps** (`SUBMISSION_READINESS.md` §5.4) — app
+5. **App Store Connect human steps** (`SUBMISSION_READINESS.md` §5.5) — app
    record, App Store screenshots, hosted privacy policy URL, TestFlight
    distribution.
 
 ## Near term (P1)
 
-- **Helper production packaging** — menu-bar app wrapper, notarization,
-  launchd auto-start. Today the helper is a dev-only CLI
-  (`.build/release/NaruHelper`) plus the `NaruHelperDev.app` TCC wrapper.
+- **Specify helper production packaging before implementation** — menu-bar app
+  wrapper, notarization, launchd auto-start, capability/status disclosure, and
+  revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
+  CLI (`.build/release/NaruHelper`) plus the `NaruHelperDev.app` TCC wrapper.
 - **Real single-profile helper availability probe** — replace the
   refresh-all+poll pattern used by helper onboarding (noted in
   `specs/010-helper-onboarding/plan.md`).
@@ -47,8 +49,12 @@ same PR.
   Magic Keyboard passthrough (physical device).
 - **`specs/003` residual manual tests** — T032 trackpad/zoom-to-read on
   physical iPhone, T033 physical Korean IME retest.
+- **Accessibility / large-text device pass** — VoiceOver navigation for the
+  session controls and connection grid, plus the complete light/dark Dynamic
+  Type screenshot matrix. Unit policy and simulator builds are green; the
+  current local XCUITest accessibility service failed before test execution.
 - **Korean localization** — String Catalog; founder ICP is Korean-first
-  (`SUBMISSION_READINESS.md` P2 list).
+  (`ROADMAP.md` ship-readiness list).
 
 ## Later (P2)
 
