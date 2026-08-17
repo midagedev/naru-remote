@@ -2,7 +2,7 @@
 
 **Feature Branch**: `012-external-pointer-and-strip-completions`
 **Created**: 2026-08-18
-**Status**: Draft — approved scope from founder direction 2026-08-17 ("아이패드와 아이폰 모두에서 잘 쓸 수 있어야 하고 외부 블루투스 키보드 같은 거나 마우스로도 쓸 것을 고려해야해") + orca mobile reference study (`docs/research/orca-mobile-input-reference.md`) + lead UX audit (`scratch/ux-audit-2026-08-17.md`).
+**Status**: Implemented 2026-08-18 (simulator + unit gates green; physical-device checklist in Residuals) — approved scope from founder direction 2026-08-17 ("아이패드와 아이폰 모두에서 잘 쓸 수 있어야 하고 외부 블루투스 키보드 같은 거나 마우스로도 쓸 것을 고려해야해") + orca mobile reference study (`docs/research/orca-mobile-input-reference.md`) + lead UX audit (`scratch/ux-audit-2026-08-17.md`).
 **Product**: Naru Remote
 **Input**: Ship-quality audit findings HW-1/2/3 (mouse/trackpad gaps), orca reference P0 adoption calls (strip hold-repeat, one-tap ⌃C, IME-flush barrier), iPad dock width overflow.
 
@@ -119,4 +119,35 @@ keys (P2 backlog), pointer lock, external-display targeting.
 
 ## Residuals
 
-- (fill at implementation time)
+Implemented 2026-08-18 (`519e2694` US2/US3, `b4f8eaea` US2-3 strip fit,
+`d8d105ea` US1). Gates run by the lead: `swift build` clean, `swift test`
+1550 tests / 26 skipped / 0 failures, iPhone 17 Pro simulator build clean
+(the new Core files need `xcodegen generate` — SwiftPM alone never compiles
+the `#if os(iOS)` view bodies), accessory-strip and session-viewport
+screenshot UI tests green and read.
+
+**Physical-device checklist (not yet run — needs a real iPad + mouse and a
+real iPhone):**
+
+1. Mouse wheel / Magic Keyboard trackpad scroll over the session view
+   produces remote wheel events.
+2. Two-finger *touch* pan still scrolls (old recognizer untouched).
+3. Physical right-click / trackpad two-finger click is a remote right click…
+4. …and is **not** also a left click.
+5. Finger taps still work on iPhone (`buttonMaskRequired` is evaluated only
+   for indirect devices).
+6. Two-finger *touch* tap is still a right click.
+7. The iPadOS system arrow is hidden over the session view…
+8. …and returns when the pointer leaves it.
+9. Hover in trackpad mode still follows via `.hoverMoved`.
+10. Hover in direct-touch mode moves the remote cursor with no button held.
+11. Apple Pencil hover does **not** move the remote cursor.
+12. Spec 011 US3 touch set intact: immediate single tap, double-tap = two
+    clicks, two-finger tap right click, long-press right click, pinch zoom,
+    one-finger drag, two-finger pan = wheel.
+13. Strip hold-repeat feel (400/45 ms) on arrows and Del, and the IME-flush
+    barrier with a real Korean IME mid-composition.
+
+Deferred by design: a dedicated buttonless `pointerMoveHandler` in the app
+shell (hover reuses the trackpad resolver instead), plus everything in
+"Out of scope" above.

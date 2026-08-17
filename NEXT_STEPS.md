@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-17 KST.
+Updated: 2026-08-18 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -17,11 +17,15 @@ same PR.
    `specs/011-simplified-input-ux/spec.md`). Remaining: the founder's paired
    physical iPhone pass (Korean IME through Type mode, accessory strip with
    sticky modifiers, click feel, Bluetooth keyboard).
-1a. **`specs/012` external pointer & strip completions** — ship-quality
-   gaps from the 2026-08-17 audits: BT mouse/trackpad scroll wheel +
-   secondary click + pointer-hide/hover, strip hold-repeat, one-tap ⌃C,
-   IME-flush barrier before strip emissions, iPad regular-width dock cap.
-   Spec drafted; implementation next.
+1a. **`specs/012` external pointer & strip completions** —
+   **implemented 2026-08-18**: BT mouse/trackpad scroll wheel, secondary
+   click, system-pointer hide + hover in both modes, strip hold-repeat,
+   one-tap ⌃C, IME-flush barrier, iPad 720 pt dock cap, and an
+   iPhone-width strip that fits Esc/Tab/⌃C. Unit + simulator gates green
+   (`swift test` 1550). Remaining: the 13-item physical-device checklist
+   in `specs/012-external-pointer-and-strip-completions/spec.md`
+   (real mouse/trackpad/Pencil on iPad, hold-repeat feel and Korean IME
+   flush on iPhone) — fold it into the paired device pass in item 1.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
