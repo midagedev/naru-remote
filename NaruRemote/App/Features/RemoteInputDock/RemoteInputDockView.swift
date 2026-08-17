@@ -698,9 +698,8 @@ public struct RemoteInputDockView: View {
     /// and the prominent Send on the right. Backspace/Enter dispatch
     /// discrete remote `KeyEvent`s (compose a command → Send types it →
     /// Enter runs it); they need a live session, so they disable pre-
-    /// connect. Per product direction the terminal shortcut strip
-    /// (Esc/Tab/⌃C/arrows) is NOT here — those live on the Direct
-    /// (virtual keyboard) special page.
+    /// connect. Esc / Tab / arrows / Del are not on this row — they
+    /// live on the shared accessory strip (spec 011 US2).
     private var composeActionRow: some View {
         HStack(spacing: 10) {
             composeRemoteKeyButton(.backspace, systemImage: "delete.left")
@@ -795,59 +794,63 @@ public struct RemoteInputDockView: View {
     /// Shared accessory key strip (spec 011 US2), modeled on orca
     /// mobile's terminal accessory keys: sticky modifiers + terminal
     /// keys one tap above the editor in BOTH dock modes. The primary
-    /// row stays narrow (no scroll needed on iPhone); the Fn toggle
-    /// reveals the function-row expansion.
+    /// row scrolls horizontally; the Fn toggle stays pinned outside
+    /// the scroll.
     private var accessoryKeyStrip: some View {
         VStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
-                        ModifierKeyButton(
-                            label: modifier.stripLabel,
-                            modifier: modifier,
-                            slot: stickyModifierState.slot(for: modifier),
-                            widthUnits: 1.6,
-                            unitWidth: 24
-                        ) {
-                            onTapDirectKey(.modifier(modifier))
+            HStack(spacing: 6) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
+                            ModifierKeyButton(
+                                label: modifier.stripLabel,
+                                modifier: modifier,
+                                slot: stickyModifierState.slot(for: modifier),
+                                widthUnits: 2.0,
+                                unitWidth: 24,
+                                height: 36
+                            ) {
+                                onTapDirectKey(.modifier(modifier))
+                            }
+                            .disabled(!showsComposeQuickKeys)
                         }
-                        .disabled(!showsComposeQuickKeys)
-                    }
 
-                    accessoryKeyButton(.escape)
-                    accessoryKeyButton(.tab)
-                    accessoryKeyButton(.arrowLeft)
-                    accessoryKeyButton(.arrowUp)
-                    accessoryKeyButton(.arrowDown)
-                    accessoryKeyButton(.arrowRight)
-                    accessoryKeyButton(.delete)
-
-                    Button {
-                        withAnimation(.snappy(duration: 0.2)) {
-                            showsAccessoryFnExpansion.toggle()
-                        }
-                    } label: {
-                        Text("Fn")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 44, height: 36)
-                            .background(
-                                showsAccessoryFnExpansion
-                                    ? Color.accentColor.opacity(0.22)
-                                    : NaruColors.surfaceKey
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(NaruColors.hairline, lineWidth: 1)
-                            )
+                        accessoryKeyButton(.escape)
+                        accessoryKeyButton(.tab)
+                        accessoryKeyButton(.arrowLeft)
+                        accessoryKeyButton(.arrowUp)
+                        accessoryKeyButton(.arrowDown)
+                        accessoryKeyButton(.arrowRight)
+                        accessoryKeyButton(.delete)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Function keys")
-                    .accessibilityIdentifier("naru.input.accessory.fn")
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 2)
+                .accessibilityIdentifier("naru.input.accessory.strip")
+
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        showsAccessoryFnExpansion.toggle()
+                    }
+                } label: {
+                    Text("Fn")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 44, height: 36)
+                        .background(
+                            showsAccessoryFnExpansion
+                                ? Color.accentColor.opacity(0.22)
+                                : NaruColors.surfaceKey
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(NaruColors.hairline, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: true)
+                .accessibilityLabel("Function keys")
+                .accessibilityIdentifier("naru.input.accessory.fn")
             }
-            .accessibilityIdentifier("naru.input.accessory.strip")
 
             if showsAccessoryFnExpansion {
                 ScrollView(.horizontal, showsIndicators: false) {

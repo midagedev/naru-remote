@@ -74,10 +74,11 @@ public enum ComposeQuickKey: String, Sendable, Equatable, CaseIterable, Codable 
         }
     }
 
-    /// The discrete terminal-strip keys (Esc / Tab / ⌃C / arrows). These
-    /// are the keys that, per product direction, belong in the Direct
-    /// (virtual keyboard) surface rather than cluttering Compose — so the
-    /// Compose action row renders `backspace` / `enter` only.
+    /// The discrete terminal-strip keys (Esc / Tab / ⌃C / arrows). Spec 011
+    /// moved Esc / Tab / arrows onto the shared accessory strip (`AccessoryKey`);
+    /// the Compose action row still renders `backspace` / `enter` only.
+    /// `controlC` stays on this model for emission but is not a strip button
+    /// — the dock does not render `terminalStripKeys`.
     public static let terminalStripKeys: [ComposeQuickKey] = [
         .escape, .tab, .controlC, .up, .down,
     ]

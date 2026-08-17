@@ -288,7 +288,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         XCTAssertTrue(fnToggle.waitForExistence(timeout: 4))
         fnToggle.tap()
 
-        let fnRow = app.otherElements["naru.input.accessory.fn-row"]
+        let fnRow = app.descendants(matching: .any)["naru.input.accessory.fn-row"].firstMatch
         if !fnRow.waitForExistence(timeout: 4) {
             // A transient operation-status update can steal the first
             // SwiftUI tap during screenshot setup. Retry the local-only
