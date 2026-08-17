@@ -528,12 +528,16 @@ public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
 ///   - `UITapGestureRecognizer` → `tapHandler` (button-1 click)
 ///   - `UILongPressGestureRecognizer` → `rightClickHandler` (button-3)
 ///   - Two-finger `UIPanGestureRecognizer` → `scrollHandler` (wheel)
+///   - Indirect-pointer pan (`allowedScrollTypesMask`) → same `scrollHandler`
+///   - Indirect-pointer secondary tap → same right-click path as two-finger tap
+///   - `UIHoverGestureRecognizer` (indirectPointer only) → remote cursor move
+///   - `UIPointerInteraction` hides the system pointer over the session view
 ///   - `UIPinchGestureRecognizer` → `pinchHandler` (LOCAL view scale,
 ///     constitution §I — never translated to an RFB message)
 ///
 /// The watch-only PiP path (`PiPSampleBufferDisplayLayerView`)
 /// intentionally does NOT install any of these recognizers.
-public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDelegate {
+public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDelegate, UIPointerInteractionDelegate {
     private struct PendingViewportState {
         var zoomScale: CGFloat
         var panOffset: CGSize
@@ -785,6 +789,13 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
         tapRecognizer.numberOfTapsRequired = 1
         tapRecognizer.cancelsTouchesInView = false
+        // Explicit primary so a physical secondary click cannot fall
+        // through as a left click (UIKit default is also primary, but
+        // only evaluated on indirect devices — finger taps stay intact).
+        applyRequiredButton(
+            IndirectPointerInputPolicy.primaryTapRequiredButton,
+            to: tapRecognizer
+        )
         // Spec 011 US3 (orca lesson: dispatch immediately, never
         // disambiguate): the tap has NO failure requirements on
         // double-tap / long-press / two-finger-tap, so a single tap
@@ -803,6 +814,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
         doubleTapRecognizer.numberOfTapsRequired = 2
         doubleTapRecognizer.cancelsTouchesInView = false
+        applyRequiredButton(
+            IndirectPointerInputPolicy.doubleTapRequiredButton,
+            to: doubleTapRecognizer
+        )
 
         // Two-finger tap is right click in BOTH pointer modes
         // (spec 011 US3 — previously trackpad-only).
@@ -812,6 +827,22 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
         secondaryTapRecognizer.numberOfTouchesRequired = 2
         secondaryTapRecognizer.cancelsTouchesInView = false
+
+        // Physical right-click / trackpad two-finger click. Distinct
+        // from the two-finger *touch* recognizer above; restricted to
+        // indirectPointer so a finger tap is never a secondary click.
+        let indirectSecondaryTapRecognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleSecondaryTapGesture(_:))
+        )
+        indirectSecondaryTapRecognizer.numberOfTouchesRequired =
+            IndirectPointerInputPolicy.secondaryButtonTapNumberOfTouchesRequired
+        indirectSecondaryTapRecognizer.cancelsTouchesInView = false
+        applyRequiredButton(
+            IndirectPointerInputPolicy.secondaryButtonTapRequiredButton,
+            to: indirectSecondaryTapRecognizer
+        )
+        indirectSecondaryTapRecognizer.allowedTouchTypes = Self.indirectPointerTouchTypes
 
         let longPressRecognizer = UILongPressGestureRecognizer(
             target: self,
@@ -828,6 +859,25 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         panRecognizer.maximumNumberOfTouches = 2
         panRecognizer.cancelsTouchesInView = false
         panRecognizer.delegate = self
+
+        // Dedicated scroll-wheel / hardware-trackpad scroll recognizer.
+        // Touch count 0 + scroll-type mask means finger pans never
+        // match; the existing two-finger pan above stays the touch path.
+        let scrollWheelRecognizer = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handlePanGesture(_:))
+        )
+        scrollWheelRecognizer.minimumNumberOfTouches =
+            IndirectPointerInputPolicy.scrollWheelMinimumNumberOfTouches
+        scrollWheelRecognizer.maximumNumberOfTouches =
+            IndirectPointerInputPolicy.scrollWheelMaximumNumberOfTouches
+        scrollWheelRecognizer.cancelsTouchesInView = false
+        scrollWheelRecognizer.delegate = self
+        if IndirectPointerInputPolicy.scrollWheelRequiresScrollTypeMask {
+            scrollWheelRecognizer.allowedScrollTypesMask = UIScrollTypeMask(
+                rawValue: IndirectPointerInputPolicy.scrollWheelAllowedScrollTypesMaskRawValue
+            )
+        }
 
         let pinchRecognizer = UIPinchGestureRecognizer(
             target: self,
@@ -862,15 +912,26 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             action: #selector(handleHoverGesture(_:))
         )
         hoverRecognizer.cancelsTouchesInView = false
+        if IndirectPointerInputPolicy.excludesPencilHover {
+            // Pencil hover is UITouch.TouchType.pencil (2); restricting
+            // to indirectPointer keeps Apple Pencil from driving the
+            // remote cursor.
+            hoverRecognizer.allowedTouchTypes = Self.indirectPointerTouchTypes
+        }
 
         addGestureRecognizer(tapRecognizer)
         addGestureRecognizer(doubleTapRecognizer)
         addGestureRecognizer(secondaryTapRecognizer)
+        addGestureRecognizer(indirectSecondaryTapRecognizer)
         addGestureRecognizer(longPressRecognizer)
         addGestureRecognizer(panRecognizer)
+        addGestureRecognizer(scrollWheelRecognizer)
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(dragRecognizer)
         addGestureRecognizer(hoverRecognizer)
+        if IndirectPointerInputPolicy.hidesSystemPointerOverSessionView {
+            addInteraction(UIPointerInteraction(delegate: self))
+        }
         isUserInteractionEnabled = true
     }
 
@@ -1115,9 +1176,10 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         let point = recognizer.location(in: self)
-        if pointerControlMode.isTrackpad {
+        switch IndirectPointerInputPolicy.secondaryClickRoute(for: pointerControlMode) {
+        case .trackpadSecondaryTap:
             dispatchTrackpadGesture(.secondaryTap(viewPoint: point))
-        } else {
+        case .absoluteRightClick:
             rightClickHandler?(point, bounds.size)
         }
     }
@@ -1147,25 +1209,36 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return
         }
         let point = recognizer.location(in: self)
-        if pointerControlMode.isTrackpad {
+        switch IndirectPointerInputPolicy.secondaryClickRoute(for: pointerControlMode) {
+        case .trackpadSecondaryTap:
             dispatchTrackpadGesture(.secondaryTap(viewPoint: point))
-        } else {
+        case .absoluteRightClick:
             rightClickHandler?(point, bounds.size)
         }
     }
 
-    /// Hardware trackpad/mouse hover in trackpad mode. This follows
-    /// the iPadOS indirect-input path and maps the current pointer
-    /// location to the remote framebuffer immediately; touch drags keep
-    /// the existing relative trackpad semantics.
+    /// Hardware trackpad/mouse hover in both pointer modes. This
+    /// follows the iPadOS indirect-input path and maps the current
+    /// pointer location to the remote framebuffer immediately; touch
+    /// drags keep the existing relative trackpad semantics.
     @MainActor
     @objc private func handleHoverGesture(_ recognizer: UIHoverGestureRecognizer) {
-        guard pointerControlMode.isTrackpad else {
-            return
-        }
         switch recognizer.state {
         case .began, .changed:
-            dispatchTrackpadGesture(.hoverMoved(viewPoint: recognizer.location(in: self)))
+            let location = recognizer.location(in: self)
+            switch IndirectPointerInputPolicy.hoverRoute(for: pointerControlMode) {
+            case .trackpadRelative:
+                dispatchTrackpadGesture(.hoverMoved(viewPoint: location))
+            case .absoluteMove:
+                // Spec 012 named `pointerMoveHandler` here, but that
+                // closure is the button-1 drag-hold path
+                // (`sendPointerMoveTo` emits mask 0x01). Hover must
+                // move the remote cursor without a click, so both
+                // routes reuse `.hoverMoved`: the app model always
+                // resolves it with the trackpad resolver, which emits
+                // a buttonless PointerEvent at the absolute view point.
+                dispatchTrackpadGesture(.hoverMoved(viewPoint: location))
+            }
         default:
             break
         }
@@ -2005,6 +2078,41 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         true
+    }
+
+    // MARK: UIPointerInteractionDelegate
+
+    /// Hide the system pointer over the session view so only the
+    /// remote cursor is visible. UIKit restores the default style
+    /// when the pointer leaves the interaction's view — no exit
+    /// handler is required (`UIPointerInteraction.h` styleForRegion
+    /// applies only while the pointer is inside a returned region).
+    public func pointerInteraction(
+        _ interaction: UIPointerInteraction,
+        styleFor region: UIPointerRegion
+    ) -> UIPointerStyle? {
+        guard IndirectPointerInputPolicy.hidesSystemPointerOverSessionView else {
+            return nil
+        }
+        return .hidden()
+    }
+
+    // MARK: Indirect-pointer policy helpers
+
+    private static let indirectPointerTouchTypes: [NSNumber] = [
+        NSNumber(value: IndirectPointerInputPolicy.indirectPointerTouchTypeRawValue)
+    ]
+
+    private func applyRequiredButton(
+        _ requirement: IndirectPointerInputPolicy.ButtonRequirement,
+        to recognizer: UITapGestureRecognizer
+    ) {
+        switch requirement {
+        case .primary:
+            recognizer.buttonMaskRequired = .primary
+        case .secondary:
+            recognizer.buttonMaskRequired = .secondary
+        }
     }
 }
 #endif
