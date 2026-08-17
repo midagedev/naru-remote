@@ -137,6 +137,14 @@ public enum RFBServerCutTextMessage: Equatable, Sendable {
     case extendedClipboard(RFBExtendedClipboardMessage)
 }
 
+/// Result of consuming one ServerCutText message off an ``RFBByteReader``.
+/// Oversized payloads are skipped in chunks and reported here so the
+/// session stream can stay aligned without allocating the declared size.
+public enum RFBServerCutTextIntake: Equatable, Sendable {
+    case ignoredOversizedPayload
+    case message(RFBServerCutTextMessage)
+}
+
 public struct RFBExtendedClipboardMessage: Equatable, Sendable {
     public let flags: RFBExtendedClipboardFlags
     public let textMaximumBytes: UInt32?
@@ -167,6 +175,8 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
     case truncatedServerCutText(expected: Int, actual: Int)
     case invalidServerCutTextEncoding
     case malformedExtendedServerCutText
+    case desktopNameTooLong(maximum: Int, actual: Int)
+    case serverCutTextPayloadTooLarge(maximum: Int, actual: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -184,11 +194,29 @@ public enum RFBProtocolDecoderError: Error, Equatable, LocalizedError {
             "RFB ServerCutText payload is not valid UTF-8."
         case .malformedExtendedServerCutText:
             "RFB extended ServerCutText payload is malformed."
+        case .desktopNameTooLong(let maximum, let actual):
+            "RFB ServerInit desktop name exceeds the \(maximum)-byte limit (declared \(actual) bytes)."
+        case .serverCutTextPayloadTooLarge(let maximum, let actual):
+            "RFB ServerCutText payload exceeds the \(maximum)-byte limit (declared \(actual) bytes)."
         }
     }
 }
 
 public enum RFBProtocolDecoder {
+    /// Largest desktop-name payload Naru will allocate from ServerInit
+    /// (untrusted server length field; spec 004 SP-006).
+    public static let maxDesktopNameLength = 65_536
+
+    /// Largest ServerCutText payload Naru will materialize. Declared
+    /// lengths above this are skipped on the wire in 64 KiB chunks.
+    public static let maxServerCutTextPayloadLength = 4_194_304
+
+    /// Largest Extended Clipboard zlib inflate output. Exceeding this
+    /// is treated as a malformed provide payload.
+    public static let maxExtendedClipboardInflateLength = 4_194_304
+
+    public static let untrustedPayloadSkipChunkSize = 64 * 1024
+
     public static func parseVersion(_ data: Data) throws -> RFBProtocolVersion {
         let bytes = Array(data)
         try require(bytes, count: 12)
@@ -252,6 +280,12 @@ public enum RFBProtocolDecoder {
         )
 
         let nameLength = Int(uint32(bytes, at: 20))
+        guard nameLength <= maxDesktopNameLength else {
+            throw RFBProtocolDecoderError.desktopNameTooLong(
+                maximum: maxDesktopNameLength,
+                actual: nameLength
+            )
+        }
         try require(bytes, count: 24 + nameLength)
         let nameBytes = bytes[24..<(24 + nameLength)]
         let name = String(decoding: nameBytes, as: UTF8.self)
@@ -338,7 +372,7 @@ public enum RFBProtocolDecoder {
             return try parseExtendedServerCutText(bytes, signedLength: signedPayloadLength)
         }
 
-        let payloadLength = Int(signedPayloadLength)
+        let payloadLength = try validatedServerCutTextPayloadLength(signedPayloadLength)
         let expectedTotal = 8 + payloadLength
         guard bytes.count >= expectedTotal else {
             throw RFBProtocolDecoderError.truncatedServerCutText(
@@ -358,14 +392,75 @@ public enum RFBProtocolDecoder {
         return .legacyText(text)
     }
 
+    /// Reads one ServerCutText message, including the type byte.
+    public static func consumeServerCutText(from reader: RFBByteReader) throws -> RFBServerCutTextIntake {
+        let header = try reader.readData(8)
+        return try consumeServerCutText(header: header, payloadReader: reader)
+    }
+
+    /// Reads one ServerCutText message after the type byte (3) has
+    /// already been consumed from the stream (framebuffer multiplex).
+    public static func consumeServerCutTextAfterTypeByte(
+        from reader: RFBByteReader
+    ) throws -> RFBServerCutTextIntake {
+        let remainder = try reader.readData(7)
+        return try consumeServerCutText(header: Data([3]) + remainder, payloadReader: reader)
+    }
+
+    private static func consumeServerCutText(
+        header: Data,
+        payloadReader: RFBByteReader
+    ) throws -> RFBServerCutTextIntake {
+        let bytes = Array(header)
+        guard bytes.count >= 8 else {
+            throw RFBProtocolDecoderError.insufficientData(expected: 8, actual: bytes.count)
+        }
+        guard bytes[0] == 3 else {
+            throw RFBProtocolDecoderError.unexpectedMessageType(bytes[0])
+        }
+
+        let signedLength = int32(bytes, at: 4)
+        let payloadLength = try declaredServerCutTextPayloadLength(signedLength)
+        if payloadLength > maxServerCutTextPayloadLength {
+            try skipUntrustedPayload(reader: payloadReader, byteCount: payloadLength)
+            return .ignoredOversizedPayload
+        }
+        let payload = payloadLength > 0 ? try payloadReader.readData(payloadLength) : Data()
+        return .message(try parseServerCutTextMessage(header + payload))
+    }
+
+    private static func declaredServerCutTextPayloadLength(_ signedLength: Int32) throws -> Int {
+        guard signedLength != Int32.min else {
+            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        }
+        return signedLength < 0 ? Int(-signedLength) : Int(signedLength)
+    }
+
+    private static func validatedServerCutTextPayloadLength(_ signedLength: Int32) throws -> Int {
+        let payloadLength = try declaredServerCutTextPayloadLength(signedLength)
+        guard payloadLength <= maxServerCutTextPayloadLength else {
+            throw RFBProtocolDecoderError.serverCutTextPayloadTooLarge(
+                maximum: maxServerCutTextPayloadLength,
+                actual: payloadLength
+            )
+        }
+        return payloadLength
+    }
+
+    private static func skipUntrustedPayload(reader: RFBByteReader, byteCount: Int) throws {
+        var remaining = byteCount
+        while remaining > 0 {
+            let chunk = min(remaining, untrustedPayloadSkipChunkSize)
+            _ = try reader.readData(chunk)
+            remaining -= chunk
+        }
+    }
+
     private static func parseExtendedServerCutText(
         _ bytes: [UInt8],
         signedLength: Int32
     ) throws -> RFBServerCutTextMessage {
-        guard signedLength != Int32.min else {
-            throw RFBProtocolDecoderError.malformedExtendedServerCutText
-        }
-        let payloadLength = Int(-signedLength)
+        let payloadLength = try validatedServerCutTextPayloadLength(signedLength)
         let expectedTotal = 8 + payloadLength
         guard payloadLength >= 4 else {
             throw RFBProtocolDecoderError.malformedExtendedServerCutText
@@ -504,6 +599,10 @@ private enum RFBZlibWrappedPayloadInflate {
                 let status = compression_stream_process(stream, 0)
                 let produced = outputChunkSize - stream.pointee.dst_size
                 if produced > 0 {
+                    if output.count + produced > RFBProtocolDecoder.maxExtendedClipboardInflateLength {
+                        failure = RFBProtocolDecoderError.malformedExtendedServerCutText
+                        return
+                    }
                     output.append(contentsOf: UnsafeBufferPointer(start: destination, count: produced))
                 }
 

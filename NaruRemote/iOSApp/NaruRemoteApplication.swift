@@ -87,6 +87,7 @@ struct NaruRemoteApplication: App {
     }
 
     private static func makeModel() -> NaruRemoteAppModel {
+        preparePersistentStoreDirectories()
         let settingsPersistence = FileAppSettingsPersistence(fileURL: settingsStoreURL())
         let previewStore = FileProfilePreviewStore(directoryURL: previewStoreURL())
         // The profile store is now an `actor`; its initializer is
@@ -782,28 +783,34 @@ struct NaruRemoteApplication: App {
 #endif
 
     private static func profileStoreURL() -> URL {
+#if DEBUG
         if let overridePath = ProcessInfo.processInfo.environment["NARU_PROFILE_STORE_URL"],
            !overridePath.isEmpty {
             return URL(fileURLWithPath: overridePath)
         }
+#endif
 
         return applicationSupportURL().appendingPathComponent("profiles.json")
     }
 
     private static func settingsStoreURL() -> URL {
+#if DEBUG
         if let overridePath = ProcessInfo.processInfo.environment["NARU_SETTINGS_STORE_URL"],
            !overridePath.isEmpty {
             return URL(fileURLWithPath: overridePath)
         }
+#endif
 
         return applicationSupportURL().appendingPathComponent("settings.json")
     }
 
     private static func previewStoreURL() -> URL {
+#if DEBUG
         if let overridePath = ProcessInfo.processInfo.environment["NARU_PREVIEW_STORE_URL"],
            !overridePath.isEmpty {
             return URL(fileURLWithPath: overridePath, isDirectory: true)
         }
+#endif
 
         return applicationSupportURL().appendingPathComponent("profile-previews", isDirectory: true)
     }
@@ -814,5 +821,25 @@ struct NaruRemoteApplication: App {
             in: .userDomainMask
         )[0]
         return baseURL.appendingPathComponent("NaruRemote", isDirectory: true)
+    }
+
+    /// Creates Application Support (and the preview directory) once and
+    /// excludes them from iCloud / Finder backup. Profile and settings
+    /// files live in the same parent, so one flag covers them.
+    private static func preparePersistentStoreDirectories() {
+        createAndExcludeFromBackup(applicationSupportURL())
+        createAndExcludeFromBackup(previewStoreURL())
+#if DEBUG
+        createAndExcludeFromBackup(profileStoreURL().deletingLastPathComponent())
+        createAndExcludeFromBackup(settingsStoreURL().deletingLastPathComponent())
+#endif
+    }
+
+    private static func createAndExcludeFromBackup(_ directoryURL: URL) {
+        try? FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        FileBackupExclusion.excludeFromBackupBestEffort(directoryURL)
     }
 }

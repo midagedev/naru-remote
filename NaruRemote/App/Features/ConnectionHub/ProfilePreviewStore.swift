@@ -236,6 +236,20 @@ public actor InMemoryProfilePreviewStore: ProfilePreviewStore {
     }
 }
 
+/// Marks an on-device directory so iCloud / Finder backups skip it.
+/// Thumbnails and profile/settings files under Application Support must
+/// not leave the device via backup (constitution §IV).
+public enum FileBackupExclusion {
+    public static func excludeFromBackupBestEffort(_ directoryURL: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutableURL = directoryURL
+        // Simulator and `swift test` hosts can reject this resource key;
+        // backup exclusion is a privacy best-effort and must not fail setup.
+        try? mutableURL.setResourceValues(values)
+    }
+}
+
 public actor FileProfilePreviewStore: ProfilePreviewStore {
     private let directoryURL: URL
 
@@ -270,6 +284,7 @@ public actor FileProfilePreviewStore: ProfilePreviewStore {
             at: directoryURL,
             withIntermediateDirectories: true
         )
+        FileBackupExclusion.excludeFromBackupBestEffort(directoryURL)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(thumbnail)

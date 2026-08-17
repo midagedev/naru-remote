@@ -2828,7 +2828,9 @@ public final class NaruRemoteAppModel: ObservableObject {
              .unexpectedMessageType,
              .truncatedServerCutText,
              .invalidServerCutTextEncoding,
-             .malformedExtendedServerCutText:
+             .malformedExtendedServerCutText,
+             .desktopNameTooLong,
+             .serverCutTextPayloadTooLarge:
             return .rfbHandshake
         }
     }
@@ -3271,6 +3273,10 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return "rfb.invalidServerCutTextEncoding"
             case .malformedExtendedServerCutText:
                 return "rfb.malformedExtendedServerCutText"
+            case .desktopNameTooLong:
+                return "rfb.desktopNameTooLong"
+            case .serverCutTextPayloadTooLarge:
+                return "rfb.serverCutTextPayloadTooLarge"
             }
         }
 
