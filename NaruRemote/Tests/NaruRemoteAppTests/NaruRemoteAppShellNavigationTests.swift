@@ -1,3 +1,4 @@
+import NaruRemoteCore
 import XCTest
 @testable import NaruRemoteApp
 
@@ -39,31 +40,97 @@ final class NaruRemoteAppShellNavigationTests: XCTestCase {
         )
     }
 
-    func testOperationRecoveryOnlyReplacesAnEmptyFailedViewport() {
+    func testFailedOrClosedWithoutFramebufferLeavesOperationSurface() {
         XCTAssertTrue(
-            NaruRemoteAppShell.showsOperationRecovery(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
                 sessionState: .failed,
-                hasFramebuffer: false
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
             )
         )
         XCTAssertTrue(
-            NaruRemoteAppShell.showsOperationRecovery(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
                 sessionState: .closed,
-                hasFramebuffer: false
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
             )
         )
+    }
+
+    func testConnectingAndActiveStayOnOperationSurface() {
         XCTAssertFalse(
-            NaruRemoteAppShell.showsOperationRecovery(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
                 sessionState: .connecting,
-                hasFramebuffer: false
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
             )
         )
         XCTAssertFalse(
-            NaruRemoteAppShell.showsOperationRecovery(
-                sessionState: .failed,
-                hasFramebuffer: true
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
+                sessionState: .active,
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
             )
         )
+    }
+
+    func testFailedWithFramebufferOrTestingPinStaysOnOperationSurface() {
+        XCTAssertFalse(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
+                sessionState: .failed,
+                hasFramebuffer: true,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
+            )
+        )
+        XCTAssertFalse(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
+                sessionState: .failed,
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: true
+            )
+        )
+    }
+
+    func testEditorSaveStaysOnHostListAfterAutomaticReturn() {
+        // US1-5: auto-return already clears the operation surface, and the
+        // profile editor is a sheet over the grid. Save does not flip
+        // `showsOperationSurface`.
+        XCTAssertTrue(
+            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
+                sessionState: .failed,
+                hasFramebuffer: false,
+                isOperationSurfaceVisible: true,
+                isPinnedForTesting: false
+            )
+        )
+        XCTAssertTrue(
+            NaruRemoteAppShell.shouldShowConnectionGrid(
+                isEmptyHome: false,
+                isLiveSession: false,
+                showsOperationSurface: false
+            )
+        )
+    }
+
+    func testDiagnosticCapsuleRendersOnlyDuringConnectingOrLiveSession() {
+        XCTAssertTrue(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .connecting))
+        XCTAssertTrue(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .authenticating))
+        XCTAssertTrue(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .active))
+        XCTAssertTrue(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .degraded))
+        XCTAssertTrue(
+            NaruRemoteAppShell.showsDiagnosticCapsule(
+                sessionState: .reconnecting(attempt: 1, of: 3)
+            )
+        )
+        XCTAssertFalse(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .failed))
+        XCTAssertFalse(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: .closed))
+        XCTAssertFalse(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: nil))
     }
 
     func testOnlyAdvancedPublicCardsRequireConfirmationBeforeOperation() {

@@ -146,40 +146,25 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // State 4: default connection grid with a saved profile.
         try saveScreen(named: "04-connection-grid-\(deviceTag)-\(mode.suffix).png")
 
-        openFirstConnectionCardIfPresent(app: app)
-        let returnToGrid = app.buttons["naru.operation.connections"]
-        XCTAssertTrue(
-            returnToGrid.waitForExistence(timeout: 4),
-            "Operation must keep Connections directly reachable."
-        )
-        returnToGrid.tap()
-        XCTAssertTrue(
-            app.buttons["naru.connection.grid.card"].firstMatch.waitForExistence(timeout: 4),
-            "Returning from profile detail must restore the connection grid."
-        )
+        // Spec 013: a connection that fails (this seeded host does not
+        // resolve) returns to the host list on its own — there is no
+        // recovery screen between the list and remote control — and the
+        // failing card carries the reason plus a Reconnect action.
         openFirstConnectionCardIfPresent(app: app)
         XCTAssertTrue(
-            app.buttons["naru.session.diagnostics.corner"].waitForExistence(timeout: 4),
-            "Operation must keep diagnostics visible without a stacked third screen"
+            app.buttons["naru.connection.grid.card"].firstMatch.waitForExistence(timeout: 10),
+            "A failed connection must return to the host list by itself."
         )
-        let sessionTools = app.buttons["naru.session.tools.menu"]
-        if !sessionTools.exists {
-            let reveal = app.buttons["naru.session.controls.reveal"]
-            XCTAssertTrue(reveal.waitForExistence(timeout: 4))
-            reveal.tap()
-        }
+        XCTAssertFalse(
+            app.staticTexts["naru.operation.recovery"].exists,
+            "The recovery card is retired (spec 013)."
+        )
+        let reconnect = app.buttons["naru.connection.grid.reconnect"].firstMatch
         XCTAssertTrue(
-            sessionTools.waitForExistence(timeout: 4),
-            "Operation must expose secondary stream and PiP controls from one Session tools menu"
+            reconnect.waitForExistence(timeout: 6),
+            "The failing host card must offer Reconnect inline."
         )
-        XCTAssertFalse(
-            app.buttons["naru.session.streamPowerMode"].exists,
-            "Profile detail must not keep stream tuning as a permanent primary button on iPhone"
-        )
-        XCTAssertFalse(
-            app.buttons["naru.session.pointerMode"].exists,
-            "Profile detail must not show disabled pointer mode before a session is active"
-        )
+        try saveScreen(named: "04b-connection-grid-failed-\(deviceTag)-\(mode.suffix).png")
 
         // State 5: diagnostics populated.  Closes UX punch-list #007
         // — previously this state re-launched the app and tapped the
@@ -190,13 +175,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // `NARU_TEST_FIXTURE_SNAPSHOT=diagnostics-populated` hook
         // instead — four deterministic stages including the running
         // authentication row.
+        // Spec 013 moved the diagnostics entry point onto the host card's
+        // actions menu — the capsule now belongs to a live session only.
         let diagnosticsApp = launchAppWithFixture(.diagnosticsPopulated, mode: mode)
-        let diagnosticCorner = diagnosticsApp.buttons["naru.session.diagnostics.corner"]
-        XCTAssertTrue(
-            diagnosticCorner.waitForExistence(timeout: 8),
-            "Persistent Operation diagnostic capsule must be mounted"
-        )
-        diagnosticCorner.tap()
+        openDiagnosticsFromFirstCard(app: diagnosticsApp)
         XCTAssertTrue(
             diagnosticsApp.navigationBars["Diagnostics"].waitForExistence(timeout: 4),
             "Capsule must open the full diagnostics sheet"
@@ -411,12 +393,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // The Operation rework moved stage rows off the first paint and
         // behind the persistent corner capsule — the failed row now lives
         // in the medium-detent diagnostics sheet the capsule presents.
-        let corner = app.buttons["naru.session.diagnostics.corner"].firstMatch
-        XCTAssertTrue(
-            corner.waitForExistence(timeout: 8),
-            "Diagnostics corner must be mounted on the Operation surface"
-        )
-        corner.tap()
+        // Spec 013: diagnostics for a host that is not in session are
+        // reached from the host card's actions menu, not from a surface
+        // between the list and remote control.
+        openDiagnosticsFromFirstCard(app: app)
 
         // Sheet rows use `.accessibilityElement(children: .combine)`, so the
         // title is never a standalone static text — match by containment.
@@ -899,9 +879,6 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
-        if token == .diagnosticsPopulated || token == .diagnosticErrorDNS {
-            app.launchEnvironment["NARU_TEST_START_OPERATION_SURFACE"] = "1"
-        }
         if suppressDirectWarning {
             app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         }
@@ -1016,6 +993,25 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     /// On compact width the sidebar may be collapsed.  Tap the
     /// system back-button on the navigation bar if it exists.
+    /// Spec 013 entry point: open a host card's actions menu and tap
+    /// Diagnostics. Replaces the retired Operation-surface capsule tap for
+    /// hosts that are not in a live session.
+    private func openDiagnosticsFromFirstCard(app: XCUIApplication) {
+        let actions = app.buttons["naru.connection.grid.actions"].firstMatch
+        XCTAssertTrue(
+            actions.waitForExistence(timeout: 8),
+            "Host card must expose its actions menu"
+        )
+        actions.tap()
+
+        let diagnostics = app.buttons["naru.connection.grid.diagnostics"].firstMatch
+        XCTAssertTrue(
+            diagnostics.waitForExistence(timeout: 4),
+            "Actions menu must offer Diagnostics (spec 013 US2-1)"
+        )
+        diagnostics.tap()
+    }
+
     private func openFirstConnectionCardIfPresent(app: XCUIApplication) {
         let gridHeading = app.staticTexts["Connections"]
         guard gridHeading.waitForExistence(timeout: 3) else {
