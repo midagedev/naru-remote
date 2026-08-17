@@ -9,13 +9,19 @@ public extension StickyModifierState.Modifier {
         .control, .alt, .meta, .shift,
     ]
 
-    /// Short strip label (keyboard-glyph-sized Latin text).
+    /// Short strip label in macOS glyph notation (spec 012 US2-3).
+    /// The Latin words ("ctrl"/"alt"/"cmd"/"shift") needed 48 pt each
+    /// and pushed Esc/Tab/⌃C past the right edge on an iPhone-width
+    /// strip; the glyphs fit in 36 pt and match both a physical Mac
+    /// keyboard and the ⌃C key next to them. VoiceOver reads the
+    /// modifier kind and slot state from `ModifierKeyButton`, not from
+    /// this label, so the glyph costs no accessibility information.
     var stripLabel: String {
         switch self {
-        case .control: return "ctrl"
-        case .alt: return "alt"
-        case .meta: return "cmd"
-        case .shift: return "shift"
+        case .control: return "⌃"
+        case .alt: return "⌥"
+        case .meta: return "⌘"
+        case .shift: return "⇧"
         }
     }
 }

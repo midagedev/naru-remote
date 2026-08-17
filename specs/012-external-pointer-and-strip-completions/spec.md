@@ -68,7 +68,12 @@ exactly like touch gestures do.
 2. **Given** the primary strip row, **When** the user taps the ⌃C key, **Then**
    the wire envelope is `Ctrl down → c down → c up → Ctrl up` (the existing
    `ComposeQuickKey.controlC` emission), independent of sticky-modifier state.
-3. **Given** Type mode with Korean IME composition in progress (marked text),
+3. **Given** an iPhone-width strip, **When** the session is live, **Then** the
+   keys an AI-CLI session needs most — the four sticky modifiers, Esc, Tab, and
+   ⌃C — are all reachable without horizontal scrolling. Modifiers render in
+   macOS glyph notation (⌃ ⌥ ⌘ ⇧) at 36 pt so the row fits; VoiceOver still
+   announces the modifier kind and slot state.
+4. **Given** Type mode with Korean IME composition in progress (marked text),
    **When** the user taps any strip key or quick key, **Then** the pending
    composition is committed (or the pending live insert drained) **before** the
    keysym emits — the emission never interleaves ahead of in-flight text. If
