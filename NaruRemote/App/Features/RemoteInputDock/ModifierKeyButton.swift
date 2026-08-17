@@ -1,7 +1,7 @@
 import SwiftUI
 import NaruRemoteCore
 
-/// Modifier key button for the Direct-mode special-keys page.
+/// Sticky-modifier button for the shared accessory strip (spec 011 US2).
 ///
 /// Renders the three-state sticky-modifier UX (idle / armed /
 /// locked) using system-color tokens so dark and light modes both
@@ -39,6 +39,10 @@ struct ModifierKeyButton: View {
     let slot: StickyModifierState.SlotState
     let widthUnits: CGFloat
     let unitWidth: CGFloat
+    /// Explicit render height. The accessory strip proposes 36pt to
+    /// match `accessoryKeyButton`; without this, the ZStack fill
+    /// consumes the unconstrained ScrollView-row height.
+    let height: CGFloat
     let onTap: () -> Void
 
     var body: some View {
@@ -85,7 +89,7 @@ struct ModifierKeyButton: View {
         // Pressed tint + haptic on touch-down (founder feedback
         // 2026-07-05) — layered so idle/armed/locked fills stay intact.
         .buttonStyle(DirectModifierKeyButtonStyle())
-        .frame(width: widthUnits * unitWidth)
+        .frame(width: widthUnits * unitWidth, height: height)
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityValue(slot.rawValue)
         .accessibilityIdentifier("naru.direct.modifier.\(modifier.rawValue).\(slot.rawValue)")

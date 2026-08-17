@@ -32,11 +32,14 @@ public enum LiveWindowSealReason: String, Sendable, Equatable, Codable, CaseIter
 /// In-memory dock state for Live type-through mode — peer to
 /// `DirectKeystrokeMode` (spec 002) and Compose & Send (spec 006).
 ///
-/// Resets to the Compose default on every fresh session (spec 009 FR-016): Live
-/// mode never persists across disconnect/reconnect or app relaunch. It ships as
-/// an explicit opt-in alongside Compose & Send (default) and Direct Keystroke
-/// (founder D3); promotion to the multilingual default is deferred to a later
-/// change gated on physical-device evidence.
+/// The empty/reset value is still `composeDefault` (Live inactive). Spec 011
+/// US1 promotes Type (this mode) as the session default the first time a
+/// fresh session reaches `.active`, via
+/// `promoteTypeThroughDefaultOnSessionActivationIfNeeded` in
+/// `NaruRemoteAppModel`. The mode flag itself still does not persist across
+/// disconnect/reconnect or app relaunch; `resetForNewSession()` applies
+/// `composeDefault`, then the app model re-promotes Type unless the user
+/// already chose a dock mode.
 ///
 /// This holds no draft: sealing leaves delivered text at the remote and discards
 /// only marked/uncommitted text (FR-012). The editing-window mirror itself lives
@@ -71,11 +74,13 @@ public struct LiveTypeThroughMode: Sendable, Equatable, Codable {
         self.hasShownEntryDisclosureThisSession = hasShownEntryDisclosureThisSession
     }
 
-    /// The Compose default: Live inactive, no tier, idle status. Applied on every
-    /// fresh session start (FR-016).
+    /// Empty/reset value: Live inactive, no tier, idle status. Still applied by
+    /// `resetForNewSession()` (spec 009 FR-016). Spec 011 then promotes Type on
+    /// session activation via `promoteTypeThroughDefaultOnSessionActivationIfNeeded`;
+    /// the case name is unchanged.
     public static let composeDefault = LiveTypeThroughMode()
 
-    /// Reset to the Compose default for a new session (FR-016). Clears the mode
+    /// Reset to `composeDefault` for a new session (FR-016). Clears the mode
     /// flag, the selected tier, and the per-session disclosure gate.
     public mutating func resetForNewSession() {
         self = .composeDefault
