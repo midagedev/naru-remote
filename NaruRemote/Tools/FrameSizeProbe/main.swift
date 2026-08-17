@@ -24,6 +24,25 @@ do {
     print("SERVER_INIT width=\(serverInit.width) height=\(serverInit.height) name=\(serverInit.name)")
 
     if let typePayload {
+        // NARU_PROBE_TYPE_AFTER_FRAME=1 — request and receive one framebuffer
+        // update before typing, to test whether the server's input-readiness
+        // gate is protocol-progress-based rather than time-based.
+        if ProcessInfo.processInfo.environment["NARU_PROBE_TYPE_AFTER_FRAME"] == "1",
+           let streamingClient = client as? any RFBStreamingClient {
+            let warmupPump = RFBFramePump(source: streamingClient)
+            _ = try warmupPump.run(
+                configuration: RFBFramePumpConfiguration(maxFrames: 1, requestTimeout: 10)
+            ) { _ in .stop }
+            print("WARMUP_FRAME_RECEIVED")
+        }
+        // ScreensharingAgent initializes its keymap a few seconds after the
+        // viewer connects; events sent before that are dropped silently.
+        // NARU_PROBE_TYPE_DELAY (seconds, default 0) lets us probe that window.
+        if let delayStr = ProcessInfo.processInfo.environment["NARU_PROBE_TYPE_DELAY"],
+           let delay = Double(delayStr), delay > 0 {
+            print("TYPE_DELAY \(delay)s")
+            usleep(UInt32(delay * 1_000_000))
+        }
         // Login-through helper: emit the string as per-scalar keysym
         // down/up pairs, then a Return. Used to type the console user's
         // password into the off-console loginwindow VNC session hands
@@ -31,18 +50,26 @@ do {
         let keyEventClient = client as? any RFBKeyEventClient
         let sendSemaphore = DispatchSemaphore(value: 0)
         func sendKey(_ keysym: UInt32, isDown: Bool) {
-            Task {
+            // Task.detached, not Task: top-level code is @MainActor, so a
+            // plain Task would inherit the main actor and deadlock against
+            // the semaphore wait below.
+            Task.detached {
                 try? await keyEventClient?.sendKeyEvent(keysym: keysym, isDown: isDown)
                 sendSemaphore.signal()
             }
             sendSemaphore.wait()
         }
+        // NARU_PROBE_TYPE_INTERVAL_MS (default 40) — inter-event gap, lets us
+        // measure whether back-to-back keysym bursts lose events server-side.
+        let intervalMs = ProcessInfo.processInfo.environment["NARU_PROBE_TYPE_INTERVAL_MS"]
+            .flatMap(UInt32.init) ?? 40
+        let gap = intervalMs * 1_000
         for scalar in typePayload.unicodeScalars {
             guard let keysym = TextKeystrokeTranscoder.keysym(for: scalar) else { continue }
             sendKey(keysym, isDown: true)
-            usleep(40_000)
+            if gap > 0 { usleep(gap) }
             sendKey(keysym, isDown: false)
-            usleep(40_000)
+            if gap > 0 { usleep(gap) }
         }
         sendKey(KeysymMapping.keysym(for: .return), isDown: true)
         usleep(40_000)
