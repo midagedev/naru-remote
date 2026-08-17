@@ -565,16 +565,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         connection: RFBNetworkConnection,
         timeout: TimeInterval
     ) throws {
-        let headerRemainder = try reader.readBytes(7)
-        let header = Data([3] + headerRemainder)
-        let length = Self.int32([UInt8](header), at: 4)
-        guard length != Int32.min else {
-            throw RFBProtocolDecoderError.malformedExtendedServerCutText
+        let intake = try RFBProtocolDecoder.consumeServerCutTextAfterTypeByte(from: reader)
+        guard case .message(let message) = intake else {
+            return
         }
-
-        let payloadLength = length < 0 ? Int(-length) : Int(length)
-        let payload = payloadLength > 0 ? Data(try reader.readBytes(payloadLength)) : Data()
-        let message = try RFBProtocolDecoder.parseServerCutTextMessage(header + payload)
 
         guard case .extendedClipboard(let extended) = message,
               extended.flags.contains(.caps)
@@ -788,8 +782,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
     /// Reads a single server-to-client `ServerCutText` message off the active
     /// connection and returns its UTF-8 payload. The fixed 8-byte header
-    /// (1 byte message type + 3 bytes padding + 4 bytes big-endian length) is
-    /// pulled first, then the declared payload length is read in full. Truncated
+    /// is pulled first. Payloads at or under
+    /// ``RFBProtocolDecoder/maxServerCutTextPayloadLength`` are read in
+    /// full; larger declared lengths are skipped in 64 KiB chunks and
+    /// return an empty string so the stream stays aligned. Truncated
     /// or malformed payloads surface as typed
     /// ``RFBProtocolDecoderError`` values — never as a trap.
     ///
@@ -803,25 +799,15 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             )
         }
 
-        let header = try connection.readExactly(byteCount: 8, timeout: timeout)
-        let headerBytes = Array(header)
-        guard headerBytes[0] == 3 else {
-            throw RFBProtocolDecoderError.unexpectedMessageType(headerBytes[0])
+        let reader = ConnectionByteReader(connection: connection, timeout: timeout)
+        switch try RFBProtocolDecoder.consumeServerCutText(from: reader) {
+        case .ignoredOversizedPayload:
+            return ""
+        case .message(.legacyText(let text)):
+            return text
+        case .message(.extendedClipboard(let extended)):
+            return extended.text ?? ""
         }
-
-        let signedLength = Self.int32(headerBytes, at: 4)
-        guard signedLength != Int32.min else {
-            throw RFBProtocolDecoderError.malformedExtendedServerCutText
-        }
-        let payloadLength = signedLength < 0 ? Int(-signedLength) : Int(signedLength)
-        let payload: Data
-        if payloadLength > 0 {
-            payload = try connection.readExactly(byteCount: payloadLength, timeout: timeout)
-        } else {
-            payload = Data()
-        }
-
-        return try RFBProtocolDecoder.parseServerCutText(header + payload)
     }
 
     @discardableResult
@@ -1007,6 +993,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
         let serverInitPrefix = try connection.readExactly(byteCount: 24, timeout: timeout)
         let nameLength = Int(Self.uint32(Array(serverInitPrefix), at: 20))
+        guard nameLength <= RFBProtocolDecoder.maxDesktopNameLength else {
+            throw RFBProtocolDecoderError.desktopNameTooLong(
+                maximum: RFBProtocolDecoder.maxDesktopNameLength,
+                actual: nameLength
+            )
+        }
         let serverInitData = try serverInitPrefix + connection.readExactly(
             byteCount: nameLength,
             timeout: timeout

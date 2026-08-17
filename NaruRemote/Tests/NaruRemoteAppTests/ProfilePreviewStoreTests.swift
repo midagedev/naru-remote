@@ -66,6 +66,20 @@ final class ProfilePreviewStoreTests: XCTestCase {
         XCTAssertNil(deleted)
     }
 
+    func testSaveThumbnailExcludesDirectoryFromICloudBackup() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        let store = FileProfilePreviewStore(directoryURL: directoryURL)
+
+        try await store.saveThumbnail(makeThumbnail(red: 33), for: UUID())
+
+        let values = try directoryURL.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(values.isExcludedFromBackup, true)
+    }
+
     private func makeThumbnail(red: UInt8) -> ProfilePreviewThumbnail {
         ProfilePreviewThumbnail(
             width: 2,
