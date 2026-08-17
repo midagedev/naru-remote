@@ -59,21 +59,18 @@ final class LiveTypeThroughStormUITests: XCTestCase {
             app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8),
             "Remote Input Dock heading must be visible after launch"
         )
-        // The standard dock renders the 3-way segmented mode picker; the
-        // phone-first live-session accessory exposes a dedicated Live toggle.
-        let liveSegment = app.buttons["Live"].firstMatch
-        if liveSegment.waitForExistence(timeout: 6) {
-            liveSegment.tap()
-            return
-        }
-        let liveToggle = app.buttons["naru.input.live-toggle"].firstMatch
-        XCTAssertTrue(liveToggle.waitForExistence(timeout: 6), "Live mode entry control must exist")
-        liveToggle.tap()
+        // Spec 011 two-mode dock: the standard detail dock renders the
+        // Type|Compose segmented picker; entering Type taps the "Type"
+        // segment.
+        let typeSegment = app.buttons["Type"].firstMatch
+        XCTAssertTrue(typeSegment.waitForExistence(timeout: 6), "Type mode segment must exist")
+        typeSegment.tap()
     }
 
     private func focusedLiveEditor(in app: XCUIApplication) -> XCUIElement {
-        // Reveal the compact editor if the idle accessory is showing.
-        let reveal = app.buttons["naru.input.compose-reveal"].firstMatch
+        // Reveal the compact editor if the idle accessory is showing
+        // (spec 011: the reveal control enters/keeps Type mode).
+        let reveal = app.buttons["naru.input.type-reveal"].firstMatch
         if reveal.waitForExistence(timeout: 2) {
             reveal.tap()
         }

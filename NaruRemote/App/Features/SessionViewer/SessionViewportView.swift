@@ -651,7 +651,8 @@ public struct SessionViewportView: View {
     /// Secondary session commands stay one tap away without widening the
     /// visible chrome. Active immersive sessions keep only state, disconnect,
     /// and pointer mode primary; pre-connect detail screens keep Connect and
-    /// Checks primary while stream experiments stay discoverable in this menu.
+    /// Checks primary. Stream experiment toggles nest under one Advanced
+    /// submenu (spec 011 US4) so the top level reads Checks · PiP · Advanced.
     private func sessionToolsMenu(includesChecks: Bool, iconOnly: Bool) -> some View {
         Menu {
             if includesChecks {
@@ -665,65 +666,70 @@ public struct SessionViewportView: View {
             }
 
             Button {
-                onToggleComposeDeliveryMode?()
-            } label: {
-                Label(
-                    composeDeliveryModeLabelText,
-                    systemImage: composeDelivery == .keystrokeStream
-                        ? "keyboard" : "doc.on.clipboard"
-                )
-            }
-            .disabled(onToggleComposeDeliveryMode == nil)
-            .accessibilityIdentifier("naru.session.tools.composeDeliveryMode")
-
-            Button {
-                onToggleStreamPowerMode?()
-            } label: {
-                Label(
-                    streamPowerModeLabelText,
-                    systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
-                )
-            }
-            .disabled(onToggleStreamPowerMode == nil)
-            .accessibilityIdentifier("naru.session.tools.streamPowerMode")
-
-            if showsStreamEncodingModeButton {
-                Button {
-                    onToggleStreamEncodingMode?()
-                } label: {
-                    Label(streamEncodingModeLabelText, systemImage: "slider.horizontal.3")
-                }
-                .disabled(onToggleStreamEncodingMode == nil)
-                .accessibilityIdentifier("naru.session.tools.streamEncodingMode")
-            }
-
-            if showsStartupPreflightModeButton {
-                Button {
-                    onToggleStartupPreflightMode?()
-                } label: {
-                    Label(startupPreflightModeLabelText, systemImage: "speedometer")
-                }
-                .disabled(onToggleStartupPreflightMode == nil)
-                .accessibilityIdentifier("naru.session.tools.startupPreflightMode")
-            }
-
-            if showsStartupGlanceScaleModeButton {
-                Button {
-                    onToggleStartupGlanceScaleMode?()
-                } label: {
-                    Label(startupGlanceScaleModeLabelText, systemImage: "viewfinder")
-                }
-                .disabled(onToggleStartupGlanceScaleMode == nil)
-                .accessibilityIdentifier("naru.session.tools.startupGlanceScaleMode")
-            }
-
-            Button {
                 onStartPiPWatch?()
             } label: {
                 Label("PiP Watch", systemImage: "rectangle.on.rectangle")
             }
             .disabled(!canStartPiPWatch)
             .accessibilityIdentifier("naru.session.tools.pipWatch")
+
+            Menu {
+                Button {
+                    onToggleComposeDeliveryMode?()
+                } label: {
+                    Label(
+                        composeDeliveryModeLabelText,
+                        systemImage: composeDelivery == .keystrokeStream
+                            ? "keyboard" : "doc.on.clipboard"
+                    )
+                }
+                .disabled(onToggleComposeDeliveryMode == nil)
+                .accessibilityIdentifier("naru.session.tools.composeDeliveryMode")
+
+                Button {
+                    onToggleStreamPowerMode?()
+                } label: {
+                    Label(
+                        streamPowerModeLabelText,
+                        systemImage: streamPowerMode == .powerSaver ? "leaf.fill" : "leaf"
+                    )
+                }
+                .disabled(onToggleStreamPowerMode == nil)
+                .accessibilityIdentifier("naru.session.tools.streamPowerMode")
+
+                if showsStreamEncodingModeButton {
+                    Button {
+                        onToggleStreamEncodingMode?()
+                    } label: {
+                        Label(streamEncodingModeLabelText, systemImage: "slider.horizontal.3")
+                    }
+                    .disabled(onToggleStreamEncodingMode == nil)
+                    .accessibilityIdentifier("naru.session.tools.streamEncodingMode")
+                }
+
+                if showsStartupPreflightModeButton {
+                    Button {
+                        onToggleStartupPreflightMode?()
+                    } label: {
+                        Label(startupPreflightModeLabelText, systemImage: "speedometer")
+                    }
+                    .disabled(onToggleStartupPreflightMode == nil)
+                    .accessibilityIdentifier("naru.session.tools.startupPreflightMode")
+                }
+
+                if showsStartupGlanceScaleModeButton {
+                    Button {
+                        onToggleStartupGlanceScaleMode?()
+                    } label: {
+                        Label(startupGlanceScaleModeLabelText, systemImage: "viewfinder")
+                    }
+                    .disabled(onToggleStartupGlanceScaleMode == nil)
+                    .accessibilityIdentifier("naru.session.tools.startupGlanceScaleMode")
+                }
+            } label: {
+                Label("Advanced", systemImage: "slider.horizontal.2.square")
+            }
+            .accessibilityIdentifier("naru.session.tools.advanced")
         } label: {
             if iconOnly {
                 Label("Session tools", systemImage: "ellipsis.circle")

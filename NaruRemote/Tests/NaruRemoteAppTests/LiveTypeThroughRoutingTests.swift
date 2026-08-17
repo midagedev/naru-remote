@@ -78,7 +78,7 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         XCTAssertTrue(model.snapshot.liveTransportDisclosureText.contains("overwritten"))
     }
 
-    // MARK: - (c) No helper + no confirmed clipboard → retain, never Unicode keysyms
+    // MARK: - (c) No helper + no confirmed clipboard → Unicode-keysym stream
 
     func testUnicodeWithNoConfirmedTransportIsRetainedNotGarbageKeysyms() async throws {
         let connector = LiveRoutingConnector(
@@ -96,12 +96,22 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         model.setRemoteInputDockMode(.live)
 
         model.liveCommit(committedText: "가나다", hasMarkedText: false)
-        try await Task.sleep(for: .milliseconds(60))
+        try await waitFor {
+            connector.recordedKeyEvents.count >= 6
+        }
 
-        XCTAssertTrue(connector.recordedKeyEvents.isEmpty, "Never emit Unicode KeyEvents to macOS (FR-005)")
-        XCTAssertTrue(connector.clipboardPayloads.isEmpty)
-        XCTAssertEqual(model.liveTypeThroughMode.lastStatus, .retainedFailure)
-        // Text is retained locally so the user can retry / switch modes (FR-015).
+        // Spec 011 / constitution §I (2026-08-17): with neither a helper nor a
+        // confirmed UTF-8 clipboard, Korean rides the X11 Unicode-keysym
+        // stream — live-measured 2026-07-13 to render on macOS Screen Sharing.
+        // Each syllable emits a down/up pair with keysym 0x01000000 | scalar.
+        let expectedKeysyms: [UInt32] = ["가", "나", "다"].map {
+            0x0100_0000 | UInt32($0.unicodeScalars.first!.value)
+        }
+        let downKeysyms = connector.recordedKeyEvents.filter(\.isDown).map(\.keysym)
+        XCTAssertEqual(downKeysyms, expectedKeysyms, "Korean must ride the Unicode-keysym stream (down/up per syllable)")
+        XCTAssertTrue(connector.clipboardPayloads.isEmpty, "The keysym stream must not touch the clipboard")
+        XCTAssertEqual(model.liveTypeThroughMode.selectedTier, .keyEvent)
+        XCTAssertEqual(model.liveTypeThroughMode.lastStatus, .asciiLastResort)
         XCTAssertEqual(model.liveFieldText, "가나다")
     }
 

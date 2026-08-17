@@ -189,3 +189,22 @@ struct ModifierKeyButton: View {
         }
     }
 }
+
+/// Press-feedback style for accessory strip modifier keys (moved
+/// from the retired Direct soft keyboard; kept for the shared strip).
+struct DirectModifierKeyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(configuration.isPressed ? 0.30 : 0))
+            )
+            .animation(
+                configuration.isPressed ? nil : .easeOut(duration: 0.12),
+                value: configuration.isPressed
+            )
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { NaruHaptics.keyPress() }
+            }
+    }
+}

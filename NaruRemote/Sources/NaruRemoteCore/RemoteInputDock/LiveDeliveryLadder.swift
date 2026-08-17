@@ -8,9 +8,11 @@ import Foundation
 /// VNC key-event lane (`.keyEvent`) — see `LiveDeliveryLadder.controlOperationTier`.
 ///
 /// Precedence for *inserts* is `helperNativeInsert` → `clipboardChunk` →
-/// `keyEvent` (FR-004). A Unicode payload is NEVER delivered via `.keyEvent`:
-/// X11 Unicode keysyms do not arrive on macOS Screen Sharing (live-observed
-/// `no-input`, 2026-07-05; FR-005), so the `.keyEvent` insert tier is ASCII-only.
+/// `keyEvent` (FR-004). A Unicode payload may ride `.keyEvent` as X11
+/// Unicode keysyms: live measurement 2026-07-13 proved they render on macOS
+/// Screen Sharing (Korean/CJK land regardless of the remote IME; astral-plane
+/// emoji excepted), overturning the earlier 2026-07-05 `no-input` result and
+/// blessing the keysym stream in constitution §I (spec 011).
 public enum LiveTypeThroughAdapterTier: String, Sendable, Equatable, Codable, CaseIterable {
     /// Helper text bridge `nativeInsert` — the only path with observed delivery
     /// confirmation (spec 006). Primary tier; carries multilingual text.
@@ -22,9 +24,10 @@ public enum LiveTypeThroughAdapterTier: String, Sendable, Equatable, Codable, Ca
     /// UTF-8 clipboard support.
     case clipboardChunk
 
-    /// ASCII-only VNC `KeyEvent` last resort (non-multilingual). Also the lane
-    /// used for control operations (`BackSpace`/`Return`), which are never
-    /// Unicode keysyms.
+    /// VNC `KeyEvent` keysym stream — the pure-VNC type-through path for both
+    /// ASCII and Unicode keysyms (2026-07-13 ground truth). Also the lane used
+    /// for control operations (`BackSpace`/`Return`), which are never Unicode
+    /// keysyms.
     case keyEvent
 
     /// Whether this tier carries a delivery confirmation observable to Naru.
@@ -40,9 +43,10 @@ public enum LiveTypeThroughAdapterTier: String, Sendable, Equatable, Codable, Ca
     /// disclosed (IN-004).
     public var overwritesRemoteClipboard: Bool { self == .clipboardChunk }
 
-    /// Whether this tier can carry Korean/CJK/emoji. The `.keyEvent` insert tier
-    /// is ASCII-only and must disclose that (FR-014).
-    public var isMultilingualCapable: Bool { self != .keyEvent }
+    /// Whether this tier can carry Korean/CJK/emoji. Every insert tier can
+    /// (helper-native, disclosed clipboard, or Unicode-keysym stream);
+    /// astral-plane emoji are the known keysym-stream exception.
+    public var isMultilingualCapable: Bool { true }
 
     /// The fixed per-window delivery status this tier surfaces on success
     /// (FR-013). Raw text never appears; only these fixed catalog values.
@@ -68,7 +72,9 @@ public enum LiveDeliveryStatus: String, Sendable, Equatable, Codable, CaseIterab
     /// Delivered through the chunked-clipboard fallback; unconfirmed, settle
     /// latency, remote clipboard overwritten (D2).
     case unconfirmedClipboard
-    /// Delivered through the ASCII-only `KeyEvent` last resort; non-multilingual.
+    /// Delivered through the Unicode-keysym `KeyEvent` stream; unconfirmed
+    /// by observation (best-effort, like the clipboard tier minus the
+    /// clipboard overwrite and settle latency).
     case asciiLastResort
     /// Delivery failed or no confirmed/disclosed transport could carry the
     /// payload; the user's text is retained locally (FR-015).
@@ -82,21 +88,25 @@ public enum LiveInsertPayloadKind: String, Sendable, Equatable, Codable, CaseIte
     case unicode
 
     /// Classify an insert payload. Anything outside 7-bit ASCII (Korean, CJK,
-    /// emoji, accented Latin) is `.unicode` and MUST NOT ride the `.keyEvent`
-    /// insert tier (FR-005).
+    /// emoji, accented Latin) is `.unicode`. Both classes ride the keysym
+    /// stream on the `.keyEvent` tier (2026-07-13 ground truth); the class only
+    /// distinguishes helper/clipboard tier preference disclosures.
     public static func classify(_ text: String) -> LiveInsertPayloadKind {
         text.unicodeScalars.allSatisfy { $0.value <= 0x7F } ? .ascii : .unicode
     }
 }
 
 /// Pure policy that selects the insert adapter tier for a Live type-through
-/// editing window at window open (spec 009 FR-004 / FR-006). No I/O, no session
-/// — a table from capabilities + payload class to a tier.
+/// editing window at window open (spec 009 FR-004 / FR-006, amended by spec
+/// 011 / constitution §I 2026-08-17). No I/O, no session — a table from
+/// capabilities + payload class to a tier.
 ///
-/// The single hard rule this encodes: a Unicode payload is never routed to
-/// `.keyEvent`. If neither the helper nor a UTF-8-confirmed clipboard can carry
-/// Unicode, the ladder returns `nil` and the caller retains the text with a
-/// `retainedFailure` status rather than emitting Unicode keysym garbage (US4.2).
+/// Precedence (FR-004):
+/// 1. helper reachable → `.helperNativeInsert` (any payload)
+/// 2. else UTF-8 clipboard confirmed → `.clipboardChunk` (any payload)
+/// 3. else → `.keyEvent` — the keysym stream carries ASCII and Unicode keysyms
+///    alike (2026-07-13 live measurement; Korean/CJK render on macOS Screen
+///    Sharing, astral-plane emoji excepted)
 public enum LiveDeliveryLadder {
     /// Transport capabilities observed for the current session.
     public struct Capabilities: Sendable, Equatable, Codable {
@@ -112,14 +122,13 @@ public enum LiveDeliveryLadder {
         }
     }
 
-    /// Choose the insert tier for a payload, or `nil` when no tier can carry it
-    /// (Unicode with neither helper nor confirmed UTF-8 clipboard → retain).
+    /// Choose the insert tier for a payload. Always resolves — the keysym
+    /// stream is the universal fallback (2026-07-13 ground truth).
     ///
     /// Precedence (FR-004):
     /// 1. helper reachable → `.helperNativeInsert` (any payload)
     /// 2. else UTF-8 clipboard confirmed → `.clipboardChunk` (any payload)
-    /// 3. else ASCII payload → `.keyEvent` (ASCII-only last resort)
-    /// 4. else (Unicode, no helper, no confirmed clipboard) → `nil`
+    /// 3. else → `.keyEvent` (keysym stream; ASCII and Unicode alike)
     public static func insertTier(
         for kind: LiveInsertPayloadKind,
         capabilities: Capabilities
@@ -130,14 +139,7 @@ public enum LiveDeliveryLadder {
         if capabilities.utf8ClipboardConfirmed {
             return .clipboardChunk
         }
-        switch kind {
-        case .ascii:
-            // ASCII last resort is allowed on the key-event lane (FR-004 tier 3).
-            return .keyEvent
-        case .unicode:
-            // Never Unicode keysyms (FR-005); retain instead.
-            return nil
-        }
+        return .keyEvent
     }
 
     /// Control operations (`BackSpace` deletes per D1, `Return` line boundaries)

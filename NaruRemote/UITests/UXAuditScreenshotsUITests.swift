@@ -240,105 +240,66 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "07-compose-text-\(deviceTag)-\(mode.suffix).png")
     }
 
-    // MARK: - iPhone — direct mode pages
+    // MARK: - iPhone — shared accessory key strip (spec 011)
 
-    func testDirectQwerty_light() throws {
-        try runDirectMode(mode: .light, deviceTag: "iphone", page: .qwerty)
+    func testAccessoryStrip_light() throws {
+        try runAccessoryStrip(mode: .light, deviceTag: "iphone", expandFn: false)
     }
 
-    func testDirectQwerty_dark() throws {
-        try runDirectMode(mode: .dark, deviceTag: "iphone", page: .qwerty)
+    func testAccessoryStrip_dark() throws {
+        try runAccessoryStrip(mode: .dark, deviceTag: "iphone", expandFn: false)
     }
 
-    func testDirectSpecial_light() throws {
-        try runDirectMode(mode: .light, deviceTag: "iphone", page: .special)
+    func testAccessoryStripFn_light() throws {
+        try runAccessoryStrip(mode: .light, deviceTag: "iphone", expandFn: true)
     }
 
-    func testDirectSpecial_dark() throws {
-        try runDirectMode(mode: .dark, deviceTag: "iphone", page: .special)
+    func testAccessoryStripFn_dark() throws {
+        try runAccessoryStrip(mode: .dark, deviceTag: "iphone", expandFn: true)
     }
 
-    func testStoreIPadDirectSpecial_light() throws {
+    func testStoreIPadAccessoryStripFn_light() throws {
         XCUIDevice.shared.orientation = .landscapeLeft
-        try runDirectMode(mode: .light, deviceTag: "ipad-landscape", page: .special)
+        try runAccessoryStrip(mode: .light, deviceTag: "ipad-landscape", expandFn: true)
     }
 
-    private enum DirectPage { case qwerty, special }
-
-    private func runDirectMode(mode: ColorMode, deviceTag: String, page: DirectPage) throws {
+    private func runAccessoryStrip(mode: ColorMode, deviceTag: String, expandFn: Bool) throws {
         let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
         openFirstConnectionCardIfPresent(app: app)
 
         XCTAssertTrue(app.staticTexts["Remote Input Dock"].waitForExistence(timeout: 8))
 
-        let directSegment = app.buttons["Direct"]
-        XCTAssertTrue(directSegment.waitForExistence(timeout: 4))
-        directSegment.tap()
+        let strip = waitForStableElement(
+            in: app,
+            identifier: "naru.input.accessory.strip",
+            timeout: 4
+        )
+        XCTAssertTrue(
+            strip.exists,
+            "The shared accessory strip (modifiers + Esc/Tab/arrows) must ride above the editor in both dock modes."
+        )
 
-        // The suppression hook normally prevents this first-entry disclosure,
-        // but a pristine iPad simulator can still surface the system popover
-        // on the first Direct transition. Store captures must show the keyboard,
-        // not onboarding chrome.
-        let directWarning = app.buttons["Got it"].firstMatch
-        if directWarning.waitForExistence(timeout: 2) {
-            directWarning.tap()
-            _ = directWarning.waitForNonExistence(timeout: 2)
-        }
-
-        let qKey = app.buttons["Key q"]
-        XCTAssertTrue(qKey.waitForExistence(timeout: 4))
-
-        if page == .qwerty {
-            try saveScreen(named: "08-direct-qwerty-\(deviceTag)-\(mode.suffix).png")
+        if !expandFn {
+            try saveScreen(named: "08-accessory-strip-\(deviceTag)-\(mode.suffix).png")
             return
         }
 
-        var pageToggle = app.buttons["naru.direct.key.pageToggle"]
-        if !pageToggle.waitForExistence(timeout: 2) {
-            pageToggle = app.buttons["Switch keyboard page"]
+        let fnToggle = app.buttons["naru.input.accessory.fn"]
+        XCTAssertTrue(fnToggle.waitForExistence(timeout: 4))
+        fnToggle.tap()
+
+        let fnRow = app.otherElements["naru.input.accessory.fn-row"]
+        if !fnRow.waitForExistence(timeout: 4) {
+            // A transient operation-status update can steal the first
+            // SwiftUI tap during screenshot setup. Retry the local-only
+            // expansion once; it never emits a remote key event.
+            fnToggle.tap()
         }
-        XCTAssertTrue(pageToggle.waitForExistence(timeout: 2))
-        pageToggle.tap()
-
-        let specialKeyboard = app.descendants(matching: .any)["naru.direct.keyboard.special"]
-        if !specialKeyboard.waitForExistence(timeout: 4) {
-            // A transient operation-status update can steal the first SwiftUI
-            // tap during screenshot setup. Retry the same local-only page
-            // toggle once; it never emits a remote key event.
-            pageToggle.tap()
-        }
-        XCTAssertTrue(specialKeyboard.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["Key f1"].waitForExistence(timeout: 4))
-        try saveScreen(named: "09-direct-special-\(deviceTag)-\(mode.suffix).png")
-    }
-
-    // MARK: - iPhone — direct mode warning dialog
-
-    func testDirectWarningDialog_light() throws {
-        try runDirectWarningDialog(mode: .light, deviceTag: "iphone")
-    }
-
-    func testDirectWarningDialog_dark() throws {
-        try runDirectWarningDialog(mode: .dark, deviceTag: "iphone")
-    }
-
-    private func runDirectWarningDialog(mode: ColorMode, deviceTag: String) throws {
-        // Deliberately do NOT suppress the warning so we can capture
-        // it on first Direct entry.
-        let app = launchAppWithSampleProfile(mode: mode)
-        openFirstConnectionCardIfPresent(app: app)
-
-        let directSegment = app.buttons["Direct"]
-        XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
-        directSegment.tap()
-
-        let confirm = app.buttons["Got it"].firstMatch
         XCTAssertTrue(
-            confirm.waitForExistence(timeout: 4),
-            "Direct-mode warning must show on first activation"
+            fnRow.waitForExistence(timeout: 4),
+            "The Fn expansion must reveal the function-row keys."
         )
-
-        try saveScreen(named: "10-direct-warning-\(deviceTag)-\(mode.suffix).png")
+        try saveScreen(named: "09-accessory-fn-\(deviceTag)-\(mode.suffix).png")
     }
 
     // MARK: - iPhone — sticky modifier locked
@@ -354,21 +315,15 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private func runStickyModifierLocked(mode: ColorMode, deviceTag: String) throws {
         // Deliberately NO card tap: opening a card starts a real connect,
         // and both the profile switch and a fast DNS failure reset
-        // `directKeystrokeMode`/`stickyModifierState` — wiping the launch
-        // prelock before the screenshot (2026-07-12 audit failure: the
-        // element dump showed the Operation Retry card where the keyboard
-        // should be). The legacy detail-start key forces the dock without
-        // a session, which is the focused-input-dock path this capture needs.
+        // `stickyModifierState` — wiping the launch prelock before the
+        // screenshot. The legacy detail-start key forces the dock without
+        // a session, which is the focused-input-dock path this capture
+        // needs. Spec 011: the modifiers render on the shared accessory
+        // strip, so no Direct-mode entry is required.
         let app = launchAppPrelockingControlWithSampleProfile(mode: mode)
 
-        XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 8))
-
-        let pageToggle = app.buttons["Switch keyboard page"]
-        XCTAssertTrue(pageToggle.waitForExistence(timeout: 2))
-        pageToggle.tap()
-
         XCTAssertTrue(
-            app.buttons["Control modifier, locked"].waitForExistence(timeout: 4),
+            app.buttons["Control modifier, locked"].waitForExistence(timeout: 8),
             "Control modifier must be locked via prelock hook"
         )
 
@@ -497,12 +452,12 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runSessionActiveTrackpadCursor(mode: .dark, deviceTag: "iphone")
     }
 
-    func testSessionActiveDirectHardwareKeyboard_light() throws {
-        try runSessionActiveDirectHardwareKeyboard(mode: .light, deviceTag: "iphone")
+    func testSessionActiveTypeMode_light() throws {
+        try runSessionActiveTypeMode(mode: .light, deviceTag: "iphone")
     }
 
-    func testSessionActiveDirectHardwareKeyboard_dark() throws {
-        try runSessionActiveDirectHardwareKeyboard(mode: .dark, deviceTag: "iphone")
+    func testSessionActiveTypeMode_dark() throws {
+        try runSessionActiveTypeMode(mode: .dark, deviceTag: "iphone")
     }
 
     private func runSessionActiveWidescreen(
@@ -569,23 +524,14 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "System keyboard must rise from the compact live-session input field"
         )
 
-        let directToggle = waitForStableElement(
+        let modeToggle = waitForStableElement(
             in: app,
-            identifier: "naru.input.direct-toggle",
-            timeout: 3
-        )
-        let liveToggle = waitForStableElement(
-            in: app,
-            identifier: "naru.input.live-toggle",
+            identifier: "naru.input.mode-toggle",
             timeout: 3
         )
         XCTAssertTrue(
-            directToggle.isHittable,
-            "Keyboard system chrome must not cover the one-tap Direct mode switch."
-        )
-        XCTAssertTrue(
-            liveToggle.isHittable,
-            "Keyboard system chrome must not cover the one-tap Live mode switch."
+            modeToggle.isHittable,
+            "Keyboard system chrome must not cover the one-tap Type/Compose mode switch."
         )
 
         try saveScreen(named: "17-session-active-keyboard-\(deviceTag)-\(mode.suffix).png")
@@ -595,74 +541,52 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         }
     }
 
-    private func runSessionActiveDirectHardwareKeyboard(
+    private func runSessionActiveTypeMode(
         mode: ColorMode,
         deviceTag: String,
         terminateAfterCapture: Bool = false
     ) throws {
+        // Spec 011: Type (type-through) is the default dock surface for
+        // an active session. The floating idle strip offers one-tap
+        // "Type"; the compact editor takes the reserved inset, the
+        // hardware-key responder rides along, and the mode stays one
+        // tap from Compose.
         let app = launchAppWithFixture(
             .sessionActiveWidescreen,
             mode: mode,
             suppressDirectWarning: true
         )
 
-        let directToggle = waitForStableElement(
+        let typeReveal = waitForStableElement(
             in: app,
-            identifier: "naru.input.direct-toggle",
+            identifier: "naru.input.type-reveal",
             timeout: 8
         )
         XCTAssertTrue(
-            directToggle.exists,
-            "Active-session compact dock must expose Direct mode without expanding Compose."
+            typeReveal.exists,
+            "The active-session floating strip must offer one-tap Type."
         )
-        directToggle.tap()
+        typeReveal.tap()
 
-        tapHardwareDirectSurface(in: app)
-
+        let compactEditor = waitForRemoteInputEditor(in: app, timeout: 4)
+        XCTAssertTrue(
+            compactEditor.exists,
+            "Type mode must open the compact editor in the reserved inset."
+        )
         XCTAssertTrue(
             waitForStableElement(
                 in: app,
-                identifier: "naru.input.compose-toggle",
+                identifier: "naru.input.mode-toggle",
                 timeout: 4
             ).exists,
-            "Hardware-keyboard Direct mode must keep Compose one tap away."
-        )
-        XCTAssertTrue(
-            app.buttons["Key q"].waitForNonExistence(timeout: 3),
-            "Hardware-keyboard surface must hide Naru's custom soft keyboard to preserve remote screen area."
-        )
-        XCTAssertFalse(
-            app.keyboards.firstMatch.exists,
-            "Hardware-keyboard surface must not raise the iOS system keyboard."
+            "Type mode must keep Compose one tap away."
         )
 
-        try saveScreen(named: "19-session-active-direct-hw-\(deviceTag)-\(mode.suffix).png")
+        try saveScreen(named: "19-session-active-type-\(deviceTag)-\(mode.suffix).png")
 
         if terminateAfterCapture {
             app.terminate()
         }
-    }
-
-    private func tapHardwareDirectSurface(in app: XCUIApplication) {
-        let inlineHardwareSurface = app.buttons["HW"]
-        if inlineHardwareSurface.waitForExistence(timeout: 2) {
-            inlineHardwareSurface.tap()
-            return
-        }
-
-        let surfaceMenu = app.buttons["naru.direct.input-surface-menu"]
-        XCTAssertTrue(
-            surfaceMenu.waitForExistence(timeout: 4),
-            "Compact Direct header must keep the hardware-keyboard surface menu reachable on narrow iPhone action rows."
-        )
-        surfaceMenu.tap()
-
-        let hardwareMenuItem = app.buttons["Hardware keyboard"]
-        XCTAssertTrue(
-            hardwareMenuItem.waitForExistence(timeout: 4),
-            "Hardware-keyboard Direct surface must remain selectable from the compact fallback menu."
-        )
-        hardwareMenuItem.tap()
     }
 
     private func runSessionActiveTrackpadCursor(
@@ -837,15 +761,19 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                     app.terminate()
                 }
 
-                // State 8 — direct mode QWERTY
+                // State 8 — shared accessory key strip
                 do {
                     let app = launchAppSuppressingDirectWarningWithSampleProfile(mode: mode)
                     openFirstConnectionCardIfPresent(app: app)
-                    let directSegment = app.buttons["Direct"]
-                    XCTAssertTrue(directSegment.waitForExistence(timeout: 8))
-                    directSegment.tap()
-                    XCTAssertTrue(app.buttons["Key q"].waitForExistence(timeout: 4))
-                    try saveScreen(named: "08-direct-qwerty-ipad-\(orientationTag)-\(mode.suffix).png")
+                    XCTAssertTrue(
+                        waitForStableElement(
+                            in: app,
+                            identifier: "naru.input.accessory.strip",
+                            timeout: 8
+                        ).exists,
+                        "The accessory strip must render above the editor on iPad too."
+                    )
+                    try saveScreen(named: "08-accessory-strip-ipad-\(orientationTag)-\(mode.suffix).png")
                     app.terminate()
                 }
 

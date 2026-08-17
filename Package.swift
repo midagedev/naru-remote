@@ -64,6 +64,11 @@ let package = Package(
             path: "NaruRemote/Tools/VNCLiveBenchmark"
         ),
         .executableTarget(
+            name: "FrameSizeProbe",
+            dependencies: ["NaruRemoteCore"],
+            path: "NaruRemote/Tools/FrameSizeProbe"
+        ),
+        .executableTarget(
             name: "VNCLiveStimulusWindow",
             dependencies: ["VNCLiveBenchmarkKit"],
             path: "NaruRemote/Tools/VNCLiveStimulusWindow"

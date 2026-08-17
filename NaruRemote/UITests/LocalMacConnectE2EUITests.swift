@@ -205,6 +205,79 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         sleep(4)
     }
 
+    /// Spec 011 — Type (type-through) is the session default. Connects to
+    /// the live Mac, lets the activation promotion flip the dock to Type,
+    /// raises the editor from the floating strip, and types the payload
+    /// from `NARU_E2E_TYPE_TEXT` (default "Naru"). The host-side
+    /// `VNCLiveStimulusWindow --text-probe` harness (launched separately
+    /// with the matching payload) reports whether the exact text landed
+    /// in the focused local text target — the end-to-end verdict for
+    /// English ("Naru") and Korean ("한글") type-through.
+    func testTypeMode_typesPayloadLive() throws {
+        guard let password = correctPassword else {
+            throw XCTSkip("NARU_E2E_PASSWORD not set — skipping live Type-mode test")
+        }
+        let payload = ProcessInfo.processInfo.environment["NARU_E2E_TYPE_TEXT"] ?? "Naru"
+
+        let profileID = UUID()
+        let credentialRef = "vnc-password:\(profileID.uuidString)"
+        let app = launch(
+            seedProfileID: profileID,
+            credentialRef: credentialRef,
+            password: password
+        )
+
+        openFirstConnectionCardIfPresent(app: app)
+
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 8))
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if isConnected(diagnosticCorner) || isFailed(diagnosticCorner) { break }
+            usleep(250_000)
+        }
+        XCTAssertTrue(isConnected(diagnosticCorner), "Session must be Connected before typing")
+        try saveScreen(named: "20-type-connected.png")
+
+        // Let the immersive chrome settle, then reveal the Type editor
+        // from the floating strip (spec 011 US1 — the activation
+        // promotion already selected Type mode).
+        sleep(3)
+        let typeReveal = app.buttons["naru.input.type-reveal"].firstMatch
+        var revealed = false
+        for _ in 1...3 where !revealed {
+            if typeReveal.waitForExistence(timeout: 4) {
+                typeReveal.tap()
+            }
+            revealed = app.textViews["Remote input text"].waitForExistence(timeout: 3)
+                || app.descendants(matching: .any)["naru.input.editor"].waitForExistence(timeout: 1)
+        }
+        XCTAssertTrue(revealed, "Type editor must be reachable from the floating strip")
+
+        let editor = app.textViews["Remote input text"]
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+
+        editor.typeText(payload)
+        try saveScreen(named: "21-type-typed.png")
+
+        // In Type mode the local mirror accumulates the committed line;
+        // delivery to the Mac is verified host-side by the probe result.
+        let mirrorPredicate = NSPredicate(format: "value CONTAINS %@", payload)
+        let mirrorExpectation = XCTNSPredicateExpectation(
+            predicate: mirrorPredicate,
+            object: editor
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [mirrorExpectation], timeout: 5),
+            .completed,
+            "Type-mode local mirror must contain the typed payload"
+        )
+
+        // Hold so the type-through chunks and the host probe settle.
+        sleep(5)
+    }
+
     func testWrongPassword_showsActionableAuthDiagnostic() throws {
         let profileID = UUID()
         let credentialRef = "vnc-password:\(profileID.uuidString)"

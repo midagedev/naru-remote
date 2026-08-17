@@ -785,28 +785,33 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
         tapRecognizer.numberOfTapsRequired = 1
         tapRecognizer.cancelsTouchesInView = false
+        // Spec 011 US3 (orca lesson: dispatch immediately, never
+        // disambiguate): the tap has NO failure requirements on
+        // double-tap / long-press / two-finger-tap, so a single tap
+        // dispatches its click the moment the finger lifts. A double
+        // tap therefore lands as two discrete clicks — exactly what a
+        // physical mouse produces — and long-press right-clicks can
+        // coexist without delaying the click lane.
 
-        // Double-tap toggles zoom (fit ↔ comfortable zoom about the
-        // tapped point).  A single tap must lose to it so a quick
-        // double-tap zoom does not also fire a button-1 click.
+        // Double-tap sends a SECOND left click at the tapped point so
+        // the remote receives a genuine double-click (the first click
+        // already fired immediately from the single-tap recognizer).
+        // Zoom stays pinch-only (spec 011 US3).
         let doubleTapRecognizer = UITapGestureRecognizer(
             target: self,
             action: #selector(handleDoubleTapGesture(_:))
         )
         doubleTapRecognizer.numberOfTapsRequired = 2
         doubleTapRecognizer.cancelsTouchesInView = false
-        tapRecognizer.require(toFail: doubleTapRecognizer)
 
-        // Trackpad-mode right click.  In direct-touch mode we leave
-        // two-finger tap inert for now and keep long-press as the
-        // established secondary-click path.
+        // Two-finger tap is right click in BOTH pointer modes
+        // (spec 011 US3 — previously trackpad-only).
         let secondaryTapRecognizer = UITapGestureRecognizer(
             target: self,
             action: #selector(handleSecondaryTapGesture(_:))
         )
         secondaryTapRecognizer.numberOfTouchesRequired = 2
         secondaryTapRecognizer.cancelsTouchesInView = false
-        tapRecognizer.require(toFail: secondaryTapRecognizer)
 
         let longPressRecognizer = UILongPressGestureRecognizer(
             target: self,
@@ -814,10 +819,6 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         )
         longPressRecognizer.minimumPressDuration = 0.5
         longPressRecognizer.cancelsTouchesInView = false
-        // A press long enough to be a right-click should NOT also be
-        // dispatched as a single tap — the user's intent is button-3,
-        // not button-1.
-        tapRecognizer.require(toFail: longPressRecognizer)
 
         let panRecognizer = UIPanGestureRecognizer(
             target: self,
@@ -1110,24 +1111,31 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
     @MainActor
     @objc private func handleSecondaryTapGesture(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended,
-              pointerControlMode.isTrackpad
-        else {
+        guard recognizer.state == .ended else {
             return
         }
-        dispatchTrackpadGesture(.secondaryTap(viewPoint: recognizer.location(in: self)))
+        let point = recognizer.location(in: self)
+        if pointerControlMode.isTrackpad {
+            dispatchTrackpadGesture(.secondaryTap(viewPoint: point))
+        } else {
+            rightClickHandler?(point, bounds.size)
+        }
     }
 
     @MainActor
     @objc private func handleDoubleTapGesture(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended,
-              let handler = zoomToggleHandler
-        else {
+        guard recognizer.state == .ended else {
             return
         }
-        stopViewportDeceleration()
+        // Second click of a remote double-click; the first already
+        // dispatched immediately from the single-tap recognizer
+        // (spec 011 US3). No zoom here — pinch owns zoom.
         let point = recognizer.location(in: self)
-        handler(point, bounds.size)
+        if pointerControlMode.isTrackpad {
+            dispatchTrackpadGesture(.tap(viewPoint: point))
+        } else {
+            tapHandler?(point, bounds.size)
+        }
     }
 
     @MainActor

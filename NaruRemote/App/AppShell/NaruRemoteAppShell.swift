@@ -136,6 +136,7 @@ public struct NaruRemoteAppShell: View {
             onSelectMode: { model.setRemoteInputDockMode($0) },
             onSetDirectInputSurface: { model.setDirectKeystrokeInputSurface($0) },
             onTapDirectKey: { key in Task { await model.tapDirectKey(key) } },
+            onSendAccessoryKey: { key in Task { await model.sendAccessoryKey(key) } },
             onHardwareKey: { keysym, modifiers, isDown in
                 Task {
                     await model.handleHardwareKey(
@@ -843,7 +844,6 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     ) -> Bool {
         guard !isComposeFieldFocused,
               !isComposeExpansionRequested,
-              !snapshot.directKeystrokeMode.isActive,
               snapshot.latestInjectionAttempt == nil
         else {
             return false
@@ -873,8 +873,6 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         // repaint even while the field is focused (spec 009 FR-013/FR-014).
         let freezeModelMirroredComposeFields = lhs.isComposeFieldFocused
             && rhs.isComposeFieldFocused
-            && !lhs.directKeystrokeMode.isActive
-            && !rhs.directKeystrokeMode.isActive
             && !lhs.liveTypeThroughMode.isActive
             && !rhs.liveTypeThroughMode.isActive
         if freezeModelMirroredComposeFields {
@@ -908,7 +906,7 @@ struct RemoteInputDockStatusLineState: Equatable, Sendable {
         isLiveSession: Bool,
         isComposeFieldFocused: Bool
     ) {
-        guard isLiveSession, !snapshot.directKeystrokeMode.isActive else {
+        guard isLiveSession else {
             return nil
         }
 
@@ -965,6 +963,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onSelectMode: (NaruRemoteAppModel.RemoteInputDockMode) -> Void
     var onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     var onTapDirectKey: (DirectKey) -> Void
+    var onSendAccessoryKey: (AccessoryKey) -> Void
     var onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     var onMacSessionControl: (MacSessionControl) -> Void
     var onComposeQuickKey: (ComposeQuickKey) -> Void
@@ -1000,6 +999,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             onSelectMode: onSelectMode,
             onSetDirectInputSurface: onSetDirectInputSurface,
             onTapDirectKey: onTapDirectKey,
+            onSendAccessoryKey: onSendAccessoryKey,
             onHardwareKey: onHardwareKey,
             onMacSessionControl: onMacSessionControl,
             onComposeQuickKey: onComposeQuickKey,

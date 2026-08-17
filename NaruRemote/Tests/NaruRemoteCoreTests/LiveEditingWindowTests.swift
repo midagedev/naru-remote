@@ -282,12 +282,15 @@ final class LiveEditingWindowTests: XCTestCase {
         XCTAssertEqual(LiveDeliveryLadder.insertTier(for: .ascii, capabilities: caps), .keyEvent)
     }
 
-    func testLadderUnicodeNeverUsesKeyEventAndReturnsNilWhenUncarriable() {
+    func testLadderUnicodeFallsToKeyEventKeysymStreamWhenNoHelperNoClipboard() {
         let caps = LiveDeliveryLadder.Capabilities(
             helperReachable: false,
             utf8ClipboardConfirmed: false
         )
-        XCTAssertNil(LiveDeliveryLadder.insertTier(for: .unicode, capabilities: caps))
+        // Spec 011 / constitution §I (2026-08-17): Unicode rides the X11
+        // Unicode-keysym stream on the keyEvent tier — live-measured
+        // 2026-07-13 to render on macOS Screen Sharing.
+        XCTAssertEqual(LiveDeliveryLadder.insertTier(for: .unicode, capabilities: caps), .keyEvent)
     }
 
     func testControlOperationTierIsAlwaysKeyEvent() {
@@ -306,7 +309,7 @@ final class LiveEditingWindowTests: XCTestCase {
         XCTAssertFalse(LiveTypeThroughAdapterTier.clipboardChunk.deliversObservedConfirmation)
         XCTAssertTrue(LiveTypeThroughAdapterTier.clipboardChunk.carriesSettleLatency)
         XCTAssertTrue(LiveTypeThroughAdapterTier.clipboardChunk.overwritesRemoteClipboard)
-        XCTAssertFalse(LiveTypeThroughAdapterTier.keyEvent.isMultilingualCapable)
+        XCTAssertTrue(LiveTypeThroughAdapterTier.keyEvent.isMultilingualCapable)
         XCTAssertEqual(LiveTypeThroughAdapterTier.helperNativeInsert.successStatus, .deliveredObserved)
         XCTAssertEqual(LiveTypeThroughAdapterTier.clipboardChunk.successStatus, .unconfirmedClipboard)
         XCTAssertEqual(LiveTypeThroughAdapterTier.keyEvent.successStatus, .asciiLastResort)
