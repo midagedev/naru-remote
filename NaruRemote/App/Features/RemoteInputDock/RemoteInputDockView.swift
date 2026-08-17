@@ -54,6 +54,14 @@ public struct RemoteInputDockView: View {
     @State private var composeFieldFocused: Bool = false
     /// Fn expansion state of the shared accessory key strip (spec 011).
     @State private var showsAccessoryFnExpansion: Bool = false
+    /// Clock-injected hold-repeat machine (spec 012 US2-1). The view
+    /// owns the timer; Core never reads the clock.
+    @State private var accessoryRepeatCadence = AccessoryKeyRepeatCadence()
+    @State private var accessoryRepeatTask: Task<Void, Never>?
+    /// Set on touch-down so the Button action (touch-up) does not
+    /// emit a second copy of the same press. VoiceOver that never
+    /// sets `isPressed` still goes through the action.
+    @State private var accessoryRepeatEmittedOnPressDown = false
 
     private let initialText: String
     private let statusText: String
@@ -241,14 +249,17 @@ public struct RemoteInputDockView: View {
         }
         .onDisappear {
             cancelPendingComposeTextPropagation()
+            stopAccessoryRepeat(clearPressDownToken: true)
+        }
+        .onChange(of: showsComposeQuickKeys) { _, isLive in
+            if !isLive {
+                stopAccessoryRepeat(clearPressDownToken: true)
+            }
         }
     }
 
-    private var compactWindowWidth: CGFloat? {
+    private var currentWindowWidth: CGFloat? {
         #if os(iOS) && canImport(UIKit)
-        guard horizontalSizeClass == .compact else {
-            return nil
-        }
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else {
                 continue
@@ -258,6 +269,28 @@ public struct RemoteInputDockView: View {
             }
         }
         return nil
+        #else
+        return nil
+        #endif
+    }
+
+    /// Compact (iPhone) keeps the window width. Regular-width pinned
+    /// docks cap at `RemoteInputDockWidthPolicy.regularPinnedContentMaxWidth`
+    /// (orca `CONTENT_MAX_WIDTH`). The floating overlay stays
+    /// content-sized on regular width.
+    private var compactWindowWidth: CGFloat? {
+        #if os(iOS) && canImport(UIKit)
+        let isCompact = horizontalSizeClass == .compact
+        if layoutStyle == .floatingAccessory {
+            return RemoteInputDockWidthPolicy.floatingOverlayWidth(
+                isCompactSizeClass: isCompact,
+                windowWidth: currentWindowWidth
+            )
+        }
+        return RemoteInputDockWidthPolicy.pinnedColumnMaxWidth(
+            isCompactSizeClass: isCompact,
+            windowWidth: currentWindowWidth
+        )
         #else
         return nil
         #endif
@@ -738,7 +771,7 @@ public struct RemoteInputDockView: View {
             } else if liveTypeThroughActive, key == .enter {
                 onLiveNewline()
             } else {
-                onComposeQuickKey(key)
+                emitComposeQuickKeyAfterFlush(key)
             }
         } label: {
             Image(systemName: systemImage)
@@ -822,10 +855,14 @@ public struct RemoteInputDockView: View {
                         accessoryKeyButton(.arrowDown)
                         accessoryKeyButton(.arrowRight)
                         accessoryKeyButton(.delete)
+                        composeControlCStripButton()
                     }
                     .padding(.vertical, 2)
                 }
                 .accessibilityIdentifier("naru.input.accessory.strip")
+                .onDisappear {
+                    stopAccessoryRepeat(clearPressDownToken: true)
+                }
 
                 Button {
                     withAnimation(.snappy(duration: 0.2)) {
@@ -868,27 +905,156 @@ public struct RemoteInputDockView: View {
     }
 
     private func accessoryKeyButton(_ key: AccessoryKey) -> some View {
-        Button {
-            onSendAccessoryKey(key)
-        } label: {
-            Text(key.label)
-                .font(.system(size: 15, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(minWidth: 40, maxWidth: 52, minHeight: 36)
-                .background(NaruColors.surfaceKey)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(NaruColors.hairline, lineWidth: 1)
+        Group {
+            if key.repeatable {
+                Button {
+                    // Finger hold already emitted on touch-down. Skip
+                    // the touch-up action so a tap is not two keys.
+                    // VoiceOver that never sets `isPressed` still emits.
+                    if accessoryRepeatEmittedOnPressDown {
+                        accessoryRepeatEmittedOnPressDown = false
+                        return
+                    }
+                    emitAccessoryKeyAfterFlush(key)
+                } label: {
+                    accessoryKeyChrome(label: key.label)
+                }
+                .buttonStyle(
+                    AccessoryStripPressButtonStyle { pressed in
+                        if pressed {
+                            beginAccessoryRepeat(key)
+                        } else {
+                            stopAccessoryRepeat()
+                        }
+                    }
                 )
+            } else {
+                Button {
+                    emitAccessoryKeyAfterFlush(key)
+                } label: {
+                    accessoryKeyChrome(label: key.label)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
         .foregroundStyle(.primary)
         // Strip keys need a live wire; stay visible but inert pre-connect.
         .disabled(!showsComposeQuickKeys)
         .accessibilityLabel(key.accessibilityLabel)
         .accessibilityIdentifier("naru.input.accessory.\(key.rawValue)")
+    }
+
+    /// One-tap ⌃C on the primary row (spec 012 US2-2). Uses the
+    /// existing `ComposeQuickKey.controlC` emission — independent of
+    /// sticky modifiers, not repeatable.
+    private func composeControlCStripButton() -> some View {
+        Button {
+            emitComposeQuickKeyAfterFlush(.controlC)
+        } label: {
+            accessoryKeyChrome(label: ComposeQuickKey.controlC.label, minWidth: 44)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .disabled(!showsComposeQuickKeys)
+        .accessibilityLabel(ComposeQuickKey.controlC.accessibilityLabel)
+        .accessibilityIdentifier("naru.input.accessory.controlC")
+    }
+
+    private func accessoryKeyChrome(label: String, minWidth: CGFloat = 40) -> some View {
+        Text(label)
+            .font(.system(size: 15, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(minWidth: minWidth, maxWidth: 52, minHeight: 36)
+            .background(NaruColors.surfaceKey)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(NaruColors.hairline, lineWidth: 1)
+            )
+    }
+
+    /// Spec 012 US2-3 view layer: if the Type/Compose editor has
+    /// marked text, commit it (so the existing liveCommit / draft
+    /// path enqueues first) before the strip/quick-key tap proceeds.
+    /// User-initiated — does not fight T015 (model must not overwrite
+    /// the field *during* composition).
+    private func commitHeldCompositionIfNeeded() {
+        #if os(iOS) && canImport(UIKit)
+        guard composeCommitController.hasMarkedText else {
+            return
+        }
+        let committed = composeCommitController.commitMarkedTextAndRead(fallback: text)
+        if text != committed {
+            text = committed
+        }
+        if liveTypeThroughActive {
+            onLiveCommit(committed, false)
+        } else {
+            flushComposeTextToModelIfNeeded(committed, force: true)
+        }
+        #endif
+    }
+
+    private func emitAccessoryKeyAfterFlush(_ key: AccessoryKey) {
+        commitHeldCompositionIfNeeded()
+        onSendAccessoryKey(key)
+    }
+
+    private func emitComposeQuickKeyAfterFlush(_ key: ComposeQuickKey) {
+        commitHeldCompositionIfNeeded()
+        onComposeQuickKey(key)
+    }
+
+    private func beginAccessoryRepeat(_ key: AccessoryKey) {
+        accessoryRepeatTask?.cancel()
+        accessoryRepeatTask = nil
+        guard showsComposeQuickKeys else {
+            return
+        }
+        accessoryRepeatEmittedOnPressDown = true
+        commitHeldCompositionIfNeeded()
+        let tick = accessoryRepeatCadence.press(key, at: .now)
+        if let emit = tick.emit {
+            onSendAccessoryKey(emit)
+        }
+        if let next = tick.nextTickAt {
+            scheduleAccessoryRepeatTick(at: next)
+        }
+    }
+
+    private func scheduleAccessoryRepeatTick(at deadline: ContinuousClock.Instant) {
+        accessoryRepeatTask?.cancel()
+        accessoryRepeatTask = Task { @MainActor in
+            do {
+                try await ContinuousClock().sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            guard showsComposeQuickKeys else {
+                stopAccessoryRepeat(clearPressDownToken: true)
+                return
+            }
+            let tick = accessoryRepeatCadence.tick(at: .now)
+            if let key = tick.emit {
+                onSendAccessoryKey(key)
+            }
+            if let next = tick.nextTickAt {
+                scheduleAccessoryRepeatTick(at: next)
+            }
+        }
+    }
+
+    private func stopAccessoryRepeat(clearPressDownToken: Bool = false) {
+        accessoryRepeatCadence.stop()
+        accessoryRepeatTask?.cancel()
+        accessoryRepeatTask = nil
+        if clearPressDownToken {
+            accessoryRepeatEmittedOnPressDown = false
+        }
     }
 
     private func updateComposeFocus(_ focused: Bool) {
@@ -1920,6 +2086,19 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
     }
 }
 #endif
+
+/// Tracks `Button` press so repeatable strip keys emit on touch-down
+/// (spec 012 US2-1) without inventing new chrome.
+private struct AccessoryStripPressButtonStyle: ButtonStyle {
+    let onPressedChange: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, pressed in
+                onPressedChange(pressed)
+            }
+    }
+}
 
 private extension View {
     @ViewBuilder
