@@ -190,10 +190,19 @@ and `artifacts/screenshots/` with privacy-safe summaries only.
 
 Hard-won, live-measured; do not re-litigate without new measurements:
 
-- **Unicode X11 keysyms never arrive on macOS Screen Sharing** (measured
-  `no-input`). Korean/CJK/emoji must cross via helper `nativeInsert` or
-  clipboard-paste — never as KeyEvents. ASCII and control keys (BackSpace
-  0xFF08, Return 0xFF0D) do work on the key lane.
+- **Unicode X11 keysyms DO render on macOS Screen Sharing** (re-measured
+  2026-07-13; reconfirmed end-to-end 2026-08-17 — live Mac, full-app E2E:
+  Type "한글" and Compose "NARUSIM_한글_END" both arrived exactly, even with
+  the remote Korean IME active — Unicode keysyms bypass the remote IME).
+  The earlier `no-input` verdict came from two server-side loss mechanisms,
+  both now understood: ① KeyEvents sent before the viewer's first
+  framebuffer update are silently dropped while ScreensharingAgent
+  initializes; ② screensharingd drops not-yet-injected keys when the last
+  viewer disconnects. Details in `specs/011-simplified-input-ux/spec.md`.
+- **ASCII keysyms are remote-IME-subject** (measured 2026-08-17): with the
+  remote 2-Set Korean input source active, an ascii KeyEvent stream is
+  composed into hangul — identical to a physical keyboard. Unicode-range
+  keysyms insert directly regardless of the remote input source.
 - **⌘V paste requires Meta_L (0xffe7)**, not Alt_L — Alt_L fails silently
   (fixed in commit `0e5d16ea`).
 - **Apple Screen Sharing serves ZRLE only** and does not support

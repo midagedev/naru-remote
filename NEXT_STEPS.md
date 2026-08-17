@@ -10,17 +10,18 @@ same PR.
 
 ## Now — ship blockers (P0)
 
-1. **`specs/011` physical-device pass + live-Mac E2E unblock** — the
-   simplified input UX (two-mode Type/Compose dock, shared accessory strip,
-   immediate-click gestures) is implemented and green on `swift test`
-   (1509+ tests). Two follow-ups: (a) the founder's paired physical iPhone
-   pass (Korean IME through Type mode, accessory strip with sticky
-   modifiers, click feel, Bluetooth keyboard) + UX screenshot suite re-run;
-   (b) the local-Mac simulator E2E is blocked server-side — screensharingd
-   routes the VNC viewer to an off-console loginwindow session and drops
-   keystrokes ("do not send since at loginwindow"); full investigation log
-   and next-session entry point in `specs/011-simplified-input-ux/spec.md`
-   (FrameSizeProbe tool + testTypeMode_typesPayloadLive E2E are ready).
+1. **`specs/011` physical-device pass** — the simplified input UX is
+   implemented, `swift test` green (1522 tests), and the live-Mac E2E is
+   **verified end-to-end** (2026-08-17: Type "Naru"/"한글" and Compose
+   `NARUSIM_한글_END` all arrived exactly on the real Mac; resolution log in
+   `specs/011-simplified-input-ux/spec.md`). Remaining: the founder's paired
+   physical iPhone pass (Korean IME through Type mode, accessory strip with
+   sticky modifiers, click feel, Bluetooth keyboard).
+1a. **`specs/012` external pointer & strip completions** — ship-quality
+   gaps from the 2026-08-17 audits: BT mouse/trackpad scroll wheel +
+   secondary click + pointer-hide/hover, strip hold-repeat, one-tap ⌃C,
+   IME-flush barrier before strip emissions, iPad regular-width dock cap.
+   Spec drafted; implementation next.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
