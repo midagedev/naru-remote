@@ -145,11 +145,72 @@ Mac. Root-caused to the macOS side, not the app:
   `NARU_E2E_TYPE_TEXT` (default "Naru"). Screenshots to
   `NARU_E2E_OUTPUT_DIR`.
 
-**Next-session entry point**: get `screensharingd` to attach the viewer to
-the console session (login through the VNC loginwindow once with
-`FrameSizeProbe`'s `NARU_PROBE_TYPE`, or clear the stale off-console
-loginwindow session, or toggle Screen Sharing off/on in System Settings).
-Then re-run the ascii and unicode-hangul probes via
-`VNCLiveStimulusWindow --text-probe` (as a proper `.app` bundle — a bare
-binary inherits `RoleNonUserInteractive` and cannot take focus) plus the
-two E2E tests to verdict English and Korean type-through.
+### Resolution (2026-08-17, same day, later session) — all verdicts green
+
+The off-console routing cleared on its own once the stale loginwindow
+session died: `screensharingd` now logs `wantConsole 1 createLoginWindow 0`
+/ `off console 0` (the earlier `VNCAlwaysStartOnConsole=1` pref reads back
+as `should start on console pref 1`), and the `FrameSizeProbe` luminance
+map shows the console desktop. No VNC loginwindow login was needed.
+
+**Live verdicts (host-side observed text, exact-match):**
+
+| Path | Payload | Verdict |
+| --- | --- | --- |
+| RFB KeyEvent stream (`FrameSizeProbe`) | `Naru` (ascii keysyms) | ✅ matched with ABC input source active |
+| RFB KeyEvent stream (`FrameSizeProbe`) | `한글` + 9-scalar burst (Unicode keysyms) | ✅ matched, 0 ms inter-key gap, in order — **even with the Korean IME active** (direct insertion, bypasses IME) |
+| Full app E2E (`testTypeMode_typesPayloadLive`, iPhone 17 Pro sim) | `Naru` | ✅ matched host-side + test passed |
+| Full app E2E (same) | `한글` (`NARU_E2E_TYPE_TEXT`) | ✅ matched host-side + test passed |
+
+So the 2026-07-13 measurement and the constitution §I Unicode-keysym
+type-through ladder **stand confirmed end-to-end**.
+
+**Two real loss mechanisms found (macOS server-side), and their closures:**
+
+1. **Pre-first-frame drop**: KeyEvents sent before the viewer has received
+   its first framebuffer update are silently discarded while
+   `ScreensharingAgent` initializes (time-based delays of 2–3 s still lose
+   everything; requesting one framebuffer update first makes even 0 ms
+   bursts deliver fully). The app requests frames immediately on connect,
+   so real sessions are past the gate before a user can type.
+2. **Disconnect tail loss**: `screensharingd` exits when the last viewer
+   leaves (`No viewers so time to exit`) and drops not-yet-injected key
+   events. This is why `VNCLiveBenchmark --text-keystroke-probe-only`
+   (send → immediate disconnect) showed flaky partial delivery. Closed by
+   a 2 s post-send linger in the probe-only path.
+
+**ascii keysyms are IME-subject; Unicode keysyms are not.** With the Mac's
+2-Set Korean input source active, `Naru` arrives transformed by the IME
+(physical-keyboard-equivalent behavior) while `한글` Unicode keysyms insert
+directly. Product implication: Type mode's committed-unit Unicode stream is
+robust against remote IME state, but raw ascii typing follows the remote
+input source — same as sitting at the keyboard.
+
+**Tool changes this session:**
+- `FrameSizeProbe`: fixed a deadlock in `NARU_PROBE_TYPE` (top-level code
+  is `@MainActor`, so `Task {}` inherited it and deadlocked against the
+  semaphore — now `Task.detached`); added `NARU_PROBE_TYPE_DELAY` (seconds
+  before typing), `NARU_PROBE_TYPE_INTERVAL_MS` (inter-event gap, default
+  40), `NARU_PROBE_TYPE_AFTER_FRAME=1` (request one framebuffer update
+  before typing).
+- `VNCLiveStimulusWindow --text-probe`: `NARU_TEXT_PROBE_DEBUG_TEXT_FILE`
+  env dumps the raw observed text + scalars for local diagnosis (the
+  privacy-safe result schema stays bucket-only).
+- `VNCLiveBenchmark` probe-only path: 2 s linger before disconnect (see
+  loss mechanism 2).
+
+**Runbook for re-running the live pair** (host = the Mac running the sim):
+1. Bundle the stimulus window (bare binaries can't take key focus):
+   copy `.build/debug/VNCLiveStimulusWindow` into a minimal `.app` with
+   `CFBundleIdentifier`, ad-hoc codesign, launch via
+   `open -n <app> --args --text-probe --text-probe-payload ascii|unicode-hangul --result-file <json> --duration 200`.
+2. `xcrun simctl spawn booted launchctl setenv NARU_E2E_HOST 127.0.0.1`
+   (same for PORT/PASSWORD/TYPE_TEXT), then
+   `xcodebuild … test-without-building -only-testing:NaruRemoteUITests/LocalMacConnectE2EUITests/testTypeMode_typesPayloadLive`.
+3. Verdict = the probe's result JSON (`matched`), not just the green test.
+   For an English run switch the Mac input source to ABC first (Carbon
+   `TISSelectInputSource`), or the IME transforms the ascii stream.
+
+**Remaining residual**: physical-iPhone pass (unchanged, NEXT_STEPS P0 #1);
+`testComposeSend_typesThroughUnicodeKeysyms` was not re-paired with a live
+probe this round (Type path covers the same wire ladder).

@@ -285,6 +285,21 @@ private final class TextProbeController: NSObject, NSTextViewDelegate {
     }
 
     private func write(_ result: BenchmarkTextKeystrokeObservationTargetResult) {
+        // Local-diagnosis escape hatch: the privacy-safe result schema only
+        // carries buckets, which cannot distinguish "IME transformed the
+        // keysyms" from "server dropped half the stream". Opt-in via env on
+        // the operator's own machine only.
+        if let debugPath = ProcessInfo.processInfo.environment["NARU_TEXT_PROBE_DEBUG_TEXT_FILE"],
+           !debugPath.isEmpty {
+            let scalars = textView.string.unicodeScalars
+                .map { String(format: "U+%04X", $0.value) }
+                .joined(separator: " ")
+            let dump = "text=\(textView.string)\nscalars=\(scalars)\n"
+            try? dump.data(using: .utf8)?.write(
+                to: URL(fileURLWithPath: debugPath),
+                options: [.atomic]
+            )
+        }
         guard let resultFilePath else {
             return
         }

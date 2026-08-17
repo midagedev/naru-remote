@@ -601,6 +601,11 @@ enum VNCLiveBenchmark {
         }
 
         guard let observationTarget else {
+            // Linger before the deferred disconnect: screensharingd tears the
+            // session down as soon as the last viewer leaves and silently
+            // drops key events it has not yet injected (measured 2026-08-17 —
+            // back-to-back sends lost their tail without this grace period).
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             return BenchmarkTextKeystrokeProbeReport(
                 status: .sent,
                 payload: payload,
