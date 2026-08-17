@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-three-screen-consolidation`
 **Created**: 2026-08-18
-**Status**: Draft — founder direction 2026-08-18 ("전체 화면 목록이 호스트목록, 신규호스트/호스트 수정, 원격제어 이렇게 세 개만 있어서 깔끔하게 되어야 하는데 호스트 목록과 원격제어 사이에 이상한 화면이 하나 생겨서 자꾸 안 없어지더라고" + "꼭 필요한 걸 호스트 목록으로 합치고 제거하고 싶어 혹은 원격제어 화면에 합치거나")
+**Status**: Implemented 2026-08-18 (`35c692d0`) — founder direction 2026-08-18 ("전체 화면 목록이 호스트목록, 신규호스트/호스트 수정, 원격제어 이렇게 세 개만 있어서 깔끔하게 되어야 하는데 호스트 목록과 원격제어 사이에 이상한 화면이 하나 생겨서 자꾸 안 없어지더라고" + "꼭 필요한 걸 호스트 목록으로 합치고 제거하고 싶어 혹은 원격제어 화면에 합치거나")
 **Product**: Naru Remote
 **Input**: Lead navigation audit 2026-08-18 (`NaruRemoteAppShell.swift` route map).
 
@@ -120,4 +120,22 @@ editor; helper/PiP surfaces.
 
 ## Residuals
 
-- (fill at implementation time)
+Gates run by the lead: `swift test` 1565 tests / 26 skipped; iPhone 17 Pro
+simulator build clean; `UXAuditScreenshotsUITests` 34/34 including the new
+`04b-connection-grid-failed` capture, which was read and shows the reason,
+the Unreachable badge, and an inline Reconnect on the host list.
+
+Carried forward:
+
+- **Physical device**: a real failed connect (wrong password) and a real
+  mid-session drop, folded into the paired-device pass in `NEXT_STEPS.md`.
+- **Pre-existing, not caused by this feature**: two `NaruRemoteLaunchUITests`
+  failures reproduce at `e249df1d` — the landscape dock sits 186 pt above the
+  keyboard (the test wants < 96) and the startup-glance test cannot find a
+  grid card. Tracked in `NEXT_STEPS.md`.
+- **Flaky**: `PointerEventTapTests.testSendTapAtRecordsOnlySafeOutboundInputDiagnostics`
+  failed once under full-suite load on the `"512"` privacy assertion and
+  passed 3/3 in isolation. Worth a look before release, since the assertion
+  guards constitution §IV.
+- The failure reason is app-authored English (e.g. "Credential unavailable");
+  Korean localization stays the separate P1 String Catalog item.

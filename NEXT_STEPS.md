@@ -26,6 +26,11 @@ same PR.
    in `specs/012-external-pointer-and-strip-completions/spec.md`
    (real mouse/trackpad/Pencil on iPad, hold-repeat feel and Korean IME
    flush on iPhone) — fold it into the paired device pass in item 1.
+1b. **`specs/013` three-screen consolidation** — **implemented 2026-08-18**
+   (`35c692d0`): a failed connection returns to the host list by itself, the
+   failing card carries the reason plus inline Reconnect, Diagnostics moved to
+   the card actions menu, and the recovery overlay is gone. Remaining: a real
+   failed connect and a real mid-session drop on device.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
@@ -60,6 +65,18 @@ same PR.
   inert. Fix is one reader that dispatches by `msg_type`; until then
   `SUBMISSION_READINESS.md` §2 #7 carries the ⚠️ and store copy must not
   claim it. Found by the 2026-08-17 code audit (P1-4).
+- **Two pre-existing `NaruRemoteLaunchUITests` failures** (reproduced at
+  `e249df1d`, before the 2026-08-17/18 UI work — not regressions):
+  `testRemoteInputDockMovesAboveKeyboardWhileComposing` measures a 186 pt gap
+  between the landscape dock editor and the keyboard (the test wants < 96), and
+  `testStartupGlanceScaleOverrideIsScopedToLowTrafficProfiles` cannot find a
+  grid card to tap. The first is a real landscape layout question, not just a
+  test threshold.
+- **Flaky privacy assertion** —
+  `PointerEventTapTests.testSendTapAtRecordsOnlySafeOutboundInputDiagnostics`
+  failed once under full-suite load asserting the diagnostic export contains no
+  `"512"`, and passed 3/3 in isolation. It guards constitution §IV, so it
+  deserves a real diagnosis rather than a retry.
 - **Specify helper production packaging before implementation** — menu-bar app
   wrapper, notarization, launchd auto-start, capability/status disclosure, and
   revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
